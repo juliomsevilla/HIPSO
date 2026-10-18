@@ -126,3 +126,5 @@ EasyLiDAR es de **uso gratuito**, también para trabajo profesional y comercial.
 
 **Julio M. Sevilla**
 ✉ [julio@jsevilla.es](mailto:julio@jsevilla.es) · [LinkedIn](https://es.linkedin.com/in/juliomsevilla)
+
+Se agradecen todas las aportaciones y la detección de errores (también en [Issues](https://github.com/juliomsevilla/EasyLiDAR/issues)). Los errores se irán corrigiendo en la medida de lo posible.

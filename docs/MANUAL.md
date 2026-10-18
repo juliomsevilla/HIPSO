@@ -261,4 +261,6 @@ easylidar export nube.laz -o puntos.csv --items x,y,z,class --header
 Autor: Julio M. Sevilla.
 Contacto: julio@jsevilla.es · https://es.linkedin.com/in/juliomsevilla
 
+Se agradecen todas las aportaciones y la detección de errores; los errores se irán corrigiendo en la medida de lo posible.
+
 Uso gratuito. Consulta `LICENSE` para las condiciones y `THIRD_PARTY_LICENSES.md` y `NOTICE` para los componentes de terceros.
