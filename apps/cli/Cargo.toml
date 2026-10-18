@@ -1,0 +1,18 @@
+[package]
+name = "rustlidar"
+description = "EasyLiDAR command line"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rustlidar-core.workspace = true
+clap.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "easylidar"
+path = "src/main.rs"

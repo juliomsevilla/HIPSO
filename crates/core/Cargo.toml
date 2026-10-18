@@ -1,0 +1,19 @@
+[package]
+name = "rustlidar-core"
+description = "Streaming LiDAR forestry engine: ground filter, DTM, canopy height model and grid metrics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+laz.workspace = true
+tiff.workspace = true
+delaunator.workspace = true
+rayon.workspace = true
+flate2.workspace = true
+shapefile.workspace = true
+png.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,24 @@
+EasyLiDAR
+EasyLiDAR. Copyright (c) 2026 Julio M. Sevilla. Distributed under the EasyLiDAR free-use licence (see LICENSE).
+The Apache-2.0 text, which applies to the parts that follow the project below, is in licenses/Apache-2.0.txt.
+
+EasyLiDAR was written from scratch. No source code of the programs below is included in it.
+They are credited because EasyLiDAR follows their published methods or documented behaviour,
+or because its structure builds on a sister project.
+
+- RustGIS (Apache-2.0): the LAS reader's approach, the layered architecture and the look of the
+  interface.
+- FUSION / LDV, R. J. McGaughey, USDA Forest Service (public domain): behaviour of GroundFilter,
+  CanopyModel, GridMetrics, ClipData and PolyClipData, reproduced from its manual and by testing.
+- MCC-LIDAR, Green Code LLC (Apache-2.0): the multiscale curvature classification of Evans and
+  Hudak (2007) and its documented parameters.
+- CSF, Jianbo Qi (Apache-2.0): the cloth simulation filter of Zhang et al. (2016).
+- lidR, J.-R. Roussel et al. (GPL-3): only its documented behaviour was observed, by running it as a
+  separate program; no code was used. Tree segmentation follows Popescu and Wynne (2004), Dalponte
+  and Coomes (2016) and Silva et al. (2016).
+- WhiteboxTools, John Lindsay (MIT): inspiration for the choice of utilities (thinning, point
+  statistics, tiling, contours).
+- Third-party libraries: see THIRD_PARTY_LICENSES.md.
+
+The names FUSION, LAStools, lidR, Global Mapper, WhiteboxTools and FugroViewer belong to their
+owners and appear only to say what a feature is comparable to.

@@ -1,0 +1,73 @@
+EasyLiDAR — Licencia de uso gratuito
+Copyright © 2026 Julio M. Sevilla. Todos los derechos reservados.
+Contacto: julio@jsevilla.es · https://es.linkedin.com/in/juliomsevilla
+
+(English summary: EasyLiDAR is free to use, including at work and for commercial
+projects. You may not modify it, reverse engineer it, sell it or redistribute it
+other than as the unmodified original package, free of charge. It is provided
+"as is", without warranty. The Spanish text below is the binding one.)
+
+1. QUÉ ES ESTA LICENCIA
+Este acuerdo regula el uso del programa EasyLiDAR (en adelante, «el Programa»),
+de su documentación y de sus recursos gráficos, incluidos el nombre y el logotipo.
+Al instalar o usar el Programa aceptas estas condiciones.
+
+2. USO GRATUITO
+Se te concede, sin coste, una licencia personal, no exclusiva e intransferible
+para instalar y usar el Programa en tantos equipos como necesites, para fines
+personales, académicos, profesionales y comerciales, incluido su uso para
+prestar servicios a terceros y para producir los resultados de tu trabajo.
+Los datos que abras y los resultados que obtengas son tuyos: el autor no
+reclama derechos sobre ellos.
+
+3. LO QUE PUEDES HACER CON COPIAS
+Puedes copiar y distribuir el Programa únicamente (a) en su paquete original,
+completo y sin modificar (con este archivo, NOTICE y THIRD_PARTY_LICENSES.md),
+y (b) de forma gratuita. Puedes hacer copias de seguridad.
+
+4. LO QUE NO PUEDES HACER
+a) Modificar, adaptar, traducir ni crear obras derivadas del Programa.
+b) Descompilar, desensamblar ni aplicar ingeniería inversa, salvo en la medida
+   en que la ley aplicable lo permita expresamente y no pueda excluirse por contrato.
+c) Vender, alquilar, sublicenciar ni cobrar por el Programa o por su acceso,
+   ni incluirlo en un producto o servicio de pago como componente propio.
+d) Quitar o alterar los avisos de autoría, de licencia o de terceros.
+e) Usar el nombre «EasyLiDAR», el logotipo o el nombre del autor para sugerir
+   que un producto o servicio tuyo está respaldado por el autor.
+
+5. PRECIO FUTURO Y VERSIONES
+El Programa es gratuito por ahora. El autor puede cambiar el modelo de licencia
+o de precio en versiones futuras. Eso no afecta a las versiones que ya hayas
+obtenido bajo esta licencia, que podrás seguir usando en las mismas condiciones.
+
+6. COMPONENTES DE TERCEROS
+El Programa incluye bibliotecas de código abierto (MIT, Apache-2.0, BSD, ISC,
+Zlib, Unicode, OFL, Ubuntu Font Licence y similares). Cada una se rige por su
+propia licencia, cuyos avisos están en NOTICE, THIRD_PARTY_LICENSES.md y la
+carpeta licenses/. Esta licencia no limita los derechos que esas licencias te
+dan sobre esos componentes.
+
+7. SIN GARANTÍA
+El Programa se ofrece «tal cual», sin garantía de ningún tipo, expresa o
+implícita, incluidas la comerciabilidad, la idoneidad para un fin concreto y la
+ausencia de errores. Los resultados (modelos del terreno, clasificaciones,
+métricas, inventarios, mediciones y cubicaciones) son estimaciones calculadas a
+partir de los datos que aportas: debes comprobarlos antes de basar en ellos
+decisiones técnicas, económicas, legales o de seguridad.
+
+8. LIMITACIÓN DE RESPONSABILIDAD
+En la máxima medida que permita la ley, el autor no responderá de daños
+indirectos, lucro cesante, pérdida de datos ni de ningún otro perjuicio derivado
+del uso o de la imposibilidad de uso del Programa. Si la ley impone alguna
+responsabilidad, quedará limitada a la cantidad pagada por el Programa, que es cero.
+El Programa nunca modifica los archivos originales de nubes de puntos: escribe
+copias nuevas. Aun así, conserva siempre copias de seguridad de tus datos.
+
+9. DURACIÓN
+La licencia dura mientras cumplas estas condiciones. Si las incumples, termina
+automáticamente y debes dejar de usar el Programa y destruir tus copias.
+
+10. LEY APLICABLE
+Este acuerdo se rige por la legislación española. Para cualquier controversia,
+las partes se someten a los juzgados y tribunales que resulten competentes
+conforme a la ley, sin perjuicio de los derechos que correspondan a los consumidores.

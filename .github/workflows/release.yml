@@ -1,0 +1,53 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, name: windows-x64, ext: ".exe" }
+          - { os: ubuntu-22.04, name: linux-x64, ext: "" }
+          - { os: macos-14, name: macos-arm64, ext: "" }
+          - { os: macos-15-intel, name: macos-x64, ext: "" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux libraries for the window and file dialogs
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+      - run: cargo build --release --locked
+      - name: Package
+        shell: bash
+        run: |
+          d=EasyLiDAR-${{ matrix.name }}
+          mkdir "$d"
+          cp target/release/easylidar${{ matrix.ext }} target/release/easylidar-gui${{ matrix.ext }} README.md LICENSE NOTICE THIRD_PARTY_LICENSES.md docs/MANUAL.md "$d"/
+          cp -r licenses "$d"/
+          if [ "$RUNNER_OS" = "Windows" ]; then 7z a "$d.zip" "$d"; else tar czf "$d.tar.gz" "$d"; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EasyLiDAR-${{ matrix.name }}
+          path: EasyLiDAR-${{ matrix.name }}.*
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: packages/*
+          generate_release_notes: true
