@@ -105,6 +105,58 @@ pub fn dtm(j: &DtmJob) -> Result<String> {
     ))
 }
 
+/// How a surface model (highest returns) is made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DsmMethod {
+    /// Highest point of each cell, in one streaming pass.
+    Max,
+    /// TIN through the highest point of each cell, tile by tile.
+    Tin,
+    /// Inverse-distance weighting of the highest points of the cells, tile by tile.
+    Idw,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DsmJob {
+    pub input: PathBuf,
+    pub output: PathBuf,
+    pub cell: f64,
+    pub method: DsmMethod,
+    /// Fill the empty cells of the streamed surface.
+    pub fill: bool,
+    pub tiling: Tiling,
+    pub smooth: f64,
+    pub smoothing: trees::Smoothing,
+}
+
+pub fn dsm(j: &DsmJob) -> Result<String> {
+    paths::ensure_parent(&j.output)?;
+    let (g, epsg) = match j.method {
+        DsmMethod::Max => {
+            let r = Reader::open(&j.input)?;
+            (chm::dsm(&r, j.cell, j.fill)?, r.header.epsg)
+        }
+        DsmMethod::Tin | DsmMethod::Idw => pipeline::dsm(
+            std::slice::from_ref(&j.input),
+            j.cell,
+            if j.method == DsmMethod::Idw {
+                Surface::Idw
+            } else {
+                Surface::Tin
+            },
+            &j.tiling,
+        )?,
+    };
+    let g = smoothed(g, j.smooth, j.smoothing);
+    g.write_tiff(&j.output, epsg)?;
+    Ok(format!(
+        "{} x {} DSM: {}",
+        g.cols,
+        g.rows,
+        j.output.display()
+    ))
+}
+
 /// A surface smoothed with a window of `size` map units (unchanged when `size` is 0).
 fn smoothed(g: Grid, size: f64, kind: trees::Smoothing) -> Grid {
     if size > 0.0 {

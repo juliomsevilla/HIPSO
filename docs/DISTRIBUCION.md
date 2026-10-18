@@ -31,7 +31,7 @@ Requisitos: Windows 10/11, macOS 12 o superior, o un Linux con X11/Wayland y Ope
 | macOS | `cargo-bundle` | `.app`, que se empaqueta en `.dmg` |
 | Linux | `cargo-deb`, o AppImage | `.deb` o un único archivo ejecutable |
 
-El logotipo está en `assets/` (`icon.svg`, `easylidar.ico`, PNG). `apps/gui/build.rs` lo incrusta en el `.exe` de Windows.
+El logotipo está en `assets/` (`icon.svg`, `easylidar.ico`, PNG). La ventana y la barra de tareas lo muestran en ejecución. Incrustarlo en el `.exe` como recurso (`winresource`) dejaba la ventana en blanco con este entorno gráfico: no se hace.
 
 ## Versiones
 

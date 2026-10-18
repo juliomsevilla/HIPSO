@@ -35,6 +35,11 @@ pub struct State {
     pub sw_cell: f64,
     pub sw_returns: usize,
     pub sw_by_cloud: bool,
+    pub dsm_cell: f64,
+    pub dsm_method: usize,
+    pub dsm_fill: bool,
+    pub dsm_smooth: f64,
+    pub dsm_smoothing: Smoothing,
 }
 
 impl Default for State {
@@ -65,6 +70,11 @@ impl Default for State {
             sw_cell: 1.0,
             sw_returns: 0,
             sw_by_cloud: false,
+            dsm_cell: 1.0,
+            dsm_method: 0,
+            dsm_fill: true,
+            dsm_smooth: 0.0,
+            dsm_smoothing: Smoothing::Mean,
         }
     }
 }
@@ -405,6 +415,43 @@ impl Tools {
         );
     }
 
+    pub fn dsm_form(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf]) {
+        let name = ["tin", "max", "idw"][self.lx.dsm_method];
+        let tag = format!("mds_{}m_{name}", paths::num(self.lx.dsm_cell));
+        self.sheet_note(ui, t, inputs, &tag, "tif");
+        ui.label(egui::RichText::new("Superficie de lo más alto que ve el sensor (copas, tejados): el punto más alto de cada celda. Cada hoja da su ráster; con el MDT se obtiene la altura de copas.").color(t.weak).size(11.0));
+        num(ui, "Celda", &mut self.lx.dsm_cell, 0.1..=100.0, 0.1);
+        egui::ComboBox::from_label("Método")
+            .selected_text(
+                [
+                    "Triangulación (TIN)",
+                    "Máximo por celda",
+                    "Ponderado por distancia (IDW)",
+                ][self.lx.dsm_method],
+            )
+            .show_ui(ui, |ui| {
+                ui.selectable_value(
+                    &mut self.lx.dsm_method,
+                    0,
+                    "Triangulación (TIN) de los puntos más altos: superficie continua",
+                );
+                ui.selectable_value(
+                    &mut self.lx.dsm_method,
+                    1,
+                    "Máximo por celda: el más rápido, en una sola pasada",
+                );
+                ui.selectable_value(
+                    &mut self.lx.dsm_method,
+                    2,
+                    "Ponderado por distancia (IDW) de los puntos más altos",
+                );
+            });
+        if self.lx.dsm_method == 1 {
+            ui.checkbox(&mut self.lx.dsm_fill, "Rellenar las celdas sin puntos");
+        }
+        Self::smoothing_row(ui, &mut self.lx.dsm_smooth, &mut self.lx.dsm_smoothing);
+    }
+
     fn thin_params(&self) -> ThinParams {
         let s = &self.lx;
         let seed = s.thin_seed as u64;
@@ -566,6 +613,52 @@ impl Tools {
                     let rep =
                         cloudtools::swath_separation(&inputs_v, &out, cell, returns, by_cloud)?;
                     Ok(cloudtools::swath_text(&rep, &out))
+                });
+                return Some(Launch {
+                    label,
+                    task,
+                    show,
+                    outputs,
+                });
+            }
+            ToolId::Dsm => {
+                let s = &self.lx;
+                let method = [
+                    jobs::DsmMethod::Tin,
+                    jobs::DsmMethod::Max,
+                    jobs::DsmMethod::Idw,
+                ][s.dsm_method];
+                let name = ["tin", "max", "idw"][s.dsm_method];
+                let sm = if s.dsm_smooth > 0.0 {
+                    format!("_s{}", paths::num(s.dsm_smooth))
+                } else {
+                    String::new()
+                };
+                let outs = names_ext(
+                    &format!("mds_{}m_{name}{sm}", paths::num(s.dsm_cell)),
+                    "tif",
+                );
+                let (cell, fill, smooth, smoothing) =
+                    (s.dsm_cell, s.dsm_fill, s.dsm_smooth, s.dsm_smoothing);
+                let tiling = self.tiling();
+                let outputs: Vec<PathBuf> = outs.values().cloned().collect();
+                let show = outputs.clone();
+                let task: Task = Box::new(move || {
+                    let mut lines = Vec::new();
+                    for p in &inputs_v {
+                        rustlidar_core::check_cancel()?;
+                        lines.push(jobs::dsm(&jobs::DsmJob {
+                            input: p.clone(),
+                            output: outs.get(p).cloned().unwrap_or_default(),
+                            cell,
+                            method,
+                            fill,
+                            tiling: tiling.clone(),
+                            smooth,
+                            smoothing,
+                        })?);
+                    }
+                    Ok(lines.join("\n"))
                 });
                 return Some(Launch {
                     label,

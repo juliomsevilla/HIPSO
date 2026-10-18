@@ -6,6 +6,7 @@ use crate::csf::{self, CsfParams};
 use crate::extras::{self, Extras};
 use crate::grid::{Grid, MeanGrid};
 use crate::ground::{GroundFilter, GroundParams};
+use crate::idw;
 use crate::las::{self, Points, Reader, Writer};
 use crate::mcc::{self, MccParams};
 use crate::noise::{self, NoiseParams};
@@ -251,6 +252,8 @@ pub enum Surface {
     Mean,
     /// Interpolated on a Delaunay triangulation of the ground points.
     Tin,
+    /// Inverse-distance weighting of the nearest ground points.
+    Idw,
 }
 
 /// A DTM of `inputs`, classified and rasterised tile by tile; holes are filled at the end.
@@ -295,6 +298,17 @@ pub fn dtm(
                         .map(|(q, _)| [q.x, q.y, q.z])
                         .collect();
                     tin::rasterize(&pts, &mut g);
+                }
+                Surface::Idw => {
+                    let pts: Vec<[f64; 3]> = tile
+                        .points
+                        .pts
+                        .iter()
+                        .zip(&ground)
+                        .filter(|(_, g)| **g)
+                        .map(|(q, _)| [q.x, q.y, q.z])
+                        .collect();
+                    idw::rasterize(&pts, &mut g, false);
                 }
             }
             let mut r = Report {
@@ -409,6 +423,60 @@ pub fn chm_pitfree(
                 }
             }
             Ok(chm)
+        },
+        |g| {
+            for row in 0..g.rows {
+                for col in 0..g.cols {
+                    let (x, y) = g.center(col, row);
+                    if let (Some(i), Some(&v)) = (out.index(x, y), g.data.get(row * g.cols + col))
+                        && !v.is_nan()
+                        && let Some(slot) = out.data.get_mut(i)
+                    {
+                        *slot = v;
+                    }
+                }
+            }
+            Ok(())
+        },
+    )?;
+    out.fill_holes();
+    Ok((out, epsg))
+}
+
+/// A digital surface model (highest returns) on cells of `cell`, tile by tile: through a TIN of
+/// the highest point of each cell, or by inverse-distance weighting of them.
+pub fn dsm(
+    inputs: &[std::path::PathBuf],
+    cell: f64,
+    interpolation: Surface,
+    t: &Tiling,
+) -> Result<(Grid, Option<u16>)> {
+    let readers = open_all(inputs)?;
+    let epsg = readers.first().and_then(|r| r.header.epsg);
+    let b = union(&readers);
+    let layout = Layout::new(b, t.size, t.buffer, cell)?;
+    let mut out = Grid::covering(b, cell)?;
+    let mut tiled = Tiled::spool(&readers, layout)?;
+    tiled.keep_records = false;
+    tiled.process(
+        t.threads,
+        |tile: Tile| {
+            let e = tile.core;
+            let cols = ((e[2] - e[0]) / cell).round() as usize;
+            let rows = ((e[3] - e[1]) / cell).round() as usize;
+            let mut g = Grid::new(e[0], e[1], cell, cols, rows)?;
+            let pts: Vec<[f64; 3]> = tile
+                .points
+                .pts
+                .iter()
+                .filter(|q| !q.is_noise())
+                .map(|q| [q.x, q.y, q.z])
+                .collect();
+            match interpolation {
+                Surface::Idw => idw::rasterize(&pts, &mut g, true),
+                _ => tin::rasterize_with(&pts, &mut g, tin::MAX_EDGE, tin::Thin::Highest),
+            }
+            Ok(g)
         },
         |g| {
             for row in 0..g.rows {

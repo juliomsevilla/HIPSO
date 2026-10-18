@@ -59,7 +59,7 @@ Todas las versiones están en la página de [Releases](https://github.com/juliom
 | Grupo | Herramientas |
 |---|---|
 | Preparar | Información de los datos · Asignar proyección · **Adelgazar nube** (densidad objetivo, celdas, percentil, 3D, uno de cada n) · Clasificar: ruido, suelo (Kraus y Pfeifer, MCC, CSF, PMF), edificios, vegetación por estratos, cables y postes |
-| Superficies | MDT (media o TIN) · CHM (con *pit-free* y suavizado) |
+| Superficies | MDT (triangulación por defecto, ponderado por distancia o media por celda) · MDS (triangulación por defecto, ponderado por distancia o máximo por celda) · CHM (con *pit-free* y suavizado) |
 | Inventario | Métricas de rodal · Segmentación de árboles (Dalponte, Silva, cuencas, ventana variable) con evaluación frente a campo |
 | Recorte y salida | Parcelas (de archivo, muestreo o dibujadas) · Exportar puntos |
 | Calidad y comparación | Quitar duplicados · **Comparar nubes** (cambios) · **Ajustar una nube a otra** (ICP) · Separación entre pasadas |

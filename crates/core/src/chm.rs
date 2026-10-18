@@ -29,3 +29,25 @@ pub fn chm(reader: &Reader, dtm: &Grid, cell: f64, fill: bool) -> Result<Grid> {
     }
     Ok(out)
 }
+
+/// The digital surface model on cells of `cell`: per cell, the highest point, in one streaming
+/// pass; empty cells are filled from their neighbours unless `fill` is false.
+pub fn dsm(reader: &Reader, cell: f64, fill: bool) -> Result<Grid> {
+    let h = &reader.header;
+    let mut out = Grid::covering([h.bounds[0], h.bounds[1], h.bounds[3], h.bounds[4]], cell)?;
+    reader.scan(|pt| {
+        if pt.is_noise() {
+            return;
+        }
+        if let Some(i) = out.index(pt.x, pt.y)
+            && let Some(v) = out.data.get_mut(i)
+            && (v.is_nan() || pt.z as f32 > *v)
+        {
+            *v = pt.z as f32;
+        }
+    })?;
+    if fill {
+        out.fill_holes();
+    }
+    Ok(out)
+}

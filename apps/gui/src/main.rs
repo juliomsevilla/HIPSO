@@ -1085,6 +1085,10 @@ impl App {
             ("Asignar sistema de coordenadas", Action::Tool(ToolId::Crs)),
             ("Adelgazar nube (decimar)", Action::Tool(ToolId::Thin)),
             ("Cubicar árboles (TLS)", Action::Tool(ToolId::Tls)),
+            (
+                "Modelo digital de superficie (MDS)",
+                Action::Tool(ToolId::Dsm),
+            ),
             ("Quitar puntos duplicados", Action::Tool(ToolId::Dups)),
             ("Comparar nubes (cambios)", Action::Tool(ToolId::Compare)),
             ("Ajustar una nube a otra", Action::Tool(ToolId::Fit)),
@@ -1292,6 +1296,9 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
                     ribbon::group(ui, &t, "Superficies", |ui| {
                         if ribbon::big_button(ui, &t, "@dtm", "MDT", self.tools.open == Some(ToolId::Dtm)).clicked() {
                             self.act(ctx, Action::Tool(ToolId::Dtm));
+                        }
+                        if ribbon::big_button(ui, &t, "@dsm", "MDS", self.tools.open == Some(ToolId::Dsm)).clicked() {
+                            self.act(ctx, Action::Tool(ToolId::Dsm));
                         }
                         if ribbon::big_button(ui, &t, "@chm", "CHM", self.tools.open == Some(ToolId::Chm)).clicked() {
                             self.act(ctx, Action::Tool(ToolId::Chm));

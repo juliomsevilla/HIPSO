@@ -228,10 +228,22 @@ enum ShapeArg {
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum SurfaceMethod {
-    /// Mean elevation of the ground points per cell
+    /// Mean elevation of the ground points per cell (streamed, one pass)
     Mean,
-    /// Delaunay triangulation (TIN) of the ground points
+    /// Delaunay triangulation (TIN) of the ground points (default)
     Tin,
+    /// Inverse-distance weighting of the nearest ground points
+    Idw,
+}
+
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
+enum DsmArg {
+    /// Highest point of each cell (streamed, one pass)
+    Max,
+    /// TIN through the highest point of each cell (default)
+    Tin,
+    /// Inverse-distance weighting of the highest points of the cells
+    Idw,
 }
 
 #[derive(Args)]
@@ -475,7 +487,7 @@ enum Cmd {
         #[arg(long, default_value_t = 1.0)]
         cell: f64,
         /// How cells get their elevation
-        #[arg(long, value_enum, default_value_t = SurfaceMethod::Mean)]
+        #[arg(long, value_enum, default_value_t = SurfaceMethod::Tin)]
         surface: SurfaceMethod,
         /// Smooth the DTM with a window of this size in map units (0: none)
         #[arg(long, default_value_t = 0.0)]
@@ -523,6 +535,32 @@ enum Cmd {
         /// Also join the sheets' CHMs into one mosaic (by default each sheet keeps its own)
         #[arg(long)]
         mosaic: bool,
+    },
+    /// Digital surface model (highest returns) as a GeoTIFF, one per sheet
+    Dsm {
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// Output GeoTIFF (one input only); default: <results>/<input>_mds_<cell>m_<method>.tif
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        #[arg(long, default_value_t = 1.0)]
+        cell: f64,
+        #[arg(long, value_enum, default_value_t = DsmArg::Tin)]
+        method: DsmArg,
+        /// Leave cells without points empty (max method)
+        #[arg(long)]
+        no_fill: bool,
+        /// Tile size (tin and idw methods)
+        #[arg(long, default_value_t = 250.0)]
+        tile: f64,
+        /// Threads (0: one per core)
+        #[arg(long, default_value_t = 0)]
+        threads: usize,
+        /// Smooth with a window of this size in map units (0: none)
+        #[arg(long, default_value_t = 0.0)]
+        smooth: f64,
+        #[arg(long, value_enum, default_value_t = SmoothArg::Mean)]
+        smoothing: SmoothArg,
     },
     /// Individual trees from a canopy height model: tops (local maxima), crowns (Dalponte,
     /// Silva or watershed), polygons, per-point treeID and a check against field data
@@ -1189,10 +1227,10 @@ fn run(cmd: Cmd) -> Result<()> {
             steps,
         } => {
             let output = single_output(output, inputs.len())?;
-            let tin = if surface == SurfaceMethod::Tin {
-                "_tin"
-            } else {
-                ""
+            let tin = match surface {
+                SurfaceMethod::Mean => "_media",
+                SurfaceMethod::Tin => "_tin",
+                SurfaceMethod::Idw => "_idw",
             };
             let sm = if smooth > 0.0 {
                 format!("_s{}", paths::num(smooth))
@@ -1220,6 +1258,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 surface: match surface {
                     SurfaceMethod::Mean => Surface::Mean,
                     SurfaceMethod::Tin => Surface::Tin,
+                    SurfaceMethod::Idw => Surface::Idw,
                 },
                 steps: ground,
                 tiling: steps.tiling(),
@@ -1227,6 +1266,53 @@ fn run(cmd: Cmd) -> Result<()> {
                 smoothing: smoothing_of(smoothing),
             };
             rustlidar_core::sheets::dtm_each(&inputs, &base, &out_for, mosaic_to.as_deref())?.0
+        }
+        Cmd::Dsm {
+            inputs,
+            output,
+            cell,
+            method,
+            no_fill,
+            tile,
+            threads,
+            smooth,
+            smoothing,
+        } => {
+            let output = single_output(output, inputs.len())?;
+            let (m, name) = match method {
+                DsmArg::Max => (jobs::DsmMethod::Max, "max"),
+                DsmArg::Tin => (jobs::DsmMethod::Tin, "tin"),
+                DsmArg::Idw => (jobs::DsmMethod::Idw, "idw"),
+            };
+            let sm = if smooth > 0.0 {
+                format!("_s{}", paths::num(smooth))
+            } else {
+                String::new()
+            };
+            let mut lines = Vec::new();
+            for input in &inputs {
+                let out = out_path(
+                    output.clone(),
+                    input,
+                    &format!("mds_{}m_{name}{sm}", paths::num(cell)),
+                    "tif",
+                );
+                lines.push(jobs::dsm(&jobs::DsmJob {
+                    input: input.clone(),
+                    output: out,
+                    cell,
+                    method: m,
+                    fill: !no_fill,
+                    tiling: Tiling {
+                        size: tile,
+                        buffer: 5.0,
+                        threads,
+                    },
+                    smooth,
+                    smoothing: smoothing_of(smoothing),
+                })?);
+            }
+            lines.join("\n")
         }
         Cmd::Chm {
             inputs,

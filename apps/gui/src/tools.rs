@@ -56,6 +56,7 @@ pub enum ToolId {
     Compare,
     Fit,
     Swath,
+    Dsm,
 }
 
 impl ToolId {
@@ -75,6 +76,7 @@ impl ToolId {
             ToolId::Compare => "Comparar nubes (cambios)",
             ToolId::Fit => "Ajustar una nube a otra",
             ToolId::Swath => "Separación entre pasadas",
+            ToolId::Dsm => "Modelo digital de superficie (MDS)",
         }
     }
 }
@@ -233,7 +235,7 @@ pub struct Tools {
     tiling: Tiling,
     // rasters
     dtm_cell: f64,
-    tin: bool,
+    dtm_surface: Surface,
     chm_cell: f64,
     pitfree: bool,
     max_edge: f64,
@@ -324,7 +326,7 @@ impl Default for Tools {
             bp: BuildingParams::default(),
             tiling: Tiling::default(),
             dtm_cell: 1.0,
-            tin: false,
+            dtm_surface: Surface::Tin,
             chm_cell: 0.5,
             pitfree: false,
             max_edge: 1.0,
@@ -477,6 +479,15 @@ impl Tools {
         }
     }
 
+    /// The method in the DTM's file name.
+    fn surface_tag(&self) -> &'static str {
+        match self.dtm_surface {
+            Surface::Mean => "_media",
+            Surface::Tin => "_tin",
+            Surface::Idw => "_idw",
+        }
+    }
+
     fn tiling(&self) -> Tiling {
         let mut t = self.tiling.clone();
         if self.buildings {
@@ -516,7 +527,7 @@ impl Tools {
             &format!("clasif{g}{noise}{bld}"),
             &ext,
         ));
-        let tin = if self.tin { "_tin" } else { "" };
+        let tin = self.surface_tag();
         self.out_dtm.auto(paths::product(
             input,
             &format!("mdt_{}m{tin}{g}", paths::num(self.dtm_cell)),
@@ -640,6 +651,7 @@ impl Tools {
                             ToolId::Compare => self.compare_form(ui, t),
                             ToolId::Fit => self.fit_form(ui, t),
                             ToolId::Swath => self.swath_form(ui, t),
+                            ToolId::Dsm => self.dsm_form(ui, t, inputs),
                             ToolId::Trees => self.trees_form(ui, t),
                             ToolId::Clip => self.plots_form(ui, t, aois),
                             ToolId::Export => self.export_form(ui),
@@ -1167,6 +1179,7 @@ impl Tools {
             | ToolId::Compare
             | ToolId::Fit
             | ToolId::Swath
+            | ToolId::Dsm
             | ToolId::Clip => return None,
             ToolId::Trees => {
                 let chm = self.in_chm.path();

@@ -23,7 +23,7 @@ No necesita instalador.
 
 1. Descomprime el ZIP de tu sistema en una carpeta con permisos de escritura.
 2. Ejecuta `easylidar-gui` (`easylidar-gui.exe` en Windows). En macOS y Linux, si no arranca, da permiso de ejecución: `chmod +x easylidar-gui easylidar`.
-3. `easylidar` es la versión de línea de comandos (capítulo 12).
+3. `easylidar` es la versión de línea de comandos (capítulo 14).
 
 En macOS, la primera vez: clic derecho sobre el programa → Abrir. En Windows, si aparece el aviso azul de SmartScreen: Más información → Ejecutar de todas formas.
 
@@ -127,23 +127,167 @@ Las herramientas procesan **cada hoja por separado** y dan un resultado por hoja
   - *Un punto por celda*: el más cercano al centro, el más bajo, el más alto o el del percentil elegido (50 = mediana).
   - *Celdas 3D*: conserva paredes y pendientes.
   - *Uno de cada n*, *eliminar uno de cada n* y *muestreo al azar*.
-- **Clasificar**: elige lo que quieras.
-  - *Ruido*: puntos aislados o filtro estadístico (SOR).
-  - *Suelo*: iterativo de Kraus y Pfeifer, curvatura multiescala (MCC), simulación de tela (CSF), morfológico progresivo (PMF) o la clase 2 que ya trae la nube.
-  - *Edificios* y vegetación alta.
-  - *Vegetación por alturas*: baja (3), media (4) y alta (5).
-  - *Cables* (14): líneas casi horizontales altas. *Postes y torres* (15): líneas finas casi verticales.
-  - *Teselas y rendimiento*: tamaño de tesela, búfer e hilos.
+- **Clasificar**: elige lo que quieras. Los pasos se aplican por teselas, en este orden: ruido, suelo, edificios, vegetación por alturas, cables y postes.
+  - *Ruido*: **puntos aislados** (un punto sin apenas vecinos en un bloque de 3 × 3 × 3 celdas, clase 7) o filtro estadístico **SOR** (se descarta el punto cuya distancia media a sus k vecinos supera la media general más m desviaciones).
+  - *Suelo* (clase 2), a elegir:
+    - **Iterativo de Kraus y Pfeifer**: ajusta una superficie por mínimos cuadrados con pesos; los puntos muy por encima de ella pesan menos en cada vuelta, así que la superficie «baja» hasta el suelo. Después se aceptan los puntos que están a menos de una distancia de ella.
+    - **Curvatura multiescala (MCC)**: compara cada punto con una superficie curva ajustada a varias escalas; el que se desvía menos que el umbral es suelo.
+    - **Simulación de tela (CSF)**: se da la vuelta a la nube y se deja caer una tela con rigidez ajustable; los puntos que quedan a menos de un umbral de la tela son suelo.
+    - **Morfológico progresivo (PMF)**: aperturas del mínimo con ventanas cada vez mayores; el punto que sube más que un umbral que crece con la ventana no es suelo.
+    - **Clase 2 existente**: respeta la clasificación que trae la nube.
+  - *Edificios*: se obtiene un terreno de referencia con una apertura morfológica mayor que cualquier edificio; las celdas que lo superan más que la altura mínima forman regiones, y una región es edificio si es lo bastante grande, plana (los tejados son planos, las copas rugosas) y está limitada por saltos bruscos. Los puntos de tejado son clase 6 y el resto de lo que supera esa altura, vegetación alta (5).
+  - *Vegetación por alturas*: altura del punto sobre el suelo de su entorno: baja (3) por debajo del primer límite, media (4) hasta el segundo y alta (5) por encima.
+  - *Cables* (14): puntos de más de una altura mínima sobre el suelo con vecinos alineados (linealidad = (λ₁ − λ₂)/λ₁ de la matriz de covarianza del entorno, mínimo 0,9) y dirección casi horizontal. *Postes y torres* (15): lo mismo pero casi vertical y de poca anchura.
+  - *Teselas y rendimiento*: tamaño de tesela, búfer (franja alrededor de cada tesela, para que las decisiones en los bordes se tomen con los vecinos) e hilos.
 
 ### 7.2 Superficies
 
-- **MDT**: modelo digital del terreno en GeoTIFF, por media de las celdas o por TIN. Parte de la clase 2 de la nube.
-- **CHM**: modelo de altura de copas, con opción *pit-free* y suavizado. Usa el MDT **de esa misma nube**; si no existe, avisa.
+Todas se escriben como GeoTIFF y se calculan **hoja por hoja**.
+
+- **MDT (modelo digital del terreno)**, a partir de los puntos de suelo (clase 2 de la nube, o el método que elijas al clasificar). Hay tres formas de dar valor a cada celda; **por defecto, la triangulación**:
+  - **Triangulación (TIN)** *(predeterminado)*: por teselas, se queda con el punto de suelo más cercano al centro de cada celda, se triangula (Delaunay) y se interpola linealmente dentro de cada triángulo. Es una superficie continua que respeta los puntos. No se interpola a través de triángulos con aristas de más de 50 m; esos huecos se rellenan al final con la media de las celdas vecinas.
+  - **Ponderado por distancia (IDW)**: cada celda toma la media de los 8 puntos de suelo más cercanos ponderada por 1/d². Antes de calcular, el suelo se reduce a un punto (la media) por cada media celda, así que el tiempo depende de la malla y no de la densidad. Da una superficie suave; es muy rápida. El alcance es de 30 celdas (entre 10 y 50 m).
+  - **Media por celda**: la media de las elevaciones de los puntos de suelo de cada celda, en una sola pasada y sin cargar la nube. Es la más rápida y la que menos memoria usa, pero deja huecos donde no hay puntos (se rellenan al final).
+- **MDS (modelo digital de superficie)**: lo más alto que ve el sensor (copas, tejados). Se calcula con los puntos que no son ruido, por defecto con la **triangulación**:
+  - **Triangulación (TIN)** *(predeterminado)*: se toma el punto más alto de cada celda, se triangula y se interpola; sin espigas ni huecos pequeños.
+  - **Máximo por celda**: la cota del punto más alto de cada celda, en una sola pasada; las celdas vacías se rellenan (casilla *Rellenar*).
+  - **Ponderado por distancia (IDW)**: sobre los puntos más altos de cada media celda.
+- **CHM (altura de copas)**: por celda, la altura del punto más alto sobre el terreno, `z − MDT` (las alturas negativas valen 0). Con *pit-free* se apilan varias triangulaciones de los puntos por encima de umbrales de altura (0, 2, 5, 10, 15 m…) y se toma el máximo de capas: quita los «pozos» que deja el máximo por celda en copas con huecos. Usa el MDT **de esa misma nube**.
+- **Suavizado** (MDT, MDS y CHM): ventana circular de media, mediana o gauss, con el tamaño en metros.
+
+Recomendación: celda de 1 m para el MDT en terreno forestal con 1 a 10 puntos/m² (PNOA); 0,5 m para el MDS y el CHM. Si hay pocos puntos de suelo bajo copas densas, una celda mayor da un terreno más fiable.
 
 ### 7.3 Inventario
 
-- **Métricas de rodal**: métricas de altura, cobertura e intensidad por celda, opcionalmente por estratos. Salen como capa vectorial y/o CSV, con la fecha de captura.
-- **Segmentar árboles**: detecta cimas y copas sobre el CHM (ventana fija o variable circular o cuadrada, Dalponte, Silva, cuencas), con suavizado, polígonos de copa y evaluación frente a un inventario de campo.
+#### Métricas de rodal
+
+Cuadricula la nube en celdas (15 m por defecto; la rejilla está alineada a múltiplos del tamaño de celda, de modo que las celdas de hojas vecinas encajan). En cada celda calcula estadísticos de las **alturas sobre el suelo** de todos los puntos que no son ruido: `altura = z − MDT` (el MDT de esa misma nube). Las celdas con menos puntos que el mínimo (4) no dan métricas. Se añaden las columnas de fecha de captura (`Date`).
+
+Opciones: *límite de altura* de cobertura (2 m), *intensidad* (los mismos estadísticos de la intensidad), *estratos* (estadísticos por franjas de altura: por defecto hasta 0,15, 1,37, 5, 10, 20 y 30 m) y la *memoria* máxima (se procesa por bandas de filas que caben en ella: la nube se lee una vez por banda).
+
+**Qué es cada métrica.** `h` son las alturas de los puntos de la celda; `n`, su número.
+
+| Métrica | Cómo se calcula |
+|---|---|
+| Total return count | n, número de puntos de la celda |
+| Elev minimum, maximum, mean | Mínimo, máximo y media de h |
+| Elev mode | Moda de h, estimada con un histograma |
+| Elev stddev, variance, CV | Desviación típica, varianza y coeficiente de variación (desviación / media) |
+| Elev IQ | Rango intercuartílico: P75 − P25 |
+| Elev skewness, kurtosis | Asimetría y curtosis (momentos de tercer y cuarto orden) |
+| Elev AAD | Desviación media absoluta respecto a la media |
+| Elev MAD median, MAD mode | Mediana de las desviaciones absolutas respecto a la mediana, y respecto a la moda |
+| Elev L1 a L4 | Momentos L (L1 = media; L2 mide la dispersión; L3 y L4, la forma) |
+| Elev L CV, L skewness, L kurtosis | L2 / L1, L3 / L2 y L4 / L2 |
+| Elev P01 … P99 | Percentiles 1, 5, 10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 95 y 99 de h (interpolación lineal entre valores ordenados) |
+| Return 1 … 9 count, Other return count | Puntos de cada número de retorno (los de número 10 o superior, en «otros»). «Primer retorno» es el retorno número 1 |
+| Percentage first returns above *hb* | 100 · primeros retornos con h > *hb* / total de primeros retornos. Es la **cobertura de copas** con el límite *hb* |
+| Percentage all returns above *hb* | 100 · todos los retornos con h > *hb* / total de retornos |
+| (All returns above *hb*) / (Total first returns) · 100 | Retornos por encima de *hb* sobre primeros retornos, en % (proxy de densidad de follaje) |
+| First / All returns above *hb* | Recuentos de los anteriores |
+| Percentage first / all returns above mean (mode) | Lo mismo con la media (o la moda) de la celda como límite |
+| (All returns above mean / mode) / (Total first returns) · 100 | Ídem |
+| First / All returns above mean (mode) | Recuentos |
+| Total first returns, Total all returns | Denominadores usados |
+| Canopy relief ratio | (media − mínimo) / (máximo − mínimo): cuánto del rango vertical ocupa la masa del follaje |
+| Elev quadratic mean, cubic mean | Media cuadrática (√(Σh²/n)) y cúbica (∛(Σh³/n)) |
+| Profile area | Área bajo la curva de los percentiles 1 a 99 de h (las alturas negativas valen 0), normalizada por el percentil 99 |
+| Int … (con *intensidad*) | Los mismos estadísticos (mínimo, máximo, media, moda, desviación, percentiles…) de la intensidad |
+| Elev strata (de a a b) … (con *estratos*) | Para cada franja de altura: número de puntos, proporción sobre el total de la celda, mínimo, máximo, media, moda, mediana, desviación, CV, asimetría y curtosis de las alturas de esa franja |
+
+La metodología de las métricas es la de los estadísticos de altura habituales en inventario con LiDAR (percentiles, cobertura, momentos); son las variables explicativas que se usan en los modelos de volumen, biomasa o altura dominante.
+
+**Nombres de los campos del shapefile.** El formato dBASE de un shapefile limita los nombres a 10 caracteres, así que se abrevian. El **CSV conserva los nombres largos**, y junto al shapefile se escribe `<nombre>_campos.txt` con la correspondencia exacta de esa ejecución. Las abreviaturas son estas (con límite de cobertura 2 m; el número cambia con el límite que elijas):
+
+| Campo del shapefile | Columna del CSV (métrica) |
+|---|---|
+| `row` | row |
+| `col` | col |
+| `CX` | center X |
+| `CY` | center Y |
+| `TRN` | Total return count |
+| `EMin` | Elev minimum |
+| `EMax` | Elev maximum |
+| `EMn` | Elev mean |
+| `EMo` | Elev mode |
+| `ESd` | Elev stddev |
+| `EVar` | Elev variance |
+| `ECv` | Elev CV |
+| `EIq` | Elev IQ |
+| `ESkw` | Elev skewness |
+| `EKur` | Elev kurtosis |
+| `EAad` | Elev AAD |
+| `EL1` | Elev L1 |
+| `EL2` | Elev L2 |
+| `EL3` | Elev L3 |
+| `EL4` | Elev L4 |
+| `ELCv` | Elev L CV |
+| `ELSkw` | Elev L skewness |
+| `ELKur` | Elev L kurtosis |
+| `EP01` | Elev P01 |
+| `EP05` | Elev P05 |
+| `EP10` | Elev P10 |
+| `EP20` | Elev P20 |
+| `EP25` | Elev P25 |
+| `EP30` | Elev P30 |
+| `EP40` | Elev P40 |
+| `EP50` | Elev P50 |
+| `EP60` | Elev P60 |
+| `EP70` | Elev P70 |
+| `EP75` | Elev P75 |
+| `EP80` | Elev P80 |
+| `EP90` | Elev P90 |
+| `EP95` | Elev P95 |
+| `EP99` | Elev P99 |
+| `R1N` | Return 1 count |
+| `R2N` | Return 2 count |
+| `R3N` | Return 3 count |
+| `R4N` | Return 4 count |
+| `R5N` | Return 5 count |
+| `R6N` | Return 6 count |
+| `R7N` | Return 7 count |
+| `R8N` | Return 8 count |
+| `R9N` | Return 9 count |
+| `ORN` | Other return count |
+| `PcFRAb200` | Percentage first returns above 2.00 |
+| `PcARAb200` | Percentage all returns above 2.00 |
+| `ARAb200TFR` | (All returns above 2.00) / (Total first returns) * 100 |
+| `FRAb200` | First returns above 2.00 |
+| `ARAb200` | All returns above 2.00 |
+| `PcFRAbMn` | Percentage first returns above mean |
+| `PcFRAbMo` | Percentage first returns above mode |
+| `PcARAbMn` | Percentage all returns above mean |
+| `PcARAbMo` | Percentage all returns above mode |
+| `ARAbMnTFR1` | (All returns above mean) / (Total first returns) * 100 |
+| `ARAbMoTFR1` | (All returns above mode) / (Total first returns) * 100 |
+| `FRAbMn` | First returns above mean |
+| `FRAbMo` | First returns above mode |
+| `ARAbMn` | All returns above mean |
+| `ARAbMo` | All returns above mode |
+| `TFR` | Total first returns |
+| `TAR` | Total all returns |
+| `EMadMed` | Elev MAD median |
+| `EMadMo` | Elev MAD mode |
+| `CanRelRat` | Canopy relief ratio |
+| `EQmMn` | Elev quadratic mean |
+| `ECmMn` | Elev cubic mean |
+| `PfAr` | Profile area |
+| `Date` | Date |
+
+Con *intensidad* los campos de `TRN` a `ECmMn` salen con `I` en lugar de `E` (por ejemplo `IMn`, `IP95`, `ISd`) y la columna del CSV empieza por `Int` en lugar de `Elev`.
+
+
+Las columnas de estratos se llaman `ES<n><estadístico>` (altura, *Elev*) e `IS<n><estadístico>` (intensidad), donde `<n>` es el número del estrato (0 es el primero, el de menor altura) y el estadístico va abreviado (`TRN` recuento de puntos, `Rpro` proporción sobre el total de la celda, `Min`, `Max`, `Mn` media, `Mo` moda, `Med` mediana, `Sd` desviación, `Cv` coeficiente de variación, `Skw` asimetría, `Kur` curtosis; por ejemplo `ES0Mn` es la media de las alturas del primer estrato). El `_campos.txt` dice qué franja es cada número.
+
+#### Segmentación de árboles
+
+Detecta cimas y copas sobre el CHM:
+
+1. **Suavizado** opcional del CHM.
+2. **Cimas**: máximos locales en una ventana (fija, o variable según la altura: `a + b · h`; circular o cuadrada) por encima de una altura mínima.
+3. **Copas**, a elegir: *Dalponte y Coomes* (crece una región desde cada cima añadiendo celdas vecinas que no sean demasiado más bajas que la cima ni que la media de la copa), *Silva* (celdas dentro de un radio proporcional a la altura de la cima y por encima de una fracción de ella) o *cuencas* (watershed sobre el CHM invertido).
+4. Salidas: puntos de las cimas con altura y área de copa, polígonos de copa, ráster de identificadores y, si se pide, el `treeID` de cada punto de la nube.
+5. **Evaluación con inventario de campo**: empareja cada árbol medido con la cima más cercana (dentro de una distancia dada) y da aciertos, omisiones, comisiones y la medida F.
 
 ### 7.4 Recorte y salida
 
@@ -205,11 +349,53 @@ Estas herramientas leen las imágenes por ventana y escriben comprimido por fran
 ## 11. Rendimiento y memoria
 
 - Las nubes grandes no se cargan enteras: la vista dibuja una muestra (*Puntos en pantalla*) y los procesos leen en flujo.
-- Un LAZ que necesita varias pasadas se descomprime una vez a un archivo temporal que se borra al terminar.
-- Teselas: tamaño y búfer se ajustan en *Teselas y rendimiento*. La memoria es aproximadamente (núcleos × tesela).
-- Para trabajar con lo que está en pantalla, selecciona los puntos: el proceso se aplica solo a ellos.
+- Un LAZ que necesita varias pasadas se descomprime una vez a un archivo temporal que se borra al terminar (deja espacio libre en el disco temporal: la nube sin comprimir).
+- Teselas: tamaño y búfer se ajustan en *Teselas y rendimiento*. La memoria es aproximadamente (núcleos × tesela). Con teselas de 250 m y 30 m de búfer, un equipo de 16 GB trabaja sin problema con nubes de cualquier tamaño.
+- Qué pasos son en flujo (memoria casi constante): información, MDT por *media por celda*, CHM por máximo, MDS por máximo, métricas, recorte, exportar, adelgazar, duplicados. Qué pasos son por teselas (memoria = núcleos × tesela): clasificar, MDT por TIN o IDW, MDS por TIN o IDW, CHM *pit-free*.
+- Para trabajar solo con lo que está en pantalla, selecciona los puntos: el proceso se aplica solo a ellos.
 
-## 12. Línea de comandos
+## 12. Trabajar con miles de teselas
+
+Un vuelo es una colección de cientos o miles de hojas (por ejemplo, las de 2 × 2 km del PNOA). EasyLiDAR las trata así:
+
+- **Cada hoja se procesa por separado y da su propio resultado.** Si una hoja falla, el proceso se detiene con el mensaje del error y se borra lo parcial de esa hoja (las hojas ya terminadas se conservan). No hay límite de hojas porque nunca se mantienen varias en memoria a la vez.
+- **Se cargan como hojas solo las que quieras ver.** Para procesar, no hace falta abrirlas: en la **línea de comandos** se pasa la lista de archivos y no se dibuja nada. La interfaz sirve para probar los parámetros en una o dos hojas.
+- **Prueba en una hoja representativa** (con relieve, bosque cerrado y claros) antes de lanzar el lote: elige el método de suelo, el tamaño de celda y las alturas.
+- **Usa LAZ** como entrada: pesa unas 5 veces menos y se descomprime en paralelo.
+- **Las salidas llevan el nombre de la hoja** (`hoja_mdt_1m_tin.tif`) y van a la carpeta `results`. Una ejecución nueva no sobrescribe: crea `_2`, `_3`… Para repetir un lote, usa otra carpeta de resultados o borra lo anterior.
+- **Alineación entre hojas.** Las celdas de las métricas están alineadas a múltiplos del tamaño de celda: si el lado de la hoja es múltiplo de la celda (2000 m con celdas de 20 m), las celdas de hojas vecinas encajan sin solaparse ni dejar huecos. Si no lo es, las celdas del borde quedan con una parte de los puntos: ponles un mínimo de puntos más alto o usa un tamaño de celda divisor del lado de la hoja.
+- **Mosaicos.** MDT y CHM pueden dar además un mosaico de todas las hojas (casilla o `--mosaic`); para el resto de rásteres usa *Mosaico* en Teledetección. Los mosaicos de miles de hojas se escriben por franjas comprimidas, sin cargar las imágenes enteras.
+- **Bordes.** La clasificación por teselas usa un búfer alrededor de cada tesela *interna* de la hoja; en el borde de la hoja no hay vecinos al otro lado. Si los bordes importan (MDT continuo entre hojas), genera el MDT sobre varias hojas a la vez (se unen y se trocean de nuevo por teselas internas) o añade un búfer con las hojas vecinas.
+
+Ejemplo con la línea de comandos (PowerShell; en Linux y macOS es igual con comodines):
+
+```
+$hojas = Get-ChildItem hojas\*.laz
+easylidar info $hojas
+easylidar classify $hojas --ground csf --noise isolated
+easylidar dtm $hojas --surface tin --cell 1
+easylidar dsm $hojas --method tin --cell 0.5
+easylidar chm $hojas --cell 0.5 --method pitfree
+easylidar metrics $hojas --cell 20 --strata
+```
+
+Los comandos que reciben varias hojas dan un resultado por hoja. Para paralelizar entre máquinas, reparte las hojas en lotes y lanza un proceso por lote y por carpeta de resultados.
+
+## 13. Encadenar un flujo de inventario por área (ABA)
+
+El enfoque por área (*area-based approach*, ABA) modela una variable de inventario (volumen, área basimétrica, biomasa, altura dominante…) con las métricas LiDAR de **parcelas de campo** y aplica el modelo a toda la superficie, celda a celda. Con EasyLiDAR se encadena así:
+
+1. **Preparar las hojas.** Abre una hoja de prueba; revisa *Información* (proyección, densidad, clases, fecha de captura). Si falta la proyección: *Asignar proyección*. Si las coberturas son de densidades distintas: *Adelgazar nube* a una densidad común.
+2. **Clasificar** (ruido y suelo) o usar la clase 2 de la entrega, y **generar el MDT** de cada hoja.
+3. **Métricas de las parcelas de campo.** *Recortar parcelas* con el archivo de parcelas (o con centros y radio): modo **solo métricas**. Da una capa con un polígono por parcela y todas las métricas de la sección 7.3, con el número de parcela. Opcionalmente, una nube por parcela para revisarlas.
+4. **Modelo.** Une (por el número de parcela) la tabla de métricas con la tabla del inventario de campo en la hoja de cálculo o en un programa estadístico, y ajusta el modelo (por ejemplo `log(V) ~ log(P95) + log(cobertura) + log(media)`). Selecciona las variables con criterio forestal y compruébalas con validación cruzada. **Usa los mismos parámetros** (límite de cobertura, tamaño de parcela, MDT) en las parcelas y en el resto del territorio.
+5. **Métricas de toda la superficie.** *Métricas de rodal* en todas las hojas, con el tamaño de celda **igual al de la parcela** (por ejemplo, 400 m² → celdas de 20 m, o 15 m para parcelas de radio 7,98 m). Cada hoja da su capa de celdas con las mismas columnas que las parcelas.
+6. **Aplicar el modelo** a la capa de celdas (en el SIG o en tu hoja de cálculo): el resultado es un mapa del inventario con una celda por cuadrícula. Si necesitas ráster, rasteriza el campo resultante.
+7. **Contraste.** Compara con las parcelas retenidas para validar y con el CHM o la segmentación de árboles si quieres un segundo criterio.
+
+Notas: las parcelas y la cobertura LiDAR deben ser de fechas próximas (la columna `Date` ayuda a comprobarlo); la parcela debe ser del tamaño de la celda; y conviene excluir las celdas con menos de unos cientos de puntos, las que tienen agua o edificios y las que caen en el borde de las hojas.
+
+## 14. Línea de comandos
 
 `easylidar` hace lo mismo que la interfaz, por lotes. Con `--help` se ve la lista completa de comandos y de opciones.
 
@@ -217,7 +403,8 @@ Estas herramientas leen las imágenes por ventana y escriben comprimido por fran
 easylidar info nube.laz
 easylidar thin nube.laz --method density --density 1
 easylidar classify nube.laz --ground csf --noise isolated --buildings --vegetation
-easylidar dtm nube.laz --cell 1
+easylidar dtm nube.laz --cell 1 --surface tin
+easylidar dsm nube.laz --cell 0.5 --method tin
 easylidar chm nube.laz --cell 0.5 --method pitfree
 easylidar metrics nube.laz
 easylidar trees chm.tif --method silva --crowns
@@ -233,7 +420,7 @@ easylidar render nube.laz --view 3d -o vista.png --color class
 easylidar export nube.laz -o puntos.csv --items x,y,z,class --header
 ```
 
-## 13. Atajos
+## 15. Atajos
 
 | Atajo | Acción |
 |---|---|
@@ -247,7 +434,7 @@ easylidar export nube.laz -o puntos.csv --items x,y,z,class --header
 | Flechas | Mover el perfil (planta) o girar (3D) |
 | Esc | Cancelar la operación en curso |
 
-## 14. Solución de problemas
+## 16. Solución de problemas
 
 - **«No hay MDT de esta nube»**: genera antes el MDT con la herramienta MDT.
 - **La nube no se ve completa**: sube *Puntos en pantalla* en el panel *Capas* y pulsa *Aplicar*.
@@ -255,7 +442,7 @@ easylidar export nube.laz -o puntos.csv --items x,y,z,class --header
 - **El mosaico dice que los sistemas son distintos**: reproyecta los rásteres al mismo sistema antes de unirlos.
 - **Un resultado a medias tras detener un proceso**: se borra solo; si queda algún archivo, bórralo a mano.
 
-## 15. Acerca de
+## 17. Acerca de
 
 **EasyLiDAR** · Procesamiento y edición de nubes LiDAR para forestales.
 Autor: Julio M. Sevilla.

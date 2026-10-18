@@ -14,6 +14,7 @@ pub mod filter;
 pub mod forest;
 pub mod grid;
 pub mod ground;
+pub mod idw;
 pub mod inspect;
 pub mod jobs;
 pub mod las;

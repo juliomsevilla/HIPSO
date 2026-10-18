@@ -120,7 +120,14 @@ fn lines_of(inputs: &[PathBuf]) -> String {
 }
 
 impl Tools {
-    fn sheet_note(&self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf], tag: &str, ext: &str) {
+    pub(super) fn sheet_note(
+        &self,
+        ui: &mut egui::Ui,
+        t: &Tokens,
+        inputs: &[PathBuf],
+        tag: &str,
+        ext: &str,
+    ) {
         ui.label(
             egui::RichText::new(lines_of(inputs))
                 .color(t.weak)
@@ -135,7 +142,7 @@ impl Tools {
         }
     }
 
-    fn smoothing_row(ui: &mut egui::Ui, size: &mut f64, kind: &mut Smoothing) {
+    pub(super) fn smoothing_row(ui: &mut egui::Ui, size: &mut f64, kind: &mut Smoothing) {
         num(ui, "Suavizado (m, 0 = sin suavizar)", size, 0.0..=50.0, 0.1);
         if *size > 0.0 {
             ui.horizontal(|ui| {
@@ -230,7 +237,7 @@ impl Tools {
     }
 
     pub fn dtm_form(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf]) {
-        let tin = if self.tin { "_tin" } else { "" };
+        let tin = self.surface_tag();
         let tag = format!(
             "mdt_{}m{tin}{}",
             paths::num(self.dtm_cell),
@@ -238,7 +245,29 @@ impl Tools {
         );
         self.sheet_note(ui, t, inputs, &tag, "tif");
         num(ui, "Celda", &mut self.dtm_cell, 0.1..=100.0, 0.1);
-        ui.checkbox(&mut self.tin, "Interpolar con TIN (triangulación)");
+        egui::ComboBox::from_label("Método")
+            .selected_text(match self.dtm_surface {
+                Surface::Tin => "Triangulación (TIN)",
+                Surface::Mean => "Media por celda",
+                Surface::Idw => "Ponderado por distancia (IDW)",
+            })
+            .show_ui(ui, |ui| {
+                ui.selectable_value(
+                    &mut self.dtm_surface,
+                    Surface::Tin,
+                    "Triangulación (TIN): superficie continua, el mejor equilibrio",
+                );
+                ui.selectable_value(
+                    &mut self.dtm_surface,
+                    Surface::Idw,
+                    "Ponderado por distancia (IDW): suave y rápido",
+                );
+                ui.selectable_value(
+                    &mut self.dtm_surface,
+                    Surface::Mean,
+                    "Media por celda: la más rápida, en una sola pasada",
+                );
+            });
         self.ground_only(ui);
         Self::smoothing_row(ui, &mut self.s2.dtm_smooth, &mut self.s2.dtm_smoothing);
         ui.checkbox(
@@ -624,7 +653,7 @@ impl Tools {
                 )
             }
             ToolId::Dtm => {
-                let tin = if self.tin { "_tin" } else { "" };
+                let tin = self.surface_tag();
                 let sm = if self.s2.dtm_smooth > 0.0 {
                     format!("_s{}", paths::num(self.s2.dtm_smooth))
                 } else {
@@ -647,11 +676,7 @@ impl Tools {
                     inputs: Vec::new(),
                     output: PathBuf::new(),
                     cell: self.dtm_cell,
-                    surface: if self.tin {
-                        Surface::Tin
-                    } else {
-                        Surface::Mean
-                    },
+                    surface: self.dtm_surface,
                     steps,
                     tiling: self.tiling(),
                     smooth: self.s2.dtm_smooth,
