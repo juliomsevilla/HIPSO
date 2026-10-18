@@ -2888,7 +2888,7 @@ dependencies = [
 
 [[package]]
 name = "rustlidar"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "clap",
  "rustlidar-core",
@@ -2896,7 +2896,7 @@ dependencies = [
 
 [[package]]
 name = "rustlidar-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "delaunator",
  "flate2",
@@ -2909,7 +2909,7 @@ dependencies = [
 
 [[package]]
 name = "rustlidar-gui"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "earcutr",
  "eframe",
