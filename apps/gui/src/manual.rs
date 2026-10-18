@@ -177,6 +177,14 @@ impl Manual {
                                     self.goto = None;
                                 }
                                 head_no += 1;
+                            } else if let Some(t) = l.strip_prefix("#### ") {
+                                ui.add_space(4.0);
+                                ui.label(
+                                    RichText::new(t)
+                                        .size(14.0)
+                                        .strong()
+                                        .color(Color32::from_rgb(0xFF, 0x8A, 0x1F)),
+                                );
                             } else if let Some(t) = l.strip_prefix("### ") {
                                 ui.add_space(6.0);
                                 ui.label(RichText::new(t).size(15.5).strong());
