@@ -956,6 +956,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "egui_glow",
+ "glow",
  "glutin",
  "glutin-winit",
  "image",
@@ -2888,7 +2889,7 @@ dependencies = [
 
 [[package]]
 name = "rustlidar"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "clap",
  "rustlidar-core",
@@ -2896,7 +2897,7 @@ dependencies = [
 
 [[package]]
 name = "rustlidar-core"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "delaunator",
  "flate2",
@@ -2909,11 +2910,12 @@ dependencies = [
 
 [[package]]
 name = "rustlidar-gui"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "earcutr",
  "eframe",
  "png",
+ "pollster 1.0.1",
  "rayon",
  "rfd",
  "rustlidar-core",

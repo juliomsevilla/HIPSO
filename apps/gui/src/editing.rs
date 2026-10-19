@@ -33,6 +33,7 @@ pub struct Editing {
     pub class: u8,
     pub cmds: Vec<Cmd>,
     pub attr: Attr,
+    pub hist: crate::histo::State,
     pub z_lo: String,
     pub z_hi: String,
     pub i_lo: String,
@@ -58,6 +59,7 @@ impl Default for Editing {
             class: 7,
             cmds: Vec::new(),
             attr: Attr::default(),
+            hist: crate::histo::State::default(),
             z_lo: String::new(),
             z_hi: String::new(),
             i_lo: String::new(),
@@ -233,7 +235,7 @@ impl App {
             let op = SelOp {
                 mode: self.mode_now(ctx),
                 region: Region::Plan(poly),
-                attr: self.ed.attr,
+                attr: self.ed.attr.clone(),
             };
             self.queue(Cmd::AddOp(Box::new(op)));
             self.drag_start = None;
@@ -311,7 +313,7 @@ impl App {
             let op = SelOp {
                 mode: self.mode_now(ctx),
                 region: Region::Profile { bx, poly },
-                attr: self.ed.attr,
+                attr: self.ed.attr.clone(),
             };
             self.queue(Cmd::AddOp(Box::new(op)));
         }
@@ -415,7 +417,7 @@ impl App {
                     self.ed.ops = vec![SelOp {
                         mode: Mode::New,
                         region: Region::All,
-                        attr: self.ed.attr,
+                        attr: self.ed.attr.clone(),
                     }];
                 }
                 Cmd::Invert => self.ed.ops.push(SelOp {
@@ -662,6 +664,12 @@ impl App {
                 }
             });
         });
+        ribbon::group(ui, t, "Estadística", |ui| {
+            if ribbon::big_button(ui, t, "@hist", "Histogramas", self.ed.hist.open).clicked() && has
+            {
+                self.ed.hist.open = !self.ed.hist.open;
+            }
+        });
         ribbon::group(ui, t, "Editar", |ui| {
             if ribbon::big_button(ui, t, "@trash", "Eliminar\n(Supr)", false).clicked() {
                 self.queue(Cmd::Delete);
@@ -701,7 +709,7 @@ impl App {
         });
     }
 
-    fn class_combo(&mut self, ui: &mut egui::Ui) {
+    pub fn class_combo(&mut self, ui: &mut egui::Ui) {
         let present = self.class_counts;
         egui::ComboBox::from_id_salt("target_class")
             .width(190.0)
@@ -826,7 +834,7 @@ impl App {
                         let op = SelOp {
                             mode: self.ed.mode,
                             region: Region::All,
-                            attr: self.ed.attr,
+                            attr: self.ed.attr.clone(),
                         };
                         self.queue(Cmd::AddOp(Box::new(op)));
                     }

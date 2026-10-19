@@ -5,6 +5,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use rustlidar_core::axelsson::AxelssonParams;
 use rustlidar_core::buildings::BuildingParams;
 use rustlidar_core::csf::CsfParams;
 use rustlidar_core::ground::GroundParams;
@@ -13,6 +14,7 @@ use rustlidar_core::metrics::MetricParams;
 use rustlidar_core::noise::NoiseParams;
 use rustlidar_core::pipeline::{self, Ground, Noise, Steps, Surface, Tiling};
 use rustlidar_core::pmf::PmfParams;
+use rustlidar_core::rules::ClassRule;
 use rustlidar_core::trees::{CrownParams, Segmenter, Shape, Smoothing, TopParams};
 use rustlidar_core::{Result, jobs, paths};
 
@@ -37,6 +39,8 @@ enum GroundMethod {
     Csf,
     /// Progressive Morphological Filter (Zhang et al. 2003)
     Pmf,
+    /// Progressive TIN densification (Axelsson 2000)
+    Axelsson,
     /// Points already classified as ground (class 2)
     Classes,
 }
@@ -293,6 +297,22 @@ struct GroundArgs {
     /// PMF: terrain slope (rise over run)
     #[arg(long, default_value_t = 1.0)]
     pmf_slope: f64,
+    /// Axelsson: side of the cells whose lowest points seed the TIN (larger than any building)
+    #[arg(long, default_value_t = 20.0)]
+    axelsson_seed_cell: f64,
+    /// Axelsson: iteration angle (degrees)
+    #[arg(long, default_value_t = 8.0)]
+    axelsson_angle: f64,
+    /// Axelsson: iteration distance (m)
+    #[arg(long, default_value_t = 1.4)]
+    axelsson_dist: f64,
+    /// Axelsson: points this close to a triangle (m) are ground whatever the angle
+    #[arg(long, default_value_t = 0.10)]
+    axelsson_flat: f64,
+}
+
+fn parse_rule(text: &str) -> std::result::Result<ClassRule, String> {
+    ClassRule::parse(text).map_err(|e| e.to_string())
 }
 
 #[derive(Args)]
@@ -326,6 +346,11 @@ struct StepArgs {
     /// Classify poles and towers (15): thin, nearly vertical lines
     #[arg(long)]
     poles: bool,
+    /// Classify by echo and scan angle, last and in order. Repeat for several rules. Parts,
+    /// separated by `;`: to=CLASS (needed), from=1,2 (or ~7), returns=F|L|A|1..9, angle=25..90
+    /// (absolute degrees; `angle=25` is 25 and over). For example: `angle=25;to=12`
+    #[arg(long = "rule", value_parser = parse_rule)]
+    rules: Vec<ClassRule>,
     /// Classify buildings (6) and high vegetation (5), and drop roofs from the ground
     #[arg(long)]
     buildings: bool,
@@ -361,6 +386,7 @@ impl StepArgs {
             GroundMethod::Mcc => "_mcc",
             GroundMethod::Csf => "_csf",
             GroundMethod::Pmf => "_pmf",
+            GroundMethod::Axelsson => "_axelsson",
             GroundMethod::Classes => "_clase2",
         };
         let n = match self.noise {
@@ -419,6 +445,13 @@ impl StepArgs {
                     slope: g.pmf_slope,
                     ..Default::default()
                 }),
+                GroundMethod::Axelsson => Ground::Axelsson(AxelssonParams {
+                    seed_cell: g.axelsson_seed_cell,
+                    iter_angle: g.axelsson_angle,
+                    iter_dist: g.axelsson_dist,
+                    flat_tolerance: g.axelsson_flat,
+                    ..Default::default()
+                }),
                 GroundMethod::Classes => Ground::Classes,
             },
             buildings: self.buildings.then(|| BuildingParams {
@@ -428,6 +461,7 @@ impl StepArgs {
                 ..Default::default()
             }),
             extras: self.extras(),
+            rules: self.rules.clone(),
         }
     }
 
@@ -931,6 +965,16 @@ enum Cmd {
         /// Distance (m) up to which a point goes to the nearest tree in the clouds by tree
         #[arg(long, default_value_t = 8.0)]
         assign_dist: f64,
+        /// Distance (m) between the bases of the stems of one stool (coppice sprouts)
+        #[arg(long, default_value_t = 0.6)]
+        stool_dist: f64,
+        /// Height (m) of the diameter: stems apart at it are sprouts, each a tree; stems that
+        /// are one at it and fork above it are one forked tree
+        #[arg(long, default_value_t = 1.3)]
+        fork_height: f64,
+        /// Longest stretch (m) of a stem that may go unmeasured before it is taken as lost
+        #[arg(long, default_value_t = 2.0)]
+        max_gap: f64,
     },
     /// Multiband image from rasters: every band of every input becomes a band of the output
     Stack {
@@ -2189,6 +2233,9 @@ fn run(cmd: Cmd) -> Result<()> {
             max_diameter,
             tree_clouds,
             assign_dist,
+            stool_dist,
+            fork_height,
+            max_gap,
         } => {
             use rustlidar_core::tls::{TlsJob, TlsParams, run};
             let output = single_output(output, inputs.len())?;
@@ -2206,6 +2253,9 @@ fn run(cmd: Cmd) -> Result<()> {
                         stripe: (stripe_low, stripe_high),
                         max_diam: max_diameter,
                         assign_dist,
+                        stool_dist,
+                        fork_height,
+                        max_gap,
                         ..TlsParams::default()
                     },
                     formats: paths::Formats { vector: true, csv },

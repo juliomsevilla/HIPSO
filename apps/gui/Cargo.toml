@@ -13,6 +13,7 @@ rfd.workspace = true
 earcutr.workspace = true
 rayon.workspace = true
 png.workspace = true
+pollster = "1"
 
 [lints]
 workspace = true

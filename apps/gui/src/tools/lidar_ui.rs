@@ -8,6 +8,7 @@ use super::*;
 use rustlidar_core::cloudtools::{self, DupFields};
 use rustlidar_core::thin::{self, ThinMethod, ThinParams};
 use rustlidar_core::tls::{self, TlsJob, TlsParams};
+use rustlidar_core::volume::{self, ReferenceSource, VolumeJob};
 
 pub struct State {
     pub thin_method: usize,
@@ -40,6 +41,15 @@ pub struct State {
     pub dsm_fill: bool,
     pub dsm_smooth: f64,
     pub dsm_smoothing: Smoothing,
+    pub vol_source: usize,
+    /// Rasters chosen by hand (empty: the one found for each cloud).
+    pub vol_surface: String,
+    pub vol_dtm: String,
+    pub vol_level: f64,
+    pub vol_min: f64,
+    /// 0 the whole raster, 1 the drawn AOIs, 2 the regions of a vector file.
+    pub vol_regions: usize,
+    pub vol_file: String,
 }
 
 impl Default for State {
@@ -75,6 +85,13 @@ impl Default for State {
             dsm_fill: true,
             dsm_smooth: 0.0,
             dsm_smoothing: Smoothing::Mean,
+            vol_source: 0,
+            vol_surface: String::new(),
+            vol_dtm: String::new(),
+            vol_level: 0.0,
+            vol_min: 0.0,
+            vol_regions: 0,
+            vol_file: String::new(),
         }
     }
 }
@@ -185,6 +202,23 @@ impl Tools {
         let weak = |s: &str| egui::RichText::new(s.to_string()).color(t.weak).size(11.0);
         ui.label(weak("Mide el diámetro del tronco a lo largo de todo el fuste en nubes de escáner terrestre, móvil o fotogramétrico, y cubica cada árbol con la fórmula de Smalian: V = (A₁ + A₂)/2 · L por cada troza, desde la altura de la base hasta donde el diámetro baja al diámetro de punta delgada. Cada nube es una hoja y da su propio resultado."));
         let s = &mut self.lx.tls;
+        ui.horizontal(|ui| {
+            ui.label("Equipo:");
+            if ui
+                .selectable_label(s.voxel < 0.04, "Terrestre estático (vóxel 3 cm)")
+                .on_hover_text("Escáner sobre trípode: nubes densas y de poco ruido")
+                .clicked()
+            {
+                s.voxel = 0.03;
+            }
+            if ui
+                .selectable_label(s.voxel >= 0.04, "Móvil o SLAM (vóxel 5 cm)")
+                .on_hover_text("Escáner de mano o de mochila (GeoSLAM…): el ruido es de varios centímetros y con vóxeles más finos los troncos se pierden a pocos metros")
+                .clicked()
+            {
+                s.voxel = 0.05;
+            }
+        });
         ui.label(egui::RichText::new("Cubicación").strong());
         let (mut base_cm, mut top_cm) = (s.base_height * 100.0, s.top_diam * 100.0);
         num(
@@ -223,6 +257,13 @@ impl Tools {
                 0.1,
             );
             num(ui, "hasta (m)", &mut s.stripe.1, 0.5..=20.0, 0.1);
+            num(
+                ui,
+                "Hueco máximo sin medir (m): tras él se da el tronco por perdido",
+                &mut s.max_gap,
+                0.25..=5.0,
+                0.25,
+            );
             let mut v = s.voxel * 100.0;
             num(
                 ui,
@@ -292,6 +333,23 @@ impl Tools {
                 &mut s.max_height,
                 5.0..=80.0,
                 1.0,
+            );
+        });
+        egui::CollapsingHeader::new("Cepas y bifurcaciones (rebrotes)").show(ui, |ui| {
+            ui.label(weak("Varios troncos de un mismo pie. Si están separados a la altura del diámetro, son brotes de una cepa y cada uno es un árbol (columnas CEPA y BROTES). Si son un solo tronco a esa altura y se bifurcan por encima, es un árbol bifurcado: se mide el diámetro del tronco y se cubica el tronco y cada rama (H_BIF, RAMA)."));
+            num(
+                ui,
+                "Altura del diámetro (m): separa brotes de bifurcación",
+                &mut s.fork_height,
+                0.5..=3.0,
+                0.05,
+            );
+            num(
+                ui,
+                "Distancia entre las bases de una cepa (m)",
+                &mut s.stool_dist,
+                0.0..=3.0,
+                0.05,
             );
         });
         ui.separator();
@@ -450,6 +508,201 @@ impl Tools {
             ui.checkbox(&mut self.lx.dsm_fill, "Rellenar las celdas sin puntos");
         }
         Self::smoothing_row(ui, &mut self.lx.dsm_smooth, &mut self.lx.dsm_smoothing);
+    }
+
+    /// A text box for a path with a file picker; empty means "the one found for each cloud".
+    fn raster_row(ui: &mut egui::Ui, label: &str, text: &mut String, exts: &[&str]) {
+        ui.horizontal(|ui| {
+            ui.label(label);
+            ui.add(
+                egui::TextEdit::singleline(text)
+                    .hint_text("vacío: el de cada nube")
+                    .desired_width(300.0),
+            );
+            if ui.button("…").clicked()
+                && let Some(p) = pick_file("Ráster", exts)
+            {
+                *text = p.display().to_string();
+            }
+        });
+    }
+
+    pub fn volume_form(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf], aois: &[Aoi]) {
+        self.sheet_note(ui, t, inputs, "volumen", "csv");
+        ui.label(egui::RichText::new("Volumen entre una superficie y el terreno, celda a celda: V = Σ (altura de la superficie − MDT) · celda². Las celdas por encima del MDT suman al volumen sobre él y las que quedan por debajo, al volumen bajo él (vaciados). Con un CHM las alturas ya son sobre el suelo y no hace falta MDT. Cada hoja da su tabla (.csv); busca los rásteres de esa nube en su carpeta de resultados.").color(t.weak).size(11.0));
+        let s = &mut self.lx;
+        egui::ComboBox::from_id_salt("vol_source")
+            .width(400.0)
+            .selected_text(
+                [
+                    "CHM de cada nube (alturas sobre el suelo)",
+                    "MDS menos MDT (de cada nube)",
+                    "MDS sobre una cota horizontal",
+                ][s.vol_source],
+            )
+            .show_ui(ui, |ui| {
+                for (k, n) in [
+                    "CHM de cada nube (alturas sobre el suelo)",
+                    "MDS menos MDT (de cada nube)",
+                    "MDS sobre una cota horizontal",
+                ]
+                .iter()
+                .enumerate()
+                {
+                    ui.selectable_value(&mut s.vol_source, k, *n);
+                }
+            });
+        let surface = ["CHM", "MDS", "MDS"][s.vol_source];
+        Self::raster_row(ui, surface, &mut s.vol_surface, &["tif", "tiff", "asc"]);
+        match s.vol_source {
+            1 => Self::raster_row(ui, "MDT", &mut s.vol_dtm, &["tif", "tiff", "asc"]),
+            2 => num(
+                ui,
+                "Cota de referencia (m)",
+                &mut s.vol_level,
+                -1e5..=1e5,
+                0.1,
+            ),
+            _ => {}
+        }
+        for p in inputs {
+            let found = |auto: Option<PathBuf>, manual: &str| {
+                if manual.trim().is_empty() {
+                    auto.is_some()
+                } else {
+                    Path::new(manual.trim()).is_file()
+                }
+            };
+            let ok = match s.vol_source {
+                0 => found(paths::find_chm(p), &s.vol_surface),
+                1 => {
+                    found(paths::find_dsm(p), &s.vol_surface)
+                        && found(paths::find_dtm(p), &s.vol_dtm)
+                }
+                _ => found(paths::find_dsm(p), &s.vol_surface),
+            };
+            if !ok {
+                ui.colored_label(
+                    egui::Color32::from_rgb(230, 160, 60),
+                    format!(
+                        "{}: faltan rásteres; genéralos antes (CHM, MDS, MDT) o elígelos a mano.",
+                        paths::stem(p)
+                    ),
+                );
+            }
+        }
+        num(
+            ui,
+            "Altura mínima que cuenta (m)",
+            &mut s.vol_min,
+            0.0..=1000.0,
+            0.05,
+        );
+        ui.label(
+            egui::RichText::new(
+                "Las celdas más cerca del MDT que esto no suman: quita el ruido del terreno.",
+            )
+            .color(t.weak)
+            .size(11.0),
+        );
+        ui.separator();
+        ui.label(egui::RichText::new("Zonas").strong());
+        ui.radio_value(&mut s.vol_regions, 0, "Todo el ráster");
+        ui.radio_value(
+            &mut s.vol_regions,
+            1,
+            format!("AOI dibujadas ({}): un volumen por AOI", aois.len()),
+        );
+        ui.radio_value(&mut s.vol_regions, 2, "Polígonos de un archivo vectorial");
+        if s.vol_regions == 2 {
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut s.vol_file).desired_width(330.0));
+                if ui.button("…").clicked()
+                    && let Some(p) = pick_file("Polígonos", &["shp", "geojson", "json", "gpkg"])
+                {
+                    s.vol_file = p.display().to_string();
+                }
+            });
+        }
+    }
+
+    pub fn build_volume(
+        &mut self,
+        inputs: &[PathBuf],
+        aois: &[Aoi],
+        log: &mut Vec<String>,
+    ) -> Option<Launch> {
+        let s = &self.lx;
+        let regions: Vec<Region> = match s.vol_regions {
+            1 => aois
+                .iter()
+                .filter(|a| a.points.len() >= 3)
+                .map(|a| Region {
+                    name: a.name.clone(),
+                    shape: Shape2::Polygon(Polygon::new(vec![a.points.clone()])),
+                    attrs: vec![],
+                })
+                .collect(),
+            2 => match volume::read_regions(Path::new(s.vol_file.trim())) {
+                Ok(r) => r,
+                Err(e) => {
+                    log.push(format!("Volúmenes: {e}"));
+                    return None;
+                }
+            },
+            _ => vec![],
+        };
+        if s.vol_regions != 0 && regions.is_empty() {
+            log.push("Volúmenes: no hay zonas; dibuja AOI o elige un archivo.".into());
+            return None;
+        }
+        let manual = |t: &str| (!t.trim().is_empty()).then(|| PathBuf::from(t.trim()));
+        let mut jobs = Vec::new();
+        for p in inputs {
+            let surface = manual(&s.vol_surface).or_else(|| {
+                if s.vol_source == 0 {
+                    paths::find_chm(p)
+                } else {
+                    paths::find_dsm(p)
+                }
+            });
+            let reference = match s.vol_source {
+                0 => Some(ReferenceSource::Zero),
+                1 => manual(&s.vol_dtm)
+                    .or_else(|| paths::find_dtm(p))
+                    .map(ReferenceSource::Dtm),
+                _ => Some(ReferenceSource::Level(s.vol_level)),
+            };
+            let (Some(surface), Some(reference)) = (surface, reference) else {
+                log.push(format!(
+                    "Volúmenes: faltan rásteres de {}; genéralos antes (CHM, MDS, MDT).",
+                    paths::stem(p)
+                ));
+                return None;
+            };
+            jobs.push(VolumeJob {
+                surface,
+                reference,
+                regions: regions.clone(),
+                min_height: s.vol_min,
+                output: paths::unique(&paths::product(p, "volumen", "csv")),
+            });
+        }
+        let outputs: Vec<PathBuf> = jobs.iter().map(|j| j.output.clone()).collect();
+        let task: Task = Box::new(move || {
+            let mut lines = Vec::new();
+            for j in &jobs {
+                rustlidar_core::check_cancel()?;
+                lines.push(volume::run(j)?);
+            }
+            Ok(lines.join("\n"))
+        });
+        Some(Launch {
+            label: ToolId::Volume.title().to_string(),
+            task,
+            show: vec![],
+            outputs,
+        })
     }
 
     fn thin_params(&self) -> ThinParams {

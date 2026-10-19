@@ -128,28 +128,9 @@ pub fn unique(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
-/// The newest DTM made from `input`, if any: the one a CHM or metrics run should use by
-/// default, never a DTM of another input.
-pub fn find_dtm(input: &Path) -> Option<PathBuf> {
-    let prefix = format!("{}_mdt", stem(input));
-    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
-    for e in std::fs::read_dir(results_dir(input)).ok()?.flatten() {
-        let name = e.file_name().to_string_lossy().to_lowercase();
-        let ok = name.starts_with(&prefix.to_lowercase())
-            && (name.ends_with(".tif") || name.ends_with(".tiff") || name.ends_with(".asc"));
-        let time = e.metadata().and_then(|m| m.modified()).ok();
-        if let (true, Some(t)) = (ok, time)
-            && best.as_ref().is_none_or(|b| t > b.0)
-        {
-            best = Some((t, e.path()));
-        }
-    }
-    best.map(|b| b.1)
-}
-
-/// The newest CHM made from `input`, if any.
-pub fn find_chm(input: &Path) -> Option<PathBuf> {
-    let prefix = format!("{}_chm", stem(input)).to_lowercase();
+/// The newest raster `<stem>_<tag>…` made from `input`, if any: never one of another input.
+fn find_raster(input: &Path, tag: &str) -> Option<PathBuf> {
+    let prefix = format!("{}_{tag}", stem(input)).to_lowercase();
     let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
     for e in std::fs::read_dir(results_dir(input)).ok()?.flatten() {
         let name = e.file_name().to_string_lossy().to_lowercase();
@@ -163,6 +144,22 @@ pub fn find_chm(input: &Path) -> Option<PathBuf> {
         }
     }
     best.map(|b| b.1)
+}
+
+/// The newest DTM made from `input`, if any: the one a CHM or metrics run should use by
+/// default, never a DTM of another input.
+pub fn find_dtm(input: &Path) -> Option<PathBuf> {
+    find_raster(input, "mdt")
+}
+
+/// The newest CHM made from `input`, if any.
+pub fn find_chm(input: &Path) -> Option<PathBuf> {
+    find_raster(input, "chm")
+}
+
+/// The newest DSM made from `input`, if any.
+pub fn find_dsm(input: &Path) -> Option<PathBuf> {
+    find_raster(input, "mds")
 }
 
 #[cfg(test)]

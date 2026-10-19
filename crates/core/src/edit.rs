@@ -28,14 +28,79 @@ pub enum Region {
     Profile { bx: ProfileBox, poly: Polygon },
 }
 
+/// The attributes of a point a selection can be made on (the histograms of the editor).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AttrKind {
+    Z,
+    Intensity,
+    ReturnNumber,
+    NumReturns,
+    Class,
+    /// Flight line (point source ID).
+    Source,
+    /// Scan angle in degrees.
+    ScanAngle,
+}
+
+impl AttrKind {
+    pub const ALL: [AttrKind; 7] = [
+        AttrKind::Z,
+        AttrKind::Intensity,
+        AttrKind::ReturnNumber,
+        AttrKind::NumReturns,
+        AttrKind::Class,
+        AttrKind::Source,
+        AttrKind::ScanAngle,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            AttrKind::Z => "Elevación (Z)",
+            AttrKind::Intensity => "Intensidad",
+            AttrKind::ReturnNumber => "Nº de retorno",
+            AttrKind::NumReturns => "Nº de retornos",
+            AttrKind::Class => "Clase",
+            AttrKind::Source => "Pasada (ID de fuente)",
+            AttrKind::ScanAngle => "Ángulo de barrido (°)",
+        }
+    }
+
+    /// Whole-number attributes: a histogram gets one bar per value.
+    pub fn is_integer(self) -> bool {
+        !matches!(self, AttrKind::Z | AttrKind::ScanAngle)
+    }
+
+    pub fn value(self, p: &Sample) -> f64 {
+        match self {
+            AttrKind::Z => p.z,
+            AttrKind::Intensity => f64::from(p.intensity),
+            AttrKind::ReturnNumber => f64::from(p.ret & 15),
+            AttrKind::NumReturns => f64::from(p.ret >> 4),
+            AttrKind::Class => f64::from(p.class),
+            AttrKind::Source => f64::from(p.src),
+            AttrKind::ScanAngle => f64::from(p.scan),
+        }
+    }
+}
+
+/// A point passes when the attribute lies in any of the intervals `[lo, hi)` (the bars picked
+/// in a histogram, or the tails of its odd values).
+#[derive(Clone, Debug, PartialEq)]
+pub struct RangeSel {
+    pub kind: AttrKind,
+    pub bins: Vec<(f64, f64)>,
+}
+
 /// What a point must be to be picked, besides lying in the region.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Attr {
     pub classes: ClassSet,
     /// Bits: 1 first, 2 intermediate, 4 last, 8 single returns.
     pub returns: u8,
     pub z: Option<(f64, f64)>,
     pub intensity: Option<(u16, u16)>,
+    /// Every one of these must hold (the histogram selections).
+    pub ranges: Vec<RangeSel>,
 }
 
 impl Default for Attr {
@@ -45,6 +110,7 @@ impl Default for Attr {
             returns: 15,
             z: None,
             intensity: None,
+            ranges: Vec::new(),
         }
     }
 }
@@ -91,6 +157,9 @@ pub struct Sample {
     pub intensity: u16,
     /// Return number in the low nibble, number of returns in the high one.
     pub ret: u8,
+    pub src: u16,
+    /// Scan angle in degrees.
+    pub scan: f32,
 }
 
 impl SelOp {
@@ -101,6 +170,10 @@ impl SelOp {
             || a.z.is_some_and(|(lo, hi)| p.z < lo || p.z > hi)
             || a.intensity
                 .is_some_and(|(lo, hi)| p.intensity < lo || p.intensity > hi)
+            || a.ranges.iter().any(|r| {
+                let v = r.kind.value(p);
+                !r.bins.iter().any(|(lo, hi)| v >= *lo && v < *hi)
+            })
         {
             return false;
         }
@@ -139,6 +212,38 @@ fn sample_of(s: &PointStore, i: usize) -> Sample {
         class: s.class[i],
         intensity: s.intensity[i],
         ret: s.ret[i],
+        src: s.src.get(i).copied().unwrap_or(0),
+        scan: s.scan.get(i).map_or(0.0, |v| f32::from(*v) / 10.0),
+    }
+}
+
+/// The value of an attribute of point `i` of the store.
+pub fn value_of(s: &PointStore, i: usize, kind: AttrKind) -> f64 {
+    kind.value(&sample_of(s, i))
+}
+
+/// Whether a selection looks at fields that are read from the record beyond the point.
+fn needs_extra(ops: &[SelOp]) -> bool {
+    ops.iter().any(|o| !o.attr.ranges.is_empty())
+}
+
+/// The values of a decoded record; the source and scan angle only when a rule needs them.
+fn sample_of_record(r: &Reader, rec: &[u8], p: &las::Point, extra: bool) -> Sample {
+    let (src, scan) = if extra {
+        let e = r.decode_extra(rec);
+        (e.source_id, e.scan_angle)
+    } else {
+        (0, 0.0)
+    };
+    Sample {
+        x: p.x,
+        y: p.y,
+        z: p.z,
+        class: p.class,
+        intensity: p.intensity,
+        ret: p.return_number | (p.number_of_returns << 4),
+        src,
+        scan,
     }
 }
 
@@ -290,6 +395,7 @@ pub fn save(input: &Path, output: &Path, edits: &[Edit]) -> Result<SaveReport> {
         })?),
         _ => None,
     };
+    let extra = edits.iter().any(|e| needs_extra(&e.sel));
     let (old_format, rec_len) = (r.header.format, usize::from(r.header.record_len));
     let template = match upgrade {
         Some(n) => Reader::open(input)?.upgraded(n),
@@ -307,14 +413,7 @@ pub fn save(input: &Path, output: &Path, edits: &[Edit]) -> Result<SaveReport> {
                 let Some(p) = r.decode(rec) else {
                     return (false, None);
                 };
-                let mut s = Sample {
-                    x: p.x,
-                    y: p.y,
-                    z: p.z,
-                    class: p.class,
-                    intensity: p.intensity,
-                    ret: p.return_number | (p.number_of_returns << 4),
-                };
+                let mut s = sample_of_record(&r, rec, &p, extra);
                 let mut changed = false;
                 for e in edits {
                     if selected(&e.sel, &s) {
@@ -370,25 +469,15 @@ pub fn extract_selected(input: &Path, ops: &[SelOp], output: &Path) -> Result<u6
     let r = Reader::open(input)?;
     let mut w = Writer::create(output, &r)?;
     let rec_len = usize::from(r.header.record_len);
+    let extra = needs_extra(ops);
     let mut n = 0u64;
     r.scan_raw(|bytes| {
         let recs: Vec<&[u8]> = bytes.chunks_exact(rec_len).collect();
         let keep: Vec<bool> = recs
             .par_iter()
             .map(|rec| {
-                r.decode(rec).is_some_and(|p| {
-                    selected(
-                        ops,
-                        &Sample {
-                            x: p.x,
-                            y: p.y,
-                            z: p.z,
-                            class: p.class,
-                            intensity: p.intensity,
-                            ret: p.return_number | (p.number_of_returns << 4),
-                        },
-                    )
-                })
+                r.decode(rec)
+                    .is_some_and(|p| selected(ops, &sample_of_record(&r, rec, &p, extra)))
             })
             .collect();
         for (rec, k) in recs.iter().zip(keep) {
@@ -465,7 +554,7 @@ mod tests {
             ..Attr::default()
         };
         // inside the rectangle and class 5
-        let both = [near.clone(), op(Mode::Intersect, Region::All, veg)];
+        let both = [near.clone(), op(Mode::Intersect, Region::All, veg.clone())];
         assert_eq!(selection(&s, &both), [false, true, false, false, false]);
         // all vegetation minus the rectangle
         let rest = [
@@ -557,5 +646,139 @@ mod tests {
         assert_eq!(s.deleted, [false, true, true, false, false]);
         ses.discard(&mut s);
         assert_eq!(s.class, [2, 5, 5, 1, 2]);
+    }
+
+    /// A LAS 1.2 file of point format 1 with (scan angle in degrees, point source id) per point.
+    fn las_with(points: &[(i8, u16)]) -> Vec<u8> {
+        let mut h = vec![0u8; 227];
+        h[..4].copy_from_slice(b"LASF");
+        h[24] = 1;
+        h[25] = 2;
+        h[94..96].copy_from_slice(&227u16.to_le_bytes());
+        h[96..100].copy_from_slice(&227u32.to_le_bytes());
+        h[104] = 1;
+        h[105..107].copy_from_slice(&28u16.to_le_bytes());
+        h[107..111].copy_from_slice(&(points.len() as u32).to_le_bytes());
+        for (at, v) in [(131, 0.01), (139, 0.01), (147, 0.01)] {
+            h[at..at + 8].copy_from_slice(&f64::to_le_bytes(v));
+        }
+        for (at, v) in [
+            (179, 10.0),
+            (187, 0.0),
+            (195, 10.0),
+            (203, 0.0),
+            (211, 10.0),
+            (219, 0.0),
+        ] {
+            h[at..at + 8].copy_from_slice(&f64::to_le_bytes(v));
+        }
+        for (k, &(scan, src)) in points.iter().enumerate() {
+            let mut rec = [0u8; 28];
+            rec[..4].copy_from_slice(&(100 * k as i32).to_le_bytes());
+            rec[14] = 0x09;
+            rec[15] = 1;
+            rec[16] = scan as u8;
+            rec[18..20].copy_from_slice(&src.to_le_bytes());
+            h.extend_from_slice(&rec);
+        }
+        h
+    }
+
+    #[test]
+    fn saving_applies_range_rules_on_fields_read_from_the_record() -> Result<()> {
+        // scan angles 0, 5, -4, 35, -40, 10 from passes 1, 1, 2, 1, 3, 2
+        let bytes = las_with(&[(0, 1), (5, 1), (-4, 2), (35, 1), (-40, 3), (10, 2)]);
+        let dir = std::env::temp_dir();
+        let id = std::process::id();
+        let (input, out) = (
+            dir.join(format!("rustlidar_edit_in_{id}.las")),
+            dir.join(format!("rustlidar_edit_out_{id}.las")),
+        );
+        std::fs::write(&input, &bytes)?;
+        let rule = |kind, bins: Vec<(f64, f64)>| {
+            vec![SelOp {
+                mode: Mode::New,
+                region: Region::All,
+                attr: Attr {
+                    ranges: vec![RangeSel { kind, bins }],
+                    ..Attr::default()
+                },
+            }]
+        };
+        // the odd angles: beyond ±20°
+        let steep = rule(
+            AttrKind::ScanAngle,
+            vec![(f64::NEG_INFINITY, -20.0), (20.0, f64::INFINITY)],
+        );
+        let kept = extract_selected(&input, &steep, &out)?;
+        let edit = Edit {
+            sel: steep,
+            action: Action::Delete,
+            label: "barrido".into(),
+        };
+        let del = save(&input, &out, std::slice::from_ref(&edit))?;
+        // pass 3 only
+        let only = Edit {
+            sel: rule(AttrKind::Source, vec![(3.0, 4.0)]),
+            action: Action::Reclassify(7),
+            label: "pasada".into(),
+        };
+        let re = save(&input, &out, std::slice::from_ref(&only))?;
+        let _ = std::fs::remove_file(&input);
+        let _ = std::fs::remove_file(&out);
+        assert_eq!(kept, 2);
+        assert_eq!((del.read, del.deleted, del.written), (6, 2, 4));
+        assert_eq!((re.deleted, re.reclassified), (0, 1));
+        Ok(())
+    }
+
+    #[test]
+    fn ranges_pick_the_values_inside_any_interval_of_every_attribute() {
+        let s = store();
+        let by = |kind, bins: Vec<(f64, f64)>| {
+            vec![op(
+                Mode::New,
+                Region::All,
+                Attr {
+                    ranges: vec![RangeSel { kind, bins }],
+                    ..Attr::default()
+                },
+            )]
+        };
+        // z = 1, 9, 3, 20, 1: the bar [0, 2) holds two points
+        assert_eq!(
+            selection(&s, &by(AttrKind::Z, vec![(0.0, 2.0)])),
+            [true, false, false, false, true]
+        );
+        // the tails of the odd values: below 0.5 or above 10
+        let tails = vec![(f64::NEG_INFINITY, 0.5), (10.0, f64::INFINITY)];
+        assert_eq!(
+            selection(&s, &by(AttrKind::Z, tails)),
+            [false, false, false, true, false]
+        );
+        // classes 2, 5, 5, 1, 2: bar [5, 6)
+        assert_eq!(
+            selection(&s, &by(AttrKind::Class, vec![(5.0, 6.0)])),
+            [false, true, true, false, false]
+        );
+        // two attributes must both hold
+        let both = vec![op(
+            Mode::New,
+            Region::All,
+            Attr {
+                ranges: vec![
+                    RangeSel {
+                        kind: AttrKind::Z,
+                        bins: vec![(0.0, 5.0)],
+                    },
+                    RangeSel {
+                        kind: AttrKind::Class,
+                        bins: vec![(2.0, 3.0)],
+                    },
+                ],
+                ..Attr::default()
+            },
+        )];
+        assert_eq!(selection(&s, &both), [true, false, false, false, true]);
     }
 }

@@ -74,6 +74,15 @@ pub struct TlsParams {
     pub max_height: f64,
     /// Distance (m) up to which a point is given to a stem for the clouds by tree.
     pub assign_dist: f64,
+    /// Distance (m) between the bases of stems that grow on the same stool (sprouts of a
+    /// coppice, or the branches of a fork).
+    pub stool_dist: f64,
+    /// Height (m) of the diameter. Stems that are apart at this height are sprouts of one
+    /// stool, each a tree; stems that are one below it and fork above it are one forked tree.
+    pub fork_height: f64,
+    /// Longest stretch (m) of a stem that may go unmeasured (an occlusion, foliage, a sparse
+    /// part) before it is taken as lost. The search widens with the stretch.
+    pub max_gap: f64,
 }
 
 impl Default for TlsParams {
@@ -99,6 +108,9 @@ impl Default for TlsParams {
             log_len: 0.5,
             max_height: 40.0,
             assign_dist: 8.0,
+            stool_dist: 0.6,
+            fork_height: 1.3,
+            max_gap: 2.0,
         }
     }
 }
@@ -123,6 +135,15 @@ impl TlsParams {
         }
         if !(self.min_diam > 0.0 && self.min_diam < self.max_diam) {
             return bad("the smallest diameter must be below the largest");
+        }
+        if !(self.stool_dist >= 0.0) {
+            return bad("the distance between the stems of a stool cannot be negative");
+        }
+        if !(self.fork_height > 0.0) {
+            return bad("the height of the diameter must be positive");
+        }
+        if !(self.max_gap >= 0.0) {
+            return bad("the longest gap cannot be negative");
         }
         Ok(())
     }
@@ -346,7 +367,7 @@ fn normalize(c: &mut Cloud, p: &TlsParams) -> Result<Option<Grid>> {
                 threshold: 0.25,
                 ..CsfParams::default()
             },
-        );
+        )?;
         idx.into_iter()
             .zip(flags)
             .filter_map(|(i, f)| f.then_some(i))
@@ -397,6 +418,11 @@ struct Stem {
     /// Horizontal drift of the axis per metre of height.
     slope: [f64; 2],
     n: usize,
+    /// The heights the axis was measured between. Inside them it is where the stem is, and
+    /// is trusted over a prediction from the sections already measured: that is what keeps the
+    /// branches of a fork, which share the stem below, each on its own.
+    from: f64,
+    to: f64,
 }
 
 /// Verticality of the points of `set` (the cosine between the main direction of their
@@ -521,6 +547,141 @@ fn group(xyz: &[[f32; 3]], set: &[u32], eps: f64) -> (Vec<u32>, Vec<usize>) {
     (label, sizes)
 }
 
+/// One stem followed through the levels of the stripe: (height, x, y, diameter, voxels) of its
+/// circle at each level it was found.
+/// A circle at a height: (height, x, y, diameter, voxels).
+type Circle = (f64, f64, f64, f64, usize);
+
+struct Chain {
+    at: Vec<Circle>,
+    last_level: usize,
+}
+
+impl Chain {
+    /// Where the chain's circle is expected at height `h`: its last centre carried on with the
+    /// drift between its first and last circles.
+    fn predict(&self, h: f64) -> (f64, f64) {
+        let (a, b) = (self.at[0], self.at[self.at.len() - 1]);
+        let span = b.0 - a.0;
+        if span < 1e-6 {
+            return (b.1, b.2);
+        }
+        let drift = |from: f64, to: f64| ((to - from) / span).clamp(-0.47, 0.47);
+        (
+            b.1 + drift(a.1, b.1) * (h - b.0),
+            b.2 + drift(a.2, b.2) * (h - b.0),
+        )
+    }
+
+    /// The axis the circles lie along, as a stem: a least-squares line of each coordinate on the
+    /// height.
+    fn stem(&self) -> Stem {
+        let n = self.at.len() as f64;
+        let mean = |f: &dyn Fn(&Circle) -> f64| self.at.iter().map(f).sum::<f64>() / n;
+        let (h0, x0, y0) = (mean(&|a| a.0), mean(&|a| a.1), mean(&|a| a.2));
+        let var: f64 = self.at.iter().map(|a| (a.0 - h0).powi(2)).sum();
+        let drift = |at: &dyn Fn(&Circle) -> f64, m: f64| {
+            if var < 1e-9 {
+                0.0
+            } else {
+                (self
+                    .at
+                    .iter()
+                    .map(|a| (a.0 - h0) * (at(a) - m))
+                    .sum::<f64>()
+                    / var)
+                    .clamp(-0.47, 0.47)
+            }
+        };
+        Stem {
+            c: [x0, y0],
+            h0,
+            slope: [drift(&|a| a.1, x0), drift(&|a| a.2, y0)],
+            n: self.at.iter().map(|a| a.4).sum(),
+            from: self.at[0].0,
+            to: self.at[self.at.len() - 1].0,
+        }
+    }
+}
+
+/// The circles of one group of the stripe followed from level to level: at several levels all the
+/// circles of the group are searched (several stems that touch are several circles, not one wide
+/// one), and the circles of consecutive levels that continue each other make a chain, a stem
+/// candidate.
+fn chain_candidates(c: &Cloud, ids: &[u32], p: &TlsParams) -> Vec<Chain> {
+    let (lo, hi) = (p.stripe.0 + p.slice, p.stripe.1 - p.slice);
+    let mut levels = Vec::new();
+    let mut h = lo;
+    while h <= hi + 1e-9 {
+        levels.push(h);
+        h += 0.25;
+    }
+    let mut chains: Vec<Chain> = Vec::new();
+    for (li, &h) in levels.iter().enumerate() {
+        let pts: Vec<[f32; 2]> = ids
+            .iter()
+            .filter(|&&i| (f64::from(c.z0[i as usize]) - h).abs() <= p.slice)
+            .map(|&i| [c.xyz[i as usize][0], c.xyz[i as usize][1]])
+            .collect();
+        if pts.len() < 8 {
+            continue;
+        }
+        let n = pts.len() as f64;
+        let centre = (
+            pts.iter().map(|q| f64::from(q[0])).sum::<f64>() / n,
+            pts.iter().map(|q| f64::from(q[1])).sum::<f64>() / n,
+        );
+        let mut taken = vec![false; chains.len()];
+        let fits = circles_in(&pts, centre, f64::INFINITY, p, None, 6);
+        for f in fits {
+            // the chain whose circle, carried on, is nearest, and of a like size
+            let mut best: Option<(usize, f64)> = None;
+            for (k, ch) in chains.iter().enumerate() {
+                if taken[k] || li - ch.last_level > 2 {
+                    continue;
+                }
+                let (px, py) = ch.predict(h);
+                let (away, d_last) = ((f.0 - px).hypot(f.1 - py), ch.at[ch.at.len() - 1].3);
+                if away <= 0.06 + 0.3 * f.2.max(d_last)
+                    && (0.6..=1.6).contains(&(f.2 / d_last))
+                    && best.is_none_or(|b| away < b.1)
+                {
+                    best = Some((k, away));
+                }
+            }
+            match best {
+                Some((k, _)) => {
+                    chains[k].at.push((h, f.0, f.1, f.2, f.3));
+                    chains[k].last_level = li;
+                    taken[k] = true;
+                }
+                None => {
+                    chains.push(Chain {
+                        at: vec![(h, f.0, f.1, f.2, f.3)],
+                        last_level: li,
+                    });
+                    taken.push(true);
+                }
+            }
+        }
+    }
+    chains
+}
+
+/// Whether a chain is a stem: it needs a few levels; a branch that leaves a fork inside the
+/// stripe may have only two, if it starts right above a circle of a stem that has them (`solid`,
+/// the chains of three levels or more, of any group).
+fn is_stem(ch: &Chain, solid: &[&Chain]) -> bool {
+    ch.at.len() >= 3
+        || (ch.at.len() == 2
+            && solid.iter().any(|s| {
+                s.at.iter().any(|a| {
+                    (0.0..=1.0).contains(&(ch.at[0].0 - a.0))
+                        && (a.1 - ch.at[0].1).hypot(a.2 - ch.at[0].2) < 0.5
+                })
+            }))
+}
+
 fn find_stems(c: &Cloud, p: &TlsParams) -> Vec<Stem> {
     let mut set: Vec<u32> = (0..c.xyz.len() as u32)
         .filter(|&i| {
@@ -560,8 +721,35 @@ fn find_stems(c: &Cloud, p: &TlsParams) -> Vec<Stem> {
     for (i, l) in set.iter().zip(&labels) {
         by.entry(*l).or_default().push(*i);
     }
+    let groups: Vec<Vec<u32>> = by
+        .into_values()
+        .filter(|ids| {
+            let (lo, hi) = ids.iter().fold((f64::MAX, f64::MIN), |a, &i| {
+                let z = f64::from(c.z0[i as usize]);
+                (a.0.min(z), a.1.max(z))
+            });
+            hi - lo >= p.height_range
+        })
+        .collect();
+    // the circles of every group first: a branch of a fork can be in a group of its own, apart
+    // from the stem under it, and what shows it is a branch is the stem that ends just below
+    let all: Vec<Vec<Chain>> = groups
+        .iter()
+        .map(|ids| chain_candidates(c, ids, p))
+        .collect();
+    let solid: Vec<&Chain> = all.iter().flatten().filter(|ch| ch.at.len() >= 3).collect();
     let mut stems = Vec::new();
-    for (_, ids) in by {
+    for (ids, chains) in groups.iter().zip(&all) {
+        let found: Vec<Stem> = chains
+            .iter()
+            .filter(|ch| is_stem(ch, &solid))
+            .map(Chain::stem)
+            .collect();
+        if !found.is_empty() {
+            stems.extend(found);
+            continue;
+        }
+        // no circle could be followed (stems seen only in arcs): the axis of the whole group
         let pts = ids.iter().map(|&i| {
             let q = c.xyz[i as usize];
             [
@@ -574,9 +762,6 @@ fn find_stems(c: &Cloud, p: &TlsParams) -> Vec<Stem> {
         let (zmin, zmax) = pts
             .clone()
             .fold((f64::MAX, f64::MIN), |a, q| (a.0.min(q[2]), a.1.max(q[2])));
-        if zmax - zmin < p.height_range {
-            continue;
-        }
         let mut d = principal(cov);
         if d[2] < 0.0 {
             d = [-d[0], -d[1], -d[2]];
@@ -601,6 +786,8 @@ fn find_stems(c: &Cloud, p: &TlsParams) -> Vec<Stem> {
             h0: m[2],
             slope,
             n,
+            from: zmin,
+            to: zmax,
         });
     }
     stems.sort_by(|a, b| a.c[0].total_cmp(&b.c[0]).then(a.c[1].total_cmp(&b.c[1])));
@@ -786,8 +973,11 @@ fn circumcircle(a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> Option<(f64, f64, f64)
     Some((ax + ux, ay + uy, ux.hypot(uy)))
 }
 
-/// The circle most points lie on, among `tries` through random triples: robust to branches,
-/// leaves and neighbours that are in the slice. `tol` is how far from it a point may be.
+/// The circle most of whose circumference is covered, among those through random triples:
+/// robust to branches, leaves and neighbours that are in the slice. `tol` is how far from it a
+/// point may be; `per_m` the points a full ring has for each metre of circumference. Covering
+/// is what counts, not how many points: a wide circle drawn through arcs of several stems has
+/// as many points as the ring of one stem, but covers a fraction of its own circumference.
 fn ransac_circle(
     pts: &[[f32; 2]],
     rmin: f64,
@@ -795,6 +985,7 @@ fn ransac_circle(
     guess: (f64, f64),
     reach: f64,
     tol: f64,
+    per_m: f64,
 ) -> Option<(f64, f64, f64)> {
     let n = pts.len();
     if n < 3 {
@@ -807,7 +998,7 @@ fn ransac_circle(
         state ^= state << 17;
         (state % n as u64) as usize
     };
-    let (mut best, mut best_in) = (None, 0usize);
+    let (mut best, mut best_cover) = (None, 0.0f64);
     for _ in 0..150 {
         let (i, j, k) = (next(), next(), next());
         if i == j || j == k || i == k {
@@ -823,22 +1014,77 @@ fn ransac_circle(
             .iter()
             .filter(|q| ((f64::from(q[0]) - cx).hypot(f64::from(q[1]) - cy) - r).abs() <= tol)
             .count();
-        if inliers > best_in {
-            (best, best_in) = (Some((cx, cy, r)), inliers);
+        let cover = inliers as f64 / (std::f64::consts::TAU * r * per_m);
+        if inliers >= 6 && cover > best_cover {
+            (best, best_cover) = (Some((cx, cy, r)), cover);
         }
     }
     best
 }
 
-/// Fits and checks the circle of a slice; `None` when the slice is not a stem section. `prev`
-/// is the diameter of the section before, if any: the number of points and sectors asked for
-/// follow the size of the stem.
+/// A circle found in a slice: centre, diameter, voxels that agree and sectors they occupy.
+type Fit = (f64, f64, f64, usize, usize);
+
+/// The circles of a slice, the best supported first, at most `max`. After each one the points
+/// around it are dropped, so that the circles of stems that touch (sprouts of one stool, the
+/// branches of a fork) are found one by one instead of as a single wide circle around both.
+fn circles_in(
+    pts: &[[f32; 2]],
+    guess: (f64, f64),
+    reach: f64,
+    p: &TlsParams,
+    prev: Option<f64>,
+    max: usize,
+) -> Vec<Fit> {
+    let tol = p.voxel * 0.75 + 0.004;
+    let mut rest = pts.to_vec();
+    let mut out = Vec::new();
+    for _ in 0..max {
+        let Some(f) = circle_at(&rest, guess, reach, p, prev) else {
+            break;
+        };
+        let cut = f.2 / 2.0 + tol * 2.0;
+        rest.retain(|q| (f64::from(q[0]) - f.0).hypot(f64::from(q[1]) - f.1) > cut);
+        out.push(f);
+    }
+    out
+}
+
+/// How much further (m) to look for a stem that has not been measured for `gap` metres: the
+/// drift it was carried on with is less sure the longer the stretch.
+fn widening(gap: f64) -> f64 {
+    0.06 * gap.clamp(0.0, 3.0)
+}
+
+/// The circle of a slice nearest to where the stem is expected, if the slice holds a stem
+/// section. `prev` is the diameter of the section before, if any: the number of points and
+/// sectors asked for follow the size of the stem. Choosing the nearest circle, and not the best
+/// supported, is what keeps a stem from jumping to a thicker neighbour a few centimetres away.
 fn measure(
     pts: &[[f32; 2]],
     guess: (f64, f64),
     p: &TlsParams,
     prev: Option<f64>,
-) -> Option<(f64, f64, f64, usize, usize)> {
+    gap: f64,
+) -> Option<Fit> {
+    let d_ref = prev.unwrap_or(0.3);
+    // the stem may be further from the carried-on guess the longer it has not been seen
+    let reach = (d_ref * 1.2 + 0.15).max(0.3) + widening(gap);
+    let away = |f: &Fit| (f.0 - guess.0).hypot(f.1 - guess.1);
+    circles_in(pts, guess, reach, p, prev, 3)
+        .into_iter()
+        .min_by(|a, b| away(a).total_cmp(&away(b)))
+}
+
+/// Fits and checks one circle of a slice within `reach` of `guess`; `None` when there is none
+/// that is a stem section.
+fn circle_at(
+    pts: &[[f32; 2]],
+    guess: (f64, f64),
+    reach: f64,
+    p: &TlsParams,
+    prev: Option<f64>,
+) -> Option<Fit> {
     let d_ref = prev.unwrap_or(0.3);
     // what a stem of this size gives in a slice of this thickness, at this voxel
     let expected =
@@ -853,8 +1099,17 @@ fn measure(
         return None;
     }
     let tol = p.voxel * 0.75 + 0.004;
-    let reach = (d_ref * 1.2 + 0.15).max(0.3);
-    let (cx, cy, r) = ransac_circle(pts, p.min_diam / 2.0, p.max_diam / 2.0, guess, reach, tol)?;
+    // points per metre of a full ring: the layers of voxels in the slice, over the voxel
+    let per_m = (2.0 * p.slice / p.voxel).max(1.0) / p.voxel;
+    let (cx, cy, r) = ransac_circle(
+        pts,
+        p.min_diam / 2.0,
+        p.max_diam / 2.0,
+        guess,
+        reach,
+        tol,
+        per_m,
+    )?;
     // refine on the points that agree, a few rounds, with a tolerance that follows the data
     let mut kept: Vec<[f32; 2]> = pts
         .iter()
@@ -879,7 +1134,10 @@ fn measure(
     if r * 2.0 < p.min_diam || r * 2.0 > p.max_diam {
         return None;
     }
-    if rms_residual(&kept, cx, cy, r) > (0.1 * r).max(p.voxel * 0.6) {
+    // the residual allowed grows with the stem, but only so far: a wide circle around two
+    // stems that touch has a large residual that 10 % of its radius would let through
+    let floor = p.voxel * 0.6;
+    if rms_residual(&kept, cx, cy, r) > (0.1 * r).clamp(floor, floor + 0.02) {
         return None;
     }
     let mut occupied = [false; 16];
@@ -889,12 +1147,13 @@ fn measure(
             true;
     }
     let sectors = occupied.iter().filter(|o| **o).count();
-    // a stem is a surface: little of the slice lies inside it, unless foliage does
+    // a stem is a surface: little of the slice lies inside it. A circle around two stems that
+    // touch, or around a branch with foliage, has voxels in its inner circle.
     let inner = pts
         .iter()
         .filter(|q| (f64::from(q[0]) - cx).hypot(f64::from(q[1]) - cy) < r * 0.5)
         .count();
-    (sectors >= min_sectors && inner <= p.max_inner.max(kept.len())).then_some((
+    (sectors >= min_sectors && inner <= p.max_inner).then_some((
         cx,
         cy,
         2.0 * r,
@@ -938,7 +1197,7 @@ fn track(c: &Cloud, idx: &SliceIndex, stem: &Stem, p: &TlsParams, step: f64) -> 
         let hh = h_of(j);
         let (ax, ay) = at_axis(hh);
         let pts = slice_at(ax, ay, rad0, hh);
-        if let Some(m) = measure(&pts, (ax, ay), p, None) {
+        if let Some(m) = measure(&pts, (ax, ay), p, None, 0.0) {
             first = Some((j, m));
             break;
         }
@@ -987,13 +1246,20 @@ fn track(c: &Cloud, idx: &SliceIndex, stem: &Stem, p: &TlsParams, step: f64) -> 
                 .cloned()
                 .unwrap_or_else(|| up[0].clone());
             let dh = h - last_ok.h;
-            let (px, py) = (last_ok.x + slope[0] * dh, last_ok.y + slope[1] * dh);
-            let rad = (last_ok.d * 0.75 + 0.1).min(p.max_diam);
+            // where the stem was measured, its own axis; elsewhere, the last section carried on
+            let (px, py) = if (stem.from - 0.3..=stem.to + 0.3).contains(&h) {
+                at_axis(h)
+            } else {
+                (last_ok.x + slope[0] * dh, last_ok.y + slope[1] * dh)
+            };
+            // the stretch since the last section measured: the search widens with it
+            let gap = dh.abs();
+            let rad = (last_ok.d * 0.75 + 0.1 + widening(gap)).min(p.max_diam);
             let pts = slice_at(px, py, rad, h);
-            let mut m = measure(&pts, (px, py), p, Some(last_ok.d));
+            let mut m = measure(&pts, (px, py), p, Some(last_ok.d), gap);
             // a sudden change of size or position is not a stem section
             if let Some((x, y, d, ..)) = m {
-                let jump = (x - px).hypot(y - py) > 0.15 + 0.5 * last_ok.d;
+                let jump = (x - px).hypot(y - py) > 0.15 + 0.5 * last_ok.d + widening(gap);
                 let size = (d - last_ok.d).abs() > 0.3 * last_ok.d + 0.03;
                 if jump || size {
                     m = None;
@@ -1014,30 +1280,47 @@ fn track(c: &Cloud, idx: &SliceIndex, stem: &Stem, p: &TlsParams, step: f64) -> 
                 None => fails += 1,
             }
             chain.push(mk(h, m, (px, py)));
-            if dir == 1 && (fails > 3 || thin >= 2) {
+            // lost: the stem has gone unmeasured for the longest stretch allowed (downwards the
+            // ground is near and a longer one is worth trying), or it is as thin as the top
+            if dir == 1 && (gap >= p.max_gap - 1e-9 && fails > 0 || thin >= 2) {
                 break;
             }
-            if dir == -1 && fails > 8 {
+            if dir == -1 && gap >= p.max_gap.max(2.0) - 1e-9 && fails > 0 {
                 break;
             }
         }
         up.extend(chain.into_iter().skip(1));
     }
     up.sort_by(|a, b| a.h.total_cmp(&b.h));
-    // sections that disagree with both neighbours are not stem sections
-    let ok_idx: Vec<usize> = (0..up.len()).filter(|&i| up[i].ok).collect();
-    for w in 1..ok_idx.len().saturating_sub(1) {
-        let (a, b, n) = (ok_idx[w - 1], ok_idx[w], ok_idx[w + 1]);
-        let mean = (up[a].d + up[n].d) / 2.0;
-        if (up[b].d - mean).abs() > 0.2 * mean + 0.02 && (up[b].d - up[a].d).abs() > 0.1 * up[a].d {
-            up[b].ok = false;
-        }
-    }
+    reject_outliers(&mut up);
     // trailing failures carry no information
     while up.last().is_some_and(|s| !s.ok) {
         up.pop();
     }
     up
+}
+
+/// Sections that disagree with both neighbours are not stem sections. They lose their diameter
+/// as well as their `ok`: a diameter left on a rejected section would pass for a measurement
+/// wherever the gap fill cannot replace it (a gap of more than a metre between the sections
+/// around it), and the cubing would take it in.
+fn reject_outliers(secs: &mut [Section]) {
+    let ok_idx: Vec<usize> = (0..secs.len()).filter(|&i| secs[i].ok).collect();
+    let mut rejected = Vec::new();
+    // every comparison reads the diameters as measured, so the rejections wait
+    for w in 1..ok_idx.len().saturating_sub(1) {
+        let (a, b, n) = (ok_idx[w - 1], ok_idx[w], ok_idx[w + 1]);
+        let mean = (secs[a].d + secs[n].d) / 2.0;
+        if (secs[b].d - mean).abs() > 0.2 * mean + 0.02
+            && (secs[b].d - secs[a].d).abs() > 0.1 * secs[a].d
+        {
+            rejected.push(b);
+        }
+    }
+    for b in rejected {
+        secs[b].ok = false;
+        secs[b].d = f64::NAN;
+    }
 }
 
 // ----------------------------------------------------------------------------- cubing
@@ -1050,6 +1333,8 @@ pub struct Log {
     pub d_to: f64,
     /// Smalian's volume, m³.
     pub volume: f64,
+    /// 0 for the stem, 1 and up for each branch above a fork.
+    pub branch: u8,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1067,7 +1352,7 @@ fn area(d: f64) -> f64 {
 }
 
 /// Diameter at height `h` interpolated linearly in `profile` (ascending heights).
-fn diam_at(profile: &[(f64, f64)], h: f64) -> Option<f64> {
+pub(crate) fn diam_at(profile: &[(f64, f64)], h: f64) -> Option<f64> {
     let (first, last) = (profile.first()?, profile.last()?);
     if h < first.0 - 1e-9 || h > last.0 + 1e-9 {
         return None;
@@ -1120,6 +1405,7 @@ pub fn smalian(profile: &[(f64, f64)], base: f64, log_len: f64, top_d: f64) -> C
                     d_from: d,
                     d_to: dn,
                     volume: v,
+                    branch: 0,
                 });
                 out.volume += v;
             }
@@ -1150,6 +1436,7 @@ pub fn smalian(profile: &[(f64, f64)], base: f64, log_len: f64, top_d: f64) -> C
                 d_from: d,
                 d_to: top_d,
                 volume: v,
+                branch: 0,
             });
             out.volume += v;
         }
@@ -1182,6 +1469,13 @@ pub struct TreeResult {
     pub flags: String,
     /// Axis through (x, y) at the base with this horizontal drift per metre (for clouds by tree).
     pub slope: [f64; 2],
+    /// The stool this stem grows on (the same number for the sprouts of one stool) and how many
+    /// sprouts it has: 1 for a stem on its own.
+    pub stool: u32,
+    pub sprouts: u32,
+    /// Height of the fork, for a tree that forks above the height of the diameter (1.3 m): its
+    /// stem below is one, and each branch above is cubed apart.
+    pub fork_h: Option<f64>,
 }
 
 #[derive(Clone, Debug)]
@@ -1293,10 +1587,14 @@ pub fn analyse(input: &Path, p: &TlsParams) -> Result<TlsResult> {
         })
         .collect();
     crate::check_cancel()?;
-    let mut trees: Vec<TreeResult> = measured.into_iter().flatten().collect();
+    let mut trees = crate::stools::resolve(measured.into_iter().flatten().collect(), p);
     trees.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
+    // numbers: the trees in order, and the stools in the order their first tree comes
+    let mut stools: HashMap<u32, u32> = HashMap::new();
     for (k, t) in trees.iter_mut().enumerate() {
         t.id = k as u32 + 1;
+        let next = stools.len() as u32 + 1;
+        t.stool = *stools.entry(t.stool).or_insert(next);
     }
     Ok(TlsResult {
         trees,
@@ -1391,6 +1689,9 @@ fn build_tree(
         sections: secs,
         flags: flags.join(" "),
         slope,
+        stool: 0,
+        sprouts: 1,
+        fork_h: None,
     }
 }
 
@@ -1425,6 +1726,9 @@ fn tree_table(r: &TlsResult, p: &TlsParams) -> (Vec<[f64; 3]>, Table) {
         ("CALIDAD".into(), ColKind::Num(5, 0)),
         ("AVISOS".into(), ColKind::Text(40)),
         ("Date".into(), ColKind::Text(10)),
+        ("CEPA".into(), ColKind::Num(6, 0)),
+        ("BROTES".into(), ColKind::Num(3, 0)),
+        ("H_BIF".into(), ColKind::Num(6, 2)),
     ];
     let mut pts = Vec::new();
     let mut rows = Vec::new();
@@ -1463,6 +1767,9 @@ fn tree_table(r: &TlsResult, p: &TlsParams) -> (Vec<[f64; 3]>, Table) {
             Val::Num(t.quality.round()),
             Val::Text(t.flags.clone()),
             Val::Text(r.date.clone().unwrap_or_default()),
+            Val::Int(i64::from(t.stool)),
+            Val::Int(i64::from(t.sprouts)),
+            t.fork_h.map_or(Val::Text(String::new()), Val::Num),
         ]);
     }
     (
@@ -1530,6 +1837,7 @@ pub fn write_results(
             ("D_HASTA_CM".into(), ColKind::Num(7, 1)),
             ("LONG_M".into(), ColKind::Num(6, 2)),
             ("VOL_M3".into(), ColKind::Num(9, 5)),
+            ("RAMA".into(), ColKind::Num(3, 0)),
         ],
         rows: Vec::new(),
     };
@@ -1544,6 +1852,7 @@ pub fn write_results(
                 Val::Num(l.d_to * 100.0),
                 Val::Num(l.to - l.from),
                 Val::Num(l.volume),
+                Val::Int(i64::from(l.branch)),
             ]);
         }
     }
@@ -1686,8 +1995,23 @@ pub fn run(job: &TlsJob) -> Result<String> {
 /// One line about the run.
 pub fn summary(r: &TlsResult, out: &Path) -> String {
     let vol: f64 = r.trees.iter().map(|t| t.cubing.volume).sum();
+    let stools = r
+        .trees
+        .iter()
+        .filter(|t| t.sprouts > 1)
+        .map(|t| t.stool)
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    let forked = r.trees.iter().filter(|t| t.fork_h.is_some()).count();
+    let mut extra = String::new();
+    if stools > 0 {
+        extra.push_str(&format!(", {stools} cepas con varios brotes"));
+    }
+    if forked > 0 {
+        extra.push_str(&format!(", {forked} bifurcados"));
+    }
     format!(
-        "{} árboles cubicados, {:.3} m³ en total ({} puntos leídos, {} vóxeles): {}",
+        "{} árboles cubicados{extra}, {:.3} m³ en total ({} puntos leídos, {} vóxeles): {}",
         r.trees.len(),
         vol,
         r.points_read,
@@ -1747,6 +2071,86 @@ mod tests {
             .collect();
         let (x, y, r) = fit_circle(&pts).unwrap_or_default();
         assert!((x - 3.0).abs() < 1e-4 && (y - 5.0).abs() < 1e-4 && (r - 0.2).abs() < 1e-4);
+    }
+
+    fn sec(h: f64, d: f64) -> Section {
+        Section {
+            h,
+            x: 0.0,
+            y: 0.0,
+            d,
+            ok: d.is_finite(),
+            points: 30,
+            sectors: 12,
+        }
+    }
+
+    #[test]
+    fn a_rejected_section_loses_its_diameter() {
+        // 0.50 m between 0.30 and 0.28 disagrees with both, and the sections that could have
+        // filled its place fail: the metre and a half around it is a gap the fill leaves alone
+        let mut s = vec![
+            sec(1.0, 0.30),
+            sec(1.5, 0.50),
+            sec(1.75, f64::NAN),
+            sec(2.5, f64::NAN),
+            sec(3.0, 0.28),
+        ];
+        reject_outliers(&mut s);
+        assert!(!s[1].ok && s[1].d.is_nan());
+        assert!(s[0].ok && s[0].d == 0.30 && s[4].ok && s[4].d == 0.28);
+        // nothing of the section is left to be taken as a measurement
+        assert!(s.iter().filter(|x| x.ok || x.d.is_finite()).count() == 2);
+    }
+
+    #[test]
+    fn rejections_are_decided_on_the_diameters_as_measured() {
+        // 0.50 and then 0.31: if rejecting the first erased its diameter before the second was
+        // compared, the second would be compared with NaN. Both are judged on the originals.
+        let mut s = vec![
+            sec(1.0, 0.30),
+            sec(1.25, 0.50),
+            sec(1.5, 0.31),
+            sec(1.75, 0.30),
+        ];
+        reject_outliers(&mut s);
+        assert!(!s[1].ok);
+        assert!(s[2].ok && s[2].d == 0.31);
+    }
+
+    /// Voxels of a ring of radius `r` centred at `(cx, cy)`, every 2 cm, in two layers.
+    fn ring(cx: f64, cy: f64, r: f64) -> Vec<[f32; 2]> {
+        let n = (std::f64::consts::TAU * r / 0.02).round() as usize;
+        (0..n * 5)
+            .map(|k| {
+                let a = (k % n) as f64 * std::f64::consts::TAU / n as f64;
+                [(cx + r * a.cos()) as f32, (cy + r * a.sin()) as f32]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn circles_of_stems_that_touch_are_found_one_by_one() {
+        let p = TlsParams {
+            voxel: 0.02,
+            ..TlsParams::default()
+        };
+        for r in [0.08, 0.12, 0.15, 0.25] {
+            let found = circles_in(&ring(1.0, 2.0, r), (1.0, 2.0), f64::INFINITY, &p, None, 6);
+            assert_eq!(found.len(), 1, "r = {r}");
+            assert!(
+                (found[0].2 - 2.0 * r).abs() < 0.01,
+                "r = {r}: {:?}",
+                found[0]
+            );
+        }
+        // two sprouts 35 cm apart
+        let mut two = ring(0.0, 0.0, 0.08);
+        two.extend(ring(0.35, 0.0, 0.08));
+        assert_eq!(
+            circles_in(&two, (0.2, 0.0), f64::INFINITY, &p, None, 6).len(),
+            2
+        );
     }
 
     #[test]

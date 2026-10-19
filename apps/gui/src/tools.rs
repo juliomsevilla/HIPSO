@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use eframe::egui;
+use rustlidar_core::axelsson::AxelssonParams;
 use rustlidar_core::buildings::BuildingParams;
 use rustlidar_core::csf::CsfParams;
 use rustlidar_core::export::{self, AsciiJob, Item};
@@ -19,6 +20,7 @@ use rustlidar_core::noise::NoiseParams;
 use rustlidar_core::paths;
 use rustlidar_core::pipeline::{Ground, Noise, PitFree, Steps, Surface, Tiling};
 use rustlidar_core::pmf::PmfParams;
+use rustlidar_core::rules::ClassRule;
 use rustlidar_core::trees::{CrownParams, Segmenter, Shape, Smoothing, TopParams};
 use rustlidar_core::vector::{self, Polygon, Region, Shape2};
 
@@ -57,6 +59,7 @@ pub enum ToolId {
     Fit,
     Swath,
     Dsm,
+    Volume,
 }
 
 impl ToolId {
@@ -77,6 +80,7 @@ impl ToolId {
             ToolId::Fit => "Ajustar una nube a otra",
             ToolId::Swath => "Separación entre pasadas",
             ToolId::Dsm => "Modelo digital de superficie (MDS)",
+            ToolId::Volume => "Volúmenes respecto al MDT",
         }
     }
 }
@@ -196,7 +200,64 @@ enum GroundChoice {
     Mcc,
     Csf,
     Pmf,
+    Axelsson,
     Classes,
+}
+
+/// A rule on the echo and the scan angle as the window shows it.
+#[derive(Clone)]
+struct RuleRow {
+    on: bool,
+    /// Classes it looks at; empty: all but noise.
+    from: String,
+    /// Single, first of several, intermediate, last of several.
+    echo: [bool; 4],
+    angle_on: bool,
+    /// Absolute scan angle from and to, degrees.
+    angle: (f64, f64),
+    to: f64,
+}
+
+impl RuleRow {
+    fn new(echo: [bool; 4], angle_on: bool, from: &str, to: f64) -> Self {
+        Self {
+            on: false,
+            from: from.into(),
+            echo,
+            angle_on,
+            angle: (25.0, 90.0),
+            to,
+        }
+    }
+
+    /// The rules the window starts with, all off.
+    fn defaults() -> Vec<Self> {
+        vec![
+            // steep scan angles: less accurate, kept out of the ground and the surfaces
+            Self::new([true; 4], true, "", 12.0),
+            // the first echoes of pulses that gave several, not yet classified: canopy
+            Self::new([false, true, false, false], false, "1", 5.0),
+            Self::new([true; 4], false, "", 1.0),
+        ]
+    }
+
+    fn rule(&self) -> Option<ClassRule> {
+        if !self.on {
+            return None;
+        }
+        let mut rule = ClassRule::new(self.to as u8);
+        if !self.from.trim().is_empty() {
+            rule.from = ClassSel::parse(&self.from).ok()?.set;
+        }
+        if self.echo.iter().any(|e| *e) {
+            rule.returns = ReturnSel {
+                kinds: self.echo,
+                numbers: 0,
+            };
+        }
+        rule.angle = self.angle_on.then_some(self.angle);
+        Some(rule)
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -220,6 +281,8 @@ pub struct Tools {
     mcc: MccParams,
     csf: CsfParams,
     pmf: PmfParams,
+    ax: AxelssonParams,
+    rule_rows: Vec<RuleRow>,
     noise: NoiseChoice,
     np: NoiseParams,
     sor_k: usize,
@@ -312,6 +375,8 @@ impl Default for Tools {
             mcc: MccParams::default(),
             csf: CsfParams::default(),
             pmf: PmfParams::default(),
+            ax: AxelssonParams::default(),
+            rule_rows: RuleRow::defaults(),
             noise: NoiseChoice::None,
             np: NoiseParams::default(),
             sor_k: 10,
@@ -384,6 +449,38 @@ impl Default for Tools {
             in_chm: FoundPath::default(),
         }
     }
+}
+
+/// The parameters of the progressive TIN ground filter (Axelsson).
+fn axelsson_fields(ui: &mut egui::Ui, p: &mut AxelssonParams) {
+    num(
+        ui,
+        "Celda de las semillas (m): mayor que el edificio más grande",
+        &mut p.seed_cell,
+        1.0..=500.0,
+        1.0,
+    );
+    num(
+        ui,
+        "Ángulo de iteración (°)",
+        &mut p.iter_angle,
+        0.5..=45.0,
+        0.5,
+    );
+    num(
+        ui,
+        "Distancia de iteración (m)",
+        &mut p.iter_dist,
+        0.05..=10.0,
+        0.05,
+    );
+    num(
+        ui,
+        "Tolerancia llana (m): cerca del plano es suelo",
+        &mut p.flat_tolerance,
+        0.0..=1.0,
+        0.01,
+    );
 }
 
 fn num(
@@ -464,10 +561,12 @@ impl Tools {
                 GroundChoice::Mcc => Ground::Mcc(self.mcc.clone()),
                 GroundChoice::Csf => Ground::Csf(self.csf.clone()),
                 GroundChoice::Pmf => Ground::Pmf(self.pmf.clone()),
+                GroundChoice::Axelsson => Ground::Axelsson(self.ax.clone()),
                 GroundChoice::Classes => Ground::Classes,
             },
             buildings: self.buildings.then(|| self.bp.clone()),
             extras: self.extras(),
+            rules: self.rule_rows.iter().filter_map(RuleRow::rule).collect(),
         }
     }
 
@@ -502,6 +601,7 @@ impl Tools {
             GroundChoice::Mcc => "_mcc",
             GroundChoice::Csf => "_csf",
             GroundChoice::Pmf => "_pmf",
+            GroundChoice::Axelsson => "_axelsson",
             GroundChoice::Classes => "_clase2",
         }
     }
@@ -652,6 +752,7 @@ impl Tools {
                             ToolId::Fit => self.fit_form(ui, t),
                             ToolId::Swath => self.swath_form(ui, t),
                             ToolId::Dsm => self.dsm_form(ui, t, inputs),
+                            ToolId::Volume => self.volume_form(ui, t, inputs, aois),
                             ToolId::Trees => self.trees_form(ui, t),
                             ToolId::Clip => self.plots_form(ui, t, aois),
                             ToolId::Export => self.export_form(ui),
@@ -696,6 +797,10 @@ impl Tools {
                     (GroundChoice::Mcc, "MCC (curvatura multiescala)"),
                     (GroundChoice::Csf, "CSF (simulación de tela)"),
                     (GroundChoice::Pmf, "PMF (morfológico progresivo)"),
+                    (
+                        GroundChoice::Axelsson,
+                        "Axelsson (TIN progresivo, ángulo y distancia)",
+                    ),
                     (GroundChoice::Classes, "Clase 2 existente"),
                 ];
                 egui::ComboBox::from_label("Método")
@@ -758,9 +863,58 @@ impl Tools {
                         );
                         num(ui, "Pendiente", &mut self.pmf.slope, 0.0..=10.0, 0.1);
                     }
+                    GroundChoice::Axelsson => {
+                        axelsson_fields(ui, &mut self.ax);
+                    }
                     GroundChoice::Classes => {}
                 }
             });
+        egui::CollapsingHeader::new("Reglas por eco y ángulo").show(ui, |ui| {
+            ui.label(egui::RichText::new("Cambian la clase de los puntos según el eco del pulso y el ángulo de barrido, al final y en orden. Los puntos con ángulo grande son menos exactos; los primeros ecos de pulsos con varios retornos son copa y bordes. El ruido (7 y 18) no se toca salvo que lo pidas en «De clases».").size(11.0));
+            for (k, row) in self.rule_rows.iter_mut().enumerate() {
+                ui.separator();
+                ui.checkbox(&mut row.on, format!("Regla {}", k + 1));
+                if !row.on {
+                    continue;
+                }
+                ui.horizontal(|ui| {
+                    ui.label("De clases");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut row.from)
+                            .hint_text("todas menos ruido; p. ej. 1,2 o ~7")
+                            .desired_width(190.0),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Eco");
+                    for (e, name) in ["Único", "Primero", "Intermedio", "Último"]
+                        .iter()
+                        .enumerate()
+                    {
+                        ui.checkbox(&mut row.echo[e], *name);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut row.angle_on, "Ángulo |a| de");
+                    ui.add_enabled(
+                        row.angle_on,
+                        egui::DragValue::new(&mut row.angle.0)
+                            .range(0.0..=90.0)
+                            .speed(0.5)
+                            .suffix("°"),
+                    );
+                    ui.label("a");
+                    ui.add_enabled(
+                        row.angle_on,
+                        egui::DragValue::new(&mut row.angle.1)
+                            .range(0.0..=180.0)
+                            .speed(0.5)
+                            .suffix("°"),
+                    );
+                });
+                num(ui, "A la clase", &mut row.to, 0.0..=255.0, 1.0);
+            }
+        });
         egui::CollapsingHeader::new("Ruido").show(ui, |ui| {
             ui.radio_value(&mut self.noise, NoiseChoice::None, "Sin filtro");
             ui.radio_value(
@@ -1129,6 +1283,7 @@ impl Tools {
                 return self.build_sheets(tool, inputs, log);
             }
             ToolId::Clip => return self.build_clip(inputs, aois, log),
+            ToolId::Volume => return self.build_volume(inputs, aois, log),
             ToolId::Thin
             | ToolId::Tls
             | ToolId::Dups
@@ -1180,6 +1335,7 @@ impl Tools {
             | ToolId::Fit
             | ToolId::Swath
             | ToolId::Dsm
+            | ToolId::Volume
             | ToolId::Clip => return None,
             ToolId::Trees => {
                 let chm = self.in_chm.path();

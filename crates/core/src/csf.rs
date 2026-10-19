@@ -8,6 +8,10 @@
 //! memory: run it on tiles of bounded size.
 
 use crate::las::Point;
+use crate::{Error, Result};
+
+/// Most particles the cloth may have (8 bytes of height and 8 more of position each).
+const MAX_PARTICLES: f64 = (1u64 << 27) as f64;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CsfParams {
@@ -41,12 +45,16 @@ const DAMPING: f64 = 0.01;
 /// The cloth has settled when no particle moves more than this in a step.
 const SETTLED: f64 = 0.005;
 
-/// Which points are ground. Noise and withheld points are never ground and take no part.
-pub fn ground(pts: &[Point], p: &CsfParams) -> Vec<bool> {
+/// Which points are ground. Noise and withheld points are never ground and take no part. A
+/// cloth too fine for the extent of the cloud is an error, not an empty result.
+pub fn ground(pts: &[Point], p: &CsfParams) -> Result<Vec<bool>> {
     let mut out = vec![false; pts.len()];
     let valid: Vec<usize> = (0..pts.len()).filter(|&i| !pts[i].is_noise()).collect();
-    if valid.is_empty() || !(p.resolution > 0.0) {
-        return out;
+    if valid.is_empty() {
+        return Ok(out);
+    }
+    if !(p.resolution > 0.0) {
+        return Err(Error::Param("the cloth resolution must be positive".into()));
     }
     let (mut x0, mut y0, mut x1, mut y1, mut top) = (
         f64::INFINITY,
@@ -63,12 +71,16 @@ pub fn ground(pts: &[Point], p: &CsfParams) -> Vec<bool> {
     // A cloth two particles wider than the cloud on every side.
     let r = p.resolution;
     let (ox, oy) = (x0 - 2.0 * r, y0 - 2.0 * r);
-    let cols = ((x1 - ox) / r).ceil() as usize + 3;
-    let rows = ((y1 - oy) / r).ceil() as usize + 3;
-    let n = cols * rows;
-    if n > 1 << 27 {
-        return out;
+    // counted in floating point first: a huge extent over a tiny resolution would overflow
+    // the integer product and give a small, wrong cloth
+    let (cols_f, rows_f) = (((x1 - ox) / r).ceil() + 3.0, ((y1 - oy) / r).ceil() + 3.0);
+    if !(cols_f * rows_f <= MAX_PARTICLES) {
+        return Err(Error::Param(format!(
+            "the cloth resolution of {r} m is too fine for this area ({cols_f} x {rows_f} particles): use a larger resolution or smaller tiles"
+        )));
     }
+    let (cols, rows) = (cols_f as usize, rows_f as usize);
+    let n = cols * rows;
     // Each particle's collision height: the highest inverted point nearest it.
     let mut ihv = vec![f64::NEG_INFINITY; n];
     let node = |x: f64, y: f64| -> usize {
@@ -154,7 +166,7 @@ pub fn ground(pts: &[Point], p: &CsfParams) -> Vec<bool> {
             + (at(c, rr + 1) * (1.0 - tx) + at(c + 1, rr + 1) * tx) * ty;
         out[i] = (s - -q.z).abs() < p.threshold;
     }
-    out
+    Ok(out)
 }
 
 /// Gives particles with no point the nearest collision height along their row or column,
@@ -199,8 +211,58 @@ fn fill_scanline(v: &mut [f64], cols: usize, rows: usize) {
 mod tests {
     use super::*;
 
+    fn pt(x: f64, y: f64, z: f64) -> Point {
+        Point {
+            x,
+            y,
+            z,
+            ..Default::default()
+        }
+    }
+
     #[test]
-    fn a_cloth_settles_on_the_ground_under_a_tree() {
+    fn a_cloth_too_fine_for_the_area_is_an_error_not_an_empty_result() {
+        // 20 km across at 1 cm: 4·10¹² particles
+        let pts = [pt(0.0, 0.0, 1.0), pt(20_000.0, 20_000.0, 1.0)];
+        let p = CsfParams {
+            resolution: 0.01,
+            ..CsfParams::default()
+        };
+        assert!(matches!(ground(&pts, &p), Err(Error::Param(_))));
+        // an extent so large that the particle count cannot even be an integer
+        let far = [pt(0.0, 0.0, 1.0), pt(1e300, 1e300, 1.0)];
+        let p = CsfParams {
+            resolution: 1e-6,
+            ..CsfParams::default()
+        };
+        assert!(matches!(ground(&far, &p), Err(Error::Param(_))));
+    }
+
+    #[test]
+    fn a_resolution_that_is_not_positive_is_an_error() {
+        let pts = [pt(0.0, 0.0, 1.0)];
+        for r in [0.0, -1.0, f64::NAN] {
+            let p = CsfParams {
+                resolution: r,
+                ..CsfParams::default()
+            };
+            assert!(matches!(ground(&pts, &p), Err(Error::Param(_))), "{r}");
+        }
+        // no points take no part: nothing to complain about
+        assert!(
+            ground(
+                &[],
+                &CsfParams {
+                    resolution: 0.0,
+                    ..CsfParams::default()
+                }
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn a_cloth_settles_on_the_ground_under_a_tree() -> Result<()> {
         let mut pts = Vec::new();
         for i in 0..60 {
             for j in 0..60 {
@@ -222,8 +284,9 @@ mod tests {
                 });
             }
         }
-        let g = ground(&pts, &CsfParams::default());
+        let g = ground(&pts, &CsfParams::default())?;
         assert!(g[..3600].iter().filter(|g| **g).count() > 3500);
         assert!(g[3600..].iter().all(|g| !g));
+        Ok(())
     }
 }

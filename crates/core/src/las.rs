@@ -51,6 +51,8 @@ pub struct Point {
     pub number_of_returns: u8,
     pub class: u8,
     pub withheld: bool,
+    /// Scan angle in degrees, positive to one side of the flight line (0 when the file has none).
+    pub scan_angle: f32,
 }
 
 impl Point {
@@ -434,6 +436,12 @@ pub(crate) fn decode(h: &Header, rec: &[u8]) -> Option<Point> {
         let b15 = *rec.get(15)?;
         (b14 & 0x07, (b14 >> 3) & 0x07, b15 & 0x1F, b15 & 0x80 != 0)
     };
+    // legacy formats keep whole degrees; 1.4 formats steps of 0.006 degrees
+    let scan_angle = if h.format >= 6 {
+        f32::from(u16_at(rec, 18).unwrap_or(0) as i16) * 0.006
+    } else {
+        f32::from(rec.get(16).copied().unwrap_or(0) as i8)
+    };
     Some(Point {
         x: c(0)?,
         y: c(1)?,
@@ -443,6 +451,7 @@ pub(crate) fn decode(h: &Header, rec: &[u8]) -> Option<Point> {
         number_of_returns,
         class,
         withheld,
+        scan_angle,
     })
 }
 

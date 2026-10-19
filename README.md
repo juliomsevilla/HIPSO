@@ -52,18 +52,20 @@ Todas las versiones están en la página de [Releases](https://github.com/juliom
 - Navegación 3D libre: giro sin tope, desplazamiento en el plano de la pantalla, zoom con la rueda, encuadre con doble clic.
 - Colorear por elevación, clase, intensidad, retorno, pasada, archivo o RGB.
 - **Edición por selecciones** (rectángulo, círculo, polígono, en planta o en perfil) con filtros por clase, altura, intensidad y retorno; eliminar o reclasificar; deshacer, rehacer e historial. El original nunca se modifica.
+- **Histogramas de atributos** (elevación, intensidad, retornos, clase, pasada, ángulo de barrido): se marcan barras para seleccionar los puntos, o se detectan los valores raros con un estadístico (Tukey, MAD, desviaciones típicas, percentiles).
 - **Clases ASPRS 0–255:** la tabla vigente y clases nuevas propias (64–255) con nombre y color.
 
 ### Procesar
 
 | Grupo | Herramientas |
 |---|---|
-| Preparar | Información de los datos · Asignar proyección · **Adelgazar nube** (densidad objetivo, celdas, percentil, 3D, uno de cada n) · Clasificar: ruido, suelo (Kraus y Pfeifer, MCC, CSF, PMF), edificios, vegetación por estratos, cables y postes |
+| Preparar | Información de los datos · Asignar proyección · **Adelgazar nube** (densidad objetivo, celdas, percentil, 3D, uno de cada n) · Clasificar: ruido, suelo (Kraus y Pfeifer, MCC, CSF, PMF, **Axelsson**), edificios, vegetación por estratos, cables y postes, **reglas por eco y ángulo de barrido** |
 | Superficies | MDT (triangulación por defecto, ponderado por distancia o media por celda) · MDS (triangulación por defecto, ponderado por distancia o máximo por celda) · CHM (con *pit-free* y suavizado) |
 | Inventario | Métricas de rodal · Segmentación de árboles (Dalponte, Silva, cuencas, ventana variable) con evaluación frente a campo |
 | Recorte y salida | Parcelas (de archivo, muestreo o dibujadas) · Exportar puntos |
 | Calidad y comparación | Quitar duplicados · **Comparar nubes** (cambios) · **Ajustar una nube a otra** (ICP) · Separación entre pasadas |
 | **TLS** | **Cubicar árboles**: mide diámetros a lo largo del tronco y cubica con Smalian |
+| **Volúmenes** | Volumen sobre (y bajo) el MDT, desde el CHM o el MDS, por ráster completo, AOI o polígonos |
 
 ### Cubicación de árboles (TLS)
 

@@ -37,10 +37,14 @@ pub fn info(paths: &[PathBuf]) -> Result<String> {
 }
 
 fn report(r: &pipeline::Report) -> String {
-    format!(
+    let mut text = format!(
         "{} points in {} tiles: {} ground, {} noise, {} buildings, {} high vegetation",
         r.points, r.tiles, r.ground, r.noise, r.buildings, r.vegetation
-    )
+    );
+    if r.rules > 0 {
+        text.push_str(&format!(", {} changed by rules", r.rules));
+    }
+    text
 }
 
 #[derive(Clone, Debug, PartialEq)]

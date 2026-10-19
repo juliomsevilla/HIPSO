@@ -5,6 +5,7 @@
 
 mod classtable;
 mod editing;
+mod histo;
 mod layer_tabs;
 mod layers;
 mod manual;
@@ -59,13 +60,101 @@ fn app_icon() -> egui::IconData {
     })
 }
 
+/// The graphics adapters wgpu sees. A "Cpu" one is the software adapter (Windows' Basic Render
+/// Driver, llvmpipe): it draws, but with the processor, and slowly.
+fn gpu_adapters() -> Vec<eframe::egui_wgpu::wgpu::AdapterInfo> {
+    use eframe::egui_wgpu::wgpu;
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()))
+        .iter()
+        .map(wgpu::Adapter::get_info)
+        .collect()
+}
+
+/// Which renderer draws the interface: wgpu (the default) when a graphics card can be used
+/// through DirectX 12, Vulkan or Metal; otherwise OpenGL (glow). Old drivers (an Intel HD of
+/// 2015) have no DirectX 12 or Vulkan, so wgpu offers only the software adapter there, which is
+/// slow, and its OpenGL backend does not start on them; the OpenGL of glow does.
+/// `EASYLIDAR_RENDERER=glow` or `wgpu` forces one, and a `WGPU_BACKEND` is left to wgpu.
+fn choose_renderer() -> eframe::Renderer {
+    match std::env::var("EASYLIDAR_RENDERER").as_deref() {
+        Ok("glow") => return eframe::Renderer::Glow,
+        Ok("wgpu") => return eframe::Renderer::Wgpu,
+        _ => {}
+    }
+    if std::env::var_os("WGPU_BACKEND").is_some() {
+        return eframe::Renderer::Wgpu;
+    }
+    use eframe::egui_wgpu::wgpu::{Backend, DeviceType};
+    let hardware = gpu_adapters()
+        .iter()
+        .any(|a| a.device_type != DeviceType::Cpu && a.backend != Backend::Gl);
+    if hardware {
+        eframe::Renderer::Wgpu
+    } else {
+        eframe::Renderer::Glow
+    }
+}
+
+fn renderer_name(r: eframe::Renderer) -> &'static str {
+    match r {
+        eframe::Renderer::Glow => "OpenGL (glow)",
+        eframe::Renderer::Wgpu => "wgpu",
+    }
+}
+
+/// The renderer in use, for the diagnostics.
+static RENDERER: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
 fn main() -> eframe::Result {
+    if std::env::args().any(|a| a == "--gpu-info") {
+        for i in gpu_adapters() {
+            eprintln!(
+                "{} · {:?} · {:?} · driver {} {}",
+                i.name, i.backend, i.device_type, i.driver, i.driver_info
+            );
+        }
+        eprintln!("se usaría: {}", renderer_name(choose_renderer()));
+        return Ok(());
+    }
+    // Without a console (windows_subsystem) a panic at start-up would close the app in silence.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_hook(info);
+        if std::thread::current().name() == Some("main") {
+            rfd::MessageDialog::new()
+                .set_level(rfd::MessageLevel::Error)
+                .set_title("EasyLiDAR")
+                .set_description(format!(
+                    "EasyLiDAR se ha cerrado por un error.
+
+{info}
+
+Si es de gráficos, prueba                      a definir la variable de entorno EASYLIDAR_RENDERER con glow o wgpu."
+                ))
+                .show();
+        }
+    }));
+    let first = choose_renderer();
+    match run(first) {
+        // the one chosen did not start: the other
+        Err(_) => run(match first {
+            eframe::Renderer::Glow => eframe::Renderer::Wgpu,
+            eframe::Renderer::Wgpu => eframe::Renderer::Glow,
+        }),
+        r => r,
+    }
+}
+
+fn run(renderer: eframe::Renderer) -> eframe::Result {
+    let _ = RENDERER.set(renderer_name(renderer));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1360.0, 860.0])
             .with_min_inner_size([900.0, 560.0])
             .with_icon(app_icon())
             .with_title("EasyLiDAR"),
+        renderer,
         ..Default::default()
     };
     eframe::run_native(
@@ -211,6 +300,10 @@ struct App {
     snap_plan: Option<(f64, f64, f64)>,
     snap_orbit: Option<(f64, f64, f64)>,
     dark: bool,
+    /// The system's theme was not known at start-up: take it from the first frame.
+    theme_pending: bool,
+    /// `--bench`: frames drawn, for measuring the renderer (see `ui`).
+    bench: Option<(Instant, u64)>,
     tab: usize,
     nav: Nav,
     layout: Layout,
@@ -286,6 +379,8 @@ impl Default for App {
             snap_plan: None,
             snap_orbit: None,
             dark: true,
+            theme_pending: true,
+            bench: None,
             tab: 0,
             nav: Nav::Zoom,
             layout: Layout::Plan,
@@ -411,6 +506,14 @@ fn is_cloud(p: &Path) -> bool {
 }
 
 impl App {
+    /// Dark or light: the interface and the background of the views.
+    fn set_theme(&mut self, ctx: &egui::Context, dark: bool) {
+        self.dark = dark;
+        theme::apply(ctx, &self.tokens());
+        self.style.background = if dark { [18, 21, 26] } else { [221, 225, 231] };
+        self.colors_rev += 1;
+    }
+
     fn tokens(&self) -> Tokens {
         if self.dark { theme::DARK } else { theme::LIGHT }
     }
@@ -428,6 +531,11 @@ impl App {
                 egui::ColorImage::from_rgba_unmultiplied(size, &rgba),
                 egui::TextureOptions::LINEAR,
             ));
+        }
+        // the theme the system uses; when it is not known yet, the first frame sets it
+        if let Some(theme) = ctx.system_theme() {
+            self.dark = theme != egui::Theme::Light;
+            self.theme_pending = false;
         }
         let mut it = args.into_iter();
         let mut files = Vec::new();
@@ -492,6 +600,8 @@ impl App {
                     }
                 }
                 "--rs" => self.rs.open = true,
+                "--histogram" => self.ed.hist.open = true,
+                "--bench" => self.bench = Some((Instant::now(), 0)),
                 "--table" => self.table_layer = Some(0),
                 "--ndvi" => self.rs.compute_at_start = true,
                 "--newlayer" => self.new_layer = Some(layers::NewLayerDlg::default()),
@@ -544,12 +654,20 @@ impl App {
                     }
                 }
                 "--contours" => self.contours_on = true,
-                "--light" => self.dark = false,
+                "--light" => {
+                    self.dark = false;
+                    self.theme_pending = false;
+                }
                 "--side-info" => self.side = Side::Info,
                 "--side-edit" => self.side = Side::Edit,
                 _ => files.push(PathBuf::from(a)),
             }
         }
+        self.style.background = if self.dark {
+            [18, 21, 26]
+        } else {
+            [221, 225, 231]
+        };
         for f in files {
             self.open_path(ctx, f, true);
         }
@@ -707,6 +825,7 @@ impl App {
                     st.classes = self.style.classes;
                     st.returns = self.style.returns;
                     st.class_colors = self.style.class_colors;
+                    st.background = self.style.background;
                     self.style = st;
                     self.plan_fit = true;
                     self.orbit = Orbit {
@@ -718,6 +837,7 @@ impl App {
                     self.tin = None;
                     self.query = None;
                     let old = std::mem::take(&mut self.ed);
+                    let hist_open = old.hist.open;
                     self.ed = editing::Editing {
                         cmds: old.cmds,
                         want_save: old.want_save,
@@ -726,6 +846,8 @@ impl App {
                         class: old.class,
                         ..editing::Editing::default()
                     };
+                    // the marks belong to the cloud they were made on; the window stays open
+                    self.ed.hist.open = hist_open;
                     self.ed.session = Some(rustlidar_core::edit::Session::new(&s));
                     self.store = Some(Arc::new(s));
                     self.rev += 1;
@@ -1014,14 +1136,8 @@ impl App {
                 self.dig_draft.clear();
             }
             Action::ToggleTheme => {
-                self.dark = !self.dark;
-                theme::apply(ctx, &self.tokens());
-                self.style.background = if self.dark {
-                    [18, 21, 26]
-                } else {
-                    [221, 225, 231]
-                };
-                self.colors_rev += 1;
+                self.theme_pending = false;
+                self.set_theme(ctx, !self.dark);
             }
             Action::NorthUp => self.orbit.yaw = 0.0,
             Action::Exaggeration(d) => {
@@ -1085,6 +1201,7 @@ impl App {
             ("Asignar sistema de coordenadas", Action::Tool(ToolId::Crs)),
             ("Adelgazar nube (decimar)", Action::Tool(ToolId::Thin)),
             ("Cubicar árboles (TLS)", Action::Tool(ToolId::Tls)),
+            ("Volúmenes respecto al MDT", Action::Tool(ToolId::Volume)),
             (
                 "Modelo digital de superficie (MDS)",
                 Action::Tool(ToolId::Dsm),
@@ -1335,6 +1452,11 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
                     ribbon::group(ui, &t, "TLS", |ui| {
                         if ribbon::big_button(ui, &t, "@tree", "Cubicar\nárboles", self.tools.open == Some(ToolId::Tls)).clicked() {
                             self.act(ctx, Action::Tool(ToolId::Tls));
+                        }
+                    });
+                    ribbon::group(ui, &t, "Volúmenes", |ui| {
+                        if ribbon::big_button(ui, &t, "@volume", "Volumen\nsobre MDT", self.tools.open == Some(ToolId::Volume)).clicked() {
+                            self.act(ctx, Action::Tool(ToolId::Volume));
                         }
                     });
                     if busy {
@@ -2895,6 +3017,31 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // `--bench`: draws as fast as it can; after 6 s (the cloud is loaded) it counts the frames of
+        // 8 s, prints them with the renderer and exits
+        if let Some((start, frames)) = &mut self.bench {
+            ctx.request_repaint();
+            let t = start.elapsed().as_secs_f64();
+            if t >= 6.0 {
+                *frames += 1;
+            }
+            if t >= 14.0 {
+                eprintln!(
+                    "{} ({}): {} fotogramas en 8 s = {:.1} por segundo",
+                    RENDERER.get().copied().unwrap_or("?"),
+                    self.clouds.len(),
+                    frames,
+                    *frames as f64 / 8.0
+                );
+                std::process::exit(0);
+            }
+        }
+        if self.theme_pending
+            && let Some(theme) = ctx.system_theme()
+        {
+            self.theme_pending = false;
+            self.set_theme(&ctx, theme != egui::Theme::Light);
+        }
         self.poll(&ctx);
         self.process_edit_cmds();
         if self.ed.want_save && self.ed.session.is_some() && self.ed.cmds.is_empty() {
@@ -2925,6 +3072,7 @@ impl eframe::App for App {
         self.status_bar(ui);
         self.side_panel(ui, &ctx);
         self.views(ui, &ctx);
+        self.histogram_window(&ctx);
         let aois = self.polygon_aois();
         let busy = self.running.is_some();
         let t = self.tokens();

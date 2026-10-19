@@ -106,7 +106,29 @@ La edición es por **selecciones**: eliges puntos, y luego les haces algo.
 
 Con puntos seleccionados, las herramientas de *Procesar* trabajan solo sobre ellos.
 
-### 6.1 Clases ASPRS y clases nuevas
+### 6.1 Histogramas: detectar puntos raros
+
+**Edición → Histogramas** abre una ventana con el histograma de un atributo de los puntos en pantalla: elevación, intensidad, nº de retorno, nº de retornos, clase, pasada (ID de fuente) y ángulo de barrido. Cada barra cuenta los puntos de un intervalo.
+
+- **Marcar barras:** clic en una barra, o arrastra sobre varias (si empiezas en una marcada, desmarcas). Puedes marcar barras en varios atributos: un punto se selecciona si cae en las barras marcadas de **todos** ellos. Los atributos con marcas llevan un punto (●) en la lista.
+- **Seleccionar puntos:** convierte las marcas en una selección, que se combina con la anterior según el modo de la cinta (nueva, añadir, restar, intersectar) y respeta el *Filtro de atributos*. Después *Eliminar* o *Asignar clase* (hay botones en la propia ventana).
+- **Escala logarítmica** (activa por defecto): deja ver las barras con pocos puntos, que son las de los valores raros. *Solo los puntos seleccionados* hace el histograma únicamente de la selección actual, para afinarla.
+- Debajo del gráfico: número de puntos, mínimo, máximo, media, desviación típica, mediana, cuartiles y MAD. La línea blanca de la base marca la mediana.
+
+**Valores raros según un estadístico.** Para no buscarlos a ojo, elige un criterio y mira las líneas naranjas, que son sus límites:
+
+| Criterio | Límites | Cuándo usarlo |
+|---|---|---|
+| Tukey | Q1 − k·RIC y Q3 + k·RIC (k = 1,5; con 3, solo extremos) | General; no le afectan los propios valores raros |
+| Robusto (MAD) | mediana ± z·1,4826·MAD (z = 3,5) | Distribuciones muy asimétricas |
+| Desviaciones típicas | media ± k·σ (k = 3) | Datos de forma parecida a la normal |
+| Percentiles | el p % más bajo y más alto | Cuando se quiere una cantidad fija de puntos |
+
+*Marcar los raros de este atributo* los marca como barras. *Seleccionar los raros de cualquier atributo* aplica el criterio a todos los atributos y selecciona los puntos raros en alguno de ellos. Si un atributo casi no varía (casi todos los valores iguales), el criterio no puede decidir y lo avisa.
+
+Los estadísticos se calculan sobre los puntos que se ven en pantalla; al **guardar**, la regla se aplica a todos los puntos del archivo. El ángulo de barrido se compara en el visor con una décima de grado de resolución.
+
+### 6.2 Clases ASPRS y clases nuevas
 
 EasyLiDAR usa la tabla vigente de ASPRS (LAS 1.4): 0 sin clasificar nunca, 1 sin clasificar, 2 suelo, 3 a 5 vegetación baja, media y alta, 6 edificio, 7 punto bajo (ruido), 9 agua, 10 ferrocarril, 11 carretera, 13 y 14 cables, 15 torre, 16 conector, 17 tablero de puente, 18 ruido alto, 19 estructura elevada, 20 suelo ignorado, 21 nieve, 22 exclusión temporal. Los códigos 23 a 63 están reservados y **64 a 255 son libres para el usuario**.
 
@@ -127,17 +149,19 @@ Las herramientas procesan **cada hoja por separado** y dan un resultado por hoja
   - *Un punto por celda*: el más cercano al centro, el más bajo, el más alto o el del percentil elegido (50 = mediana).
   - *Celdas 3D*: conserva paredes y pendientes.
   - *Uno de cada n*, *eliminar uno de cada n* y *muestreo al azar*.
-- **Clasificar**: elige lo que quieras. Los pasos se aplican por teselas, en este orden: ruido, suelo, edificios, vegetación por alturas, cables y postes.
+- **Clasificar**: elige lo que quieras. Los pasos se aplican por teselas, en este orden: ruido, suelo, edificios, vegetación por alturas, cables y postes, y por último las reglas por eco y ángulo.
   - *Ruido*: **puntos aislados** (un punto sin apenas vecinos en un bloque de 3 × 3 × 3 celdas, clase 7) o filtro estadístico **SOR** (se descarta el punto cuya distancia media a sus k vecinos supera la media general más m desviaciones).
   - *Suelo* (clase 2), a elegir:
     - **Iterativo de Kraus y Pfeifer**: ajusta una superficie por mínimos cuadrados con pesos; los puntos muy por encima de ella pesan menos en cada vuelta, así que la superficie «baja» hasta el suelo. Después se aceptan los puntos que están a menos de una distancia de ella.
     - **Curvatura multiescala (MCC)**: compara cada punto con una superficie curva ajustada a varias escalas; el que se desvía menos que el umbral es suelo.
     - **Simulación de tela (CSF)**: se da la vuelta a la nube y se deja caer una tela con rigidez ajustable; los puntos que quedan a menos de un umbral de la tela son suelo.
     - **Morfológico progresivo (PMF)**: aperturas del mínimo con ventanas cada vez mayores; el punto que sube más que un umbral que crece con la ventana no es suelo.
+    - **Axelsson (TIN progresivo)**: se parte de una red triangular de semillas, el punto más bajo de cada celda grande (mayor que el edificio más grande, 20 m por defecto), y se van añadiendo los puntos que están cerca del plano de su triángulo (**distancia de iteración**, 1,4 m) y cuyas líneas a los tres vértices forman con el plano un ángulo pequeño (**ángulo de iteración**, 8°). Se rehace la red y se repite hasta que no entra ningún punto. Los puntos a menos de la **tolerancia llana** (10 cm) del plano son suelo sea cual sea el ángulo: cerca de un vértice el ángulo sale grande incluso para un punto sobre la superficie. Sirve en terrenos con pendiente y con edificios; si hay estructuras mayores que la celda de las semillas, súbela.
     - **Clase 2 existente**: respeta la clasificación que trae la nube.
   - *Edificios*: se obtiene un terreno de referencia con una apertura morfológica mayor que cualquier edificio; las celdas que lo superan más que la altura mínima forman regiones, y una región es edificio si es lo bastante grande, plana (los tejados son planos, las copas rugosas) y está limitada por saltos bruscos. Los puntos de tejado son clase 6 y el resto de lo que supera esa altura, vegetación alta (5).
   - *Vegetación por alturas*: altura del punto sobre el suelo de su entorno: baja (3) por debajo del primer límite, media (4) hasta el segundo y alta (5) por encima.
   - *Cables* (14): puntos de más de una altura mínima sobre el suelo con vecinos alineados (linealidad = (λ₁ − λ₂)/λ₁ de la matriz de covarianza del entorno, mínimo 0,9) y dirección casi horizontal. *Postes y torres* (15): lo mismo pero casi vertical y de poca anchura.
+  - *Reglas por eco y ángulo*: cambian la clase de los puntos según el **eco** del pulso y el **ángulo de barrido**, al final y en orden (una regla ve lo que hizo la anterior). Cada regla tiene: las clases de partida (por defecto, todas menos el ruido 7 y 18), los ecos (único, primero de varios, intermedio, último), un intervalo de ángulo absoluto y la clase de destino. Dos usos habituales: pasar a una clase aparte (12, por ejemplo) los puntos de ángulo grande, que son menos exactos y conviene dejar fuera del suelo y de las superficies; y pasar a vegetación alta (5) los primeros ecos de pulsos con varios retornos que aún no tienen clase. Si una regla quita la clase 2 a un punto, ese punto deja de ser suelo también para el MDT. En la línea de comandos: `--rule "angle=25;to=12"` (se repite para varias; partes `to=`, `from=1,2` o `from=~7`, `returns=SFIL` o números, `angle=25..90`).
   - *Teselas y rendimiento*: tamaño de tesela, búfer (franja alrededor de cada tesela, para que las decisiones en los bordes se tomen con los vecinos) e hilos.
 
 ### 7.2 Superficies
@@ -308,19 +332,35 @@ Para nubes de escáner terrestre, móvil o fotogramétrico de una parcela. Cada 
 1. La nube se reduce a un punto por vóxel (3 cm por defecto).
 2. Calcula el terreno (con la clase 2 si la nube la tiene, o simulando una tela) y las alturas sobre el suelo. Si la nube ya viene normalizada, marca la casilla.
 3. Busca troncos en una franja (de 0,7 a 3,5 m): puntos de entorno vertical, agrupados y limpiados de ramas.
-4. Sigue cada tronco hacia arriba y hacia abajo, ajustando un círculo a una rebanada horizontal cada pocos centímetros. Una sección vale si tiene puntos suficientes, repartidos alrededor y sin puntos dentro. El centro de la siguiente se predice, así que sigue troncos inclinados o curvos.
+4. Sigue cada tronco hacia arriba y hacia abajo, ajustando un círculo a una rebanada horizontal cada pocos centímetros. Una sección vale si tiene puntos suficientes, repartidos alrededor y sin puntos dentro. El centro de la siguiente se predice, así que sigue troncos inclinados o curvos. Si una zona del tronco no se ve (una oclusión, follaje, una parte con pocos puntos), el seguimiento **sigue más allá**, ensanchando la búsqueda, hasta un **hueco máximo sin medir** (2 m por defecto); a partir de ahí se da el tronco por perdido. Las secciones del hueco se rellenan por interpolación (`INTERPOLADO`).
 5. **Cubica con la fórmula de Smalian**: para cada troza, V = (A₁ + A₂) / 2 · L, con A el área del círculo de cada extremo y L la longitud de la troza. Se empieza en la **altura de la base** (10 cm sobre el suelo por defecto) y se termina donde el diámetro baja al **diámetro en punta delgada** (7 cm por defecto); la última troza se corta en ese punto.
 6. La **longitud de la troza** (0,5 m por defecto) es la separación entre los diámetros medidos a lo largo del tronco.
+7. **Varios troncos en un mismo pie** (masas de rebrote, como el eucalipto): en cada nivel de la franja se buscan **todos** los círculos del grupo, no uno solo, y se encadenan de un nivel a otro; así dos troncos pegados son dos troncos y no un círculo ancho que los envuelva. La regla para tratarlos es la altura del diámetro (1,30 m):
+   - **Brotes de una cepa:** si los troncos están separados a 1,30 m (se bifurcan por debajo), cada uno es un árbol, con su DAP y su volumen. Comparten el número de **cepa** (`CEPA`) y el aviso `BROTES`, y `BROTES` cuenta cuántos tiene la cepa.
+   - **Árbol bifurcado:** si a 1,30 m es un solo tronco y se bifurca por encima, es un solo árbol: el DAP es el del tronco, y el volumen es el del tronco hasta la bifurcación más el de cada rama desde ella (`RAMA` en las trozas; `H_BIF` es la altura de la bifurcación; aviso `BIFURCADO`).
+   - El mismo tronco encontrado dos veces se cuenta una vez. Los troncos cuyas bases están a menos de la **distancia entre bases** (0,6 m) son de la misma cepa.
 
 **Resultado:**
 
-- Un shapefile (y/o CSV) con un punto en la base de cada árbol: `DAP_CM`, `ALT_TOT`, `ALT_COM` (altura hasta la punta delgada), `VOL_M3`, `NTROZAS`, `D_BASE_CM`, `D_TOP_CM`, `AB_M2` (área basimétrica), `INCLIN`, `PUNTOS`, `CALIDAD`, `AVISOS` y `Date`.
-- `…_trozas.csv`: cada troza de cada árbol, con alturas, diámetros, longitud y volumen.
+- Un shapefile (y/o CSV) con un punto en la base de cada árbol: `DAP_CM`, `ALT_TOT`, `ALT_COM` (altura hasta la punta delgada), `VOL_M3`, `NTROZAS`, `D_BASE_CM`, `D_TOP_CM`, `AB_M2` (área basimétrica), `INCLIN`, `PUNTOS`, `CALIDAD`, `AVISOS`, `Date`, `CEPA` (número de cepa), `BROTES` (nº de árboles de esa cepa; 1 si va solo) y `H_BIF` (altura de la bifurcación, solo en árboles bifurcados).
+- `…_trozas.csv`: cada troza de cada árbol, con alturas, diámetros, longitud y volumen; `RAMA` es 0 para el tronco y 1, 2… para cada rama de un árbol bifurcado.
 - Si se marca *Guardar también la nube de cada árbol*: una carpeta `…_arboles` con un archivo por árbol. Cada punto va al eje de tronco más cercano dentro de la distancia indicada.
 
-Avisos: `TRUNCADO` (el tronco se pierde antes de llegar a la punta delgada), `SIN_DAP` (no hay sección válida a 1,3 m), `INTERPOLADO` (se rellenaron huecos), `INCLINADO` (más de 25°) y `SIN_VOLUMEN`.
+Avisos: `TRUNCADO` (el tronco se pierde antes de llegar a la punta delgada), `SIN_DAP` (no hay sección válida a 1,3 m), `INTERPOLADO` (se rellenaron huecos), `INCLINADO` (más de 25°), `SIN_VOLUMEN`, `BROTES` (pertenece a una cepa con varios brotes) y `BIFURCADO`.
 
-Consejos: con nubes muy densas, un vóxel de 2 a 3 cm es suficiente; si faltan troncos, baja los vóxeles mínimos de un tronco o la verticalidad mínima; si se cuelan arbustos, súbelos. Una sola posición de escáner solo ve una parte de cada tronco: baja los *sectores ocupados* con cuidado.
+Consejos: **el vóxel depende del equipo**. Con escáner terrestre estático (nubes densas y de poco ruido), 2 a 3 cm. Con escáner **móvil o SLAM** (GeoSLAM, mochila o de mano), 5 cm: el ruido es de varios centímetros y con vóxeles finos los troncos se pierden a pocos metros (hay un selector de equipo en el formulario, y `--voxel 0.05` en la línea de comandos). Un círculo se rechaza si hay vóxeles dentro de su mitad interior (*puntos dentro del círculo*, 5 por defecto) o si su residuo es mayor que el admitido: así no se miden como un solo tronco dos troncos pegados ni una rama con follaje. Además, si faltan troncos, baja los vóxeles mínimos de un tronco o la verticalidad mínima; si se cuelan arbustos, súbelos. Una sola posición de escáner solo ve una parte de cada tronco: baja los *sectores ocupados* con cuidado.
+
+### 7.7 Volúmenes respecto al MDT
+
+Calcula el volumen entre una superficie y el terreno, celda a celda: V = Σ (altura de la superficie − MDT) · celda². Las celdas por encima del terreno suman al **volumen sobre él** y las que quedan por debajo, al **volumen bajo él** (vaciados). Cada nube es una hoja y busca sus rásteres en su carpeta de resultados (o los eliges a mano).
+
+- **CHM de cada nube:** las alturas ya son sobre el suelo, así que no hace falta MDT. Es el volumen de la vegetación o de lo que sobresale del terreno.
+- **MDS menos MDT:** superficie y terreno de la nube. El MDT se muestrea en el centro de cada celda del MDS, y las celdas que el MDT no cubre no se miden (se cuentan aparte).
+- **MDS sobre una cota horizontal:** volumen por encima de un plano a la elevación indicada (acopios, por ejemplo).
+- **Altura mínima que cuenta:** las celdas más cerca del terreno que esta altura no suman. Quita el ruido de la superficie.
+- **Zonas:** todo el ráster, las AOI dibujadas (un volumen por AOI) o los polígonos de un archivo vectorial. Si las zonas se solapan, se miden una a una.
+
+**Resultado:** un `…_volumen.csv` con, por zona, `Area_m2`, `Vol_sobre_m3`, `Vol_bajo_m3`, `Vol_neto_m3`, `H_media_m` y `H_max_m` (de las celdas sobre el terreno) y `Celdas_sin_MDT`. La precisión es la del ráster: usa la misma celda para el MDS y el MDT cuando puedas.
 
 ## 8. Teledetección
 
@@ -441,6 +481,7 @@ easylidar export nube.laz -o puntos.csv --items x,y,z,class --header
 - **Los diámetros de los árboles salen vacíos**: comprueba que la nube tenga suelo (o marca que ya está normalizada) y que la franja de búsqueda esté dentro de la altura de los troncos.
 - **El mosaico dice que los sistemas son distintos**: reproyecta los rásteres al mismo sistema antes de unirlos.
 - **Un resultado a medias tras detener un proceso**: se borra solo; si queda algún archivo, bórralo a mano.
+- **La interfaz va lenta o a saltos**: mira qué usa para dibujar. Con una tarjeta gráfica moderna usa **wgpu** (DirectX 12, Vulkan o Metal). Con un driver antiguo (por ejemplo una Intel HD de 2015, que no llega a DirectX 12) wgpu solo ofrece un adaptador **por software**, que dibuja con el procesador y va muy lento, así que el programa elige entonces **OpenGL**. Para ver lo que detecta: `easylidar-gui --gpu-info`. Para medir los fotogramas por segundo con una nube: `easylidar-gui nube.laz --bench` (cuenta 8 s y sale). Para forzar uno: variable de entorno `EASYLIDAR_RENDERER` con `glow` (OpenGL) o `wgpu`.
 
 ## 17. Acerca de
 

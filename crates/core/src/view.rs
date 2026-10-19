@@ -23,6 +23,8 @@ pub struct PointStore {
     /// Return number in the low nibble, number of returns in the high one.
     pub ret: Vec<u8>,
     pub src: Vec<u16>,
+    /// Scan angle in tenths of a degree (0 when the file has none).
+    pub scan: Vec<i16>,
     pub file: Vec<u8>,
     /// Empty when no file carries colour.
     pub rgb: Vec<[u8; 3]>,
@@ -73,7 +75,7 @@ fn u16_at(b: &[u8], i: usize) -> u16 {
 }
 
 /// x, y, z, intensity, return byte, class, source id, file id, colour.
-type Staged = (f64, f64, f64, u16, u8, u8, u16, u8, Option<[u8; 3]>);
+type Staged = (f64, f64, f64, u16, u8, u8, u16, u8, Option<[u8; 3]>, i16);
 
 /// Reads LAS/LAZ (and ASCII `x y z [intensity [class]]`) files keeping about `max_points` of
 /// them: one point in every `stride`, so large clouds fit in memory.
@@ -137,6 +139,7 @@ pub fn load(paths: &[PathBuf], max_points: usize) -> Result<PointStore> {
         s.ret.push(p.4);
         s.class.push(p.5);
         s.src.push(p.6);
+        s.scan.push(p.9);
         s.file.push(p.7);
         if has_rgb {
             s.rgb.push(p.8.unwrap_or([150, 150, 150]));
@@ -188,6 +191,7 @@ pub fn load(paths: &[PathBuf], max_points: usize) -> Result<PointStore> {
                         u16_at(rec, src_at),
                         file_id,
                         rgb,
+                        (r.decode_extra(rec).scan_angle * 10.0).round() as i16,
                     ),
                 );
             }
@@ -226,6 +230,7 @@ pub fn load(paths: &[PathBuf], max_points: usize) -> Result<PointStore> {
                     0,
                     id,
                     None,
+                    0,
                 ),
             );
         }

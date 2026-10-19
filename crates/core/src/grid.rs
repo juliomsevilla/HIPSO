@@ -59,7 +59,7 @@ impl Grid {
             cell,
             cols,
             rows,
-            data: vec![f32::NAN; n],
+            data: filled(n, f32::NAN)?,
         })
     }
 
@@ -360,14 +360,14 @@ pub struct MeanGrid {
 }
 
 impl MeanGrid {
-    pub fn new(grid: Grid, zref: f64) -> Self {
+    pub fn new(grid: Grid, zref: f64) -> Result<Self> {
         let n = grid.len();
-        Self {
+        Ok(Self {
             grid,
             zref,
-            sum: vec![0.0; n],
-            count: vec![0; n],
-        }
+            sum: filled(n, 0.0)?,
+            count: filled(n, 0)?,
+        })
     }
 
     #[inline]
@@ -389,6 +389,18 @@ impl MeanGrid {
         }
         self.grid
     }
+}
+
+/// `n` copies of `v`, or an error (not an abort) when the memory is not there.
+fn filled<T: Copy>(n: usize, v: T) -> Result<Vec<T>> {
+    let mut out = Vec::new();
+    out.try_reserve_exact(n).map_err(|_| {
+        Error::Param(
+            "not enough memory for this grid: use a bigger cell size or split the area".into(),
+        )
+    })?;
+    out.resize(n, v);
+    Ok(out)
 }
 
 fn tiff_err(e: tiff::TiffError) -> Error {

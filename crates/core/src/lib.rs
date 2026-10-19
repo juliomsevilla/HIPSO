@@ -1,6 +1,7 @@
 //! EasyLiDAR's engine: forestry products from LiDAR point clouds, read as a stream so that
 //! memory depends on the area and cell size, never on the number of points.
 
+pub mod axelsson;
 pub mod buildings;
 pub mod chm;
 pub mod classes;
@@ -14,6 +15,7 @@ pub mod filter;
 pub mod forest;
 pub mod grid;
 pub mod ground;
+pub mod histogram;
 pub mod idw;
 pub mod inspect;
 pub mod jobs;
@@ -30,7 +32,9 @@ pub mod pmf;
 pub mod pyramid;
 pub mod raster;
 pub mod rastertools;
+pub mod rules;
 pub mod sheets;
+pub mod stools;
 pub mod thin;
 pub mod tile;
 pub mod tin;
@@ -38,6 +42,7 @@ pub mod tls;
 pub mod trees;
 pub mod vector;
 pub mod view;
+pub mod volume;
 
 /// Everything that can go wrong; input files are hostile, so nothing here panics.
 #[derive(Debug)]

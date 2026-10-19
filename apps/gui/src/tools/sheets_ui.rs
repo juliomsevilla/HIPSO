@@ -164,6 +164,10 @@ impl Tools {
             (GroundChoice::Mcc, "MCC (curvatura multiescala)"),
             (GroundChoice::Csf, "CSF (simulación de tela)"),
             (GroundChoice::Pmf, "PMF (morfológico progresivo)"),
+            (
+                GroundChoice::Axelsson,
+                "Axelsson (TIN progresivo, ángulo y distancia)",
+            ),
         ];
         egui::ComboBox::from_label("Suelo")
             .selected_text(
@@ -221,6 +225,7 @@ impl Tools {
                 );
                 num(ui, "Pendiente", &mut self.pmf.slope, 0.0..=10.0, 0.1);
             }
+            GroundChoice::Axelsson => axelsson_fields(ui, &mut self.ax),
             GroundChoice::Classes => {}
         }
     }

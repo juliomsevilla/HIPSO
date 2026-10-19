@@ -1,6 +1,7 @@
 //! Tiled processing: noise, ground and buildings classified tile by tile, in parallel, and
 //! written out as a classified cloud or rasterised into a DTM.
 
+use crate::axelsson::{self, AxelssonParams};
 use crate::buildings::{self, BuildingParams};
 use crate::csf::{self, CsfParams};
 use crate::extras::{self, Extras};
@@ -11,6 +12,7 @@ use crate::las::{self, Points, Reader, Writer};
 use crate::mcc::{self, MccParams};
 use crate::noise::{self, NoiseParams};
 use crate::pmf::{self, PmfParams};
+use crate::rules::{self, ClassRule};
 use crate::tile::{Layout, Tile, Tiled};
 use crate::{Error, Result, tin};
 
@@ -29,6 +31,8 @@ pub enum Ground {
     Csf(CsfParams),
     /// Progressive Morphological Filter.
     Pmf(PmfParams),
+    /// Progressive TIN densification (Axelsson).
+    Axelsson(AxelssonParams),
     /// The points already classified as ground (class 2).
     Classes,
 }
@@ -50,6 +54,8 @@ pub struct Steps {
     pub buildings: Option<BuildingParams>,
     /// Vegetation strata, wires and poles.
     pub extras: Extras,
+    /// Rules on the echo and the scan angle, applied last and in order.
+    pub rules: Vec<ClassRule>,
 }
 
 /// Tiling of the work.
@@ -82,11 +88,23 @@ pub struct Report {
     pub vegetation: u64,
     pub wires: u64,
     pub poles: u64,
+    /// Points whose class a rule on the echo or the scan angle changed.
+    pub rules: u64,
+}
+
+/// What the steps decided for the points of a tile.
+struct TileClasses {
+    /// The class of every point (None: it keeps its own).
+    class: Vec<Option<u8>>,
+    /// Which points are ground, for the DTM.
+    ground: Vec<bool>,
+    /// Which points a rule on the echo or the scan angle changed.
+    ruled: Vec<bool>,
 }
 
 /// The class of every point of a tile after the steps (None: keep its class), and which are
 /// ground for the DTM.
-fn classify_tile(work: &mut Points, s: &Steps) -> Result<(Vec<Option<u8>>, Vec<bool>)> {
+fn classify_tile(work: &mut Points, s: &Steps) -> Result<TileClasses> {
     let n = work.pts.len();
     let mut class: Vec<Option<u8>> = vec![None; n];
     // Points found to be noise are marked in place, so the later steps skip them.
@@ -114,8 +132,9 @@ fn classify_tile(work: &mut Points, s: &Steps) -> Result<(Vec<Option<u8>>, Vec<b
                 .collect()
         }
         Ground::Mcc(p) => mcc::ground(&work.pts, p),
-        Ground::Csf(p) => csf::ground(&work.pts, p),
+        Ground::Csf(p) => csf::ground(&work.pts, p)?,
         Ground::Pmf(p) => pmf::ground(&work.pts, p),
+        Ground::Axelsson(p) => axelsson::ground(&work.pts, p)?,
         Ground::Classes => work
             .pts
             .iter()
@@ -143,7 +162,12 @@ fn classify_tile(work: &mut Points, s: &Steps) -> Result<(Vec<Option<u8>>, Vec<b
     if s.extras.any() {
         extras::apply(&work.pts, &ground, &mut class, &s.extras);
     }
-    Ok((class, ground))
+    let ruled = rules::apply(&work.pts, &mut class, &mut ground, &s.rules);
+    Ok(TileClasses {
+        class,
+        ground,
+        ruled,
+    })
 }
 
 fn open_all(inputs: &[std::path::PathBuf]) -> Result<Vec<Reader>> {
@@ -191,7 +215,7 @@ pub fn classify(
     tiled.process(
         t.threads,
         |mut tile: Tile| {
-            let (class, _) = classify_tile(&mut tile.points, s)?;
+            let TileClasses { class, ruled, .. } = classify_tile(&mut tile.points, s)?;
             // The tile's own records, reclassified.
             let mut out = Vec::new();
             let mut r = Report {
@@ -203,6 +227,7 @@ pub fn classify(
                     continue;
                 }
                 let mut rec = rec.to_vec();
+                r.rules += u64::from(ruled.get(k).copied().unwrap_or(false));
                 if let Some(c) = class.get(k).copied().flatten() {
                     las::set_class(format, &mut rec, c);
                     match c {
@@ -238,6 +263,7 @@ pub fn classify(
             report.vegetation += r.vegetation;
             report.wires += r.wires;
             report.poles += r.poles;
+            report.rules += r.rules;
             Ok(())
         },
     )?;
@@ -275,14 +301,14 @@ pub fn dtm(
     tiled.process(
         t.threads,
         |mut tile: Tile| {
-            let (class, ground) = classify_tile(&mut tile.points, s)?;
+            let TileClasses { class, ground, .. } = classify_tile(&mut tile.points, s)?;
             let e = tile.core;
             let cols = ((e[2] - e[0]) / cell).round() as usize;
             let rows = ((e[3] - e[1]) / cell).round() as usize;
             let mut g = Grid::new(e[0], e[1], cell, cols, rows)?;
             match surface {
                 Surface::Mean => {
-                    let mut m = MeanGrid::new(g, tile.points.bounds[2]);
+                    let mut m = MeanGrid::new(g, tile.points.bounds[2])?;
                     for (q, _) in tile.points.pts.iter().zip(&ground).filter(|(_, g)| **g) {
                         m.add(q.x, q.y, q.z);
                     }
@@ -350,6 +376,7 @@ pub fn dtm(
             report.vegetation += r.vegetation;
             report.wires += r.wires;
             report.poles += r.poles;
+            report.rules += r.rules;
             Ok(())
         },
     )?;

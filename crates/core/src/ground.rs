@@ -196,7 +196,7 @@ pub struct GroundReport {
 pub fn dtm<C: Cloud>(cloud: &C, cell: f64, p: &GroundParams) -> Result<(Grid, GroundReport)> {
     let (filter, passes) = GroundFilter::run(cloud, p)?;
     let b = cloud.bounds();
-    let mut mean = MeanGrid::new(Grid::covering([b[0], b[1], b[3], b[4]], cell)?, b[2]);
+    let mut mean = MeanGrid::new(Grid::covering([b[0], b[1], b[3], b[4]], cell)?, b[2])?;
     let mut report = GroundReport {
         passes: passes + 1,
         ..Default::default()
