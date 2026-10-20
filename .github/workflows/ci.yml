@@ -1,5 +1,6 @@
 name: CI
-on: [push, pull_request]
+# Solo manual (pestaña Actions → Run workflow): compilamos en local para no gastar cuota.
+on: workflow_dispatch
 jobs:
   test:
     strategy:

@@ -1,7 +1,7 @@
 name: release
+# Solo manual: los paquetes se compilan en local (scripts/package.sh y package.ps1) y se
+# suben con --publish. Este flujo queda como alternativa de emergencia.
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:

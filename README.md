@@ -118,7 +118,7 @@ cargo test --workspace
 
 En Linux, antes: `sudo apt-get install libxkbcommon-dev libwayland-dev libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev`.
 
-Los paquetes de cada sistema se generan con `scripts/package.ps1` (Windows) o `scripts/package.sh` (Linux y macOS); al subir una etiqueta `vX.Y.Z`, GitHub Actions los compila para los tres sistemas y los publica en Releases.
+Los paquetes de cada sistema se generan en local con `scripts/package.ps1` (Windows) o `scripts/package.sh` (macOS y Linux). Con `-Publish` (Windows) o `--publish` (macOS y Linux) se suben a la release `vX.Y.Z` de Releases, que se crea si no existe (hace falta [`gh`](https://cli.github.com) con sesión iniciada). Los flujos de GitHub Actions son solo manuales.
 
 ## Limitaciones conocidas
 
