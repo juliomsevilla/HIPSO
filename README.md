@@ -17,6 +17,19 @@
 
 ---
 
+## Limitaciones conocidas
+
+**EasyLiDAR no reproyecta nubes de puntos, ni al vuelo ni de ningún otro modo.** Trabaja siempre con el sistema de coordenadas que traigan tus archivos LAS/LAZ.
+
+- Si cargas varias teselas a la vez, **se toma el sistema de coordenadas de la primera nube** y se aplica al resultado. El programa no comprueba que las demás coincidan: mezclar teselas en sistemas distintos (por ejemplo, ETRS89 UTM 29N con 30N) colocaría los puntos en coordenadas incompatibles, sin aviso.
+- Antes de cargar un lote, asegúrate de que todas las teselas comparten el mismo sistema de referencia. Las de una misma descarga (por ejemplo, el PNOA de una región) suelen venir ya homogéneas.
+
+**¿Por qué no reproyecta al vuelo?** Porque en una nube 3D reproyectar no es solo mover X e Y. Cambiar de proyección deforma ligeramente la geometría, y cambiar de datum vertical (de altitudes elipsoidales a ortométricas, por ejemplo) modifica también la Z y requiere una malla de geoide. Hacerlo de forma invisible haría que lo que ves en pantalla dejase de corresponder a lo que hay en tus archivos, y que cada herramienta (MDT, recortes, ediciones, exportación) tuviera que reproyectar por su cuenta. Preferimos no esconder una operación que cambia tus datos.
+
+Si necesitas reproyectar, hazlo antes con una herramienta pensada para ello, como [PDAL](https://pdal.io), [LAStools](https://lastools.github.io) o [CloudCompare](https://www.cloudcompare.org), que son más eficientes y precisos en esta tarea, y abre después en EasyLiDAR las nubes ya homogéneas.
+
+---
+
 ## Descargar
 
 Descarga el paquete de tu sistema, descomprímelo y ejecuta `easylidar-gui`. No necesita instalador ni permisos de administrador.
