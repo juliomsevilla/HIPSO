@@ -19,16 +19,7 @@
 
 ## Descargar
 
-Descarga el paquete de tu sistema, descomprímelo y ejecuta `easylidar-gui`. No necesita instalador ni permisos de administrador.
-
-| Sistema | Descarga |
-|---|---|
-| **Windows** 10/11 (x64) | [EasyLiDAR-windows-x64.zip](https://github.com/juliomsevilla/EasyLiDAR/releases/latest/download/EasyLiDAR-windows-x64.zip) |
-| **macOS** Apple Silicon (M1 o posterior) | [EasyLiDAR-macos-arm64.tar.gz](https://github.com/juliomsevilla/EasyLiDAR/releases/latest/download/EasyLiDAR-macos-arm64.tar.gz) |
-| **macOS** Intel | [EasyLiDAR-macos-x64.tar.gz](https://github.com/juliomsevilla/EasyLiDAR/releases/latest/download/EasyLiDAR-macos-x64.tar.gz) |
-| **Linux** x64 | [EasyLiDAR-linux-x64.tar.gz](https://github.com/juliomsevilla/EasyLiDAR/releases/latest/download/EasyLiDAR-linux-x64.tar.gz) |
-
-Todas las versiones están en la página de [Releases](https://github.com/juliomsevilla/EasyLiDAR/releases).
+Ve a la página de **[Releases](https://github.com/juliomsevilla/EasyLiDAR/releases/latest)**, descarga el paquete de tu sistema (Windows, macOS Apple Silicon o Intel, Linux), descomprímelo y ejecuta `easylidar-gui` (en macOS, `EasyLiDAR.app`). No necesita instalador ni permisos de administrador.
 
 **Primera vez que lo abres**
 
