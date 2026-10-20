@@ -1,6 +1,6 @@
 name: release
 # Solo manual: los paquetes se compilan en local (scripts/package.sh y package.ps1) y se
-# suben con --publish. Este flujo queda como alternativa de emergencia.
+# suben con --publish. Este flujo queda como alternativa de emergencia (Linux tiene el suyo: linux.yml).
 on:
   workflow_dispatch:
 
