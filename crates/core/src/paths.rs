@@ -8,8 +8,28 @@
 
 use std::path::{Path, PathBuf};
 
+static OUTPUT_DIR: std::sync::RwLock<Option<PathBuf>> = std::sync::RwLock::new(None);
+
+/// Sends every product to `dir` (the user's choice) instead of the folder worked out from its
+/// input; `None` goes back to the default.
+pub fn set_output_dir(dir: Option<PathBuf>) {
+    if let Ok(mut d) = OUTPUT_DIR.write() {
+        *d = dir;
+    }
+}
+
+/// The folder the user chose for results, if any.
+pub fn output_dir() -> Option<PathBuf> {
+    OUTPUT_DIR.read().ok().and_then(|d| d.clone())
+}
+
 /// The folder products of `input` go to.
 pub fn results_dir(input: &Path) -> PathBuf {
+    output_dir().unwrap_or_else(|| default_results_dir(input))
+}
+
+/// The folder products of `input` go to when the user has not chosen one.
+pub fn default_results_dir(input: &Path) -> PathBuf {
     let dir = input.parent().unwrap_or_else(|| Path::new("."));
     for anc in dir.ancestors() {
         if anc.join("data").is_dir() && anc.join("results").is_dir() {
@@ -132,7 +152,17 @@ pub fn unique(path: &Path) -> PathBuf {
 fn find_raster(input: &Path, tag: &str) -> Option<PathBuf> {
     let prefix = format!("{}_{tag}", stem(input)).to_lowercase();
     let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
-    for e in std::fs::read_dir(results_dir(input)).ok()?.flatten() {
+    let mut dirs = vec![results_dir(input)];
+    let default = default_results_dir(input);
+    if !dirs.contains(&default) {
+        dirs.push(default);
+    }
+    for e in dirs
+        .iter()
+        .filter_map(|d| std::fs::read_dir(d).ok())
+        .flatten()
+        .flatten()
+    {
         let name = e.file_name().to_string_lossy().to_lowercase();
         let ok = name.starts_with(&prefix)
             && (name.ends_with(".tif") || name.ends_with(".tiff") || name.ends_with(".asc"));

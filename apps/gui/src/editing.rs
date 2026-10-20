@@ -727,7 +727,7 @@ impl App {
         let mut code = i32::from(self.ed.class);
         if ui
             .add(
-                egui::DragValue::new(&mut code)
+                crate::numfield::NumField::new(&mut code)
                     .range(0..=255)
                     .prefix("código "),
             )

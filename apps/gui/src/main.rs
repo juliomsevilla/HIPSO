@@ -9,6 +9,7 @@ mod histo;
 mod layer_tabs;
 mod layers;
 mod manual;
+mod numfield;
 mod ribbon;
 mod rs;
 mod rstools;
@@ -1202,16 +1203,12 @@ impl App {
             ("Adelgazar nube (decimar)", Action::Tool(ToolId::Thin)),
             ("Cubicar árboles (TLS)", Action::Tool(ToolId::Tls)),
             ("Volúmenes respecto al MDT", Action::Tool(ToolId::Volume)),
-            (
-                "Modelo digital de superficie (MDS)",
-                Action::Tool(ToolId::Dsm),
-            ),
             ("Quitar puntos duplicados", Action::Tool(ToolId::Dups)),
             ("Comparar nubes (cambios)", Action::Tool(ToolId::Compare)),
             ("Ajustar una nube a otra", Action::Tool(ToolId::Fit)),
             ("Separación entre pasadas", Action::Tool(ToolId::Swath)),
             ("Calcular MDT", Action::Tool(ToolId::Dtm)),
-            ("Calcular CHM", Action::Tool(ToolId::Chm)),
+            ("Calcular MDS / CHM", Action::Tool(ToolId::Chm)),
             ("Métricas de rodal", Action::Tool(ToolId::Metrics)),
             ("Segmentar árboles", Action::Tool(ToolId::Trees)),
             (
@@ -1414,10 +1411,7 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
                         if ribbon::big_button(ui, &t, "@dtm", "MDT", self.tools.open == Some(ToolId::Dtm)).clicked() {
                             self.act(ctx, Action::Tool(ToolId::Dtm));
                         }
-                        if ribbon::big_button(ui, &t, "@dsm", "MDS", self.tools.open == Some(ToolId::Dsm)).clicked() {
-                            self.act(ctx, Action::Tool(ToolId::Dsm));
-                        }
-                        if ribbon::big_button(ui, &t, "@chm", "CHM", self.tools.open == Some(ToolId::Chm)).clicked() {
+                        if ribbon::big_button(ui, &t, "@chm", "MDS / CHM", self.tools.open == Some(ToolId::Chm)).clicked() {
                             self.act(ctx, Action::Tool(ToolId::Chm));
                         }
                     });
@@ -1544,11 +1538,11 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
                                 let (lo, hi) = self.store.as_ref().map_or((0.0, 1.0), |s| (s.bounds[2], s.bounds[5]));
                                 ui.horizontal(|ui| {
                                     ui.label("Mín");
-                                    if ui.add(egui::DragValue::new(&mut self.style.zmin).range(lo - 1000.0..=hi).speed(0.5)).changed() {
+                                    if ui.add(crate::numfield::NumField::new(&mut self.style.zmin).range(lo - 1000.0..=hi).speed(0.5)).changed() {
                                         self.touch();
                                     }
                                     ui.label("Máx");
-                                    if ui.add(egui::DragValue::new(&mut self.style.zmax).range(lo..=hi + 1000.0).speed(0.5)).changed() {
+                                    if ui.add(crate::numfield::NumField::new(&mut self.style.zmax).range(lo..=hi + 1000.0).speed(0.5)).changed() {
                                         self.touch();
                                     }
                                 });
@@ -1582,7 +1576,8 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
                             ui.menu_button("Opciones…", |ui| {
                                 ui.horizontal(|ui| {
                                     ui.label("Equidistancia");
-                                    ui.add(egui::DragValue::new(&mut self.contour_iv).range(0.1..=500.0).speed(0.5));
+                                    ui.add(crate::numfield::NumField::new(&mut self.contour_iv).range(0.1..=500.0));
+                                    ui.label("m");
                                 });
                                 ui.horizontal(|ui| {
                                     ui.label("TIN con");
@@ -1709,7 +1704,7 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
                                 ui.horizontal(|ui| {
                                     ui.label("Puntos en pantalla (M)");
                                     ui.add(
-                                        egui::DragValue::new(&mut self.max_points_m)
+                                        crate::numfield::NumField::new(&mut self.max_points_m)
                                             .range(0.5..=200.0)
                                             .speed(0.5),
                                     );
@@ -1754,9 +1749,11 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
                                         ui.horizontal(|ui| {
                                             ui.label("Ancho de la caja (m)");
                                             ui.add(
-                                                egui::DragValue::new(&mut self.profile_width)
-                                                    .range(0.5..=1000.0)
-                                                    .speed(0.5),
+                                                crate::numfield::NumField::new(
+                                                    &mut self.profile_width,
+                                                )
+                                                .range(0.5..=1000.0)
+                                                .speed(0.5),
                                             );
                                         });
                                         if let Some(p) = &mut self.profile {

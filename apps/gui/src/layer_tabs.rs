@@ -17,7 +17,7 @@ pub fn tabs_for(kind: Option<&RefKind>) -> &'static [&'static str] {
 
 fn percent(v: &mut f32, ui: &mut egui::Ui) -> egui::Response {
     ui.add(
-        egui::DragValue::new(v)
+        crate::numfield::NumField::new(v)
             .range(0.0..=1.0)
             .speed(0.01)
             .custom_formatter(|n, _| format!("{:.0} %", n * 100.0))
@@ -130,7 +130,7 @@ impl App {
                     ui.add_enabled_ui(v.sym.kind == SymKind::Graduated, |ui| {
                         ui.label("Clases");
                         classify |= ui
-                            .add(egui::DragValue::new(&mut v.sym.classes).range(2..=12))
+                            .add(crate::numfield::NumField::new(&mut v.sym.classes).range(2..=12))
                             .changed();
                         classify |= ui.checkbox(&mut v.sym.quantile, "Cuantiles").changed();
                     });
@@ -161,9 +161,9 @@ impl App {
                 ui.add_enabled_ui(v.sym.kind == SymKind::Proportional, |ui| {
                     ui.horizontal(|ui| {
                         ui.label("Radio");
-                        ui.add(egui::DragValue::new(&mut v.sym.size.0).range(1.0..=40.0));
+                        ui.add(crate::numfield::NumField::new(&mut v.sym.size.0).range(1.0..=40.0));
                         ui.label("a");
-                        ui.add(egui::DragValue::new(&mut v.sym.size.1).range(1.0..=60.0));
+                        ui.add(crate::numfield::NumField::new(&mut v.sym.size.1).range(1.0..=60.0));
                     });
                 });
             });
@@ -177,13 +177,13 @@ impl App {
                 if v.kind == view::GeomKind::Point {
                     ui.horizontal(|ui| {
                         ui.label("Tamaño");
-                        ui.add(egui::DragValue::new(&mut v.point_size).range(1.0..=40.0));
+                        ui.add(crate::numfield::NumField::new(&mut v.point_size).range(1.0..=40.0));
                     });
                 } else {
                     ui.horizontal(|ui| {
                         ui.label("Grosor");
                         ui.add(
-                            egui::DragValue::new(&mut v.width)
+                            crate::numfield::NumField::new(&mut v.width)
                                 .range(0.5..=12.0)
                                 .speed(0.1),
                         );
@@ -216,7 +216,7 @@ impl App {
                 ui.add_enabled_ui(v.labels.field.is_some(), |ui| {
                     ui.horizontal(|ui| {
                         ui.add(
-                            egui::DragValue::new(&mut v.labels.size)
+                            crate::numfield::NumField::new(&mut v.labels.size)
                                 .range(7.0..=40.0)
                                 .suffix(" pt"),
                         );
@@ -424,7 +424,7 @@ impl App {
                     ui.label("Brillo");
                     changed |= ui
                         .add(
-                            egui::DragValue::new(&mut il.brightness)
+                            crate::numfield::NumField::new(&mut il.brightness)
                                 .range(-0.5..=0.5)
                                 .speed(0.01)
                                 .fixed_decimals(2),
@@ -433,7 +433,7 @@ impl App {
                     ui.label("Contraste");
                     changed |= ui
                         .add(
-                            egui::DragValue::new(&mut il.contrast)
+                            crate::numfield::NumField::new(&mut il.contrast)
                                 .range(0.3..=3.0)
                                 .speed(0.01)
                                 .fixed_decimals(2),
@@ -442,7 +442,7 @@ impl App {
                     ui.label("Gamma");
                     changed |= ui
                         .add(
-                            egui::DragValue::new(&mut il.gamma)
+                            crate::numfield::NumField::new(&mut il.gamma)
                                 .range(0.3..=3.0)
                                 .speed(0.01)
                                 .fixed_decimals(2),
@@ -525,11 +525,11 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label("Mín");
                     changed |= ui
-                        .add(egui::DragValue::new(&mut style.lo).speed(0.05))
+                        .add(crate::numfield::NumField::new(&mut style.lo).speed(0.05))
                         .changed();
                     ui.label("Máx");
                     changed |= ui
-                        .add(egui::DragValue::new(&mut style.hi).speed(0.05))
+                        .add(crate::numfield::NumField::new(&mut style.hi).speed(0.05))
                         .changed();
                 });
                 ui.horizontal(|ui| {
@@ -552,7 +552,7 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.label("Clases");
                         changed |= ui
-                            .add(egui::DragValue::new(&mut style.classes).range(2..=20))
+                            .add(crate::numfield::NumField::new(&mut style.classes).range(2..=20))
                             .changed();
                     });
                 });
@@ -565,7 +565,7 @@ impl App {
                         ui.label("Azimut");
                         changed |= ui
                             .add(
-                                egui::DragValue::new(&mut style.azimuth)
+                                crate::numfield::NumField::new(&mut style.azimuth)
                                     .range(0.0..=360.0)
                                     .suffix("°"),
                             )
@@ -573,7 +573,7 @@ impl App {
                         ui.label("Altura");
                         changed |= ui
                             .add(
-                                egui::DragValue::new(&mut style.altitude)
+                                crate::numfield::NumField::new(&mut style.altitude)
                                     .range(1.0..=90.0)
                                     .suffix("°"),
                             )
@@ -583,7 +583,7 @@ impl App {
                         ui.label("Exageración");
                         changed |= ui
                             .add(
-                                egui::DragValue::new(&mut style.zfactor)
+                                crate::numfield::NumField::new(&mut style.zfactor)
                                     .range(0.1..=20.0)
                                     .speed(0.05),
                             )

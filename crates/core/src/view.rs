@@ -938,7 +938,22 @@ pub fn shade(g: &Grid, st: &Style, azimuth_deg: f64, altitude_deg: f64, tint: bo
 /// Contour segments `(x1, y1, x2, y2, level)` of the grid every `interval`.
 pub fn contours(g: &Grid, interval: f64) -> Vec<[f64; 5]> {
     let mut out = Vec::new();
-    if interval <= 0.0 || g.cols < 2 || g.rows < 2 {
+    if !(interval > 0.0) || g.cols < 2 || g.rows < 2 {
+        return out;
+    }
+    // A tiny interval over a tall surface would produce millions of segments: coarsen it.
+    let (zlo, zhi) = g
+        .data
+        .iter()
+        .filter(|v| !v.is_nan())
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), &v| {
+            (a.min(v), b.max(v))
+        });
+    if !zlo.is_finite() {
+        return out;
+    }
+    let interval = interval.max(f64::from(zhi - zlo) / 1000.0);
+    if interval <= 0.0 {
         return out;
     }
     for r in 0..g.rows - 1 {

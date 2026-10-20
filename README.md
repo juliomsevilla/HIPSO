@@ -33,7 +33,7 @@ Todas las versiones están en la página de [Releases](https://github.com/juliom
 **Primera vez que lo abres**
 
 - **Windows:** si aparece el aviso azul de SmartScreen: *Más información → Ejecutar de todas formas*.
-- **macOS:** clic derecho sobre `easylidar-gui` → *Abrir*. Si no arranca: `chmod +x easylidar-gui easylidar`.
+- **macOS:** abre `EasyLiDAR.app` (clic derecho → *Abrir* la primera vez; no abre ventana de Terminal). También puedes usar `easylidar-gui` desde la consola; si no arranca: `chmod +x easylidar-gui easylidar`.
 - **Linux:** `chmod +x easylidar-gui easylidar` si el archivo perdió el permiso. Hace falta GTK 3 para los diálogos de archivo y OpenGL 2 o superior (Mesa sirve).
 
 ---

@@ -170,6 +170,23 @@ fn smoothed(g: Grid, size: f64, kind: trees::Smoothing) -> Grid {
     }
 }
 
+/// A surface model turned into heights above `dtm` (negative heights count as 0); cells the DTM
+/// does not cover are empty.
+fn above_ground(mut g: Grid, dtm: &Grid) -> Grid {
+    for row in 0..g.rows {
+        for col in 0..g.cols {
+            let (x, y) = g.center(col, row);
+            if let Some(v) = g.data.get_mut(row * g.cols + col) {
+                *v = match dtm.sample(x, y) {
+                    Some(z) if !v.is_nan() => (*v - z).max(0.0),
+                    _ => f32::NAN,
+                };
+            }
+        }
+    }
+    g
+}
+
 /// How a CHM is made.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChmMethod {
@@ -177,6 +194,10 @@ pub enum ChmMethod {
     Max { fill: bool },
     /// Pit-free stack of TINs.
     PitFree(PitFree),
+    /// TIN through the highest point of each cell, minus the DTM.
+    Tin,
+    /// Inverse-distance weighting of the highest points of the cells, minus the DTM.
+    Idw,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -199,6 +220,16 @@ pub fn chm(j: &ChmJob) -> Result<String> {
         ChmMethod::Max { fill } => {
             let r = Reader::open(&j.input)?;
             (chm::chm(&r, &ground, j.cell, *fill)?, r.header.epsg)
+        }
+        ChmMethod::Tin | ChmMethod::Idw => {
+            let surface = if j.method == ChmMethod::Idw {
+                Surface::Idw
+            } else {
+                Surface::Tin
+            };
+            let (dsm, epsg) =
+                pipeline::dsm(std::slice::from_ref(&j.input), j.cell, surface, &j.tiling)?;
+            (above_ground(dsm, &ground), epsg)
         }
         ChmMethod::PitFree(p) => pipeline::chm_pitfree(
             std::slice::from_ref(&j.input),

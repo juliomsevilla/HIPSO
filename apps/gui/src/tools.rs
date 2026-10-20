@@ -58,7 +58,6 @@ pub enum ToolId {
     Compare,
     Fit,
     Swath,
-    Dsm,
     Volume,
 }
 
@@ -67,7 +66,7 @@ impl ToolId {
         match self {
             ToolId::Classify => "Clasificar puntos (ruido, suelo, edificios)",
             ToolId::Dtm => "Modelo digital del terreno (MDT)",
-            ToolId::Chm => "Modelo de altura de copas (CHM)",
+            ToolId::Chm => "Modelo de superficie (MDS) y altura de copas (CHM)",
             ToolId::Metrics => "Métricas de rodal",
             ToolId::Trees => "Segmentación de árboles",
             ToolId::Clip => "Parcelas: recorte y métricas",
@@ -79,7 +78,6 @@ impl ToolId {
             ToolId::Compare => "Comparar nubes (cambios)",
             ToolId::Fit => "Ajustar una nube a otra",
             ToolId::Swath => "Separación entre pasadas",
-            ToolId::Dsm => "Modelo digital de superficie (MDS)",
             ToolId::Volume => "Volúmenes respecto al MDT",
         }
     }
@@ -300,7 +298,6 @@ pub struct Tools {
     dtm_cell: f64,
     dtm_surface: Surface,
     chm_cell: f64,
-    pitfree: bool,
     max_edge: f64,
     fill: bool,
     // metrics
@@ -349,6 +346,8 @@ pub struct Tools {
     ex_class: String,
     ex_shp: bool,
     // paths
+    /// Folder the user picked for every result (empty: next to each input).
+    out_dir: String,
     out_classify: OutPath,
     out_dtm: OutPath,
     out_chm: OutPath,
@@ -393,7 +392,6 @@ impl Default for Tools {
             dtm_cell: 1.0,
             dtm_surface: Surface::Tin,
             chm_cell: 0.5,
-            pitfree: false,
             max_edge: 1.0,
             fill: true,
             mp: MetricParams::default(),
@@ -436,6 +434,7 @@ impl Default for Tools {
             decimate: 1,
             ex_class: String::new(),
             ex_shp: false,
+            out_dir: String::new(),
             out_classify: OutPath::default(),
             out_dtm: OutPath::default(),
             out_chm: OutPath::default(),
@@ -492,7 +491,7 @@ fn num(
 ) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(egui::DragValue::new(v).range(range).speed(speed));
+        ui.add(crate::numfield::NumField::new(v).range(range).speed(speed));
     });
 }
 
@@ -633,10 +632,9 @@ impl Tools {
             &format!("mdt_{}m{tin}{g}", paths::num(self.dtm_cell)),
             "tif",
         ));
-        let pf = if self.pitfree { "_pitfree" } else { "" };
         self.out_chm.auto(paths::product(
             input,
-            &format!("chm_{}m{pf}", paths::num(self.chm_cell)),
+            &format!("chm_{}m", paths::num(self.chm_cell)),
             "tif",
         ));
         self.out_metrics.auto(paths::product(
@@ -651,7 +649,7 @@ impl Tools {
         self.in_chm.auto(paths::find_chm(input));
         let chm = self.in_chm.path();
         // beside the CHM it comes from; without one, where this cloud's products go
-        let dir = if self.in_chm.text.trim().is_empty() {
+        let dir = if self.in_chm.text.trim().is_empty() || paths::output_dir().is_some() {
             paths::results_dir(input)
         } else {
             chm.parent()
@@ -662,11 +660,7 @@ impl Tools {
         } else {
             chm
         };
-        let seg = match self.crown.method {
-            Segmenter::Dalponte => "dalponte",
-            Segmenter::Silva => "silva",
-            Segmenter::Watershed => "watershed",
-        };
+        let seg = self.seg_name();
         self.out_trees
             .auto(dir.join(format!("{}_arboles_{seg}.shp", paths::stem(&base))));
         let tag = ["recorte", "fuera", "parcela"][match self.clip_mode {
@@ -682,6 +676,14 @@ impl Tools {
         ));
     }
 
+    fn seg_name(&self) -> &'static str {
+        match self.crown.method {
+            Segmenter::Dalponte => "dalponte",
+            Segmenter::Silva => "silva",
+            Segmenter::Watershed => "watershed",
+        }
+    }
+
     /// Draws the open tool's window; returns a job when the user runs it.
     pub fn window(
         &mut self,
@@ -694,6 +696,8 @@ impl Tools {
     ) -> Option<Launch> {
         let tool = self.open?;
         let first = inputs.first().cloned();
+        let dir = self.out_dir.trim();
+        paths::set_output_dir((!dir.is_empty()).then(|| PathBuf::from(dir)));
         if let Some(f) = &first {
             self.sync(f);
         }
@@ -719,6 +723,24 @@ impl Tools {
                         if ui.button("■ Detener y borrar lo parcial").clicked() {
                             self.s2.stop = true;
                         }
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Guardar en");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.out_dir)
+                            .hint_text("carpeta de resultados (vacío: junto a cada nube)")
+                            .desired_width(300.0),
+                    );
+                    if ui.button("…").clicked()
+                        && let Some(d) = rfd::FileDialog::new()
+                            .set_title("Carpeta donde guardar los resultados")
+                            .pick_folder()
+                    {
+                        self.out_dir = d.display().to_string();
+                    }
+                    if !self.out_dir.is_empty() && ui.button("auto").clicked() {
+                        self.out_dir.clear();
                     }
                 });
                 ui.separator();
@@ -751,9 +773,8 @@ impl Tools {
                             ToolId::Compare => self.compare_form(ui, t),
                             ToolId::Fit => self.fit_form(ui, t),
                             ToolId::Swath => self.swath_form(ui, t),
-                            ToolId::Dsm => self.dsm_form(ui, t, inputs),
                             ToolId::Volume => self.volume_form(ui, t, inputs, aois),
-                            ToolId::Trees => self.trees_form(ui, t),
+                            ToolId::Trees => self.trees_form(ui, t, inputs),
                             ToolId::Clip => self.plots_form(ui, t, aois),
                             ToolId::Export => self.export_form(ui),
                         }
@@ -898,7 +919,7 @@ impl Tools {
                     ui.checkbox(&mut row.angle_on, "Ángulo |a| de");
                     ui.add_enabled(
                         row.angle_on,
-                        egui::DragValue::new(&mut row.angle.0)
+                        crate::numfield::NumField::new(&mut row.angle.0)
                             .range(0.0..=90.0)
                             .speed(0.5)
                             .suffix("°"),
@@ -906,7 +927,7 @@ impl Tools {
                     ui.label("a");
                     ui.add_enabled(
                         row.angle_on,
-                        egui::DragValue::new(&mut row.angle.1)
+                        crate::numfield::NumField::new(&mut row.angle.1)
                             .range(0.0..=180.0)
                             .speed(0.5)
                             .suffix("°"),
@@ -1033,10 +1054,20 @@ impl Tools {
         });
     }
 
-    fn trees_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+    fn trees_form(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf]) {
         self.in_chm.row(ui, t, "CHM", "CHM", || {
             pick_file("Ráster", &["tif", "tiff", "asc"])
         });
+        if inputs.len() > 1 && !self.in_chm.manual {
+            ui.label(
+                egui::RichText::new(format!(
+                    "Hay {} nubes cargadas: se segmenta el CHM de cada una y cada hoja da su resultado. Elige un CHM a mano para segmentar solo ese.",
+                    inputs.len()
+                ))
+                .color(t.weak)
+                .size(11.0),
+            );
+        }
         self.out_trees.row(ui, "Árboles (base del nombre)", || {
             save_as("shp", "arboles.shp")
         });
@@ -1334,72 +1365,113 @@ impl Tools {
             | ToolId::Compare
             | ToolId::Fit
             | ToolId::Swath
-            | ToolId::Dsm
             | ToolId::Volume
             | ToolId::Clip => return None,
             ToolId::Trees => {
-                let chm = self.in_chm.path();
-                if !chm.is_file() {
-                    log.push(
-                        "Falta el CHM: genéralo antes con la herramienta CHM o elige uno.".into(),
+                // each loaded cloud is a sheet with its own CHM; a CHM picked by hand is used alone
+                let sheets: Vec<(PathBuf, PathBuf, PathBuf)> =
+                    if self.in_chm.manual || inputs.len() == 1 {
+                        vec![(self.in_chm.path(), output.clone(), input.clone())]
+                    } else {
+                        let seg = self.seg_name();
+                        let mut v = Vec::new();
+                        for p in inputs {
+                            let Some(chm) = paths::find_chm(p) else {
+                                log.push(format!(
+                                "Falta el CHM de {}: genéralo antes con la herramienta MDS / CHM.",
+                                paths::stem(p)
+                            ));
+                                return None;
+                            };
+                            let dir = paths::output_dir().unwrap_or_else(|| {
+                                chm.parent()
+                                    .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+                            });
+                            let out = paths::unique(
+                                &dir.join(format!("{}_arboles_{seg}.shp", paths::stem(&chm))),
+                            );
+                            v.push((chm, out, p.clone()));
+                        }
+                        v
+                    };
+                let mut show: Vec<PathBuf> = Vec::new();
+                let mut trees_jobs = Vec::new();
+                for (chm, output, input) in sheets {
+                    if !chm.is_file() {
+                        log.push(
+                            "Falta el CHM: genéralo antes con la herramienta MDS / CHM o elige uno."
+                                .into(),
+                        );
+                        return None;
+                    }
+                    let sib = |suffix: &str, ext: &str| {
+                        paths::unique(
+                            &output
+                                .with_file_name(format!("{}_{suffix}.{ext}", paths::stem(&output))),
+                        )
+                    };
+                    let (crowns, crowns_shp, tops_shp) = (
+                        self.crowns_tif.then(|| sib("copas", "tif")),
+                        self.crowns_shp.then(|| sib("copas", "shp")),
+                        self.tops_shp.then(|| sib("apices", "shp")),
                     );
-                    return None;
+                    let cloud = self.cloud_ids.then(|| {
+                        let ext = input
+                            .extension()
+                            .map_or("las".into(), |e| e.to_string_lossy().into_owned());
+                        (
+                            input.clone(),
+                            paths::unique(&paths::product(
+                                &input,
+                                &format!("treeid_{}", paths::stem(&output)),
+                                &ext,
+                            )),
+                        )
+                    });
+                    show.extend(
+                        [&crowns, &crowns_shp, &tops_shp]
+                            .iter()
+                            .filter_map(|p| (*p).clone()),
+                    );
+                    show.push(output.clone());
+                    trees_jobs.push(jobs::TreesJob {
+                        formats: self.formats(),
+                        chm,
+                        output,
+                        crowns,
+                        crowns_shp,
+                        tops_shp,
+                        cloud,
+                        tops_file: (!self.manual_tops.is_empty())
+                            .then(|| PathBuf::from(&self.manual_tops)),
+                        tops: self.tops.clone(),
+                        crown: CrownParams {
+                            th_tree: self.tops.hmin,
+                            ..self.crown.clone()
+                        },
+                        smooth: self.smooth,
+                        smoothing: self.smoothing,
+                        field: (!self.field.trim().is_empty()).then(|| jobs::FieldJob {
+                            file: PathBuf::from(self.field.trim()),
+                            columns: rustlidar_core::forest::FieldColumns::default(),
+                            plot_x: "X_Parcela".into(),
+                            plot_y: "Y_Parcela".into(),
+                            plot_radius: self.field_radius,
+                            max_dist: self.match_dist,
+                        }),
+                    });
                 }
-                let sib = |suffix: &str, ext: &str| {
-                    paths::unique(
-                        &output.with_file_name(format!("{}_{suffix}.{ext}", paths::stem(&output))),
-                    )
-                };
-                let (crowns, crowns_shp, tops_shp) = (
-                    self.crowns_tif.then(|| sib("copas", "tif")),
-                    self.crowns_shp.then(|| sib("copas", "shp")),
-                    self.tops_shp.then(|| sib("apices", "shp")),
-                );
-                let cloud = self.cloud_ids.then(|| {
-                    let ext = input
-                        .extension()
-                        .map_or("las".into(), |e| e.to_string_lossy().into_owned());
-                    (
-                        input.clone(),
-                        paths::unique(&paths::product(
-                            &input,
-                            &format!("treeid_{}", paths::stem(&output)),
-                            &ext,
-                        )),
-                    )
-                });
-                let mut show: Vec<PathBuf> = [&crowns, &crowns_shp, &tops_shp]
-                    .iter()
-                    .filter_map(|p| (*p).clone())
-                    .collect();
-                show.push(output.clone());
-                let job = jobs::TreesJob {
-                    formats: self.formats(),
-                    chm,
-                    output,
-                    crowns,
-                    crowns_shp,
-                    tops_shp,
-                    cloud,
-                    tops_file: (!self.manual_tops.is_empty())
-                        .then(|| PathBuf::from(&self.manual_tops)),
-                    tops: self.tops.clone(),
-                    crown: CrownParams {
-                        th_tree: self.tops.hmin,
-                        ..self.crown.clone()
-                    },
-                    smooth: self.smooth,
-                    smoothing: self.smoothing,
-                    field: (!self.field.trim().is_empty()).then(|| jobs::FieldJob {
-                        file: PathBuf::from(self.field.trim()),
-                        columns: rustlidar_core::forest::FieldColumns::default(),
-                        plot_x: "X_Parcela".into(),
-                        plot_y: "Y_Parcela".into(),
-                        plot_radius: self.field_radius,
-                        max_dist: self.match_dist,
+                (
+                    Box::new(move || {
+                        let mut lines = Vec::new();
+                        for j in &trees_jobs {
+                            rustlidar_core::check_cancel()?;
+                            lines.push(jobs::trees(j)?);
+                        }
+                        Ok(lines.join("\n"))
                     }),
-                };
-                (Box::new(move || jobs::trees(&job)), show)
+                    show,
+                )
             }
             ToolId::Export => {
                 let classes = match class_mask(&self.ex_class) {

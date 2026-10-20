@@ -11,6 +11,31 @@ arch=$(uname -m); [ "$arch" = x86_64 ] && arch=x64
 mkdir -p dist
 packages=()
 
+# En macOS la app va en un .app: abierta con doble clic no abre la ventana de Terminal.
+app_bundle() { # <carpeta del paquete> <binario de la interfaz>
+  local app="$1/EasyLiDAR.app" ico="$1/.icon.iconset"
+  mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$ico"
+  cp "$2" "$app/Contents/MacOS/easylidar-gui"
+  for s in 16 32 64 128 256 512; do sips -z $s $s assets/icon-512.png --out "$ico/icon_${s}x${s}.png" >/dev/null; done
+  iconutil -c icns "$ico" -o "$app/Contents/Resources/EasyLiDAR.icns"
+  rm -rf "$ico"
+  cat > "$app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>EasyLiDAR</string>
+  <key>CFBundleDisplayName</key><string>EasyLiDAR</string>
+  <key>CFBundleIdentifier</key><string>es.easylidar.app</string>
+  <key>CFBundleExecutable</key><string>easylidar-gui</string>
+  <key>CFBundleIconFile</key><string>EasyLiDAR</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>$v</string>
+  <key>CFBundleVersion</key><string>$v</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict></plist>
+PLIST
+}
+
 pack() { # <nombre> <carpeta de salida de cargo>
   local name="EasyLiDAR-$1" d="dist/EasyLiDAR-$1"
   rm -rf "$d"; mkdir -p "$d"
@@ -18,6 +43,7 @@ pack() { # <nombre> <carpeta de salida de cargo>
   cp README.md LICENSE NOTICE THIRD_PARTY_LICENSES.md docs/MANUAL.md "$d"/
   cp -r licenses "$d"/
   chmod +x "$d"/easylidar "$d"/easylidar-gui
+  if [ "$os" = macos ]; then app_bundle "$d" "$2/easylidar-gui"; fi
   tar czf "dist/$name.tar.gz" -C dist "$name"
   rm -rf "$d"
   echo "dist/$name.tar.gz"

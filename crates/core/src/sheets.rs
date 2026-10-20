@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::grid::Grid;
-use crate::jobs::{self, ChmJob, ClassifyJob, DtmJob, MetricsJob};
+use crate::jobs::{self, ChmJob, ClassifyJob, DsmJob, DtmJob, MetricsJob};
 use crate::las::Reader;
 use crate::pipeline::{Steps, Tiling};
 use crate::{Error, Result};
@@ -128,6 +128,38 @@ pub fn dtm_each(
             inputs.first().and_then(|p| epsg_of(p)),
         )?;
         lines.push(format!("mosaico de {} MDT: {}", files.len(), m.display()));
+        files.push(m.to_path_buf());
+    }
+    Ok((lines.join("\n"), files))
+}
+
+/// One DSM per sheet; optionally a joined DSM.
+pub fn dsm_each(
+    inputs: &[PathBuf],
+    base: &DsmJob,
+    out_for: &dyn Fn(&Path) -> PathBuf,
+    mosaic_to: Option<&Path>,
+) -> Result<(String, Vec<PathBuf>)> {
+    let (mut lines, mut files) = (Vec::new(), Vec::new());
+    for (k, input) in inputs.iter().enumerate() {
+        crate::check_cancel()?;
+        let job = DsmJob {
+            input: input.clone(),
+            output: out_for(input),
+            ..base.clone()
+        };
+        lines.push(format!("[{}/{}] {}", k + 1, inputs.len(), jobs::dsm(&job)?));
+        files.push(job.output);
+    }
+    if let Some(m) = mosaic_to.filter(|_| files.len() > 1) {
+        crate::check_cancel()?;
+        mosaic(
+            &files,
+            m,
+            Overlap::Max,
+            inputs.first().and_then(|p| epsg_of(p)),
+        )?;
+        lines.push(format!("mosaico de {} MDS: {}", files.len(), m.display()));
         files.push(m.to_path_buf());
     }
     Ok((lines.join("\n"), files))

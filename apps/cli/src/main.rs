@@ -59,6 +59,10 @@ enum ChmMethod {
     Max,
     /// Pit-free stack of TINs (Khosravipour et al. 2014)
     Pitfree,
+    /// TIN through the highest point of each cell
+    Tin,
+    /// Inverse-distance weighting of the highest point of each cell
+    Idw,
 }
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
@@ -1379,10 +1383,11 @@ fn run(cmd: Cmd) -> Result<()> {
                         .into(),
                 ));
             }
-            let pf = if method == ChmMethod::Pitfree {
-                "_pitfree"
-            } else {
-                ""
+            let pf = match method {
+                ChmMethod::Pitfree => "_pitfree",
+                ChmMethod::Tin => "_tin",
+                ChmMethod::Idw => "_idw",
+                ChmMethod::Max => "",
             };
             let sm = if smooth > 0.0 {
                 format!("_s{}", paths::num(smooth))
@@ -1402,6 +1407,8 @@ fn run(cmd: Cmd) -> Result<()> {
                 cell,
                 method: match method {
                     ChmMethod::Max => jobs::ChmMethod::Max { fill: !no_fill },
+                    ChmMethod::Tin => jobs::ChmMethod::Tin,
+                    ChmMethod::Idw => jobs::ChmMethod::Idw,
                     ChmMethod::Pitfree => jobs::ChmMethod::PitFree(pipeline::PitFree {
                         max_edge,
                         ..Default::default()

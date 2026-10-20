@@ -163,7 +163,7 @@ impl App {
             if !st.kind.is_integer() {
                 ui.label("Barras");
                 ui.add(
-                    egui::DragValue::new(&mut st.bins)
+                    crate::numfield::NumField::new(&mut st.bins)
                         .range(5.0..=400.0)
                         .speed(1.0),
                 );
@@ -374,7 +374,11 @@ impl App {
         let (label, _, range) = st.odd.param();
         ui.horizontal(|ui| {
             ui.label(label);
-            ui.add(egui::DragValue::new(&mut st.k).range(range).speed(0.05));
+            ui.add(
+                crate::numfield::NumField::new(&mut st.k)
+                    .range(range)
+                    .speed(0.05),
+            );
         });
         match h.limits(st.odd.method(st.k)) {
             Some((lo, hi)) => {

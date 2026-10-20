@@ -149,7 +149,8 @@ pub struct VolumeJob {
     /// Empty: the whole raster.
     pub regions: Vec<Region>,
     pub min_height: f64,
-    pub output: PathBuf,
+    /// Name of the sheet (cloud) the rasters belong to.
+    pub sheet: String,
 }
 
 fn csv_field(s: &str) -> String {
@@ -160,8 +161,8 @@ fn csv_field(s: &str) -> String {
     }
 }
 
-/// The rows as a CSV table.
-pub fn csv_text(rows: &[VolumeRow]) -> String {
+/// The rows as a CSV table; with `sheets` (one name per row) a first column tells the sheet.
+pub fn csv_text(rows: &[VolumeRow], sheets: Option<&[String]>) -> String {
     let num = |v: f64| {
         if v.is_finite() {
             format!("{v:.3}")
@@ -169,10 +170,15 @@ pub fn csv_text(rows: &[VolumeRow]) -> String {
             String::new()
         }
     };
-    let mut s = String::from(
+    let mut s = String::from(if sheets.is_some() { "Hoja," } else { "" });
+    s.push_str(
         "Region,Area_m2,Vol_sobre_m3,Vol_bajo_m3,Vol_neto_m3,H_media_m,H_max_m,Celdas_sin_MDT\n",
     );
-    for r in rows {
+    for (k, r) in rows.iter().enumerate() {
+        if let Some(names) = sheets {
+            s.push_str(&csv_field(names.get(k).map_or("", String::as_str)));
+            s.push(',');
+        }
         s.push_str(&format!(
             "{},{},{},{},{},{},{},{}\n",
             csv_field(&r.name),
@@ -188,22 +194,32 @@ pub fn csv_text(rows: &[VolumeRow]) -> String {
     s
 }
 
-/// Measures the volumes of a job and writes the table; one line about the result.
-pub fn run(job: &VolumeJob) -> Result<String> {
-    let surface = Grid::read(&job.surface)?;
-    let dtm;
-    let reference = match &job.reference {
-        ReferenceSource::Zero => Reference::Zero,
-        ReferenceSource::Level(l) => Reference::Level(*l),
-        ReferenceSource::Dtm(p) => {
-            dtm = Grid::read(p)?;
-            Reference::Dtm(&dtm)
-        }
-    };
-    let rows = volumes(&surface, reference, &job.regions, job.min_height)?;
-    crate::paths::ensure_parent(&job.output)?;
-    std::fs::write(&job.output, csv_text(&rows))?;
-    Ok(summary(&rows, &job.output))
+/// Measures the volumes of every job and writes one table with all the rows (a `Hoja` column
+/// tells the sheet when there are several); one line about the result.
+pub fn run_all(jobs: &[VolumeJob], output: &Path) -> Result<String> {
+    let (mut rows, mut names) = (Vec::new(), Vec::new());
+    for job in jobs {
+        crate::check_cancel()?;
+        let surface = Grid::read(&job.surface)?;
+        let dtm;
+        let reference = match &job.reference {
+            ReferenceSource::Zero => Reference::Zero,
+            ReferenceSource::Level(l) => Reference::Level(*l),
+            ReferenceSource::Dtm(p) => {
+                dtm = Grid::read(p)?;
+                Reference::Dtm(&dtm)
+            }
+        };
+        let part = volumes(&surface, reference, &job.regions, job.min_height)?;
+        names.extend(part.iter().map(|_| job.sheet.clone()));
+        rows.extend(part);
+    }
+    crate::paths::ensure_parent(output)?;
+    std::fs::write(
+        output,
+        csv_text(&rows, (jobs.len() > 1).then_some(&names[..])),
+    )?;
+    Ok(summary(&rows, output))
 }
 
 /// One line about a set of rows.
@@ -297,7 +313,7 @@ mod tests {
             max_h: 1.0,
             no_reference: 0,
         };
-        let t = csv_text(&[row]);
+        let t = csv_text(&[row], None);
         assert!(t.contains("\"a,b\",1.000,2.000,0.500,1.500,,1.000,0"));
     }
 }

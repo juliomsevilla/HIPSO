@@ -24,6 +24,10 @@ pub struct State {
     pub chm_smooth: f64,
     pub chm_smoothing: Smoothing,
     pub mosaic_chm: bool,
+    /// 0 TIN, 1 highest per cell, 2 IDW, 3 pit-free (the last only with a DTM).
+    pub surf_method: usize,
+    /// Subtract the DTM (a CHM) or keep absolute elevations (a DSM).
+    pub surf_dtm: bool,
     pub crs_from_file: bool,
     pub crs_file: String,
     pub crs_epsg: String,
@@ -64,6 +68,8 @@ impl Default for State {
             chm_smooth: 0.0,
             chm_smoothing: Smoothing::Mean,
             mosaic_chm: false,
+            surf_method: 0,
+            surf_dtm: true,
             crs_from_file: true,
             crs_file: String::new(),
             crs_epsg: String::new(),
@@ -281,39 +287,87 @@ impl Tools {
         );
     }
 
+    /// Whether the surface tool subtracts the DTM: asked for, and every sheet has one.
+    pub fn surface_with_dtm(&self, inputs: &[PathBuf]) -> bool {
+        self.s2.surf_dtm && inputs.iter().all(|p| paths::find_dtm(p).is_some())
+    }
+
+    fn surface_name(&self, with_dtm: bool) -> String {
+        let name = ["tin", "max", "idw", "pitfree"][self.s2.surf_method.min(3)];
+        let sm = if self.s2.chm_smooth > 0.0 {
+            format!("_s{}", paths::num(self.s2.chm_smooth))
+        } else {
+            String::new()
+        };
+        let cell = paths::num(self.chm_cell);
+        if with_dtm {
+            format!("chm_{cell}m_{name}{sm}")
+        } else {
+            format!("mds_{cell}m_{name}{sm}")
+        }
+    }
+
     pub fn chm_form(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf]) {
-        let pf = if self.pitfree { "_pitfree" } else { "" };
-        let tag = format!("chm_{}m{pf}", paths::num(self.chm_cell));
-        self.sheet_note(ui, t, inputs, &tag, "tif");
         let missing: Vec<String> = inputs
             .iter()
             .filter(|p| paths::find_dtm(p).is_none())
             .map(|p| paths::stem(p))
             .collect();
-        if missing.is_empty() {
-            ui.label(
-                egui::RichText::new("Cada hoja usa el último MDT hecho con ella.")
-                    .color(t.weak)
-                    .size(11.0),
-            );
-        } else {
-            ui.colored_label(
-                egui::Color32::from_rgb(230, 160, 60),
-                format!(
-                    "Sin MDT: {}. Genera antes el MDT de esas hojas.",
-                    missing.join(", ")
-                ),
-            );
-        }
-        num(ui, "Celda", &mut self.chm_cell, 0.1..=100.0, 0.1);
+        ui.label(egui::RichText::new("Superficie de lo más alto que ve el sensor (copas, tejados). Con el MDT se resta y sale la altura sobre el suelo (CHM); sin él, la elevación absoluta (MDS).").color(t.weak).size(11.0));
         ui.checkbox(
-            &mut self.pitfree,
-            "Sin huecos (pit-free, Khosravipour et al. 2014)",
+            &mut self.s2.surf_dtm,
+            "Restar el MDT (altura sobre el suelo, CHM)",
         );
-        if self.pitfree {
-            num(ui, "Arista máxima", &mut self.max_edge, 0.1..=20.0, 0.1);
-        } else {
-            ui.checkbox(&mut self.fill, "Rellenar celdas vacías");
+        if self.s2.surf_dtm {
+            if missing.is_empty() {
+                ui.label(
+                    egui::RichText::new("Cada hoja usa el último MDT hecho con ella.")
+                        .color(t.weak)
+                        .size(11.0),
+                );
+            } else {
+                ui.colored_label(
+                    egui::Color32::from_rgb(230, 160, 60),
+                    format!(
+                        "Sin MDT: {}. Se hará el MDS (elevación absoluta); genera antes el MDT para obtener el CHM.",
+                        missing.join(", ")
+                    ),
+                );
+            }
+        }
+        let with_dtm = self.surface_with_dtm(inputs);
+        if !with_dtm && self.s2.surf_method == 3 {
+            self.s2.surf_method = 0;
+        }
+        let tag = self.surface_name(with_dtm);
+        self.sheet_note(ui, t, inputs, &tag, "tif");
+        num(ui, "Celda", &mut self.chm_cell, 0.1..=100.0, 0.1);
+        let names = [
+            "Triangulación (TIN) de los puntos más altos: superficie continua",
+            "Máximo por celda: el más rápido, en una sola pasada",
+            "Ponderado por distancia (IDW) de los puntos más altos",
+            "Sin huecos (pit-free, Khosravipour et al. 2014)",
+        ];
+        egui::ComboBox::from_label("Método")
+            .selected_text(names[self.s2.surf_method.min(3)])
+            .show_ui(ui, |ui| {
+                for (k, n) in names.iter().enumerate() {
+                    if k == 3 && !with_dtm {
+                        ui.add_enabled(false, egui::Button::selectable(false, *n))
+                            .on_disabled_hover_text(
+                                "El pit-free trabaja con alturas sobre el suelo: necesita el MDT.",
+                            );
+                    } else {
+                        ui.selectable_value(&mut self.s2.surf_method, k, *n);
+                    }
+                }
+            });
+        match self.s2.surf_method {
+            1 => {
+                ui.checkbox(&mut self.fill, "Rellenar celdas vacías");
+            }
+            3 => num(ui, "Arista máxima", &mut self.max_edge, 0.1..=20.0, 0.1),
+            _ => {}
         }
         Self::smoothing_row(ui, &mut self.s2.chm_smooth, &mut self.s2.chm_smoothing);
         ui.checkbox(
@@ -700,53 +754,68 @@ impl Tools {
                 )
             }
             ToolId::Chm => {
-                if !need_dtm(log) {
-                    return None;
-                }
-                let pf = if self.pitfree { "_pitfree" } else { "" };
-                let sm = if self.s2.chm_smooth > 0.0 {
-                    format!("_s{}", paths::num(self.s2.chm_smooth))
-                } else {
-                    String::new()
-                };
-                let tag = format!("chm_{}m{pf}{sm}", paths::num(self.chm_cell));
+                let with_dtm = self.surface_with_dtm(inputs);
+                let tag = self.surface_name(with_dtm);
                 let outs = names(&tag, "tif");
                 let mosaic = (self.s2.mosaic_chm && inputs.len() > 1).then(|| {
                     paths::unique(&paths::product(&first, &format!("mosaico_{tag}"), "tif"))
                 });
-                let method = if self.pitfree {
-                    ChmMethod::PitFree(PitFree {
-                        max_edge: self.max_edge,
-                        ..Default::default()
-                    })
-                } else {
-                    ChmMethod::Max { fill: self.fill }
+                let tiling = Tiling {
+                    buffer: 5.0,
+                    ..self.tiling.clone()
                 };
-                let base = jobs::ChmJob {
-                    input: PathBuf::new(),
-                    dtm: PathBuf::new(),
-                    output: PathBuf::new(),
-                    cell: self.chm_cell,
-                    method,
-                    tiling: Tiling {
-                        buffer: 5.0,
-                        ..self.tiling.clone()
-                    },
-                    smooth: self.s2.chm_smooth,
-                    smoothing: self.s2.chm_smoothing,
-                };
+                let (smooth, smoothing) = (self.s2.chm_smooth, self.s2.chm_smoothing);
+                let (cell, fill, kind) = (self.chm_cell, self.fill, self.s2.surf_method);
+                let max_edge = self.max_edge;
                 let mut outputs: Vec<PathBuf> = outs.values().cloned().collect();
                 outputs.extend(mosaic.clone());
                 let show = outputs.clone();
-                (
+                let task: Task = if with_dtm {
+                    let method = match kind {
+                        0 => ChmMethod::Tin,
+                        1 => ChmMethod::Max { fill },
+                        2 => ChmMethod::Idw,
+                        _ => ChmMethod::PitFree(PitFree {
+                            max_edge,
+                            ..Default::default()
+                        }),
+                    };
+                    let base = jobs::ChmJob {
+                        input: PathBuf::new(),
+                        dtm: PathBuf::new(),
+                        output: PathBuf::new(),
+                        cell,
+                        method,
+                        tiling,
+                        smooth,
+                        smoothing,
+                    };
                     Box::new(move || {
                         let out_for = |p: &Path| outs.get(p).cloned().unwrap_or_default();
                         sheets::chm_each(&inputs_v, &base, &out_for, &dtm_for, mosaic.as_deref())
                             .map(|r| r.0)
-                    }),
-                    show,
-                    outputs,
-                )
+                    })
+                } else {
+                    let base = jobs::DsmJob {
+                        input: PathBuf::new(),
+                        output: PathBuf::new(),
+                        cell,
+                        method: [
+                            jobs::DsmMethod::Tin,
+                            jobs::DsmMethod::Max,
+                            jobs::DsmMethod::Idw,
+                        ][kind.min(2)],
+                        fill,
+                        tiling,
+                        smooth,
+                        smoothing,
+                    };
+                    Box::new(move || {
+                        let out_for = |p: &Path| outs.get(p).cloned().unwrap_or_default();
+                        sheets::dsm_each(&inputs_v, &base, &out_for, mosaic.as_deref()).map(|r| r.0)
+                    })
+                };
+                (task, show, outputs)
             }
             ToolId::Metrics => {
                 if !need_dtm(log) {

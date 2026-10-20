@@ -177,6 +177,7 @@ Todas se escriben como GeoTIFF y se calculan **hoja por hoja**.
   - **Máximo por celda**: la cota del punto más alto de cada celda, en una sola pasada; las celdas vacías se rellenan (casilla *Rellenar*).
   - **Ponderado por distancia (IDW)**: sobre los puntos más altos de cada media celda.
 - **CHM (altura de copas)**: por celda, la altura del punto más alto sobre el terreno, `z − MDT` (las alturas negativas valen 0). Con *pit-free* se apilan varias triangulaciones de los puntos por encima de umbrales de altura (0, 2, 5, 10, 15 m…) y se toma el máximo de capas: quita los «pozos» que deja el máximo por celda en copas con huecos. Usa el MDT **de esa misma nube**.
+- **MDS / CHM en una sola herramienta:** el botón *MDS / CHM* ofrece los mismos métodos (TIN, máximo por celda, IDW y, con MDT, pit-free). Si marcas *Restar el MDT* y todas las nubes tienen MDT, sale el CHM (`chm_…`); si no, sale el MDS (`mds_…`). El pit-free exige MDT porque trabaja con alturas sobre el suelo.
 - **Suavizado** (MDT, MDS y CHM): ventana circular de media, mediana o gauss, con el tamaño en metros.
 
 Recomendación: celda de 1 m para el MDT en terreno forestal con 1 a 10 puntos/m² (PNOA); 0,5 m para el MDS y el CHM. Si hay pocos puntos de suelo bajo copas densas, una celda mayor da un terreno más fiable.
@@ -305,7 +306,7 @@ Las columnas de estratos se llaman `ES<n><estadístico>` (altura, *Elev*) e `IS<
 
 #### Segmentación de árboles
 
-Detecta cimas y copas sobre el CHM:
+Detecta cimas y copas sobre el CHM. Con varias nubes cargadas segmenta el CHM de cada una y da un resultado por hoja (si eliges un CHM a mano, solo ese):
 
 1. **Suavizado** opcional del CHM.
 2. **Cimas**: máximos locales en una ventana (fija, o variable según la altura: `a + b · h`; circular o cuadrada) por encima de una altura mínima.
@@ -360,7 +361,7 @@ Calcula el volumen entre una superficie y el terreno, celda a celda: V = Σ (alt
 - **Altura mínima que cuenta:** las celdas más cerca del terreno que esta altura no suman. Quita el ruido de la superficie.
 - **Zonas:** todo el ráster, las AOI dibujadas (un volumen por AOI) o los polígonos de un archivo vectorial. Si las zonas se solapan, se miden una a una.
 
-**Resultado:** un `…_volumen.csv` con, por zona, `Area_m2`, `Vol_sobre_m3`, `Vol_bajo_m3`, `Vol_neto_m3`, `H_media_m` y `H_max_m` (de las celdas sobre el terreno) y `Celdas_sin_MDT`. La precisión es la del ráster: usa la misma celda para el MDS y el MDT cuando puedas.
+**Resultado:** un único `…_volumen.csv` (con una columna `Hoja` si hay varias nubes) con, por zona, `Area_m2`, `Vol_sobre_m3`, `Vol_bajo_m3`, `Vol_neto_m3`, `H_media_m` y `H_max_m` (de las celdas sobre el terreno) y `Celdas_sin_MDT`. La precisión es la del ráster: usa la misma celda para el MDS y el MDT cuando puedas.
 
 ## 8. Teledetección
 
