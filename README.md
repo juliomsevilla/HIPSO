@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/juliomsevilla/EasyLiDAR/releases/latest"><img alt="Descargar" src="https://img.shields.io/github/v/release/juliomsevilla/EasyLiDAR?label=descargar&color=ff8a1f&style=for-the-badge"></a>
+  <a href="https://github.com/juliomsevilla/EasyLiDAR/releases/latest"><img alt="Descargar" src="https://img.shields.io/badge/descargar-v0.1.4-ff8a1f?style=for-the-badge"></a>
   <img alt="Plataformas" src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-555?style=for-the-badge">
   <img alt="Gratuito" src="https://img.shields.io/badge/uso-gratuito-2e7d32?style=for-the-badge">
 </p>
@@ -39,7 +39,7 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/EasyLiDAR/relea
 
 ### Visor y edición
 
-- Ventanas **2D**, **2D + perfil**, **3D** (independiente de la planta) y **2D + perfil + 3D**.
+- Ventanas **2D**, **2D + perfil**, **3D** y **2D + perfil + 3D**.
 - Navegación 3D libre: giro sin tope, desplazamiento en el plano de la pantalla, zoom con la rueda, encuadre con doble clic.
 - Colorear por elevación, clase, intensidad, retorno, pasada, archivo o RGB.
 - **Edición por selecciones** (rectángulo, círculo, polígono, en planta o en perfil) con filtros por clase, altura, intensidad y retorno; eliminar o reclasificar; deshacer, rehacer e historial. El original nunca se modifica.
@@ -50,24 +50,20 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/EasyLiDAR/relea
 
 | Grupo | Herramientas |
 |---|---|
-| Preparar | Información de los datos · Asignar proyección · **Adelgazar nube** (densidad objetivo, celdas, percentil, 3D, uno de cada n) · Clasificar: ruido, suelo (Kraus y Pfeifer, MCC, CSF, PMF, **Axelsson**), edificios, vegetación por estratos, cables y postes, **reglas por eco y ángulo de barrido** |
-| Superficies | MDT (triangulación por defecto, ponderado por distancia o media por celda) · MDS (triangulación por defecto, ponderado por distancia o máximo por celda) · CHM (con *pit-free* y suavizado) |
-| Inventario | Métricas de rodal · Segmentación de árboles (Dalponte, Silva, cuencas, ventana variable) con evaluación frente a campo |
-| Recorte y salida | Parcelas (de archivo, muestreo o dibujadas) · Exportar puntos |
-| Calidad y comparación | Quitar duplicados · **Comparar nubes** (cambios) · **Ajustar una nube a otra** (ICP) · Separación entre pasadas |
-| **TLS** | **Cubicar árboles**: mide diámetros a lo largo del tronco y cubica con Smalian |
+| **Preparar** | Información de los datos · Asignar proyección · Adelgazar nube (densidad objetivo, celdas, percentil, 3D, uno de cada n) · Clasificar: ruido, suelo (Kraus y Pfeifer, MCC, CSF, PMF, Axelsson), edificios, vegetación por estratos, cables y postes, reglas por eco y ángulo de barrido |
+| **Superficies** | MDT (triangulación por defecto, ponderado por distancia o media por celda) · MDS (triangulación por defecto, ponderado por distancia o máximo por celda) · CHM (con *pit-free* y suavizado) |
+| **Inventario** | Métricas de rodal · Segmentación de árboles (Dalponte, Silva, cuencas, ventana variable) con evaluación frente a campo |
+| **Recorte y salida** | Parcelas (de archivo, muestreo o dibujadas) · Exportar puntos |
+| **Calidad y comparación** | Quitar duplicados · Comparar nubes (cambios) · Ajustar una nube a otra (ICP) · Separación entre pasadas |
+| **TLS** | Cubicar árboles: mide diámetros a lo largo del tronco y cubica con Smalian |
 | **Volúmenes** | Volumen sobre (y bajo) el MDT, desde el CHM o el MDS, por ráster completo, AOI o polígonos |
-
-### Cubicación de árboles (TLS)
-
-En nubes de escáner terrestre, móvil o fotogramétrico: encuentra los troncos, los sigue de abajo arriba ajustando círculos cada pocos centímetros y cubica cada árbol con la **fórmula de Smalian**, `V = (A₁ + A₂) / 2 · L`, desde la altura de la base (10 cm por defecto) hasta el diámetro de punta delgada (7 cm por defecto), con trozas de 0,5 m (la distancia entre diámetros). Entrega un shapefile con la posición de cada árbol y sus datos dasométricos (DAP, alturas, volumen, nº de trozas, inclinación, calidad), el detalle de cada troza en CSV y, si se quiere, la nube de cada árbol.
 
 ### Teledetección
 
 - Composiciones de bandas e índices espectrales (NDVI, GNDVI, NDWI, EVI, SAVI, NDMI, NBR, VARI, ExG o expresión propia).
 - **Crear multibanda** a partir de rásteres sueltos.
 - **Mosaico** con regla de solape: primero, último, media, mínimo, máximo, mediana, suma o número de capas.
-- Lectura por ventana y escritura por franjas comprimidas: se unen imágenes de varios gigabytes con poca memoria.
+- **Lectura por ventana y escritura por franjas comprimidas**: se unen imágenes de varios gigabytes con poca memoria.
 
 ### Capas y formatos
 
