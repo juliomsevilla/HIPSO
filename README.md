@@ -60,7 +60,7 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/EasyLiDAR/relea
 
 ### Teledetección
 
-- Composiciones de bandas e índices espectrales (NDVI, GNDVI, NDWI, EVI, SAVI, NDMI, NBR, VARI, ExG o expresión propia).
+- **Composiciones de bandas e índices espectrales** (NDVI, GNDVI, NDWI, EVI, SAVI, NDMI, NBR, VARI, ExG o expresión propia).
 - **Crear multibanda** a partir de rásteres sueltos.
 - **Mosaico** con regla de solape: primero, último, media, mínimo, máximo, mediana, suma o número de capas.
 - **Lectura por ventana y escritura por franjas comprimidas**: se unen imágenes de varios gigabytes con poca memoria.
