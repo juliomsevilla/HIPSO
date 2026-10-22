@@ -14,6 +14,7 @@ mod ribbon;
 mod rs;
 mod rstools;
 mod symbology;
+mod terrain;
 mod theme;
 mod tools;
 mod vecedit;
@@ -284,6 +285,7 @@ enum Action {
     LayerTable,
     ImageTool(u8),
     RasterTool(u8),
+    Terrain,
     ClearMarks,
     ToggleTheme,
     NorthUp,
@@ -366,6 +368,7 @@ struct App {
     show_classes: bool,
     ctable: classtable::ClassTable,
     rt: rstools::RasterTools,
+    tt: terrain::TerrainTool,
     show_about: bool,
     logo: Option<egui::TextureHandle>,
     manual: manual::Manual,
@@ -450,6 +453,7 @@ impl Default for App {
             show_classes: false,
             ctable: classtable::ClassTable::load(),
             rt: rstools::RasterTools::default(),
+            tt: terrain::TerrainTool::default(),
             show_about: false,
             logo: None,
             manual: manual::Manual::default(),
@@ -1002,13 +1006,16 @@ impl App {
                 self.rev += 1;
             }
             Action::SaveShot => {
-                if let (Some(s), Some(p)) = (
-                    self.store.clone(),
-                    rfd::FileDialog::new()
-                        .add_filter("PNG", &["png"])
-                        .set_file_name("vista.png")
-                        .save_file(),
-                ) {
+                let Some(s) = self.store.clone() else {
+                    self.log("Guardar vista: abre primero una nube de puntos; la imagen se hace con sus puntos.");
+                    self.show_log = true;
+                    return;
+                };
+                if let Some(p) = rfd::FileDialog::new()
+                    .add_filter("PNG", &["png"])
+                    .set_file_name("vista.png")
+                    .save_file()
+                {
                     let img = view::render_plan(
                         &s,
                         &Plan::fit(s.bounds, 1920, 1200),
@@ -1128,6 +1135,7 @@ impl App {
             }
             Action::ImageTool(_) => self.rs.open = true,
             Action::RasterTool(k) => self.rt.open = Some(k),
+            Action::Terrain => self.tt.open = true,
             Action::ClearMarks => {
                 self.measure.clear();
                 self.density = None;
@@ -1184,6 +1192,10 @@ impl App {
             ("Índices espectrales (NDVI…)", Action::ImageTool(1)),
             ("Crear imagen multibanda", Action::RasterTool(0)),
             ("Mosaico de rásteres", Action::RasterTool(1)),
+            (
+                "Análisis de terreno (pendiente, orientación, drenaje, visibilidad…)",
+                Action::Terrain,
+            ),
             (
                 "Editar: seleccionar con rectángulo",
                 Action::Nav(Nav::SelRect),
@@ -1415,20 +1427,26 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
                             self.act(ctx, Action::Tool(ToolId::Chm));
                         }
                     });
-                    ribbon::group(ui, &t, "Inventario", |ui| {
+                    ribbon::group(ui, &t, "Terreno", |ui| {
+                        if ribbon::big_button(ui, &t, "@terrain", "Análisis\nde terreno", self.tt.open).clicked() {
+                            self.act(ctx, Action::Terrain);
+                        }
+                    });
+                    ribbon::group(ui, &t, "Inventario forestal", |ui| {
                         if ribbon::big_button(ui, &t, "📊", "Métricas\nde rodal", self.tools.open == Some(ToolId::Metrics)).clicked() {
                             self.act(ctx, Action::Tool(ToolId::Metrics));
                         }
                         if ribbon::big_button(ui, &t, "🌲", "Segmentar\nárboles", self.tools.open == Some(ToolId::Trees)).clicked() {
                             self.act(ctx, Action::Tool(ToolId::Trees));
                         }
-                    });
-                    ribbon::group(ui, &t, "Recorte y salida", |ui| {
                         if ribbon::big_button(ui, &t, "✂", "Recortar\nparcelas", self.tools.open == Some(ToolId::Clip)).clicked() {
                             self.act(ctx, Action::Tool(ToolId::Clip));
                         }
                         if ribbon::big_button(ui, &t, "📤", "Exportar\npuntos", self.tools.open == Some(ToolId::Export)).clicked() {
                             self.act(ctx, Action::Tool(ToolId::Export));
+                        }
+                        if ribbon::big_button(ui, &t, "@tree", "Cubicar\nárboles", self.tools.open == Some(ToolId::Tls)).clicked() {
+                            self.act(ctx, Action::Tool(ToolId::Tls));
                         }
                     });
                     ribbon::group(ui, &t, "Calidad y comparación", |ui| {
@@ -1441,11 +1459,6 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
                             if ribbon::big_button(ui, &t, icon, name, self.tools.open == Some(id)).clicked() {
                                 self.act(ctx, Action::Tool(id));
                             }
-                        }
-                    });
-                    ribbon::group(ui, &t, "TLS", |ui| {
-                        if ribbon::big_button(ui, &t, "@tree", "Cubicar\nárboles", self.tools.open == Some(ToolId::Tls)).clicked() {
-                            self.act(ctx, Action::Tool(ToolId::Tls));
                         }
                     });
                     ribbon::group(ui, &t, "Volúmenes", |ui| {
@@ -3124,6 +3137,7 @@ impl eframe::App for App {
         self.table_window(&ctx);
         self.rs_window(&ctx);
         self.raster_tools_window(&ctx);
+        self.terrain_window(&ctx);
         if !self.ed.cmds.is_empty() || self.ed.want_save {
             ctx.request_repaint();
         }

@@ -16,6 +16,13 @@ or because its structure builds on a sister project.
 - lidR, J.-R. Roussel et al. (GPL-3): only its documented behaviour was observed, by running it as a
   separate program; no code was used. Tree segmentation follows Popescu and Wynne (2004), Dalponte
   and Coomes (2016) and Silva et al. (2016).
+- OxiGeo, COOLJAPAN OU (Apache-2.0): reference for which terrain products are worth having (slope,
+  aspect, hillshade, curvatures, drainage, viewshed). Its source code is not included; the terrain
+  analysis follows the published methods of Horn (1981), Zevenbergen and Thorne (1987), Wilson et
+  al. (2007), Weiss (2001), O'Callaghan and Mark (1984), Beven and Kirkby (1979) and Barnes,
+  Lehman and Mulla (2014).
+- GDAL / gdaldem (MIT): the conventions of its slope, aspect, hillshade, roughness, TRI and TPI
+  (windows over missing neighbours, units), checked against an independent implementation.
 - WhiteboxTools, John Lindsay (MIT): inspiration for the choice of utilities (thinning, point
   statistics, tiling, contours).
 - Third-party libraries: see THIRD_PARTY_LICENSES.md.

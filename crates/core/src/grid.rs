@@ -288,6 +288,23 @@ impl Grid {
         Ok(g)
     }
 
+    /// The EPSG code a GeoTIFF declares (projected, else geographic), if any.
+    pub fn read_epsg(path: &Path) -> Option<u16> {
+        use tiff::decoder::Decoder;
+        let mut d = Decoder::new(BufReader::new(File::open(path).ok()?)).ok()?;
+        let keys = d.get_tag_u32_vec(Tag::GeoKeyDirectoryTag).ok()?;
+        // four numbers of header, then four per key: id, location, count, value
+        let key = |id: u32| {
+            keys.get(4..)?
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .find(|e| e[0] == id && e[1] == 0)
+                .and_then(|e| u16::try_from(e[3]).ok())
+        };
+        key(3072).or_else(|| key(2048))
+    }
+
     /// Reads a north-up 32-bit float GeoTIFF such as [`Grid::write_tiff`] writes.
     pub fn read_tiff(path: &Path) -> Result<Self> {
         use tiff::decoder::{Decoder, DecodingResult};

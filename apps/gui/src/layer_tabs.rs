@@ -412,14 +412,33 @@ impl App {
         });
         ribbon::group(ui, t, "Estirado", |ui| {
             ui.vertical(|ui| {
-                egui::ComboBox::from_id_salt("stretch")
-                    .width(160.0)
-                    .selected_text(il.stretch.name())
-                    .show_ui(ui, |ui| {
-                        for s in Stretch::ALL {
-                            changed |= ui.selectable_value(&mut il.stretch, s, s.name()).changed();
+                let before = il.style();
+                let was = il.stretch;
+                ui.horizontal(|ui| {
+                    egui::ComboBox::from_id_salt("stretch")
+                        .width(160.0)
+                        .selected_text(il.stretch.name())
+                        .show_ui(ui, |ui| {
+                            for s in Stretch::ALL {
+                                changed |=
+                                    ui.selectable_value(&mut il.stretch, s, s.name()).changed();
+                            }
+                        });
+                    if il.stretch == Stretch::Manual {
+                        // the first time, start from the limits that were showing
+                        if was != Stretch::Manual {
+                            il.manual = [before.lo[0], before.hi[0]];
                         }
-                    });
+                        ui.label("Mín");
+                        changed |= ui
+                            .add(crate::numfield::NumField::new(&mut il.manual[0]).speed(1.0))
+                            .changed();
+                        ui.label("Máx");
+                        changed |= ui
+                            .add(crate::numfield::NumField::new(&mut il.manual[1]).speed(1.0))
+                            .changed();
+                    }
+                });
                 ui.horizontal(|ui| {
                     ui.label("Brillo");
                     changed |= ui

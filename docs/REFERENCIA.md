@@ -48,6 +48,7 @@ easylidar export nube.laz -o puntos.csv --items x,y,z,class --header
 | `filter` | Une, filtra por clase/retorno/elevación, normaliza con un MDT y convierte LAS↔LAZ en una pasada | lasmerge, las2las, WhiteboxTools `lidar_join`, `filter_lidar_classes`, `normalize_lidar` |
 | `thin` | Un punto por celda (el más bajo, el más alto, el más cercano al centro o el primero) | `lidar_thin`, `lidar_block_minimum/maximum` |
 | `raster` | Malla de densidad, cuenta, elevación (media, máxima, mínima, rango) o intensidad | `lidar_point_density` |
+| `terrain` | Análisis de terreno de un MDT: pendiente, orientación, sombreado, curvaturas, rugosidad, TRI, TPI, depresiones, acumulación de flujo, TWI, red de drenaje, subcuencas y cuenca visual (GeoTIFF) | `gdaldem`, WhiteboxTools, GRASS `r.slope.aspect`, `r.watershed`, `r.viewshed` |
 | `contour`, `hillshade` | Curvas de nivel (shapefile 3D) y sombreado (PNG) de un MDT o CHM | `contour`, `hillshade` |
 | `tile` | Divide la nube en teselas cuadradas, con búfer opcional | lastile, `lidar_tile` |
 | `render` | Dibuja la nube (planta, 3D, perfil; TIN sombreado y curvas) a PNG | visores de nubes de puntos |
@@ -167,6 +168,7 @@ Cada herramienta es un *job* del motor; la CLI y la interfaz solo rellenan sus p
 - **lidR** (GPL-3): de ahí se tomó la selección de algoritmos, implementados desde sus artículos originales, sin código de lidR.
 - **LAStools:** solo se consultó su documentación pública; no hay código suyo. Sus herramientas cerradas exigen licencia comercial a quien las usa; EasyLiDAR no las incluye ni las llama.
 - **WhiteboxTools** (MIT), **CSF** (Apache-2.0): ideas y métodos publicados, sin código.
+- **Análisis de terreno:** métodos de Horn (1981), Zevenbergen y Thorne (1987), Wilson et al. (2007), Weiss (2001), O'Callaghan y Mark (1984), Beven y Kirkby (1979) y Barnes, Lehman y Mulla (2014), con las convenciones de `gdaldem` (MIT). **OxiGeo** (Apache-2.0) sirvió de referencia para elegir los productos; no se incluye código suyo.
 
 Ver [docs/LICENCIAS.md](docs/LICENCIAS.md), `NOTICE` y `THIRD_PARTY_LICENSES.md`.
 

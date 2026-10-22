@@ -677,8 +677,9 @@ impl App {
             if ribbon::big_button(ui, t, "@reclass", "Cambiar\nclase", false).clicked() {
                 self.queue(Cmd::Reclass(self.ed.class));
             }
+            // two rows per column: the group is 70 px high, and a third pushes its caption down
+            ui.vertical(|ui| self.class_combo(ui));
             ui.vertical(|ui| {
-                self.class_combo(ui);
                 if ribbon::small_button(ui, t, "@prev", "Deshacer (Ctrl+Z)", false).clicked() {
                     self.queue(Cmd::Undo);
                 }

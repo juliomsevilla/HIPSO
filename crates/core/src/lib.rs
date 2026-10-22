@@ -16,6 +16,7 @@ pub mod forest;
 pub mod grid;
 pub mod ground;
 pub mod histogram;
+pub mod hydro;
 pub mod idw;
 pub mod inspect;
 pub mod jobs;
@@ -35,6 +36,7 @@ pub mod rastertools;
 pub mod rules;
 pub mod sheets;
 pub mod stools;
+pub mod terrain;
 pub mod thin;
 pub mod tile;
 pub mod tin;
@@ -42,6 +44,7 @@ pub mod tls;
 pub mod trees;
 pub mod vector;
 pub mod view;
+pub mod viewshed;
 pub mod volume;
 
 /// Everything that can go wrong; input files are hostile, so nothing here panics.

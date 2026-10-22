@@ -140,6 +140,8 @@ Los LAS anteriores a la versión 1.4 solo guardan clases hasta la 31. Si guardas
 
 Las herramientas procesan **cada hoja por separado** y dan un resultado por hoja; nunca las unen (salvo el mosaico, si lo pides). Los nombres de los resultados se calculan a partir de la entrada y de los ajustes (`datos_1_mdt_1m.tif`) y no pisan resultados anteriores (`_2`, `_3`…).
 
+En la cinta de *Procesar*, las herramientas de inventario (métricas de rodal, segmentar árboles, recortar parcelas, exportar puntos y cubicar árboles) están juntas en el grupo **Inventario forestal**; abajo siguen descritas en sus apartados (7.3, 7.4 y 7.6).
+
 ### 7.1 Preparar
 
 - **Información de los datos**: puntos, extensión, densidad, clases, retornos, fechas, sistema de coordenadas y avisos.
@@ -181,6 +183,28 @@ Todas se escriben como GeoTIFF y se calculan **hoja por hoja**.
 - **Suavizado** (MDT, MDS y CHM): ventana circular de media, mediana o gauss, con el tamaño en metros.
 
 Recomendación: celda de 1 m para el MDT en terreno forestal con 1 a 10 puntos/m² (PNOA); 0,5 m para el MDS y el CHM. Si hay pocos puntos de suelo bajo copas densas, una celda mayor da un terreno más fiable.
+
+#### Análisis de terreno
+
+El botón *Terreno → Análisis de terreno* calcula productos derivados de un MDT (o de cualquier ráster de alturas): se elige el MDT (un archivo o una capa ya cargada), el producto y la salida, que es un GeoTIFF del mismo tamaño y con el mismo sistema de coordenadas. El ráster debe estar en un sistema métrico (UTM); en grados el programa se niega a calcular. Las celdas sin dato siguen sin dato, y en los bordes y junto a huecos la ventana toma el valor de la propia celda (como `gdaldem`). Si las alturas no están en las unidades de la celda, el *factor Z* las corrige.
+
+| Grupo | Producto | Qué es |
+|---|---|---|
+| Relieve | **Pendiente** | Inclinación en grados o porcentaje (Horn, ventana de 3×3) |
+| | **Orientación** | Hacia dónde mira la ladera, en grados desde el norte; las celdas llanas quedan vacías |
+| | **Sombreado** | Iluminación 0–255 con la dirección y la altura de la luz que se elijan (315° y 45° por defecto) |
+| Forma | **Curvatura en planta, de perfil y total** | Zevenbergen y Thorne, en 1/m; positiva en cumbres, lomas y espolones, negativa en vaguadas |
+| | **Rugosidad** | Diferencia entre la celda más alta y la más baja de la ventana de 3×3 |
+| | **Índice de rugosidad (TRI)** | Media de las diferencias con las ocho vecinas (Wilson et al.) |
+| | **Posición topográfica (TPI)** | Altura menos la media del círculo de radio dado: positivo en lomas, negativo en vaguadas. Se calcula con sumas acumuladas por fila, así que un radio grande apenas cuesta más |
+| Hidrología | **Profundidad de depresiones** | Cuánto hay que rellenar cada depresión para que el agua salga del modelo (Priority-Flood de Barnes et al.); sirve también para detectar defectos del MDT |
+| | **Acumulación de flujo** | Superficie (m²) que vierte a cada celda, con direcciones D8 sobre el modelo ya rellenado |
+| | **Índice de humedad (TWI)** | `ln(a / tan β)`: alto donde el agua se acumula y la pendiente es baja |
+| | **Red de drenaje** | Celdas por las que vierte al menos la superficie mínima indicada (en hectáreas) |
+| | **Subcuencas** | Cuenca de cada tramo de la red (de una cabecera o confluencia a la siguiente confluencia), numeradas desde 1 |
+| Visibilidad | **Cuenca visual** | Qué celdas ve un observador (X, Y del mapa, altura de los ojos, altura que debe verse y alcance): 1 las ve, 0 no, vacío fuera del alcance. No aplica la curvatura terrestre ni la refracción (despreciables a pocos kilómetros) |
+
+Todo se calcula con el ráster completo en memoria (unos 20 bytes por celda las derivadas y 35 la hidrología; un MDT de 25 millones de celdas tarda de 2 a 7 s), por filas en paralelo. Por la línea de comandos: `easylidar terrain mdt.tif --product slope`, y `--help` lista los productos y sus parámetros.
 
 ### 7.3 Inventario
 
@@ -365,7 +389,7 @@ Calcula el volumen entre una superficie y el terreno, celda a celda: V = Σ (alt
 
 ## 8. Teledetección
 
-- **Composición de bandas**: color natural, falso color infrarrojo y otras, con estirado del contraste, brillo y gamma.
+- **Composición de bandas**: color natural, falso color infrarrojo y otras, con estirado del contraste, brillo y gamma. El estirado puede ser sin estirar, mínimo–máximo, percentiles 2–98 %, ±2 desviaciones o **cortes manuales**: se escriben el valor mínimo y el máximo que se pintan (los mismos para las tres bandas; por ejemplo, de 0 a 3000 en una reflectancia de Sentinel-2) y lo que queda fuera se satura. Al elegirlos parten de los límites que se estaban usando.
 - **Índices espectrales**: NDVI, GNDVI, NDWI, EVI, SAVI, NDMI, NBR, VARI, ExG o una expresión propia con `B1…Bn` o `RED`, `GREEN`, `BLUE`, `NIR`, `SWIR1`, `SWIR2`. El índice sale como capa ráster y se guarda en GeoTIFF.
 - **Crear multibanda**: apila en una sola imagen las bandas de varios rásteres, en el orden de la lista (por ejemplo, R, G, B y NIR sueltos). En *Bandas* se eligen las de cada ráster (por ejemplo `1,3`); vacío = todas. Hasta 64 bandas.
 - **Mosaico**: une rásteres con el mismo número de bandas. **Donde se solapan** se elige qué hacer: *primero*, *último*, *media*, *mínimo*, *máximo*, *mediana*, *suma* o *número de capas*. También: zona que cubre (unión, intersección o la del primero), remuestreo (vecino, bilineal o media), tipo de dato, tamaño de píxel y valor de «sin datos».
@@ -447,6 +471,9 @@ easylidar classify nube.laz --ground csf --noise isolated --buildings --vegetati
 easylidar dtm nube.laz --cell 1 --surface tin
 easylidar dsm nube.laz --cell 0.5 --method tin
 easylidar chm nube.laz --cell 0.5 --method pitfree
+easylidar terrain mdt.tif --product slope --percent
+easylidar terrain mdt.tif --product streams --threshold 10000
+easylidar terrain mdt.tif --product viewshed --observer 504000 4405000 --max-distance 2000
 easylidar metrics nube.laz
 easylidar trees chm.tif --method silva --crowns
 easylidar clip nube.laz --regions parcelas.shp --mode each

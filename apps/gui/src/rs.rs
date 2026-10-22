@@ -19,14 +19,17 @@ pub enum Stretch {
     Percent,
     /// Mean plus or minus two standard deviations.
     Sigma,
+    /// The limits typed in, the same for every band shown (Sentinel-2 reflectance: 0 to 3000).
+    Manual,
 }
 
 impl Stretch {
-    pub const ALL: [Stretch; 4] = [
+    pub const ALL: [Stretch; 5] = [
         Stretch::None,
         Stretch::MinMax,
         Stretch::Percent,
         Stretch::Sigma,
+        Stretch::Manual,
     ];
 
     pub fn name(self) -> &'static str {
@@ -35,6 +38,7 @@ impl Stretch {
             Stretch::MinMax => "Mínimo–máximo",
             Stretch::Percent => "Percentiles 2–98 %",
             Stretch::Sigma => "±2 desviaciones",
+            Stretch::Manual => "Cortes manuales",
         }
     }
 }
@@ -66,6 +70,8 @@ pub struct ImageLayer {
     pub stats: Vec<BandStats>,
     pub bands: [usize; 3],
     pub stretch: Stretch,
+    /// Lowest and highest value painted with `Stretch::Manual`.
+    pub manual: [f32; 2],
     pub brightness: f32,
     pub contrast: f32,
     pub gamma: f32,
@@ -139,6 +145,7 @@ impl ImageLayer {
             } else {
                 Stretch::Percent
             },
+            manual: [0.0, 1.0],
             brightness: 0.0,
             contrast: 1.0,
             gamma: 1.0,
@@ -176,6 +183,7 @@ impl ImageLayer {
                 Stretch::MinMax => (s.min, s.max),
                 Stretch::Percent => (s.p2, s.p98),
                 Stretch::Sigma => (s.mean - 2.0 * s.std, s.mean + 2.0 * s.std),
+                Stretch::Manual => (self.manual[0], self.manual[1].max(self.manual[0] + 1e-6)),
             };
         }
         RgbStyle {

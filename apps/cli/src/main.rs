@@ -136,6 +136,25 @@ enum OverlapArg {
 }
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
+enum TerrainArg {
+    Slope,
+    Aspect,
+    Hillshade,
+    PlanCurvature,
+    ProfileCurvature,
+    Curvature,
+    Roughness,
+    Tri,
+    Tpi,
+    FillDepth,
+    FlowAccumulation,
+    Twi,
+    Streams,
+    Subbasins,
+    Viewshed,
+}
+
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum StatArg {
     Density,
     Count,
@@ -1016,6 +1035,47 @@ enum Cmd {
         /// Average the source pixels when reducing (default: nearest)
         #[arg(long)]
         average: bool,
+    },
+    /// Terrain analysis of a DTM (GeoTIFF): slope, aspect, hillshade, curvatures, roughness,
+    /// TRI, TPI, depressions, flow accumulation, wetness index, streams, subbasins, viewshed
+    Terrain {
+        /// The DTM (a GeoTIFF in a projected system, cell in metres)
+        input: PathBuf,
+        #[arg(long, value_enum)]
+        product: TerrainArg,
+        /// GeoTIFF; default: <results>/<input>_<product>.tif
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Slope in percent instead of degrees
+        #[arg(long)]
+        percent: bool,
+        /// Multiplies the heights when they are not in the units of the cell
+        #[arg(long, default_value_t = 1.0)]
+        z_factor: f64,
+        /// Hillshade: direction of the light in degrees clockwise from north
+        #[arg(long, default_value_t = 315.0)]
+        azimuth: f64,
+        /// Hillshade: height of the light over the horizon in degrees
+        #[arg(long, default_value_t = 45.0)]
+        altitude: f64,
+        /// TPI: radius of the neighbourhood (map units)
+        #[arg(long, default_value_t = 10.0)]
+        radius: f64,
+        /// Streams and subbasins: drained area (m²) that makes a stream
+        #[arg(long, default_value_t = 10000.0)]
+        threshold: f64,
+        /// Viewshed: the observer's X and Y
+        #[arg(long, num_args = 2, value_names = ["X", "Y"])]
+        observer: Option<Vec<f64>>,
+        /// Viewshed: eye height over the ground (m)
+        #[arg(long, default_value_t = 1.7)]
+        eye: f64,
+        /// Viewshed: height over the ground that must be seen (m)
+        #[arg(long, default_value_t = 0.0)]
+        target: f64,
+        /// Viewshed: how far the observer looks (map units)
+        #[arg(long, default_value_t = 1000.0)]
+        max_distance: f64,
     },
     /// Remove duplicate points (same x, y, z and the attributes asked for)
     Dedup {
@@ -2119,6 +2179,50 @@ fn run(cmd: Cmd) -> Result<()> {
                 job.resample = Resample::Average;
             }
             mosaic(&job)?
+        }
+        Cmd::Terrain {
+            input,
+            product,
+            output,
+            percent,
+            z_factor,
+            azimuth,
+            altitude,
+            radius,
+            threshold,
+            observer,
+            eye,
+            target,
+            max_distance,
+        } => {
+            use rustlidar_core::terrain::{Product, TerrainJob, run as terrain};
+            let product = match product {
+                TerrainArg::Slope => Product::Slope,
+                TerrainArg::Aspect => Product::Aspect,
+                TerrainArg::Hillshade => Product::Hillshade,
+                TerrainArg::PlanCurvature => Product::PlanCurvature,
+                TerrainArg::ProfileCurvature => Product::ProfileCurvature,
+                TerrainArg::Curvature => Product::Curvature,
+                TerrainArg::Roughness => Product::Roughness,
+                TerrainArg::Tri => Product::Ruggedness,
+                TerrainArg::Tpi => Product::Position,
+                TerrainArg::FillDepth => Product::FillDepth,
+                TerrainArg::FlowAccumulation => Product::FlowAccumulation,
+                TerrainArg::Twi => Product::Wetness,
+                TerrainArg::Streams => Product::Streams,
+                TerrainArg::Subbasins => Product::Subbasins,
+                TerrainArg::Viewshed => Product::Viewshed,
+            };
+            let out = out_path(output, &input, product.tag(), "tif");
+            let mut job = TerrainJob::new(input, out, product);
+            job.percent = percent;
+            job.z_factor = z_factor;
+            (job.azimuth, job.altitude) = (azimuth, altitude);
+            (job.radius, job.threshold) = (radius, threshold);
+            job.observer = observer.and_then(|o| Some([*o.first()?, *o.get(1)?]));
+            (job.observer_height, job.target_height) = (eye, target);
+            job.max_distance = max_distance;
+            terrain(&job)?
         }
         Cmd::Dedup {
             inputs,
