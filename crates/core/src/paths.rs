@@ -2,9 +2,8 @@
 //! settings that shape it, so a run never inherits the path of an earlier run or of another
 //! tool, and two settings of the same tool never overwrite each other.
 //!
-//! Folders follow the project layout many forestry workflows use: when the input sits under a
-//! folder that has both `data` and `results`, products go to its `results`; otherwise to a
-//! `resultados` folder next to the input.
+//! Unless the user chooses a folder, products are written next to the input they come from,
+//! under another name.
 
 use std::path::{Path, PathBuf};
 
@@ -28,15 +27,13 @@ pub fn results_dir(input: &Path) -> PathBuf {
     output_dir().unwrap_or_else(|| default_results_dir(input))
 }
 
-/// The folder products of `input` go to when the user has not chosen one.
+/// The folder products of `input` go to when the user has not chosen one: the folder of the
+/// input itself, so no folder is created behind the user's back.
 pub fn default_results_dir(input: &Path) -> PathBuf {
-    let dir = input.parent().unwrap_or_else(|| Path::new("."));
-    for anc in dir.ancestors() {
-        if anc.join("data").is_dir() && anc.join("results").is_dir() {
-            return anc.join("results");
-        }
+    match input.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
+        _ => PathBuf::from("."),
     }
-    dir.join("resultados")
 }
 
 /// The name of an input without its extension, safe in a file name.
@@ -148,6 +145,70 @@ pub fn unique(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
+/// Like [`unique`], for a product written with companions next to it (`<stem>_<suffix>.<ext>`,
+/// such as a model's report and table): the first name for which neither the product nor any
+/// companion exists, so a new run never overwrites the files of an earlier one.
+pub fn unique_with(path: &Path, companions: &[(&str, &str)]) -> PathBuf {
+    let free = |p: &Path| {
+        let stem = p
+            .file_stem()
+            .map_or(String::new(), |s| s.to_string_lossy().into_owned());
+        !p.exists()
+            && companions
+                .iter()
+                .all(|(suffix, ext)| !p.with_file_name(format!("{stem}_{suffix}.{ext}")).exists())
+    };
+    if free(path) {
+        return path.to_path_buf();
+    }
+    let stem = path
+        .file_stem()
+        .map_or(String::new(), |s| s.to_string_lossy().into_owned());
+    let ext = path.extension().map(|e| e.to_string_lossy().into_owned());
+    for n in 2..10_000 {
+        let name = match &ext {
+            Some(e) => format!("{stem}_{n}.{e}"),
+            None => format!("{stem}_{n}"),
+        };
+        let p = path.with_file_name(name);
+        if free(&p) {
+            return p;
+        }
+    }
+    path.to_path_buf()
+}
+
+/// Words that mark a raster derived from a DTM, CHM or DSM (terrain products, tree crowns): the
+/// name of the source starts the name of its product, but the product is not the source. A crown
+/// raster holds tree ids, so taking it for a CHM made heights of hundreds of thousands of metres.
+const DERIVED: &[&str] = &[
+    "arboles",
+    "copas",
+    "apices",
+    "pendiente",
+    "orientacion",
+    "sombreado",
+    "curv",
+    "curvatura",
+    "rugosidad",
+    "tri",
+    "tpi",
+    "depresiones",
+    "acumulacion",
+    "twi",
+    "drenaje",
+    "subcuencas",
+    "visibilidad",
+    "volumen",
+];
+
+fn is_derived(name: &str) -> bool {
+    name.rsplit_once('.')
+        .map_or(name, |(stem, _)| stem)
+        .split('_')
+        .any(|w| DERIVED.contains(&w))
+}
+
 /// The newest raster `<stem>_<tag>…` made from `input`, if any: never one of another input.
 fn find_raster(input: &Path, tag: &str) -> Option<PathBuf> {
     let prefix = format!("{}_{tag}", stem(input)).to_lowercase();
@@ -165,6 +226,7 @@ fn find_raster(input: &Path, tag: &str) -> Option<PathBuf> {
     {
         let name = e.file_name().to_string_lossy().to_lowercase();
         let ok = name.starts_with(&prefix)
+            && !is_derived(name.strip_prefix(&prefix).unwrap_or(&name))
             && (name.ends_with(".tif") || name.ends_with(".tiff") || name.ends_with(".asc"));
         let time = e.metadata().and_then(|m| m.modified()).ok();
         if let (true, Some(t)) = (ok, time)
@@ -197,27 +259,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_product_made_from_a_chm_is_not_a_chm() {
+        assert!(is_derived("_0.5m_arboles_dalponte_copas.tif"));
+        assert!(is_derived("_1m_pendiente_2.tif"));
+        assert!(!is_derived("_0.5m.tif"));
+        assert!(!is_derived("_1m_tin_2.tif"));
+    }
+
+    #[test]
     fn products_are_named_from_the_input_and_tag() {
         let p = product(Path::new("C:/x/datos_1.las"), "mdt_1m", "tif");
-        assert!(
-            p.ends_with("resultados/datos_1_mdt_1m.tif")
-                || p.ends_with("resultados\\datos_1_mdt_1m.tif")
-        );
+        assert_eq!(p, Path::new("C:/x/datos_1_mdt_1m.tif"));
         assert_eq!(num(1.0), "1");
         assert_eq!(num(0.5), "0.5");
         assert_eq!(num(0.125), "0.125");
     }
 
     #[test]
-    fn project_layout_sends_results_to_results() -> std::io::Result<()> {
+    fn products_go_next_to_the_input() -> std::io::Result<()> {
         let root = std::env::temp_dir().join(format!("rl_paths_{}", std::process::id()));
         std::fs::create_dir_all(root.join("data/LiDAR"))?;
         std::fs::create_dir_all(root.join("results"))?;
         let input = root.join("data/LiDAR/a.las");
-        assert_eq!(results_dir(&input), root.join("results"));
-        let first = root.join("results/a_mdt.tif");
+        assert_eq!(results_dir(&input), root.join("data/LiDAR"));
+        let first = root.join("data/LiDAR/a_mdt.tif");
         std::fs::write(&first, b"x")?;
-        assert_eq!(unique(&first), root.join("results/a_mdt_2.tif"));
+        assert_eq!(unique(&first), root.join("data/LiDAR/a_mdt_2.tif"));
         assert_eq!(find_dtm(&input), Some(first));
         assert_eq!(find_dtm(&root.join("data/LiDAR/other.las")), None);
         std::fs::remove_dir_all(&root)

@@ -119,7 +119,7 @@ impl TlsParams {
     fn check(&self) -> Result<()> {
         let bad = |m: &str| Err(Error::Param(m.to_string()));
         if !(self.voxel >= 0.005) {
-            return bad("the voxel must be at least 5 mm");
+            return bad("el vóxel debe medir al menos 5 mm");
         }
         if !(self.log_len >= 0.1) {
             return bad("the log length must be at least 0.1 m");
@@ -298,7 +298,7 @@ fn load(input: &Path, p: &TlsParams) -> Result<Cloud> {
     })?;
     if xyz.is_empty() {
         return Err(Error::Param(format!(
-            "{}: no points to analyse",
+            "{}: no hay puntos que analizar",
             input.display()
         )));
     }
@@ -375,7 +375,7 @@ fn normalize(c: &mut Cloud, p: &TlsParams) -> Result<Option<Grid>> {
     };
     if ground.is_empty() {
         return Err(Error::Param(
-            "no ground found: give the heights above ground (normalized cloud) or check the cloud"
+            "no se encuentra suelo: indica que las alturas ya son sobre el suelo (nube normalizada) o revisa la nube"
                 .into(),
         ));
     }
@@ -1323,6 +1323,36 @@ fn reject_outliers(secs: &mut [Section]) {
     }
 }
 
+/// A stem narrows upwards. From 1 m up (below, the stem may flare towards the root) the sections
+/// kept make an envelope that never rises: the smallest median of three consecutive sections
+/// kept so far. A section wider than it (by more than 8 % and 1 cm) has caught a branch, a
+/// neighbouring stem or a fork, and loses its diameter; being a floor of medians, neither one
+/// thin section nor a slow creep of wide ones can move the envelope. Returns how many sections
+/// were dropped.
+fn enforce_taper(secs: &mut [Section]) -> usize {
+    let mut last: Vec<f64> = Vec::new();
+    let mut envelope = f64::INFINITY;
+    let mut dropped = 0;
+    for s in secs.iter_mut().filter(|s| s.ok && s.h >= 1.0) {
+        if s.d > envelope * 1.08 + 0.01 {
+            s.ok = false;
+            s.d = f64::NAN;
+            dropped += 1;
+            continue;
+        }
+        last.push(s.d);
+        if last.len() > 3 {
+            last.remove(0);
+        }
+        if last.len() >= 2 {
+            let mut w = last.clone();
+            w.sort_by(f64::total_cmp);
+            envelope = envelope.min(w[w.len() / 2]);
+        }
+    }
+    dropped
+}
+
 // ----------------------------------------------------------------------------- cubing
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1615,6 +1645,13 @@ fn build_tree(
     p: &TlsParams,
 ) -> TreeResult {
     let mut flags = Vec::new();
+    if enforce_taper(&mut secs) > 0 {
+        flags.push("ENSANCHA");
+    }
+    // trailing sections left without a diameter carry no information
+    while secs.last().is_some_and(|s| !s.ok) {
+        secs.pop();
+    }
     // short gaps are filled from the sections around them
     let ok: Vec<(f64, f64)> = secs.iter().filter(|s| s.ok).map(|s| (s.h, s.d)).collect();
     let fine = secs.windows(2).next().map_or(0.25, |w| w[1].h - w[0].h);
@@ -1638,6 +1675,13 @@ fn build_tree(
         diam_at(&profile, 1.3).filter(|_| secs.iter().any(|s| s.ok && (s.h - 1.3).abs() <= 0.35));
     if dbh.is_none() {
         flags.push("SIN_DAP");
+    }
+    // a profile that still widens above breast height (the envelope starts on the sections it
+    // finds, which may be the wrong ones) is left to be checked by eye
+    if !flags.contains(&"ENSANCHA")
+        && dbh.is_some_and(|d| profile.iter().any(|&(h, x)| h > 1.3 && x > d * 1.2 + 0.01))
+    {
+        flags.push("ENSANCHA");
     }
     if cubing.truncated {
         flags.push("TRUNCADO");
@@ -1725,7 +1769,7 @@ fn tree_table(r: &TlsResult, p: &TlsParams) -> (Vec<[f64; 3]>, Table) {
         ("PUNTOS".into(), ColKind::Num(8, 0)),
         ("CALIDAD".into(), ColKind::Num(5, 0)),
         ("AVISOS".into(), ColKind::Text(40)),
-        ("Date".into(), ColKind::Text(10)),
+        (crate::vector::CAPTURE_FIELD.into(), ColKind::Text(10)),
         ("CEPA".into(), ColKind::Num(6, 0)),
         ("BROTES".into(), ColKind::Num(3, 0)),
         ("H_BIF".into(), ColKind::Num(6, 2)),
@@ -2003,6 +2047,7 @@ pub fn summary(r: &TlsResult, out: &Path) -> String {
         .collect::<std::collections::BTreeSet<_>>()
         .len();
     let forked = r.trees.iter().filter(|t| t.fork_h.is_some()).count();
+    let truncated: Vec<&TreeResult> = r.trees.iter().filter(|t| t.cubing.truncated).collect();
     let mut extra = String::new();
     if stools > 0 {
         extra.push_str(&format!(", {stools} cepas con varios brotes"));
@@ -2010,19 +2055,72 @@ pub fn summary(r: &TlsResult, out: &Path) -> String {
     if forked > 0 {
         extra.push_str(&format!(", {forked} bifurcados"));
     }
-    format!(
+    let mut text = format!(
         "{} árboles cubicados{extra}, {:.3} m³ en total ({} puntos leídos, {} vóxeles): {}",
         r.trees.len(),
         vol,
         r.points_read,
         r.voxels,
         out.display()
-    )
+    );
+    if !truncated.is_empty() {
+        let part: f64 = truncated.iter().map(|t| t.cubing.volume).sum();
+        text.push_str(&format!(
+            "\n  Aviso: en {} de {} árboles (TRUNCADO) el fuste no se pudo seguir hasta el diámetro en punta: \
+             su volumen ({part:.3} m³) es solo el del tramo medido, y el total se queda corto",
+            truncated.len(),
+            r.trees.len()
+        ));
+    }
+    text
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stem_that_widens_upwards_loses_the_wide_sections() {
+        // the stem of 8-9 cm catches a branch from 2.6 m up: 12, 14, 16 cm
+        let mut secs: Vec<Section> = [
+            (0.1, 0.089),
+            (0.6, 0.088),
+            (1.1, 0.088),
+            (1.6, 0.080),
+            (2.1, 0.086),
+            (2.6, 0.119),
+            (3.1, 0.144),
+            (3.6, 0.162),
+        ]
+        .iter()
+        .map(|&(h, d)| sec(h, d))
+        .collect();
+        assert_eq!(enforce_taper(&mut secs), 3);
+        assert!(secs[..5].iter().all(|s| s.ok));
+        assert!(secs[5..].iter().all(|s| !s.ok && s.d.is_nan()));
+        // a butt swell below a metre is the root flare, not a branch
+        let mut flare: Vec<Section> = [(0.1, 0.40), (0.6, 0.31), (1.1, 0.30), (1.6, 0.29)]
+            .iter()
+            .map(|&(h, d)| sec(h, d))
+            .collect();
+        assert_eq!(enforce_taper(&mut flare), 0);
+        // nor is the noise of a few millimetres on a stem of constant size
+        let mut even: Vec<Section> = (0..12)
+            .map(|k| sec(0.5 * f64::from(k), 0.30 + 0.01 * f64::from(k % 2)))
+            .collect();
+        assert_eq!(enforce_taper(&mut even), 0);
+        // nor can a stem creep wider a little at a time
+        let mut creep: Vec<Section> = (0..10)
+            .map(|k| sec(1.0 + 0.5 * f64::from(k), 0.080 + 0.008 * f64::from(k)))
+            .collect();
+        assert!(enforce_taper(&mut creep) >= 6);
+        assert!(
+            creep
+                .iter()
+                .filter(|s| s.ok)
+                .all(|s| s.d <= 0.08 * 1.08 + 0.01 + 0.008)
+        );
+    }
 
     #[test]
     fn smalian_is_exact_for_a_cylinder() {

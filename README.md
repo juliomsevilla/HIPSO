@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/juliomsevilla/EasyLiDAR/releases/latest"><img alt="Descargar" src="https://img.shields.io/badge/descargar-v0.2.0-ff8a1f?style=for-the-badge"></a>
+  <a href="https://github.com/juliomsevilla/EasyLiDAR/releases/latest"><img alt="Descargar" src="https://img.shields.io/badge/descargar-v0.3.0-ff8a1f?style=for-the-badge"></a>
   <img alt="Plataformas" src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-555?style=for-the-badge">
   <img alt="Gratuito" src="https://img.shields.io/badge/uso-gratuito-2e7d32?style=for-the-badge">
 </p>
@@ -50,23 +50,25 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/EasyLiDAR/relea
 
 | Grupo | Herramientas |
 |---|---|
-| **Preparar** | Información de los datos · Asignar proyección · Adelgazar nube (densidad objetivo, celdas, percentil, 3D, uno de cada n) · Clasificar: ruido, suelo (Kraus y Pfeifer, MCC, CSF, PMF, Axelsson), edificios, vegetación por estratos, cables y postes, reglas por eco y ángulo de barrido |
-| **Superficies** | MDT (triangulación por defecto, ponderado por distancia o media por celda) · MDS (triangulación por defecto, ponderado por distancia o máximo por celda) · CHM (con *pit-free* y suavizado) |
+| **Preparar** | Información de los datos · Asignar proyección · **Colorear con una ortofoto (RGB)** · **Normalizar la intensidad por distancia** · **Guardar como COPC** · Adelgazar nube (densidad objetivo, celdas, percentil, 3D, uno de cada n) · Alturas sobre el suelo (atributo o nube normalizada) · Clasificar: ruido, suelo (Kraus y Pfeifer, MCC, CSF, PMF, SMRF, Axelsson), edificios, vegetación por estratos, cables y postes, reglas por eco y ángulo de barrido |
+| **Superficies** | MDT (triangulación por defecto, ponderado por distancia o media por celda, con **líneas de rotura**) · MDS (triangulación por defecto, ponderado por distancia o máximo por celda) · CHM (con *pit-free* y suavizado) |
 | **Terreno** | Análisis de terreno sobre el MDT: pendiente, orientación, sombreado, curvaturas, rugosidad, TRI, TPI · depresiones, acumulación de flujo, TWI, red de drenaje y subcuencas · cuenca visual |
-| **Inventario forestal** | Métricas de rodal · Segmentación de árboles (Dalponte, Silva, cuencas, ventana variable) con evaluación frente a campo · Parcelas (de archivo, muestreo o dibujadas) · Exportar puntos · Cubicar árboles (TLS): mide diámetros a lo largo del tronco y cubica con Smalian |
+| **Inventario forestal** | Métricas de rodal · Segmentación de árboles (Dalponte, Silva, cuencas, ventana variable) con evaluación frente a campo · Parcelas (de archivo, muestreo o dibujadas) · **Modelos de transición**: regresión de volumen, área basimétrica… sobre las métricas LiDAR, validada dejando una parcela fuera cada vez, y su mapa · Exportar puntos · Cubicar árboles (TLS): mide diámetros a lo largo del tronco y cubica con Smalian |
 | **Calidad y comparación** | Quitar duplicados · Comparar nubes (cambios) · Ajustar una nube a otra (ICP) · Separación entre pasadas |
 | **Volúmenes** | Volumen sobre (y bajo) el MDT, desde el CHM o el MDS, por ráster completo, AOI o polígonos |
 
-### Teledetección
+### Ráster
 
 - **Composiciones de bandas e índices espectrales** (NDVI, GNDVI, NDWI, EVI, SAVI, NDMI, NBR, VARI, ExG o expresión propia).
+- **Igualar rásteres**: los pone sobre las celdas de uno de referencia para que coincidan celda a celda.
 - **Crear multibanda** a partir de rásteres sueltos.
 - **Mosaico** con regla de solape: primero, último, media, mínimo, máximo, mediana, suma o número de capas.
+- **Cloud Optimized GeoTIFF multibanda**: mosaicos, imágenes multibanda y rásteres igualados salen en teselas con vistas reducidas, en JPEG (ortofotos) o sin pérdida; tres hojas de ortofoto PNOA ocupan 2,4 GB en vez de 14,7.
 - **Lectura por ventana y escritura por franjas comprimidas**: se unen imágenes de varios gigabytes con poca memoria.
 
 ### Capas y formatos
 
-LAS y LAZ, GeoTIFF, ASCII, shapefile y CSV. Capas vectoriales con digitalización, tabla de atributos editable y simbología.
+LAS y LAZ (también **COPC**, leído solo en la parte que hace falta y escrito con *Guardar como COPC*), **PLY** y **E57** (se convierten a LAZ), ASCII, shapefile, **GeoJSON**, **GeoPackage** (lectura) y CSV. Rásteres: GeoTIFF (y **Cloud Optimized GeoTIFF**), **JPEG 2000** (las bandas de **Sentinel-2**, con lector propio en Rust que solo decodifica las teselas que se piden), PNG y JPEG con archivo de coordenadas, ENVI y SRTM `.hgt`. ECW y MrSID no se leen (ECW es propietario: se convierte antes con QGIS, GeoLibre o RustGis). Capas vectoriales con digitalización, tabla de atributos editable y simbología. **Mapa base** que se enciende y apaga desde el explorador de capas (OpenStreetMap, ortofoto PNOA, o un servidor propio de teselas).
 
 ---
 
@@ -86,42 +88,37 @@ easylidar dtm nube.laz --cell 1
 easylidar chm nube.laz --cell 0.5 --method pitfree
 easylidar cubicar parcela_tls.laz --csv --tree-clouds
 easylidar mosaic a.tif b.tif -o mosaico.tif --overlap mean
+easylidar colorize nube.laz --image ortofoto.tif
+easylidar copc nube.laz
+easylidar import escaneo.e57 --epsg 25830
+easylidar reproject nube_ed50.laz -o nube_etrs89.laz --to 25830
 easylidar compare nube2.laz --reference nube1.laz --distance 0.5
 ```
 
 `easylidar <comando> --help` lista todos los parámetros.
 
-## Compilar desde el código fuente
-
-Hace falta [Rust](https://rustup.rs) 1.90 o superior.
-
-```sh
-git clone https://github.com/juliomsevilla/EasyLiDAR.git
-cd EasyLiDAR
-cargo build --release        # target/release/easylidar y easylidar-gui
-cargo test --workspace
-```
-
-En Linux, antes: `sudo apt-get install libxkbcommon-dev libwayland-dev libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev`.
-
-Los paquetes de cada sistema se generan en local con `scripts/package.ps1` (Windows) o `scripts/package.sh` (macOS y Linux). Con `-Publish` (Windows) o `--publish` (macOS y Linux) se suben a la release `vX.Y.Z` de Releases, que se crea si no existe (hace falta [`gh`](https://cli.github.com) con sesión iniciada). Los flujos de GitHub Actions son solo manuales.
-
 ## Limitaciones conocidas
 
-**EasyLiDAR no reproyecta nubes de puntos, ni al vuelo ni de ningún otro modo.** Trabaja siempre con el sistema de coordenadas que traigan tus archivos LAS/LAZ.
+**Las coordenadas se pasan solas, pero solo en horizontal.** Cuando una herramienta combina archivos en sistemas distintos (por ejemplo una nube en ETRS89 UTM 30N con un MDT en 29N, o unas parcelas en ED50), EasyLiDAR **los pasa al sistema de la primera nube** y te lo dice en el informe. Las transformaciones coinciden con las de PROJ en todos los casos probados en España (ver más abajo) e incluyen las mallas oficiales del IGN y del ICGC para pasar de ED50 a ETRS89, que van dentro del programa.
 
-- Si cargas varias teselas a la vez, **se toma el sistema de coordenadas de la primera nube** y se aplica al resultado. El programa no comprueba que las demás coincidan: mezclar teselas en sistemas distintos (por ejemplo, ETRS89 UTM 29N con 30N) colocaría los puntos en coordenadas incompatibles, sin aviso.
-- Antes de cargar un lote, asegúrate de que todas las teselas comparten el mismo sistema de referencia. Las de una misma descarga (por ejemplo, el PNOA de una región) suelen venir ya homogéneas.
+- En el visor, las capas en otro sistema se pasan al de la primera nube al cargarlas (el registro avisa de que tardará más solo cuando hay capas en sistemas distintos).
+- Qué se convierte: nubes LAS/LAZ y rásteres (copias temporales que se borran al terminar) y parcelas o muestras en shapefile o GeoJSON (en memoria, casi sin coste). Si todo está ya en el mismo sistema no se hace nada y no se pierde tiempo. El comando `easylidar reproject` convierte una nube o un ráster y guarda el resultado.
+- **Solo cambian X e Y.** Las alturas se conservan tal cual: pasar de alturas elipsoidales a ortométricas (geoide) es otra operación y no se hace sola. Al reproyectar un ráster entre husos la celda se mantiene (por ejemplo 1 m) y los valores se interpolan; los rásteres de números enteros (clases) usan el vecino más cercano.
+- Lo que no se convierte y sigue pidiendo que se haga antes: imágenes de varias bandas (ortofotos, satélite) y las herramientas de imágenes grandes (*Apilar*, *Mosaico* de imágenes e *Igualar rásteres*), que exigen el mismo sistema. Tampoco se pasan nubes desde o hacia coordenadas geográficas (grados).
+- Si un archivo no declara su sistema no se puede comprobar, y el resultado lleva un aviso. ETRS89 y WGS 84 del mismo huso se consideran equivalentes y solo avisan, porque difieren en torno a un metro.
+- Convertir una nube cuesta una pasada completa sobre ella, y su copia temporal ocupa espacio en disco. Si vas a trabajar mucho con ella, conviene convertirla una vez con `easylidar reproject` y guardar el resultado.
 
-**¿Por qué no reproyecta al vuelo?** Porque en una nube 3D reproyectar no es solo mover X e Y. Cambiar de proyección deforma ligeramente la geometría, y cambiar de datum vertical (de altitudes elipsoidales a ortométricas, por ejemplo) modifica también la Z y requiere una malla de geoide. Hacerlo de forma invisible haría que lo que ves en pantalla dejase de corresponder a lo que hay en tus archivos, y que cada herramienta (MDT, recortes, ediciones, exportación) tuviera que reproyectar por su cuenta. Preferimos no esconder una operación que cambia tus datos.
-
-Si necesitas reproyectar, hazlo antes con una herramienta pensada para ello, como [PDAL](https://pdal.io), [LAStools](https://lastools.github.io) o [CloudCompare](https://www.cloudcompare.org), que son más eficientes y precisos en esta tarea, y abre después en EasyLiDAR las nubes ya homogéneas.
+**Comprobación en España.** `scripts/check_spain_crs.py` compara EasyLiDAR con PROJ en cientos de puntos de la Península, Baleares, Canarias y Cataluña (ETRS89, WGS 84, ED50, REGCAN95, husos 28 a 31, geográficas, Web Mercator, Lambert-93 y alturas con el geoide EGM08-REDNAP). Las diferencias son de orden milimétrico o menores, salvo ED50 en Canarias, donde ED50 no está definido y el resultado no debe usarse.
 
 ---
 
 ## Licencia
 
 EasyLiDAR es de **uso gratuito**, también para trabajo profesional y comercial. No se puede modificar, vender ni redistribuir salvo en su paquete original y gratis. Las condiciones están en [`LICENSE`](LICENSE). Los componentes de terceros conservan sus licencias ([`NOTICE`](NOTICE), [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md), [`licenses/`](licenses)).
+
+### Aviso
+
+EasyLiDAR está construido principalmente con [Claude](https://www.anthropic.com/claude), un modelo de IA de Anthropic, bajo dirección y revisión humanas. Sus resultados se contrastan con otros programas libres como FUSION, lidR, WhiteboxTools y GeoLibre, pero compruébalos para tu propio uso y, por favor, avisa de cualquier cosa que parezca incorrecta.
 
 ## Autoría y contacto
 

@@ -15,8 +15,9 @@ use rustlidar_core::noise::NoiseParams;
 use rustlidar_core::pipeline::{self, Ground, Noise, Steps, Surface, Tiling};
 use rustlidar_core::pmf::PmfParams;
 use rustlidar_core::rules::ClassRule;
+use rustlidar_core::smrf::SmrfParams;
 use rustlidar_core::trees::{CrownParams, Segmenter, Shape, Smoothing, TopParams};
-use rustlidar_core::{Result, jobs, paths};
+use rustlidar_core::{Error, Result, jobs, paths};
 
 #[derive(Parser)]
 #[command(
@@ -25,6 +26,10 @@ use rustlidar_core::{Result, jobs, paths};
     about = "Streaming LiDAR forestry tools: classification, DTM, canopy height model and grid metrics"
 )]
 struct Cli {
+    /// Send every product that is not given an explicit output to this folder, instead of the
+    /// folder of each input
+    #[arg(long, global = true)]
+    results_dir: Option<PathBuf>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -39,6 +44,8 @@ enum GroundMethod {
     Csf,
     /// Progressive Morphological Filter (Zhang et al. 2003)
     Pmf,
+    /// Simple Morphological Filter (Pingel et al. 2013)
+    Smrf,
     /// Progressive TIN densification (Axelsson 2000)
     Axelsson,
     /// Points already classified as ground (class 2)
@@ -167,6 +174,36 @@ enum StatArg {
 }
 
 /// Point selection options shared by the tools that read the whole cloud.
+/// How a raster written as tiles is compressed.
+#[derive(Args, Clone, Copy)]
+struct TileArgs {
+    /// Compression of the tiles: auto (JPEG for 8-bit images of three bands, the usual
+    /// orthophotos; deflate otherwise), deflate (lossless) or jpeg (8-bit images of 1 or 3 bands)
+    #[arg(long, value_enum, default_value_t = CompressArg::Auto)]
+    compress: CompressArg,
+    /// JPEG quality, 1 to 100
+    #[arg(long, default_value_t = 90, value_parser = clap::value_parser!(u8).range(1..=100))]
+    quality: u8,
+}
+
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
+enum CompressArg {
+    Auto,
+    Deflate,
+    Jpeg,
+}
+
+impl TileArgs {
+    fn compression(self) -> Option<rustlidar_core::tiled::Compression> {
+        use rustlidar_core::tiled::Compression;
+        match self.compress {
+            CompressArg::Auto => None,
+            CompressArg::Deflate => Some(Compression::Deflate),
+            CompressArg::Jpeg => Some(Compression::Jpeg(self.quality)),
+        }
+    }
+}
+
 #[derive(Args)]
 struct SelArgs {
     /// Classes to keep: 2,5 or ~7,18 for all but those
@@ -221,6 +258,23 @@ enum FormatArg {
     Both,
 }
 
+#[derive(Clone, Copy, ValueEnum)]
+enum AlignResample {
+    Auto,
+    /// For classes and identifiers
+    Nearest,
+    Bilinear,
+    Average,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum ObiaMethod {
+    /// Multiresolution merging of patches
+    Merge,
+    /// Connected cells with a value in a range
+    Mask,
+}
+
 /// The formats asked for, or those the output name implies (`.csv`: text, else vector).
 fn formats_of(arg: Option<FormatArg>, path: &Path) -> paths::Formats {
     match arg {
@@ -238,6 +292,22 @@ fn formats_of(arg: Option<FormatArg>, path: &Path) -> paths::Formats {
         },
         None => paths::Formats::from_path(path),
     }
+}
+
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
+enum TransformArg {
+    /// No transformation
+    None,
+    /// Logarithm of the response
+    LogResponse,
+    /// Logarithm of the response and of the metrics (a power law)
+    LogBoth,
+}
+
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
+enum CriterionArg {
+    Bic,
+    Aicc,
 }
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
@@ -284,17 +354,17 @@ struct GroundArgs {
     /// Kraus-Pfeifer: filter iterations
     #[arg(long, default_value_t = 5)]
     iterations: u32,
-    /// Kraus-Pfeifer: weight function g
-    #[arg(long, default_value_t = -2.0, allow_negative_numbers = true)]
+    /// Kraus-Pfeifer: shift g of the weight function (residuals below it weigh 1); also --kp-g
+    #[arg(long, visible_alias = "kp-g", default_value_t = -2.0, allow_negative_numbers = true)]
     g: f64,
-    /// Kraus-Pfeifer: weight function w
-    #[arg(long, default_value_t = 2.5)]
+    /// Kraus-Pfeifer: width w of the weight function above g (residuals above g + w weigh 0); also --kp-w
+    #[arg(long, visible_alias = "kp-w", default_value_t = 2.5)]
     w: f64,
-    /// Kraus-Pfeifer: weight function a
-    #[arg(long, default_value_t = 1.0)]
+    /// Kraus-Pfeifer: steepness a of the weight function; also --kp-a
+    #[arg(long, visible_alias = "kp-a", default_value_t = 1.0)]
     a: f64,
-    /// Kraus-Pfeifer: weight function b
-    #[arg(long, default_value_t = 4.0)]
+    /// Kraus-Pfeifer: steepness b of the weight function; also --kp-b
+    #[arg(long, visible_alias = "kp-b", default_value_t = 4.0)]
     b: f64,
     /// Kraus-Pfeifer: ground = within this distance of the final surface (default: residual <= g + w)
     #[arg(long)]
@@ -320,6 +390,21 @@ struct GroundArgs {
     /// PMF: terrain slope (rise over run)
     #[arg(long, default_value_t = 1.0)]
     pmf_slope: f64,
+    /// SMRF: cell of the surfaces
+    #[arg(long, default_value_t = 1.0)]
+    smrf_cell: f64,
+    /// SMRF: largest window radius (larger than the biggest building)
+    #[arg(long, default_value_t = 18.0)]
+    smrf_window: f64,
+    /// SMRF: steepest terrain slope (rise over run)
+    #[arg(long, default_value_t = 0.15)]
+    smrf_slope: f64,
+    /// SMRF: height threshold between a point and the surface
+    #[arg(long, default_value_t = 0.5)]
+    smrf_threshold: f64,
+    /// SMRF: added to the threshold per unit of slope
+    #[arg(long, default_value_t = 1.25)]
+    smrf_scalar: f64,
     /// Axelsson: side of the cells whose lowest points seed the TIN (larger than any building)
     #[arg(long, default_value_t = 20.0)]
     axelsson_seed_cell: f64,
@@ -366,7 +451,7 @@ struct StepArgs {
     /// Classify wires (14): nearly horizontal lines high above the ground
     #[arg(long)]
     wires: bool,
-    /// Classify poles and towers (15): thin, nearly vertical lines
+    /// Classify poles and towers (15): narrow, isolated structures that rise from the ground
     #[arg(long)]
     poles: bool,
     /// Classify by echo and scan angle, last and in order. Repeat for several rules. Parts,
@@ -409,6 +494,7 @@ impl StepArgs {
             GroundMethod::Mcc => "_mcc",
             GroundMethod::Csf => "_csf",
             GroundMethod::Pmf => "_pmf",
+            GroundMethod::Smrf => "_smrf",
             GroundMethod::Axelsson => "_axelsson",
             GroundMethod::Classes => "_clase2",
         };
@@ -467,6 +553,13 @@ impl StepArgs {
                     max_window: g.pmf_window,
                     slope: g.pmf_slope,
                     ..Default::default()
+                }),
+                GroundMethod::Smrf => Ground::Smrf(SmrfParams {
+                    cell: g.smrf_cell,
+                    max_window: g.smrf_window,
+                    slope: g.smrf_slope,
+                    threshold: g.smrf_threshold,
+                    scalar: g.smrf_scalar,
                 }),
                 GroundMethod::Axelsson => Ground::Axelsson(AxelssonParams {
                     seed_cell: g.axelsson_seed_cell,
@@ -554,6 +647,10 @@ enum Cmd {
         /// Also join the sheets' DTMs into one mosaic (by default each sheet keeps its own)
         #[arg(long)]
         mosaic: bool,
+        /// Breaklines the DTM must follow (shapefile of lines or polygons): with elevations
+        /// (PolylineZ) they set the height; without, they take the lowest ground beside them
+        #[arg(long)]
+        breaklines: Option<PathBuf>,
         #[command(flatten)]
         steps: StepArgs,
     },
@@ -708,6 +805,286 @@ enum Cmd {
         /// A detection matches a field tree within this distance
         #[arg(long, default_value_t = 3.0)]
         match_dist: f64,
+    },
+    /// Object-based analysis: group the cells of several layers (canopy height, intensity,
+    /// returns, roughness…) into objects, describe and classify them, write polygons
+    Obia {
+        /// Rasters on the same cells (GeoTIFF), the canopy height model first
+        #[arg(required = true)]
+        rasters: Vec<PathBuf>,
+        /// Point clouds to derive layers from (see --cloud-layers)
+        #[arg(long, num_args = 1..)]
+        cloud: Vec<PathBuf>,
+        /// Layers made from the clouds: intensidad, retornos, suelo, densidad
+        #[arg(long, value_delimiter = ',', default_value = "intensidad,retornos")]
+        cloud_layers: Vec<String>,
+        /// Adds the local roughness of the first raster over a window of this many cells (0: no)
+        #[arg(long, default_value_t = 0)]
+        roughness: usize,
+        /// How objects are made
+        #[arg(long, value_enum, default_value_t = ObiaMethod::Merge)]
+        method: ObiaMethod,
+        /// Merge: patches merge while the cost is under scale squared (bigger: bigger objects)
+        #[arg(long, default_value_t = 8.0)]
+        scale: f64,
+        /// Merge: weight of shape against value, 0 to 0.9
+        #[arg(long, default_value_t = 0.1)]
+        shape: f64,
+        /// Merge: weight of compactness against smoothness inside the shape, 0 to 1
+        #[arg(long, default_value_t = 0.5)]
+        compact: f64,
+        /// Merge: weight of a layer, as layer=weight (0 leaves it out); repeat for several
+        #[arg(long = "weight")]
+        weights: Vec<String>,
+        /// Merge: width, in standard deviations, of the bins of the initial patches
+        #[arg(long, default_value_t = 0.25)]
+        init: f64,
+        /// Mask: the layer, and the range of values that make an object
+        #[arg(long)]
+        mask_layer: Option<String>,
+        #[arg(long, default_value_t = f32::NEG_INFINITY, allow_hyphen_values = true)]
+        min: f32,
+        #[arg(long, default_value_t = f32::INFINITY)]
+        max: f32,
+        /// Mask: cells touching at a corner belong together
+        #[arg(long)]
+        diagonal: bool,
+        /// Smallest object, in cells
+        #[arg(long, default_value_t = 10)]
+        min_cells: u32,
+        /// Classify with rules in a text file (class: attribute >= value and ...)
+        #[arg(long, conflicts_with_all = ["samples", "kmeans"])]
+        rules: Option<PathBuf>,
+        /// Classify with a random forest trained on sample polygons (.shp)
+        #[arg(long, conflicts_with = "kmeans")]
+        samples: Option<PathBuf>,
+        /// Group the objects into this many strata by how alike they are (no rules or samples)
+        #[arg(long)]
+        kmeans: Option<usize>,
+        /// Attributes the strata are made from (default: the means and 95th percentiles of the
+        /// layers, and the canopy cover)
+        #[arg(long, value_delimiter = ',')]
+        features: Vec<String>,
+        /// Join the classes into strata: areas of one class that touch become one polygon
+        #[arg(long)]
+        strata: bool,
+        /// Strata smaller than this many cells take the class of their neighbours
+        #[arg(long, default_value_t = 500)]
+        strata_min_cells: u32,
+        /// Spread this many sample plots among the strata (Neyman allocation)
+        #[arg(long, default_value_t = 0)]
+        plots: usize,
+        /// Height from which a cell counts as covered by canopy (attribute `cobertura`)
+        #[arg(long, default_value_t = 2.0)]
+        cover_height: f64,
+        /// Field of the samples that names the class
+        #[arg(long, default_value = "clase")]
+        class_field: String,
+        /// Trees of the forest
+        #[arg(long, default_value_t = 100)]
+        trees: usize,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        /// Results base path (.shp or .csv); default: <results>/<raster>_objetos.shp
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        #[arg(long, value_enum)]
+        format: Option<FormatArg>,
+        /// Simplify polygons by this many map units (0: exact outlines)
+        #[arg(long, default_value_t = 0.0)]
+        simplify: f64,
+    },
+    /// Convert a vector layer between shapefile and GeoJSON (by the input's extension). GeoJSON
+    /// gets the shapefile's coordinate system as a `crs` member
+    Geojson {
+        /// A .shp (gives a .geojson) or a .geojson (gives a .shp)
+        input: PathBuf,
+        /// Output; default: <results>/<input>.geojson or .shp (never an existing file)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Forest change between two dates from two canopy height models on the same cells: height
+    /// difference, growth, loss and cover change, patches of lost canopy, summary by stand and
+    /// growth of each tree
+    Change {
+        /// Canopy height model of the first date
+        before: PathBuf,
+        /// Canopy height model of the second date (same cells; see `align`)
+        after: PathBuf,
+        /// Results base path; default: <results>/<after>_cambio.shp (never an existing file)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// A height change smaller than this is noise
+        #[arg(long, default_value_t = 1.0)]
+        min_change: f64,
+        /// Height from which a cell counts as canopy
+        #[arg(long, default_value_t = 2.0)]
+        cover_height: f64,
+        /// Patches of lost canopy smaller than this many cells are not reported
+        #[arg(long, default_value_t = 10)]
+        min_patch: u32,
+        /// Years between the dates, for yearly rates
+        #[arg(long)]
+        years: Option<f64>,
+        /// Stands to summarise (.shp or .geojson)
+        #[arg(long)]
+        stands: Option<PathBuf>,
+        /// Field of the stands that names them
+        #[arg(long)]
+        stand_field: Option<String>,
+        /// Also match the trees of both dates and measure their growth
+        #[arg(long)]
+        trees: bool,
+        /// Trees: lowest tree top
+        #[arg(long, default_value_t = 2.0)]
+        hmin: f64,
+        /// Trees: window diameter = a + b h (map units)
+        #[arg(long, default_value_t = 3.0)]
+        ws_a: f64,
+        #[arg(long, default_value_t = 0.1)]
+        ws_b: f64,
+        /// Trees: smooth both models first with a window of this size (0: none)
+        #[arg(long, default_value_t = 0.0)]
+        smooth: f64,
+        /// Trees: the same tree when closer than this
+        #[arg(long, default_value_t = 3.0)]
+        match_dist: f64,
+        #[arg(long, value_enum)]
+        format: Option<FormatArg>,
+    },
+    /// Import a point cloud in another format as LAS/LAZ: PLY (ASCII or binary) or E57 (terrestrial
+    /// and mobile scanners; every scan placed with its pose, its number as point source id)
+    Import {
+        /// The file to convert
+        input: PathBuf,
+        /// Output .las or .laz; default: <results>/<input>_ply.laz or _e57.laz (never an existing file)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// EPSG code of the coordinate system the points are in (PLY and E57 rarely say it)
+        #[arg(long)]
+        epsg: Option<u16>,
+    },
+    /// Write clouds as COPC (Cloud Optimized Point Cloud): a LAZ whose chunks are the nodes of an
+    /// octree, for viewers and servers that read only the part and detail they need
+    Copc {
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// Output (one input only); default: <results>/<input>.copc.laz
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Colour the points from an image of the same place (an orthophoto): each point takes the
+    /// red, green and blue of its pixel. Formats without colour are written as format 7
+    Colorize {
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// The image (GeoTIFF, JPEG 2000…), in the coordinate system of the clouds
+        #[arg(long)]
+        image: PathBuf,
+        /// Bands for red, green and blue, from 1
+        #[arg(long, value_delimiter = ',', num_args = 3, default_values_t = [1, 2, 3])]
+        bands: Vec<usize>,
+        /// Band of the near infrared, written in formats 8 and 10
+        #[arg(long)]
+        nir: Option<usize>,
+        /// Points outside the image keep their colour (default: black)
+        #[arg(long)]
+        keep_outside: bool,
+        /// Output (one input only); default: <results>/<input>_rgb.<ext>
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Normalise the intensity for the range to the scanner, I · (R / R_ref)^a, from the trajectory
+    /// (GPS time, x, y, z) or from the flight altitude and the scan angle
+    Intensity {
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// Trajectory of the scanner: a text file of lines «time x y z»
+        #[arg(long, conflicts_with = "altitude")]
+        trajectory: Option<PathBuf>,
+        /// Altitude of the flight (m, same vertical datum as the points), when there is no trajectory
+        #[arg(long)]
+        altitude: Option<f64>,
+        /// Exponent a of the range: 2 for surfaces (ground, canopy), about 3 for wires
+        #[arg(long, default_value_t = 2.0)]
+        exponent: f64,
+        /// Reference range R_ref (m); default: the mean range of each cloud
+        #[arg(long)]
+        reference: Option<f64>,
+        /// Output (one input only); default: <results>/<input>_intensidad.<ext>
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Rewrite a raster as a Cloud Optimized GeoTIFF (tiles and overviews, all the directories at
+    /// the start of the file); images of several bands are written as a stream, whatever their size
+    Cog {
+        /// GeoTIFF, JPEG 2000 or ASCII grid, of one band or several (orthophotos, satellite images)
+        input: PathBuf,
+        /// Output; default: <results>/<input>_cog.tif (never an existing file)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Reduce the overviews by taking a cell instead of averaging (classes, identifiers)
+        #[arg(long)]
+        nearest: bool,
+        #[command(flatten)]
+        tiles: TileArgs,
+    },
+    /// Power-line corridors: conductors rebuilt from the wire points (class 14), poles (class 15),
+    /// and the vegetation that comes too close or could reach the line if it fell, with a report
+    /// by span. Classify the wires and poles first
+    Corridor {
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// Ground model (GeoTIFF or ASCII grid); default: the newest DTM made from the first cloud
+        #[arg(long)]
+        dtm: Option<PathBuf>,
+        /// Results base path; default: <results>/<input>_corredor.shp (never an existing file)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Class of the wire points
+        #[arg(long, default_value_t = 14)]
+        wire_class: u8,
+        /// Class of the pole points
+        #[arg(long, default_value_t = 15)]
+        pole_class: u8,
+        /// Closer than this to a conductor (in space) is an invasion
+        #[arg(long, default_value_t = 3.0)]
+        min_distance: f64,
+        /// A tree whose height plus this margin reaches the conductor's position could hit it
+        #[arg(long, default_value_t = 1.0)]
+        fall_margin: f64,
+        /// Vegetation farther than this from every conductor is not looked at
+        #[arg(long, default_value_t = 30.0)]
+        half_width: f64,
+        /// Wire points closer than this are one conductor
+        #[arg(long, default_value_t = 2.5)]
+        link: f64,
+        /// Longest gap of wire points that is filled (longer ones cut the conductor)
+        #[arg(long, default_value_t = 30.0)]
+        gap_max: f64,
+        /// Fewest points of a conductor
+        #[arg(long, default_value_t = 30)]
+        min_points: usize,
+        /// Shortest conductor (shorter ones are noise of the classification, e.g. in tree crowns)
+        #[arg(long, default_value_t = 25.0)]
+        min_length: f64,
+        /// Lowest pole
+        #[arg(long, default_value_t = 6.0)]
+        min_pole_height: f64,
+        /// Side of the cells the vegetation is grouped in
+        #[arg(long, default_value_t = 3.0)]
+        cell: f64,
+        /// Vegetation lower than this above ground is ignored
+        #[arg(long, default_value_t = 2.0)]
+        min_height: f64,
+        /// Vegetation classes
+        #[arg(long, default_value = "3,4,5")]
+        vegetation: String,
+        /// A pole farther than this from a conductor is not one of its supports
+        #[arg(long, default_value_t = 8.0)]
+        pole_reach: f64,
+        #[arg(long, value_enum)]
+        format: Option<FormatArg>,
     },
     /// Clip clouds with polygons, plots or rectangles
     Clip {
@@ -999,6 +1376,70 @@ enum Cmd {
         #[arg(long, default_value_t = 2.0)]
         max_gap: f64,
     },
+    /// Transition model (area-based): regression of a field variable (volume, basal area…) on the LiDAR
+    /// metrics of the plots, with leave-one-out cross-validation that repeats the choice of
+    /// metrics, diagnostics and, given the metrics of the cells, the map of the variable
+    Model {
+        /// Metrics of the plots: the layer (.shp) or the text table of `clip --metrics`
+        #[arg(long)]
+        plots: PathBuf,
+        /// Field table, one row per plot (.csv, .txt or .xlsx)
+        #[arg(long)]
+        field: PathBuf,
+        /// Column of the field table to estimate
+        #[arg(long)]
+        response: String,
+        /// Column that names the plot in the metrics table
+        #[arg(long, default_value = "Parcela")]
+        plot_key: String,
+        /// Column that names the plot in the field table; default: the same name
+        #[arg(long)]
+        field_key: Option<String>,
+        /// Metrics to use, separated by commas; default: chosen automatically
+        #[arg(long, value_delimiter = ',')]
+        predictors: Vec<String>,
+        #[arg(long, value_enum, default_value_t = TransformArg::None)]
+        transform: TransformArg,
+        /// Criterion of the automatic choice
+        #[arg(long, value_enum, default_value_t = CriterionArg::Bic)]
+        criterion: CriterionArg,
+        /// Most metrics the automatic choice keeps (0: one per five plots, at most five)
+        #[arg(long, default_value_t = 0)]
+        max_vars: usize,
+        /// Largest variance inflation factor the automatic choice accepts
+        #[arg(long, default_value_t = 5.0)]
+        max_vif: f64,
+        /// Metrics the automatic choice may use, separated by commas; default: all of the table
+        #[arg(long, value_delimiter = ',')]
+        candidates: Vec<String>,
+        /// Candidates correlated more than this say the same thing: only the one more related
+        /// to the variable is kept (1: keep all)
+        #[arg(long, default_value_t = 0.8)]
+        max_corr: f64,
+        /// Only the analysis before the fit: normality of the variable and screening of the
+        /// candidates
+        #[arg(long)]
+        analyze: bool,
+        /// Also offer the intensity metrics to the automatic choice (left out by default:
+        /// the intensity of most surveys is not calibrated between flight lines)
+        #[arg(long)]
+        with_intensity: bool,
+        /// Metrics of the cells (the text table of `metrics`; one per sheet): writes the map
+        #[arg(long, num_args = 1..)]
+        cells: Vec<PathBuf>,
+        /// The map (GeoTIFF); default: next to the plots table
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Also write the half-width of the 95 % prediction interval
+        #[arg(long)]
+        interval: bool,
+        /// Estimate also the cells outside the range of the plots
+        #[arg(long)]
+        extrapolate: bool,
+        /// EPSG code of the map; default: that of the cells table's layer
+        #[arg(long)]
+        epsg: Option<u16>,
+    },
     /// Multiband image from rasters: every band of every input becomes a band of the output
     Stack {
         #[arg(required = true)]
@@ -1014,6 +1455,58 @@ enum Cmd {
         /// Value written where there is no data
         #[arg(long, default_value_t = 0.0)]
         nodata: f32,
+        #[command(flatten)]
+        tiles: TileArgs,
+    },
+    /// Height of every point above the ground, from the ground points the cloud already has (a
+    /// TIN of them): written as the extra attribute HeightAboveGround, or in place of the
+    /// elevation with --replace-z
+    Hag {
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// Output (one input only); default: <results>/<input>_alturas.<ext>
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Cell of the ground surface
+        #[arg(long, default_value_t = 0.5)]
+        cell: f64,
+        /// Class of the ground points
+        #[arg(long, default_value_t = 2)]
+        ground_class: u8,
+        /// Write the height as the elevation (a normalised cloud), instead of an attribute
+        #[arg(long)]
+        replace_z: bool,
+    },
+    /// Move a cloud (LAS/LAZ) or a raster to another coordinate system, e.g. ED50 to ETRS89 with
+    /// the Spanish IGN grid. Heights are kept
+    Reproject {
+        input: PathBuf,
+        /// Output file (LAS/LAZ, or GeoTIFF for rasters)
+        #[arg(short, long)]
+        output: PathBuf,
+        /// EPSG code of the system to write, e.g. 25830
+        #[arg(long)]
+        to: u16,
+        /// EPSG code the input is in, when it does not declare it
+        #[arg(long)]
+        from: Option<u16>,
+    },
+    /// Put rasters on the cells of a reference raster (same origin, cell and size), so that they
+    /// coincide cell for cell. Writes <results>/<name>_alineado.tif for each one
+    Align {
+        /// The raster whose cells every other one takes
+        reference: PathBuf,
+        /// Rasters to align
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// How values are carried over (auto: mean if the raster is finer, else bilinear)
+        #[arg(long, value_enum, default_value_t = AlignResample::Auto)]
+        resample: AlignResample,
+        /// What cells outside a raster hold
+        #[arg(long, default_value_t = -9999.0, allow_hyphen_values = true)]
+        nodata: f32,
+        #[command(flatten)]
+        tiles: TileArgs,
     },
     /// Mosaic of rasters with the same bands; --overlap says what to do where they overlap
     Mosaic {
@@ -1035,6 +1528,8 @@ enum Cmd {
         /// Average the source pixels when reducing (default: nearest)
         #[arg(long)]
         average: bool,
+        #[command(flatten)]
+        tiles: TileArgs,
     },
     /// Terrain analysis of a DTM (GeoTIFF): slope, aspect, hillshade, curvatures, roughness,
     /// TRI, TPI, depressions, flow accumulation, wetness index, streams, subbasins, viewshed
@@ -1180,13 +1675,20 @@ enum Cmd {
         #[arg(long)]
         class: Option<String>,
     },
-    /// Extracts points from LAS/LAZ to ASCII columns or a 3D point shapefile
+    /// Extracts points from LAS/LAZ to LAS/LAZ, ASCII columns or a 3D point shapefile
     Export {
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
-        /// File (or, with several inputs, a folder). .shp writes a PointZ shapefile
+        /// File (or, with several inputs, a folder). .laz/.las write a cloud, .shp a PointZ
+        /// shapefile, anything else text
         #[arg(short, long)]
         output: PathBuf,
+        /// Export heights above the ground: each cloud minus its DTM
+        #[arg(long)]
+        normalize: bool,
+        /// DTM to normalise with (one input); default: the newest DTM made from each cloud
+        #[arg(long)]
+        dtm: Option<PathBuf>,
         /// Columns in order: x,y,z,intensity,return,returns,class,source,red,green,blue
         #[arg(long, value_delimiter = ',', default_values_t = ["x".to_string(), "y".to_string(), "z".to_string()])]
         items: Vec<String>,
@@ -1240,6 +1742,28 @@ enum Cmd {
         /// Upper limits of the intensity strata
         #[arg(long, value_delimiter = ',', default_values_t = [0.15, 1.37])]
         int_strata_limits: Vec<f64>,
+        /// Also write structure metrics to <output stem>_estructura: gap fraction, leaf area index,
+        /// foliage height diversity, vertical complexity index and crown base height
+        #[arg(long)]
+        structure: bool,
+        /// Structure: thickness of the layers of the vertical profile
+        #[arg(long, default_value_t = 1.0)]
+        structure_layer: f64,
+        /// Structure: height of the profile (returns above it fall in its last layer)
+        #[arg(long, default_value_t = 30.0)]
+        structure_top: f64,
+        /// Structure: returns under this height count as light that reached the ground
+        #[arg(long, default_value_t = 1.0)]
+        gap_height: f64,
+        /// Structure: extinction coefficient of the leaf area index
+        #[arg(long, default_value_t = 0.5)]
+        extinction: f64,
+        /// Structure: the crown base is searched above this height
+        #[arg(long, default_value_t = 2.0)]
+        cbh_floor: f64,
+        /// Structure: a layer is crown when it holds this share of the fullest layer's returns
+        #[arg(long, default_value_t = 0.1)]
+        cbh_share: f64,
         /// Output format: shapefile of cells, text table, or both (default: by the output name)
         #[arg(long, value_enum)]
         format: Option<FormatArg>,
@@ -1256,7 +1780,7 @@ fn numbers(text: &str, n: usize, what: &str) -> Result<Vec<f64>> {
         Ok(v)
     } else {
         Err(rustlidar_core::Error::Param(format!(
-            "{what} needs {n} numbers separated by commas, not '{text}'"
+            "{what} necesita {n} números separados por comas, no '{text}'"
         )))
     }
 }
@@ -1271,7 +1795,7 @@ fn out_path(given: Option<PathBuf>, input: &Path, tag: &str, ext: &str) -> PathB
 fn dtm_for(given: Option<PathBuf>, input: &Path) -> Result<PathBuf> {
     given.or_else(|| paths::find_dtm(input)).ok_or_else(|| {
         rustlidar_core::Error::Param(format!(
-            "no DTM given and none made from {} found in {}: run `dtm` first or pass --dtm",
+            "no se ha indicado MDT y no hay ninguno hecho a partir de {} en {}: ejecuta antes `dtm` o indica --dtm",
             input.display(),
             paths::results_dir(input).display()
         ))
@@ -1290,7 +1814,7 @@ fn smoothing_of(a: SmoothArg) -> Smoothing {
 fn single_output(output: Option<PathBuf>, sheets: usize) -> Result<Option<PathBuf>> {
     if sheets > 1 && output.is_some() {
         return Err(rustlidar_core::Error::Param(
-            "with several sheets each one gets its own result: leave out -o".into(),
+            "con varias hojas cada una tiene su propio resultado: quita -o".into(),
         ));
     }
     Ok(output)
@@ -1332,6 +1856,7 @@ fn run(cmd: Cmd) -> Result<()> {
             smooth,
             smoothing,
             mosaic,
+            breaklines,
             steps,
         } => {
             let output = single_output(output, inputs.len())?;
@@ -1372,6 +1897,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 tiling: steps.tiling(),
                 smooth,
                 smoothing: smoothing_of(smoothing),
+                breaklines,
             };
             rustlidar_core::sheets::dtm_each(&inputs, &base, &out_for, mosaic_to.as_deref())?.0
         }
@@ -1439,7 +1965,7 @@ fn run(cmd: Cmd) -> Result<()> {
             let output = single_output(output, inputs.len())?;
             if inputs.len() > 1 && dtm.is_some() {
                 return Err(rustlidar_core::Error::Param(
-                    "--dtm names one DTM: with several sheets each uses the DTM made from it"
+                    "--dtm indica un solo MDT: con varias hojas, cada una usa el MDT hecho a partir de ella"
                         .into(),
                 ));
             }
@@ -1535,12 +2061,9 @@ fn run(cmd: Cmd) -> Result<()> {
                 Segmenter::Silva => "silva",
                 Segmenter::Watershed => "watershed",
             };
-            let base = paths::stem(&chm);
-            let dir = chm
-                .parent()
-                .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
-            let output = output
-                .unwrap_or_else(|| paths::unique(&dir.join(format!("{base}_arboles_{tag}.shp"))));
+            let output = output.unwrap_or_else(|| {
+                paths::unique(&paths::product(&chm, &format!("arboles_{tag}"), "shp"))
+            });
             let extra = |suffix: &str, ext: &str| {
                 paths::unique(
                     &output.with_file_name(format!("{}_{suffix}.{ext}", paths::stem(&output))),
@@ -1598,6 +2121,422 @@ fn run(cmd: Cmd) -> Result<()> {
                     plot_radius,
                     max_dist: match_dist,
                 }),
+            })?
+        }
+        Cmd::Obia {
+            rasters,
+            cloud,
+            cloud_layers,
+            roughness,
+            method,
+            scale,
+            shape,
+            compact,
+            weights,
+            init,
+            mask_layer,
+            min,
+            max,
+            diagonal,
+            min_cells,
+            rules,
+            samples,
+            kmeans,
+            features,
+            strata,
+            strata_min_cells,
+            plots,
+            cover_height,
+            class_field,
+            trees,
+            seed,
+            output,
+            format,
+            simplify,
+        } => {
+            let mut layers = Vec::new();
+            for name in &cloud_layers {
+                layers.push(
+                    rustlidar_core::obia::layers::CloudLayer::parse(name)
+                        .ok_or_else(|| Error::Param(format!("capa desconocida «{name}»")))?,
+                );
+            }
+            let mut weighted = Vec::new();
+            for w in &weights {
+                let (n, v) = w
+                    .split_once('=')
+                    .ok_or_else(|| Error::Param(format!("«{w}»: se espera capa=peso")))?;
+                weighted.push((
+                    n.trim().to_string(),
+                    v.trim()
+                        .parse::<f32>()
+                        .map_err(|_| Error::Param(format!("«{w}»: el peso no es un número")))?,
+                ));
+            }
+            let seg_method = match method {
+                ObiaMethod::Merge => rustlidar_core::obia::segment::Method::Merge(
+                    rustlidar_core::obia::segment::MergeParams {
+                        scale,
+                        shape,
+                        compact,
+                        weights: weighted,
+                        init,
+                    },
+                ),
+                ObiaMethod::Mask => rustlidar_core::obia::segment::Method::Mask {
+                    layer: mask_layer.ok_or_else(|| {
+                        Error::Param("--method mask necesita --mask-layer".into())
+                    })?,
+                    min,
+                    max,
+                    diagonal,
+                },
+            };
+            let first = rasters
+                .first()
+                .cloned()
+                .ok_or_else(|| Error::Param("hace falta al menos un ráster".into()))?;
+            let output =
+                output.unwrap_or_else(|| paths::unique(&paths::product(&first, "objetos", "shp")));
+            let formats = formats_of(format, &output);
+            jobs::obia(&jobs::ObiaJob {
+                rasters,
+                clouds: cloud,
+                cloud_layers: layers,
+                filter: rustlidar_core::filter::Filter::default(),
+                roughness,
+                segment: rustlidar_core::obia::segment::SegmentParams {
+                    method: seg_method,
+                    min_cells,
+                },
+                classify: match (rules, samples, kmeans) {
+                    (Some(f), _, _) => jobs::ClassifyBy::Rules(f),
+                    (None, None, Some(k)) => jobs::ClassifyBy::Kmeans { k, features, seed },
+                    (None, Some(file), _) => jobs::ClassifyBy::Samples {
+                        file,
+                        field: class_field,
+                        forest: rustlidar_core::obia::classify::ForestParams {
+                            trees,
+                            seed,
+                            ..Default::default()
+                        },
+                    },
+                    (None, None, None) => jobs::ClassifyBy::Nothing,
+                },
+                output,
+                formats,
+                simplify,
+                cover_height,
+                strata: (strata || plots > 0).then_some(jobs::StrataOpts {
+                    min_cells: strata_min_cells,
+                    plots,
+                }),
+            })?
+        }
+        Cmd::Geojson { input, output } => {
+            use rustlidar_core::view::{self, GeomKind};
+            let to_shp = input.extension().is_some_and(|e| {
+                e.eq_ignore_ascii_case("geojson") || e.eq_ignore_ascii_case("json")
+            });
+            let output = output.unwrap_or_else(|| {
+                paths::unique(&paths::product(
+                    &input,
+                    "convertido",
+                    if to_shp { "shp" } else { "geojson" },
+                ))
+            });
+            paths::ensure_parent(&output)?;
+            let (data, kind, epsg) = if to_shp {
+                let (d, k, e, skipped) = rustlidar_core::geojson::read_vector(&input)?;
+                if skipped > 0 {
+                    eprintln!(
+                        "aviso: {skipped} elementos con otra geometría o sin ella no se han copiado"
+                    );
+                }
+                (d, k, e)
+            } else {
+                let d = view::read_vector(&input)?;
+                let k = if d.points {
+                    GeomKind::Point
+                } else if d.polygons {
+                    GeomKind::Polygon
+                } else {
+                    GeomKind::Line
+                };
+                (d, k, rustlidar_core::crs::epsg_of(&input))
+            };
+            let prj = epsg.and_then(rustlidar_core::vector::prj_for_epsg);
+            rustlidar_core::vector::write_layer(&output, &data, kind, prj.as_deref())?;
+            format!(
+                "{} elementos: {}{}",
+                data.features.len(),
+                output.display(),
+                if epsg.is_none() {
+                    "\nAviso: el origen no declara su sistema de coordenadas; la copia tampoco"
+                } else {
+                    ""
+                }
+            )
+        }
+        Cmd::Change {
+            before,
+            after,
+            output,
+            min_change,
+            cover_height,
+            min_patch,
+            years,
+            stands,
+            stand_field,
+            trees,
+            hmin,
+            ws_a,
+            ws_b,
+            smooth,
+            match_dist,
+            format,
+        } => {
+            let output =
+                output.unwrap_or_else(|| paths::unique(&paths::product(&after, "cambio", "shp")));
+            let formats = formats_of(format, &output);
+            let job = rustlidar_core::change::ChangeJob {
+                before,
+                after,
+                output,
+                min_change,
+                cover_height,
+                min_patch,
+                years,
+                regions: stands.map(|f| (f, stand_field)),
+                trees: trees.then_some(rustlidar_core::change::TreeChange {
+                    tops: TopParams {
+                        hmin,
+                        a: ws_a,
+                        b: ws_b,
+                        c: 0.0,
+                        shape: Shape::Circle,
+                    },
+                    smooth,
+                    max_dist: match_dist,
+                }),
+                formats,
+            };
+            rustlidar_core::change::change(&job)?
+        }
+        Cmd::Import {
+            input,
+            output,
+            epsg,
+        } => {
+            let ext = input
+                .extension()
+                .map(|e| e.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default();
+            if ext == "e57" {
+                let output =
+                    output.unwrap_or_else(|| paths::unique(&paths::product(&input, "e57", "laz")));
+                let r = rustlidar_core::e57::convert(&input, &output, epsg)?;
+                rustlidar_core::e57::describe(&r, &output)
+                    + if epsg.is_none() {
+                        "\nAviso: el E57 no dice su sistema de coordenadas; usa --epsg o `crs` para asignarlo"
+                    } else {
+                        ""
+                    }
+            } else {
+                if ext != "ply" {
+                    return Err(Error::Unsupported(format!(
+                        "formato «{ext}» no soportado: se importan PLY y E57"
+                    )));
+                }
+                let output =
+                    output.unwrap_or_else(|| paths::unique(&paths::product(&input, "ply", "laz")));
+                let r = rustlidar_core::ply::convert(&input, &output, epsg)?;
+                rustlidar_core::ply::describe(&r, &output)
+                    + if epsg.is_none() {
+                        "\nAviso: el PLY no dice su sistema de coordenadas; usa --epsg o `crs` para asignarlo"
+                    } else {
+                        ""
+                    }
+            }
+        }
+        Cmd::Copc { inputs, output } => {
+            if output.is_some() && inputs.len() > 1 {
+                return Err(Error::Param("-o sirve para una sola nube".into()));
+            }
+            let mut lines = Vec::new();
+            for p in &inputs {
+                let out = output.clone().unwrap_or_else(|| {
+                    let stem = paths::stem(p);
+                    let stem = stem.strip_suffix(".copc").unwrap_or(&stem).to_string();
+                    paths::unique(&paths::results_dir(p).join(format!("{stem}.copc.laz")))
+                });
+                let format = rustlidar_core::las::Reader::open(p)?.header.format;
+                let r = rustlidar_core::copc_write::write(p, &out)?;
+                lines.push(rustlidar_core::copc_write::describe(&r, format, &out));
+            }
+            lines.join("\n")
+        }
+        Cmd::Colorize {
+            inputs,
+            image,
+            bands,
+            nir,
+            keep_outside,
+            output,
+        } => {
+            if output.is_some() && inputs.len() > 1 {
+                return Err(Error::Param("-o sirve para una sola nube".into()));
+            }
+            let pairs = inputs
+                .iter()
+                .map(|p| {
+                    let out = output
+                        .clone()
+                        .unwrap_or_else(|| paths::unique(&paths::product(p, "rgb", &ext_of(p))));
+                    (p.clone(), out)
+                })
+                .collect();
+            rustlidar_core::colorize::run(&rustlidar_core::colorize::ColorizeJob {
+                image,
+                rgb: [bands[0], bands[1], bands[2]],
+                nir,
+                inputs: pairs,
+                keep_outside,
+            })?
+        }
+        Cmd::Intensity {
+            inputs,
+            trajectory,
+            altitude,
+            exponent,
+            reference,
+            output,
+        } => {
+            use rustlidar_core::intensity::{IntensityJob, Sensor, run};
+            if output.is_some() && inputs.len() > 1 {
+                return Err(Error::Param("-o sirve para una sola nube".into()));
+            }
+            let sensor = match (trajectory, altitude) {
+                (Some(t), _) => Sensor::Trajectory(t),
+                (None, Some(a)) => Sensor::Altitude(a),
+                (None, None) => {
+                    return Err(Error::Param(
+                        "indica la trayectoria (--trajectory) o la altura de vuelo (--altitude)"
+                            .into(),
+                    ));
+                }
+            };
+            let pairs = inputs
+                .iter()
+                .map(|p| {
+                    let out = output.clone().unwrap_or_else(|| {
+                        paths::unique(&paths::product(p, "intensidad", &ext_of(p)))
+                    });
+                    (p.clone(), out)
+                })
+                .collect();
+            run(&IntensityJob {
+                sensor,
+                exponent,
+                reference,
+                inputs: pairs,
+            })?
+        }
+        Cmd::Cog {
+            input,
+            output,
+            nearest,
+            tiles,
+        } => {
+            let output =
+                output.unwrap_or_else(|| paths::unique(&paths::product(&input, "cog", "tif")));
+            paths::ensure_parent(&output)?;
+            // images of several bands or of whole numbers (photographs, satellite scenes,
+            // classes) are rewritten as a stream, whatever their size
+            let pyr = rustlidar_core::pyramid::Pyramid::open(&input).ok();
+            if let Some(p) = pyr.filter(|p| p.bands > 1 || p.bits <= 16) {
+                use rustlidar_core::rastertools::{RasterJob, Resample, Source, stack};
+                let mut job = RasterJob::new(
+                    vec![Source {
+                        path: input.clone(),
+                        bands: Vec::new(),
+                    }],
+                    output,
+                );
+                job.nodata = p.nodata().unwrap_or(0.0);
+                job.compression = tiles.compression();
+                if nearest {
+                    job.resample = Resample::Nearest;
+                }
+                stack(&job)?
+            } else {
+                let g = rustlidar_core::grid::Grid::read(&input)?;
+                rustlidar_core::cog::write(
+                    &g,
+                    &output,
+                    rustlidar_core::grid::Grid::read_epsg(&input),
+                    nearest,
+                )?;
+                format!(
+                    "{} x {} celdas de {}: {}",
+                    g.cols,
+                    g.rows,
+                    paths::num(g.cell),
+                    output.display()
+                )
+            }
+        }
+        Cmd::Corridor {
+            inputs,
+            dtm,
+            output,
+            wire_class,
+            pole_class,
+            min_distance,
+            fall_margin,
+            half_width,
+            link,
+            gap_max,
+            min_points,
+            min_length,
+            min_pole_height,
+            cell,
+            min_height,
+            vegetation,
+            pole_reach,
+            format,
+        } => {
+            let first = inputs
+                .first()
+                .cloned()
+                .ok_or_else(|| Error::Param("hace falta al menos una nube".into()))?;
+            let dtm = dtm_for(dtm, &first)?;
+            let output =
+                output.unwrap_or_else(|| paths::unique(&paths::product(&first, "corredor", "shp")));
+            let formats = formats_of(format, &output);
+            let params = rustlidar_core::corridor::CorridorParams {
+                wire_class,
+                pole_class,
+                link,
+                min_points,
+                min_length,
+                min_pole_height,
+                gap_max,
+                half_width,
+                min_distance,
+                fall_margin,
+                cell,
+                min_height,
+                pole_reach,
+                vegetation: rustlidar_core::filter::ClassSel::parse(&vegetation)?,
+                ..Default::default()
+            };
+            rustlidar_core::corridor::run(&rustlidar_core::corridor::CorridorJob {
+                inputs,
+                dtm,
+                output,
+                params,
+                formats,
             })?
         }
         Cmd::Clip {
@@ -1675,7 +2614,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 let shape = if square {
                     let w = side.ok_or_else(|| {
                         rustlidar_core::Error::Param(
-                            "--side gives the side of the plots in metres".into(),
+                            "--side es el lado de las parcelas en metros".into(),
                         )
                     })?;
                     PlotShape::Rect { w, h: w }
@@ -1683,7 +2622,7 @@ fn run(cmd: Cmd) -> Result<()> {
                     PlotShape::Circle {
                         radius: radius.ok_or_else(|| {
                             rustlidar_core::Error::Param(
-                                "--radius gives the radius of the plots in metres".into(),
+                                "--radius es el radio de las parcelas en metros".into(),
                             )
                         })?,
                     }
@@ -1700,7 +2639,7 @@ fn run(cmd: Cmd) -> Result<()> {
                     SampleArg::Systematic => {
                         let sp = spacing.as_deref().ok_or_else(|| {
                             rustlidar_core::Error::Param(
-                                "--spacing gives the distance between plots".into(),
+                                "--spacing es la distancia entre parcelas".into(),
                             )
                         })?;
                         let v: Vec<f64> = sp
@@ -1712,7 +2651,7 @@ fn run(cmd: Cmd) -> Result<()> {
                             [a, c] => (*a, *c),
                             _ => {
                                 return Err(rustlidar_core::Error::Param(
-                                    "--spacing is X or X,Y".into(),
+                                    "--spacing es X o X,Y".into(),
                                 ));
                             }
                         };
@@ -1773,7 +2712,7 @@ fn run(cmd: Cmd) -> Result<()> {
             }
             if let Some(w) = &where_ {
                 let (field, value) = w.split_once('=').ok_or_else(|| {
-                    rustlidar_core::Error::Param("--where needs FIELD=VALUE".into())
+                    rustlidar_core::Error::Param("--where necesita CAMPO=VALOR".into())
                 })?;
                 list.retain(|r| {
                     r.attrs.iter().any(|(k, v)| {
@@ -1797,6 +2736,7 @@ fn run(cmd: Cmd) -> Result<()> {
             };
             let output = output.unwrap_or_else(|| paths::product(&first, tag, &ext));
             let mut job = ClipJob::new(inputs, list, output);
+            job.regions_source = regions.clone();
             job.mode = match mode {
                 ClipModeArg::Merge => ClipMode::Merge,
                 ClipModeArg::Metrics => ClipMode::MetricsOnly,
@@ -1948,11 +2888,8 @@ fn run(cmd: Cmd) -> Result<()> {
             altitude,
         } => {
             let g = rustlidar_core::grid::Grid::read(&input)?;
-            let out = output.unwrap_or_else(|| {
-                paths::unique(
-                    &input.with_file_name(format!("{}_sombreado.png", paths::stem(&input))),
-                )
-            });
+            let out = output
+                .unwrap_or_else(|| paths::unique(&paths::product(&input, "sombreado", "png")));
             rustlidar_core::ops::hillshade(&g, azimuth, altitude).write_png(&out)?;
             format!("{} x {} px: {}", g.cols, g.rows, out.display())
         }
@@ -1963,11 +2900,11 @@ fn run(cmd: Cmd) -> Result<()> {
         } => {
             let g = rustlidar_core::grid::Grid::read(&input)?;
             let out = output.unwrap_or_else(|| {
-                paths::unique(&input.with_file_name(format!(
-                    "{}_curvas_{}m.shp",
-                    paths::stem(&input),
-                    paths::num(interval)
-                )))
+                paths::unique(&paths::product(
+                    &input,
+                    &format!("curvas_{}m", paths::num(interval)),
+                    "shp",
+                ))
             });
             let n = rustlidar_core::ops::write_contours(&g, interval, &out, None)?;
             format!("{n} curvas de nivel: {}", out.display())
@@ -2023,7 +2960,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 (false, Some(c)) => Action::Reclassify(c),
                 _ => {
                     return Err(rustlidar_core::Error::Param(
-                        "say what to do: --delete or --set-class N".into(),
+                        "indica qué hacer: --delete o --set-class N".into(),
                     ));
                 }
             };
@@ -2089,7 +3026,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 Action::Delete => "eliminar".to_string(),
                 Action::Reclassify(c) => format!("clase {c}"),
             };
-            let r = edit::save(&input, &out, &[Edit { sel, action, label }])?;
+            let r = edit::save(&input, &out, &[Edit::new(sel, action, label)])?;
             edit::report_text(&r, &out)
         }
         Cmd::Crs {
@@ -2117,12 +3054,86 @@ fn run(cmd: Cmd) -> Result<()> {
             }
             lines.join("\n")
         }
+        Cmd::Model {
+            plots,
+            field,
+            response,
+            plot_key,
+            field_key,
+            predictors,
+            transform,
+            criterion,
+            max_vars,
+            max_vif,
+            candidates,
+            max_corr,
+            analyze,
+            with_intensity,
+            cells,
+            output,
+            interval,
+            extrapolate,
+            epsg,
+        } => {
+            use rustlidar_core::aba::{self, AbaJob, Criterion, Spec, Transform};
+            let output = output.unwrap_or_else(|| {
+                paths::unique_with(
+                    &paths::product(&plots, "mapa", "tif"),
+                    rustlidar_core::aba::COMPANIONS,
+                )
+            });
+            let job = AbaJob {
+                plots,
+                field,
+                response,
+                field_key: field_key.unwrap_or_else(|| plot_key.clone()),
+                plot_key,
+                spec: Spec {
+                    transform: match transform {
+                        TransformArg::None => Transform::None,
+                        TransformArg::LogResponse => Transform::LogResponse,
+                        TransformArg::LogBoth => Transform::LogBoth,
+                    },
+                    criterion: match criterion {
+                        CriterionArg::Bic => Criterion::Bic,
+                        CriterionArg::Aicc => Criterion::Aicc,
+                    },
+                    predictors,
+                    max_vars,
+                    max_vif,
+                    candidates,
+                    max_corr,
+                    intensity: with_intensity,
+                },
+                cells,
+                output,
+                interval_map: interval,
+                mask_extrapolation: !extrapolate,
+                epsg,
+            };
+            if analyze {
+                let (sc, notes) = aba::analyze(&job)?;
+                let mut text = aba::screening_text(
+                    &sc,
+                    &job.response,
+                    job.spec.predictors.is_empty(),
+                    job.spec.predictors.len(),
+                );
+                for n in notes {
+                    text.push_str(&format!("  - {n}\n"));
+                }
+                text
+            } else {
+                aba::run(&job)?
+            }
+        }
         Cmd::Stack {
             inputs,
             output,
             cell,
             src_nodata,
             nodata,
+            tiles,
         } => {
             use rustlidar_core::rastertools::{RasterJob, Source, stack};
             let mut job = RasterJob::new(
@@ -2136,8 +3147,78 @@ fn run(cmd: Cmd) -> Result<()> {
                 output,
             );
             (job.cell, job.src_nodata, job.nodata) = (cell, src_nodata, nodata);
+            job.compression = tiles.compression();
             stack(&job)?
         }
+        Cmd::Align {
+            reference,
+            inputs,
+            resample,
+            nodata,
+            tiles,
+        } => {
+            use rustlidar_core::rastertools::{AlignJob, Resample, align};
+            let pairs = inputs
+                .into_iter()
+                .map(|p| {
+                    let out = paths::unique(&paths::product(&p, "alineado", "tif"));
+                    (p, out)
+                })
+                .collect();
+            align(&AlignJob {
+                reference,
+                inputs: pairs,
+                resample: match resample {
+                    AlignResample::Auto => None,
+                    AlignResample::Nearest => Some(Resample::Nearest),
+                    AlignResample::Bilinear => Some(Resample::Bilinear),
+                    AlignResample::Average => Some(Resample::Average),
+                },
+                dtype: None,
+                nodata,
+                src_nodata: None,
+                compression: tiles.compression(),
+            })?
+        }
+        Cmd::Hag {
+            inputs,
+            output,
+            cell,
+            ground_class,
+            replace_z,
+        } => {
+            use rustlidar_core::hag::{HagParams, run};
+            if output.is_some() && inputs.len() > 1 {
+                return Err(rustlidar_core::Error::Param(
+                    "-o solo vale con una nube; sin -o cada una da su archivo".into(),
+                ));
+            }
+            let params = HagParams {
+                cell,
+                ground_class,
+                replace_z,
+            };
+            let mut lines = Vec::new();
+            for input in &inputs {
+                let ext = input
+                    .extension()
+                    .map_or("las".into(), |e| e.to_string_lossy().into_owned());
+                let out = out_path(
+                    output.clone(),
+                    input,
+                    if replace_z { "normalizada" } else { "alturas" },
+                    &ext,
+                );
+                lines.push(run(input, &out, &params)?);
+            }
+            lines.join("\n")
+        }
+        Cmd::Reproject {
+            input,
+            output,
+            to,
+            from,
+        } => rustlidar_core::reproject::file(&input, &output, to, from)?,
         Cmd::Mosaic {
             inputs,
             output,
@@ -2147,6 +3228,7 @@ fn run(cmd: Cmd) -> Result<()> {
             nodata,
             intersection,
             average,
+            tiles,
         } => {
             use rustlidar_core::rastertools::{
                 Extent, Overlap, RasterJob, Resample, Source, mosaic,
@@ -2178,6 +3260,7 @@ fn run(cmd: Cmd) -> Result<()> {
             if average {
                 job.resample = Resample::Average;
             }
+            job.compression = tiles.compression();
             mosaic(&job)?
         }
         Cmd::Terrain {
@@ -2242,7 +3325,7 @@ fn run(cmd: Cmd) -> Result<()> {
                     "source" => f.source_id = true,
                     o => {
                         return Err(rustlidar_core::Error::Param(format!(
-                            "'{o}' is not an attribute: class, gps, intensity, return, count, source"
+                            "'{o}' no es un atributo: class, gps, intensity, return, count o source"
                         )));
                     }
                 }
@@ -2321,7 +3404,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 "single" => SwathReturns::Single,
                 o => {
                     return Err(rustlidar_core::Error::Param(format!(
-                        "'{o}': use all, last or single"
+                        "'{o}': usa all, last o single"
                     )));
                 }
             };
@@ -2401,7 +3484,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 .and_then(|(a, b)| Some((a.parse::<usize>().ok()?, b.parse::<usize>().ok()?)))
                 .filter(|(w, h)| *w > 0 && *h > 0 && w * h <= 1 << 28)
                 .ok_or_else(|| {
-                    rustlidar_core::Error::Param(format!("--size needs WIDTHxHEIGHT, not '{size}'"))
+                    rustlidar_core::Error::Param(format!("--size necesita ANCHOxALTO, no '{size}'"))
                 })?;
             let store = view::load(&inputs, max_points)?;
             let mut st = Style::fit(&store);
@@ -2491,6 +3574,8 @@ fn run(cmd: Cmd) -> Result<()> {
         Cmd::Export {
             inputs,
             output,
+            normalize,
+            dtm,
             items,
             delimiter,
             header,
@@ -2515,20 +3600,41 @@ fn run(cmd: Cmd) -> Result<()> {
                 decimate,
                 skip_noise: false,
             };
-            if output
+            if inputs.len() > 1 && dtm.is_some() {
+                return Err(rustlidar_core::Error::Param(
+                    "--dtm indica un solo MDT: con varias nubes, cada una usa el MDT hecho a partir de ella"
+                        .into(),
+                ));
+            }
+            let dtms = if normalize {
+                inputs
+                    .iter()
+                    .map(|p| dtm_for(dtm.clone(), p))
+                    .collect::<Result<Vec<_>>>()?
+            } else {
+                Vec::new()
+            };
+            let ext = output
                 .extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("shp"))
-            {
-                let mut total = 0;
+                .map(|e| e.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default();
+            if ext == "shp" || ext == "las" || ext == "laz" {
+                let mut total = export::Exported::default();
+                export::begin_for(&inputs);
                 for (k, i) in inputs.iter().enumerate() {
                     let out = if inputs.len() > 1 {
-                        output.with_file_name(format!("{}_{}.shp", paths::stem(&output), k + 1))
+                        output.with_file_name(format!("{}_{}.{ext}", paths::stem(&output), k + 1))
                     } else {
                         output.clone()
                     };
-                    total += export::shapefile_points(i, &out, &filter)?;
+                    let d = dtms.get(k).map(PathBuf::as_path);
+                    total.add(&if ext == "shp" {
+                        export::shapefile_points(i, &out, &filter, d)?
+                    } else {
+                        export::cloud(i, &out, &filter, d)?
+                    });
                 }
-                format!("{total} puntos exportados a {}", output.display())
+                total.text(&output.display().to_string())
             } else {
                 let items = items
                     .iter()
@@ -2544,7 +3650,9 @@ fn run(cmd: Cmd) -> Result<()> {
                         "red" => Ok(Item::Red),
                         "green" | "g" => Ok(Item::Green),
                         "blue" | "b" => Ok(Item::Blue),
-                        o => Err(rustlidar_core::Error::Param(format!("unknown item '{o}'"))),
+                        o => Err(rustlidar_core::Error::Param(format!(
+                            "dato desconocido '{o}'"
+                        ))),
                     })
                     .collect::<Result<Vec<_>>>()?;
                 let delimiter = match delimiter.as_str() {
@@ -2560,14 +3668,15 @@ fn run(cmd: Cmd) -> Result<()> {
                     header,
                     filter,
                     decimals,
+                    dtms,
                 })?;
-                format!(
-                    "{n} puntos exportados a {} archivo(s): {}",
+                n.text(&format!(
+                    "{} archivo(s): {}",
                     files.len(),
                     files
                         .first()
                         .map_or(String::new(), |f| f.display().to_string())
-                )
+                ))
             }
         }
         Cmd::Metrics {
@@ -2582,12 +3691,19 @@ fn run(cmd: Cmd) -> Result<()> {
             strata,
             strata_limits,
             int_strata_limits,
+            structure,
+            structure_layer,
+            structure_top,
+            gap_height,
+            extinction,
+            cbh_floor,
+            cbh_share,
             format,
         } => {
             let output = single_output(output, inputs.len())?;
             if inputs.len() > 1 && dtm.is_some() {
                 return Err(rustlidar_core::Error::Param(
-                    "--dtm names one DTM: with several sheets each uses the DTM made from it"
+                    "--dtm indica un solo MDT: con varias hojas, cada una usa el MDT hecho a partir de ella"
                         .into(),
                 ));
             }
@@ -2607,6 +3723,14 @@ fn run(cmd: Cmd) -> Result<()> {
                     memory: memory_mb.saturating_mul(1 << 20),
                     strata: strata_limits,
                     int_strata: int_strata_limits,
+                    structure: structure.then_some(rustlidar_core::metrics::StructureParams {
+                        layer: structure_layer,
+                        top: structure_top,
+                        gap_height,
+                        k: extinction,
+                        cbh_floor,
+                        cbh_share,
+                    }),
                 },
                 intensity,
                 strata,
@@ -2615,7 +3739,7 @@ fn run(cmd: Cmd) -> Result<()> {
         }
     };
     println!("{summary}");
-    eprintln!("done in {:.2} s", t.elapsed().as_secs_f64());
+    eprintln!("terminado en {:.2} s", t.elapsed().as_secs_f64());
     Ok(())
 }
 
@@ -2623,11 +3747,15 @@ fn main() -> ExitCode {
     // Parsing and `run` hold every command's arguments; debug builds need more than the main thread's stack.
     let result = std::thread::Builder::new()
         .stack_size(64 << 20)
-        .spawn(|| run(Cli::parse().cmd))
+        .spawn(|| {
+            let cli = Cli::parse();
+            paths::set_output_dir(cli.results_dir);
+            run(cli.cmd)
+        })
         .map_err(rustlidar_core::Error::Io)
         .and_then(|h| {
             h.join()
-                .unwrap_or_else(|_| Err(rustlidar_core::Error::Format("internal error".into())))
+                .unwrap_or_else(|_| Err(rustlidar_core::Error::Format("error interno".into())))
         });
     match result {
         Ok(()) => ExitCode::SUCCESS,

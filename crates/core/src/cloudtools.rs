@@ -94,7 +94,7 @@ pub fn remove_duplicates(
 ) -> Result<(u64, u64)> {
     if input == output {
         return Err(Error::Param(
-            "the new file must not overwrite the original".into(),
+            "el archivo nuevo no debe sobrescribir el original".into(),
         ));
     }
     let r = Reader::open(input)?.for_passes()?;
@@ -259,16 +259,22 @@ pub fn compare_clouds(
     p: &CompareParams,
 ) -> Result<CompareReport> {
     if !(p.min_dist > 0.0) {
-        return Err(Error::Param("the distance must be positive".into()));
+        return Err(Error::Param("la distancia debe ser positiva".into()));
     }
     if reference.iter().any(|r| r == source) || source == output {
         return Err(Error::Param(
-            "the reference and the cloud to check must differ".into(),
+            "la nube de referencia y la que se comprueba deben ser distintas".into(),
         ));
     }
+    let mut same_system: Vec<PathBuf> = reference.to_vec();
+    same_system.push(source.to_path_buf());
+    let unified = crate::crs::unify(&same_system, false)?;
+    let reference = unified.all(reference);
+    let reference = reference.as_slice();
+    let source = &unified.path(source);
     let grid = RefGrid::build(reference, p.min_dist, p.min_dist / 3.0)?;
     if grid.points == 0 {
-        return Err(Error::Param("the reference cloud has no points".into()));
+        return Err(Error::Param("la nube de referencia no tiene puntos".into()));
     }
     let r = Reader::open(source)?;
     let rec_len = usize::from(r.header.record_len);
@@ -496,18 +502,24 @@ pub fn fit_cloud(
 ) -> Result<FitReport> {
     if reference.iter().any(|r| r == source) || source == output {
         return Err(Error::Param(
-            "the reference and the cloud to move must differ".into(),
+            "la nube de referencia y la que se mueve deben ser distintas".into(),
         ));
     }
+    let mut same_system: Vec<PathBuf> = reference.to_vec();
+    same_system.push(source.to_path_buf());
+    let unified = crate::crs::unify(&same_system, false)?;
+    let reference = unified.all(reference);
+    let reference = reference.as_slice();
+    let source = &unified.path(source);
     if !(p.thin > 0.0 && p.max_xy > 0.0 && p.max_z > 0.0) {
         return Err(Error::Param(
-            "the thinning and the limits must be positive".into(),
+            "el aclarado y los límites deben ser positivos".into(),
         ));
     }
     let limit = p.max_xy.max(p.max_z);
     let grid = RefGrid::build(reference, limit, p.thin / 2.0)?;
     if grid.points == 0 {
-        return Err(Error::Param("the reference cloud has no points".into()));
+        return Err(Error::Param("la nube de referencia no tiene puntos".into()));
     }
     let flat: Vec<[f64; 3]> = grid
         .cells
@@ -541,7 +553,7 @@ pub fn fit_cloud(
     })?;
     drop(seen);
     if sample.len() < 10 {
-        return Err(Error::Param("too few points to align".into()));
+        return Err(Error::Param("hay muy pocos puntos para ajustar".into()));
     }
     let c0 = sample
         .iter()
@@ -600,7 +612,7 @@ pub fn fit_cloud(
             .collect();
         if pairs.len() < 10 {
             return Err(Error::Param(
-                "the clouds do not overlap within the limits: raise the horizontal and vertical limits".into(),
+                "las nubes no se solapan dentro de los límites: amplía los límites horizontal y vertical".into(),
             ));
         }
         let mean = pairs
@@ -683,7 +695,7 @@ pub fn fit_cloud(
                 let o = m.apply([q.x, q.y, q.z]);
                 if !set_xyz(&header, &mut buf, o[0], o[1], o[2]) {
                     return Err(Error::Param(
-                        "a moved point does not fit the coordinate scale of the file".into(),
+                        "un punto movido no cabe en la escala de coordenadas del archivo".into(),
                     ));
                 }
             }
@@ -756,7 +768,7 @@ pub fn swath_separation(
     each_cloud_a_swath: bool,
 ) -> Result<SwathReport> {
     if !(cell > 0.0) {
-        return Err(Error::Param("the cell must be positive".into()));
+        return Err(Error::Param("la celda debe ser positiva".into()));
     }
     let mut bounds = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
     let readers: Vec<Reader> = inputs

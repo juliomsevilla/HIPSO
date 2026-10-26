@@ -34,7 +34,7 @@ impl Grid {
     pub fn covering(b: [f64; 4], cell: f64) -> Result<Self> {
         if !(cell > 0.0) || b.iter().any(|v| !v.is_finite()) || b[2] < b[0] || b[3] < b[1] {
             return Err(Error::Param(format!(
-                "a grid needs a positive cell size and an extent (cell {cell})"
+                "una rejilla necesita una celda positiva y una extensión (celda {cell})"
             )));
         }
         let x0 = (b[0] / cell).floor() * cell;
@@ -50,7 +50,7 @@ impl Grid {
             .filter(|n| *n <= MAX_CELLS && *n > 0)
             .ok_or_else(|| {
                 Error::Param(format!(
-                    "a {cols} x {rows} grid is too large: use a bigger cell size or split the area"
+                    "una rejilla de {cols} x {rows} es demasiado grande: usa una celda mayor o divide la zona"
                 ))
             })?;
         Ok(Self {
@@ -227,13 +227,21 @@ impl Grid {
         Ok(())
     }
 
-    /// Reads a GeoTIFF, or an ESRI ASCII grid (`.asc`, as FUSION's DTM2ASCII writes).
+    /// Reads a GeoTIFF, or an ESRI ASCII grid (`.asc`, as written by FUSION-compatible tools).
     pub fn read(path: &Path) -> Result<Self> {
+        crate::check_raster_format(path)?;
         let asc = path
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("asc"));
         if asc {
             Self::read_asc(path)
+        } else if crate::pyramid::is_jp2_file(path) || crate::rasterfmt::kind_of(path).is_some() {
+            let img = crate::raster::read_image(path)?;
+            let mut g = Self::new(img.x0, img.y0, img.cell, img.cols, img.rows)?;
+            if let Some(b) = img.bands.into_iter().next() {
+                g.data = b;
+            }
+            Ok(g)
         } else {
             Self::read_tiff(path)
         }
@@ -247,7 +255,7 @@ impl Grid {
             (0usize, 0usize, 0.0, 0.0, 0.0, None, false);
         let bad = |w: &str| {
             Error::Format(format!(
-                "{}: bad ASCII grid header near '{w}'",
+                "{}: cabecera de rejilla ASCII no válida cerca de '{w}'",
                 path.display()
             ))
         };
@@ -281,7 +289,7 @@ impl Grid {
         }
         if n != g.data.len() {
             return Err(Error::Format(format!(
-                "{}: {n} values for a {cols} x {rows} grid",
+                "{}: {n} valores para una rejilla de {cols} x {rows}",
                 path.display()
             )));
         }
@@ -291,6 +299,12 @@ impl Grid {
     /// The EPSG code a GeoTIFF declares (projected, else geographic), if any.
     pub fn read_epsg(path: &Path) -> Option<u16> {
         use tiff::decoder::Decoder;
+        if crate::pyramid::is_jp2_file(path) {
+            return crate::jp2::Jp2::open(path).ok()?.geo?.epsg;
+        }
+        if crate::rasterfmt::kind_of(path).is_some() {
+            return crate::pyramid::Pyramid::open(path).ok()?.epsg;
+        }
         let mut d = Decoder::new(BufReader::new(File::open(path).ok()?)).ok()?;
         let keys = d.get_tag_u32_vec(Tag::GeoKeyDirectoryTag).ok()?;
         // four numbers of header, then four per key: id, location, count, value
@@ -308,7 +322,7 @@ impl Grid {
     /// Reads a north-up 32-bit float GeoTIFF such as [`Grid::write_tiff`] writes.
     pub fn read_tiff(path: &Path) -> Result<Self> {
         use tiff::decoder::{Decoder, DecodingResult};
-        let mut d = Decoder::new(BufReader::new(File::open(path)?)).map_err(tiff_err)?;
+        let mut d = Decoder::new(BufReader::new(crate::open_file(path)?)).map_err(tiff_err)?;
         let (w, h) = d.dimensions().map_err(tiff_err)?;
         let scale = d
             .get_tag_f64_vec(Tag::ModelPixelScaleTag)
@@ -322,7 +336,7 @@ impl Grid {
             (scale.first(), scale.get(1), tie.get(3), tie.get(4))
         else {
             return Err(Error::Format(format!(
-                "{}: not a GeoTIFF (no pixel scale or tie point)",
+                "{}: no es un GeoTIFF (sin escala de píxel ni punto de anclaje)",
                 path.display()
             )));
         };
@@ -331,7 +345,7 @@ impl Grid {
             || tie.get(1).copied().unwrap_or(0.0) != 0.0
         {
             return Err(Error::Unsupported(format!(
-                "{}: only square cells tied at the corner pixel are read",
+                "{}: solo se leen celdas cuadradas ancladas en la esquina del píxel",
                 path.display()
             )));
         }
@@ -342,14 +356,14 @@ impl Grid {
             DecodingResult::F64(v) => v.into_iter().map(|x| x as f32).collect(),
             _ => {
                 return Err(Error::Unsupported(format!(
-                    "{}: only float rasters are read",
+                    "{}: solo se leen rásteres de valores reales",
                     path.display()
                 )));
             }
         };
         if data.len() != g.data.len() {
             return Err(Error::Format(format!(
-                "{}: one band of {cols} x {rows} floats expected",
+                "{}: se esperaba una banda de {cols} x {rows} valores reales",
                 path.display()
             )));
         }
@@ -413,7 +427,7 @@ fn filled<T: Copy>(n: usize, v: T) -> Result<Vec<T>> {
     let mut out = Vec::new();
     out.try_reserve_exact(n).map_err(|_| {
         Error::Param(
-            "not enough memory for this grid: use a bigger cell size or split the area".into(),
+            "no hay memoria para esta rejilla: usa una celda mayor o divide la zona".into(),
         )
     })?;
     out.resize(n, v);
@@ -421,11 +435,11 @@ fn filled<T: Copy>(n: usize, v: T) -> Result<Vec<T>> {
 }
 
 fn tiff_err(e: tiff::TiffError) -> Error {
-    Error::Format(format!("GeoTIFF: {e}"))
+    Error::Format(format!("GeoTIFF: {e}{}", crate::cloud_hint(&e.to_string())))
 }
 
 fn too_big() -> Error {
-    Error::Param("grid too large for a TIFF".into())
+    Error::Param("rejilla demasiado grande para un TIFF".into())
 }
 
 #[cfg(test)]

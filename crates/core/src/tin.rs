@@ -1,5 +1,5 @@
-//! Rasterising a TIN (Delaunay triangulation) of ground points onto a grid, tile by tile, as
-//! LAStools' blast2dem does in spirit: memory bounded by the tile, not the cloud.
+//! Rasterising a TIN (Delaunay triangulation) of ground points onto a grid, tile by tile,
+//! with memory bounded by the tile, not the cloud.
 
 use crate::grid::Grid;
 

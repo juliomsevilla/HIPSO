@@ -1,5 +1,5 @@
-//! Bare-earth extraction with the Kraus & Pfeifer (1998) filter as FUSION's GroundFilter
-//! implements it, done in streaming passes: each pass reads the cloud once and keeps two sums
+//! Bare-earth extraction with the Kraus & Pfeifer (1998) filter,
+//! done in streaming passes: each pass reads the cloud once and keeps two sums
 //! per surface node, so memory depends on the area, never on the number of points.
 //!
 //! The intermediate surface is a grid of nodes `filter_cell` apart: each node holds the
@@ -7,11 +7,12 @@
 //! nodes in 8 directions, and a point's residual is its elevation minus the surface
 //! interpolated bilinearly under it.
 
+use crate::footprint::Footprint;
 use crate::grid::{Grid, MeanGrid};
 use crate::las::{Cloud, Point};
 use crate::{Error, Result};
 
-/// The filter's parameters (FUSION's GroundFilter defaults).
+/// The filter's parameters (default values).
 #[derive(Clone, Debug, PartialEq)]
 pub struct GroundParams {
     /// Spacing of the intermediate surface's nodes.
@@ -42,7 +43,7 @@ impl Default for GroundParams {
 }
 
 impl GroundParams {
-    /// The weight of a residual `v` (point minus surface), as GroundFilter computes it.
+    /// The weight of a residual `v` (point minus surface), by the filter's weight function.
     #[inline]
     pub fn weight(&self, v: f64) -> f64 {
         if v <= self.g {
@@ -62,7 +63,7 @@ impl GroundParams {
             || !self.b.is_finite()
         {
             return Err(Error::Param(
-                "the ground filter needs a positive filter cell and w, and at least 1 iteration"
+                "el filtro de suelo necesita una celda y un w positivos y al menos 1 iteración"
                     .into(),
             ));
         }
@@ -91,7 +92,9 @@ impl Surface {
         let n = cols
             .checked_mul(rows)
             .filter(|n| *n <= 1 << 29)
-            .ok_or_else(|| Error::Param("the filter cell is too small for this area".into()))?;
+            .ok_or_else(|| {
+                Error::Param("la celda del filtro es demasiado pequeña para esta zona".into())
+            })?;
         Ok(Self {
             x0: b[0],
             y0: b[1],
@@ -197,11 +200,15 @@ pub fn dtm<C: Cloud>(cloud: &C, cell: f64, p: &GroundParams) -> Result<(Grid, Gr
     let (filter, passes) = GroundFilter::run(cloud, p)?;
     let b = cloud.bounds();
     let mut mean = MeanGrid::new(Grid::covering([b[0], b[1], b[3], b[4]], cell)?, b[2])?;
+    let fp = Footprint::new([b[0], b[1], b[3], b[4]], cell);
     let mut report = GroundReport {
         passes: passes + 1,
         ..Default::default()
     };
     report.points = cloud.scan(|pt| {
+        if !pt.is_noise() {
+            fp.add(pt.x, pt.y);
+        }
         if !pt.is_noise() && filter.is_ground(pt) {
             mean.add(pt.x, pt.y, pt.z);
             report.ground += 1;
@@ -209,11 +216,12 @@ pub fn dtm<C: Cloud>(cloud: &C, cell: f64, p: &GroundParams) -> Result<(Grid, Gr
     })?;
     if report.ground == 0 {
         return Err(Error::Param(
-            "no point was classified as ground: check g, w and the filter cell".into(),
+            "ningún punto ha quedado como suelo: revisa g, w y la celda del filtro".into(),
         ));
     }
     let mut dtm = mean.finish();
     dtm.fill_holes();
+    fp.apply(&mut dtm);
     Ok((dtm, report))
 }
 
@@ -290,7 +298,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn weight_follows_groundfilter() {
+    fn weight_function_values() {
         let p = GroundParams::default();
         assert_eq!(p.weight(-3.0), 1.0);
         assert_eq!(p.weight(-2.0), 1.0);

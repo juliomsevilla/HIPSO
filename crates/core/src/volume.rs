@@ -65,7 +65,9 @@ pub fn volumes(
     min_height: f64,
 ) -> Result<Vec<VolumeRow>> {
     if !(min_height >= 0.0) {
-        return Err(Error::Param("the minimum height cannot be negative".into()));
+        return Err(Error::Param(
+            "la altura mínima no puede ser negativa".into(),
+        ));
     }
     let cell_area = surface.cell * surface.cell;
     let measure = |name: String, bbox: [f64; 4], inside: &dyn Fn(f64, f64) -> bool| {
@@ -238,9 +240,25 @@ pub fn summary(rows: &[VolumeRow], out: &Path) -> String {
     format!("{text}: {}", out.display())
 }
 
+/// Fields that identify a region, in order of preference; the first one the file has names the
+/// rows, so a table of tree crowns keeps the `TREEID` of the trees and links to their table.
+const NAME_FIELDS: &[&str] = &["treeid", "tree_id", "id", "fid", "nombre", "name"];
+
 /// Reads regions from a vector file for a volume run.
 pub fn read_regions(path: &Path) -> Result<Vec<Region>> {
-    vector::read_regions(path, &vector::ReadOptions::default())
+    let name_field = shapefile::dbase::Reader::from_path(path.with_extension("dbf"))
+        .ok()
+        .and_then(|r| {
+            let names: Vec<String> = r.fields().iter().map(|f| f.name().to_string()).collect();
+            NAME_FIELDS
+                .iter()
+                .find_map(|w| names.iter().find(|n| n.eq_ignore_ascii_case(w)).cloned())
+        });
+    let opts = vector::ReadOptions {
+        name_field,
+        ..Default::default()
+    };
+    vector::read_regions(path, &opts)
 }
 
 #[cfg(test)]

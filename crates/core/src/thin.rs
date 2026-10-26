@@ -82,7 +82,10 @@ pub fn thin_cloud(
 ) -> Result<(u64, u64)> {
     let first = inputs
         .first()
-        .ok_or_else(|| Error::Param("no input cloud".into()))?;
+        .ok_or_else(|| Error::Param("no hay nube de entrada".into()))?;
+    let unified = crate::crs::unify(inputs, false)?;
+    let moved = unified.all(inputs);
+    let (inputs, first) = (moved.as_slice(), &unified.path(first));
     let template = Reader::open(first)?;
     let cell_method = !matches!(
         params.method,
@@ -92,23 +95,27 @@ pub fn thin_cloud(
             | ThinMethod::Density { .. }
     );
     if cell_method && !(params.cell > 0.0) {
-        return Err(Error::Param("the thinning cell must be positive".into()));
+        return Err(Error::Param(
+            "la celda de adelgazado debe ser positiva".into(),
+        ));
     }
     match params.method {
         ThinMethod::EveryNth(k) | ThinMethod::RemoveNth(k) if k < 2 => {
-            return Err(Error::Param("n must be 2 or more".into()));
+            return Err(Error::Param("n debe ser 2 o más".into()));
         }
         ThinMethod::Percentile(p) if !(0.0..=100.0).contains(&p) => {
-            return Err(Error::Param("the percentile is between 0 and 100".into()));
+            return Err(Error::Param("el percentil está entre 0 y 100".into()));
         }
         ThinMethod::Voxel { vertical } if !(vertical > 0.0) => {
-            return Err(Error::Param("the vertical cell must be positive".into()));
+            return Err(Error::Param("la celda vertical debe ser positiva".into()));
         }
         ThinMethod::Random { fraction, .. } if !(fraction > 0.0 && fraction <= 1.0) => {
-            return Err(Error::Param("the fraction is above 0 and up to 1".into()));
+            return Err(Error::Param(
+                "la fracción debe ser mayor que 0 y hasta 1".into(),
+            ));
         }
         ThinMethod::Density { per_m2, .. } if !(per_m2 > 0.0) => {
-            return Err(Error::Param("the density must be positive".into()));
+            return Err(Error::Param("la densidad debe ser positiva".into()));
         }
         _ => {}
     }
@@ -119,7 +126,7 @@ pub fn thin_cloud(
             || r.header.format != template.header.format
         {
             return Err(Error::Param(format!(
-                "{} has another point format than {}",
+                "{} tiene otro formato de punto que {}",
                 path.display(),
                 first.display()
             )));

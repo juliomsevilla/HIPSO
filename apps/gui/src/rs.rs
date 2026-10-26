@@ -81,6 +81,8 @@ pub struct ImageLayer {
     job: Option<ViewJob>,
     last_plan: (f64, f64, f64),
     steady_since: Instant,
+    /// Moves the image's coordinates to the work's system, when they differ.
+    pub warp: Option<Arc<rustlidar_core::reproject::Transformer>>,
 }
 
 /// An image opened: its pyramid, the reduced whole image and the reduction.
@@ -93,33 +95,36 @@ pub struct ImageJob {
     pub started: Instant,
 }
 
+/// The image with one pixel in every `n` along each side, so that it is at most `max` pixels
+/// across (a texture has a limit that depends on the graphics card: 8192 is common).
+fn reduced(img: &BandImage, max: usize) -> std::borrow::Cow<'_, BandImage> {
+    let step = (img.cols.max(img.rows) / max.max(1) + 1).max(1);
+    if img.cols.max(img.rows) <= max {
+        return std::borrow::Cow::Borrowed(img);
+    }
+    let (cols, rows) = (img.cols / step, img.rows / step);
+    let bands = img
+        .bands
+        .iter()
+        .map(|b| {
+            (0..cols * rows)
+                .map(|i| b[(i / cols) * step * img.cols + (i % cols) * step])
+                .collect()
+        })
+        .collect();
+    std::borrow::Cow::Owned(BandImage {
+        cols,
+        rows,
+        cell: img.cell * step as f64,
+        bands,
+        ..img.clone()
+    })
+}
+
 /// The picture of an image, at most 4096 pixels across.
 fn picture(ctx: &egui::Context, name: &str, img: &BandImage, st: &RgbStyle) -> egui::TextureHandle {
-    let step = (img.cols.max(img.rows) / 4096 + 1).max(1);
-    let small;
-    let src = if step > 1 {
-        let (cols, rows) = (img.cols / step, img.rows / step);
-        let bands = img
-            .bands
-            .iter()
-            .map(|b| {
-                (0..cols * rows)
-                    .map(|i| b[(i / cols) * step * img.cols + (i % cols) * step])
-                    .collect()
-            })
-            .collect();
-        small = BandImage {
-            cols,
-            rows,
-            cell: img.cell * step as f64,
-            bands,
-            ..img.clone()
-        };
-        &small
-    } else {
-        img
-    };
-    let rgba = raster::composite_style(src, st);
+    let src = reduced(img, 4096);
+    let rgba = raster::composite_style(&src, st);
     ctx.load_texture(
         name,
         egui::ColorImage::from_rgba_unmultiplied([src.cols.max(1), src.rows.max(1)], &rgba),
@@ -159,6 +164,7 @@ impl ImageLayer {
             job: None,
             last_plan: (0.0, 0.0, 0.0),
             steady_since: Instant::now(),
+            warp: None,
             pyr,
             work: Arc::new(work),
             reduction,
@@ -204,8 +210,22 @@ impl ImageLayer {
         self.preview = picture(ctx, &format!("img-{name}"), &self.work, &self.style());
     }
 
+    /// The extent in the work's system (min x, min y, max x, max y).
+    pub fn display_extent(&self) -> [f64; 4] {
+        let e = self.pyr.extent();
+        match &self.warp {
+            Some(t) => t
+                .transform_bounds((e[0], e[1], e[2], e[3]))
+                .map_or(e, |b| [b.0, b.1, b.2, b.3]),
+            None => e,
+        }
+    }
+
     /// The band values at a map point, from the reduced image.
     pub fn values_at(&self, x: f64, y: f64) -> Option<String> {
+        if self.warp.is_some() {
+            return None;
+        }
         let w = &self.work;
         let c = ((x - w.x0) / w.cell).floor();
         let r = ((w.y0 + w.rows as f64 * w.cell - y) / w.cell).floor();
@@ -225,6 +245,9 @@ impl ImageLayer {
     /// Picks up the window that finished and starts reading the one the view needs, once the
     /// view has been still for a moment. Returns true while something is pending.
     pub fn update(&mut self, ctx: &egui::Context, plan: &Plan, w: usize, h: usize) -> bool {
+        if self.warp.is_some() {
+            return false;
+        }
         let finished = self
             .job
             .as_ref()
@@ -319,7 +342,9 @@ impl ImageLayer {
         std::thread::spawn(move || {
             let r = pyr
                 .read(level, window)
-                .map(|img| {
+                .map(|full| {
+                    // the window of a picture too big for one texture is read thinned
+                    let img = reduced(&full, 4096);
                     let extent = [
                         img.x0,
                         img.y0,
@@ -363,6 +388,21 @@ impl ImageLayer {
                 Pos2::new(b.0 as f32, b.1 as f32) + rect.min.to_vec2(),
             )
         };
+        if let Some(tf) = &self.warp {
+            crate::warp::paint_warped(
+                painter,
+                self.preview.id(),
+                self.pyr.extent(),
+                tf,
+                plan,
+                rect,
+                w,
+                h,
+                tint,
+                24,
+            );
+            return;
+        }
         clip.image(self.preview.id(), at(&self.pyr.extent()), uv, tint);
         if let Some(v) = self.view.as_ref().filter(|v| v.rev == self.rev) {
             clip.image(v.tex.id(), at(&v.extent), uv, tint);
@@ -509,7 +549,32 @@ impl App {
         let ascii = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("asc"));
         if ascii || !is_image(p) {
             return match Grid::read(p) {
-                Ok(g) => {
+                Ok(mut g) => {
+                    if let Some((from, to)) = self.crs_move(p) {
+                        let started = Instant::now();
+                        self.log(format!(
+                            "«{}» está en {}, distinto del de la nube ({}): se pasa a él al cargar, y eso tarda más.",
+                            p.display(),
+                            rustlidar_core::crs::name(from),
+                            rustlidar_core::crs::name(to)
+                        ));
+                        match rustlidar_core::reproject::grid(&g, from, to) {
+                            Ok(m) => {
+                                g = m;
+                                self.log(format!(
+                                    "  convertido en {:.1} s",
+                                    started.elapsed().as_secs_f64()
+                                ));
+                            }
+                            Err(e) => {
+                                self.log(format!(
+                                    "No se pudo pasar {} al sistema de la nube: {e}",
+                                    p.display()
+                                ));
+                                return false;
+                            }
+                        }
+                    }
                     let name = p
                         .file_name()
                         .map_or(String::new(), |n| n.to_string_lossy().into_owned());
@@ -564,16 +629,41 @@ impl App {
                         .path
                         .file_name()
                         .map_or(String::new(), |n| n.to_string_lossy().into_owned());
-                    let layer = ImageLayer::new(ctx, &name, pyr, work, reduction);
-                    self.refs.retain(|r| r.path != job.path);
-                    self.refs.push(RefLayer {
-                        name,
-                        path: job.path.clone(),
-                        kind: RefKind::Image(Box::new(layer)),
-                        visible: true,
-                        opacity: 1.0,
-                    });
-                    let k = self.refs.len() - 1;
+                    let from = pyr.epsg;
+                    if from.is_some() && self.project_crs().is_none() {
+                        self.pending_conform.push(job.path.clone());
+                    }
+                    let mut layer = ImageLayer::new(ctx, &name, pyr, work, reduction);
+                    if let (Some(from), Some(to)) = (from, self.project_crs())
+                        && rustlidar_core::crs::relation(to, from)
+                            == rustlidar_core::crs::Relation::Different
+                    {
+                        match rustlidar_core::reproject::transformer(from, to) {
+                            Ok(t) => {
+                                layer.warp = Some(Arc::new(t));
+                                self.log(format!(
+                                    "«{}» está en {}, distinto del de la nube ({}): se coloca en el mapa convertida (a la resolución de la vista previa, sin ventanas nítidas al acercar).",
+                                    job.path.display(),
+                                    rustlidar_core::crs::name(from),
+                                    rustlidar_core::crs::name(to)
+                                ));
+                            }
+                            Err(e) => self.log(format!(
+                                "No se pudo pasar la imagen al sistema de la nube: {e}"
+                            )),
+                        }
+                    }
+                    self.remove_paths(&job.path);
+                    let k = self.add_ref(
+                        RefLayer {
+                            name,
+                            path: job.path.clone(),
+                            kind: RefKind::Image(Box::new(layer)),
+                            visible: true,
+                            opacity: 1.0,
+                        },
+                        true,
+                    );
                     self.sel_layer = Some(k);
                     self.log(format!(
                         "Imagen abierta en {:.1} s: {} ({nb} bandas, {levels} niveles de pirámide)",
@@ -607,9 +697,38 @@ impl App {
     }
 
     /// Draws the images and grids (the vectors go over the points, these under).
-    pub fn paint_refs(&self, painter: &egui::Painter, rect: Rect, w: usize, h: usize) {
+    /// Draws the layers whose index is in `range`, bottom to top: pictures and rasters, and the
+    /// vector layers, each in its place of the drawing order.
+    pub fn paint_layers(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        w: usize,
+        h: usize,
+        range: std::ops::Range<usize>,
+    ) {
+        for k in range {
+            self.paint_refs(painter, rect, w, h, k..k + 1);
+            self.paint_vectors(painter, rect, w, h, k..k + 1);
+        }
+    }
+
+    /// Draws the pictures and rasters among the layers in `range`.
+    pub fn paint_refs(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        w: usize,
+        h: usize,
+        range: std::ops::Range<usize>,
+    ) {
         let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
-        for r in self.refs.iter().filter(|r| r.visible) {
+        for (_, r) in self
+            .refs
+            .iter()
+            .enumerate()
+            .filter(|(k, r)| r.visible && range.contains(k))
+        {
             match &r.kind {
                 RefKind::Image(il) => il.paint(painter, &self.plan, rect, w, h, r.opacity),
                 RefKind::Raster { grid, tex, .. } => {
@@ -652,11 +771,13 @@ impl App {
         let mut open = true;
         let images = self.image_layers();
         egui::Window::new("Índices espectrales")
+            .vscroll(true)
+            .max_height((ctx.content_rect().height() - 90.0).max(240.0))
             .open(&mut open)
             .default_width(430.0)
             .show(ctx, |ui| {
                 if images.is_empty() {
-                    ui.label("Carga una imagen multibanda (GeoTIFF) con «Cargar capas».");
+                    ui.label("Carga una imagen multibanda (GeoTIFF) con «Abrir».");
                     return;
                 }
                 if !images.contains(&self.rs.layer) {
@@ -666,14 +787,17 @@ impl App {
                     RefKind::Image(i) => (i.work.bands.len(), i.reduction),
                     _ => (0, 1),
                 };
-                egui::ComboBox::from_label("Imagen")
-                    .selected_text(self.refs[self.rs.layer].name.clone())
-                    .show_ui(ui, |ui| {
-                        for &k in &images {
-                            let name = self.refs[k].name.clone();
-                            ui.selectable_value(&mut self.rs.layer, k, name);
-                        }
-                    });
+                ui.horizontal(|ui| {
+                    ui.label("Imagen");
+                    egui::ComboBox::from_id_salt("Imagen")
+                        .selected_text(self.refs[self.rs.layer].name.clone())
+                        .show_ui(ui, |ui| {
+                            for &k in &images {
+                                let name = self.refs[k].name.clone();
+                                ui.selectable_value(&mut self.rs.layer, k, name);
+                            }
+                        });
+                });
                 ui.label(format!(
                     "{nb} banda(s){}",
                     if reduction > 1 {
@@ -683,23 +807,29 @@ impl App {
                     }
                 ));
                 let band = |ui: &mut egui::Ui, label: &str, v: &mut usize| {
-                    egui::ComboBox::from_label(label)
-                        .selected_text(format!("Banda {}", *v + 1))
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        egui::ComboBox::from_id_salt(label)
+                            .selected_text(format!("Banda {}", *v + 1))
+                            .show_ui(ui, |ui| {
+                                for b in 0..nb {
+                                    ui.selectable_value(v, b, format!("Banda {}", b + 1));
+                                }
+                            });
+                    });
+                };
+                ui.horizontal(|ui| {
+                    ui.label("Índice");
+                    egui::ComboBox::from_id_salt("Índice")
+                        .selected_text(INDICES[self.rs.preset].0)
                         .show_ui(ui, |ui| {
-                            for b in 0..nb {
-                                ui.selectable_value(v, b, format!("Banda {}", b + 1));
+                            for (k, (name, expr)) in INDICES.iter().enumerate() {
+                                if ui.selectable_value(&mut self.rs.preset, k, *name).clicked() {
+                                    self.rs.expr = (*expr).to_string();
+                                }
                             }
                         });
-                };
-                egui::ComboBox::from_label("Índice")
-                    .selected_text(INDICES[self.rs.preset].0)
-                    .show_ui(ui, |ui| {
-                        for (k, (name, expr)) in INDICES.iter().enumerate() {
-                            if ui.selectable_value(&mut self.rs.preset, k, *name).clicked() {
-                                self.rs.expr = (*expr).to_string();
-                            }
-                        }
-                    });
+                });
                 ui.horizontal(|ui| {
                     ui.label("Expresión");
                     ui.add(egui::TextEdit::singleline(&mut self.rs.expr).desired_width(300.0));
@@ -765,7 +895,7 @@ impl App {
         let Some((name, g)) = &self.rs.last else {
             return;
         };
-        if let Some(p) = rfd::FileDialog::new()
+        if let Some(p) = crate::prefs::dialog()
             .add_filter("GeoTIFF", &["tif"])
             .set_file_name(format!("{name}.tif"))
             .save_file()
@@ -806,5 +936,41 @@ impl Default for RsState {
             last: None,
             compute_at_start: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A 10980-pixel side (a Sentinel-2 tile) is more than many graphics cards take as a texture.
+    #[test]
+    fn a_picture_too_big_for_a_texture_is_thinned_and_keeps_its_extent() {
+        let (cols, rows) = (10980usize, 40usize);
+        let img = BandImage {
+            x0: 500_000.0,
+            y0: 4_600_000.0,
+            cell: 10.0,
+            cols,
+            rows,
+            bands: vec![vec![1.0; cols * rows]; 2],
+        };
+        let r = reduced(&img, 4096);
+        assert!(r.cols <= 4096 && r.rows >= 1);
+        let wide = |i: &BandImage| i.cols as f64 * i.cell;
+        assert!((wide(&r) - wide(&img)).abs() < 3.0 * r.cell, "{}", wide(&r));
+        assert_eq!(r.bands.len(), 2);
+        assert_eq!(r.bands[0].len(), r.cols * r.rows);
+        // a small one is not copied
+        let small = BandImage {
+            cols: 10,
+            rows: 10,
+            bands: vec![vec![0.0; 100]],
+            ..img
+        };
+        assert!(matches!(
+            reduced(&small, 4096),
+            std::borrow::Cow::Borrowed(_)
+        ));
     }
 }

@@ -32,6 +32,12 @@ pub struct PointStore {
     /// Selected points (empty: none selected) and points removed by edits (empty: none).
     pub selected: Vec<bool>,
     pub deleted: Vec<bool>,
+    /// Area the files cover (the sum of their extents), in map units squared; 0 when unknown.
+    /// It sets the dot size: clouds far apart must not count the empty land between them.
+    pub area: f64,
+    /// The extent of each file (min x, min y, min z, max x, max y, max z), in the order of `files`;
+    /// empty when a file has no header (ASCII).
+    pub file_bounds: Vec<[f64; 6]>,
     /// Points in the files, and one kept in every `stride`.
     pub total: u64,
     pub stride: u64,
@@ -99,12 +105,31 @@ pub fn load(paths: &[PathBuf], max_points: usize) -> Result<PointStore> {
         }
     }
     if total == 0 {
-        return Err(Error::Param("no points to show".into()));
+        return Err(Error::Param("no hay puntos que mostrar".into()));
     }
     let stride = total.div_ceil(max_points.max(1) as u64).max(1);
+    crate::progress::begin(total);
+    // the land the clouds cover: their own extents, so clouds far apart do not count the gap
+    let area = if ascii.is_empty() {
+        readers
+            .iter()
+            .map(|r| {
+                let b = r.header.bounds;
+                ((b[3] - b[0]) * (b[4] - b[1])).max(0.0)
+            })
+            .sum()
+    } else {
+        0.0
+    };
     let mut s = PointStore {
         stride,
         total,
+        area,
+        file_bounds: if ascii.is_empty() {
+            readers.iter().map(|r| r.header.bounds).collect()
+        } else {
+            Vec::new()
+        },
         ..PointStore::default()
     };
     s.prj = readers.first().and_then(|r| {
@@ -168,10 +193,29 @@ pub fn load(paths: &[PathBuf], max_points: usize) -> Result<PointStore> {
                 .map_or(String::new(), |n| n.to_string_lossy().into_owned()),
         );
         let file_id = fi.min(255) as u8;
-        r.scan_raw(|bytes| {
+        // A COPC file that has to be thinned gives its first levels (an even sample of the whole
+        // cloud) without decompressing the rest.
+        // (a file that says it is COPC but cannot be read as one is read as a plain LAZ)
+        let copc = if stride > 1 {
+            match crate::copc::Copc::open(r.path()).ok().flatten() {
+                Some(c) => {
+                    let share = (max_points as u64).saturating_mul(h.count) / total.max(1);
+                    c.overview(share.max(1)).ok().and_then(|nodes| {
+                        let taken: u64 = nodes.iter().map(|n| u64::from(n.points)).sum();
+                        (taken.saturating_mul(10) < h.count.saturating_mul(9)).then_some((c, nodes))
+                    })
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+        let take_all = copc.is_some();
+        let mut body = |bytes: &[u8]| -> Result<()> {
+            crate::progress::advance((bytes.len() / rec_len.max(1)) as u64);
             for rec in bytes.chunks_exact(rec_len) {
                 n += 1;
-                if !(n - 1).is_multiple_of(stride) {
+                if !take_all && !(n - 1).is_multiple_of(stride) {
                     continue;
                 }
                 let Some(p) = r.decode(rec) else { continue };
@@ -196,7 +240,11 @@ pub fn load(paths: &[PathBuf], max_points: usize) -> Result<PointStore> {
                 );
             }
             Ok(())
-        })?;
+        };
+        match &copc {
+            Some((c, nodes)) => c.read_raw(nodes, &mut body)?,
+            None => r.scan_raw(&mut body)?,
+        };
     }
     for (fi, p) in ascii.iter().enumerate() {
         let id = (readers.len() + fi).min(255) as u8;
@@ -205,6 +253,7 @@ pub fn load(paths: &[PathBuf], max_points: usize) -> Result<PointStore> {
                 .map_or(String::new(), |n| n.to_string_lossy().into_owned()),
         );
         let text = std::fs::read_to_string(p)?;
+        crate::progress::advance(std::fs::metadata(p).map_or(0, |m| m.len() / 28));
         for line in text.lines() {
             let f: Vec<f64> = line
                 .split(|c: char| c == ',' || c == ';' || c.is_whitespace())
@@ -236,9 +285,126 @@ pub fn load(paths: &[PathBuf], max_points: usize) -> Result<PointStore> {
         }
     }
     if s.is_empty() {
-        return Err(Error::Param("no points to show".into()));
+        return Err(Error::Param("no hay puntos que mostrar".into()));
     }
     s.bounds = [lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]];
+    Ok(s)
+}
+
+/// The points of `paths` inside the rectangle `region` `[x0, y0, x1, y1]`, with their file ids,
+/// colours and coordinate system laid out like `like` (the store of the same clouds), so the
+/// styles and edits of the viewer work on it unchanged. At most about `cap` points are kept:
+/// below that every point comes, above it one in every few. This is what a profile draws, so
+/// it is not thinned like the whole cloud is. A COPC file is read by the nodes the region
+/// touches; any other file is scanned whole, skipping the ones whose extent misses the region.
+pub fn load_region(
+    paths: &[PathBuf],
+    region: [f64; 4],
+    cap: usize,
+    like: &PointStore,
+) -> Result<PointStore> {
+    let mut readers = Vec::new();
+    for p in paths {
+        let ext = p
+            .extension()
+            .map(|e| e.to_string_lossy().to_ascii_lowercase())
+            .unwrap_or_default();
+        if ext != "las" && ext != "laz" {
+            return Err(Error::Unsupported(
+                "solo las nubes LAS y LAZ se pueden leer por zonas".into(),
+            ));
+        }
+        readers.push(Reader::open(p)?);
+    }
+    let overlap = |b: &[f64; 6]| -> f64 {
+        let w = (region[2].min(b[3]) - region[0].max(b[0])).max(0.0);
+        let h = (region[3].min(b[4]) - region[1].max(b[1])).max(0.0);
+        let area = ((b[3] - b[0]) * (b[4] - b[1])).max(1e-9);
+        (w * h / area).min(1.0)
+    };
+    // the points expected inside, if each file were even: sets how much to thin
+    let expected: f64 = readers
+        .iter()
+        .map(|r| r.header.count as f64 * overlap(&r.header.bounds))
+        .sum();
+    let stride = ((expected / cap.max(1) as f64).ceil() as u64).max(1);
+    let mut s = PointStore {
+        origin: like.origin,
+        files: like.files.clone(),
+        total: like.total,
+        stride,
+        prj: like.prj.clone(),
+        ..PointStore::default()
+    };
+    let has_rgb = readers
+        .iter()
+        .any(|r| matches!(r.header.format, 2 | 3 | 5 | 7 | 8 | 10));
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    let mut n = 0u64;
+    for (fi, r) in readers.iter().enumerate() {
+        if overlap(&r.header.bounds) <= 0.0 {
+            continue;
+        }
+        let h = &r.header;
+        let rec_len = usize::from(h.record_len);
+        let (src_at, rgb_at) = (
+            if h.format >= 6 { 20 } else { 18 },
+            match h.format {
+                2 => Some(20),
+                3 | 5 => Some(28),
+                7 | 8 | 10 => Some(30),
+                _ => None,
+            },
+        );
+        let file_id = fi.min(255) as u8;
+        let mut body = |bytes: &[u8]| -> Result<()> {
+            for rec in bytes.chunks_exact(rec_len) {
+                let Some(p) = r.decode(rec) else { continue };
+                if p.x < region[0] || p.x > region[2] || p.y < region[1] || p.y > region[3] {
+                    continue;
+                }
+                n += 1;
+                if !(n - 1).is_multiple_of(stride) {
+                    continue;
+                }
+                s.x.push((p.x - s.origin[0]) as f32);
+                s.y.push((p.y - s.origin[1]) as f32);
+                s.z.push((p.z - s.origin[2]) as f32);
+                s.intensity.push(p.intensity);
+                s.ret.push(p.return_number | (p.number_of_returns << 4));
+                s.class.push(p.class);
+                s.src.push(u16_at(rec, src_at));
+                s.scan
+                    .push((r.decode_extra(rec).scan_angle * 10.0).round() as i16);
+                s.file.push(file_id);
+                if has_rgb {
+                    s.rgb.push(rgb_at.map_or([150, 150, 150], |a| {
+                        let c = |k: usize| (u16_at(rec, a + 2 * k) >> 8) as u8;
+                        [c(0), c(1), c(2)]
+                    }));
+                }
+                for (k, v) in [p.x, p.y, p.z].into_iter().enumerate() {
+                    lo[k] = lo[k].min(v);
+                    hi[k] = hi[k].max(v);
+                }
+            }
+            Ok(())
+        };
+        match crate::copc::Copc::open(r.path())? {
+            Some(c) => {
+                c.scan_raw_in(region, None, &mut body)?;
+            }
+            None => {
+                r.scan_raw(&mut body)?;
+            }
+        }
+    }
+    if s.is_empty() {
+        s.bounds = [0.0; 6];
+    } else {
+        s.bounds = [lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]];
+    }
     Ok(s)
 }
 
@@ -304,8 +470,8 @@ pub struct Style {
     pub zmax: f64,
     pub intensity_max: u16,
     pub point_size: usize,
-    /// Profile dots as a share of the spacing between points on screen (1: touching).
-    pub profile_scale: f64,
+    /// Size in pixels of the dots of the profile, apart from `point_size` of the plan and 3D.
+    pub profile_size: usize,
     /// The classes that are drawn.
     pub classes: ClassSet,
     pub class_colors: [[u8; 3]; 256],
@@ -333,7 +499,7 @@ impl Default for Style {
             zmax: 1.0,
             intensity_max: 255,
             point_size: 1,
-            profile_scale: 0.5,
+            profile_size: 2,
             classes: ClassSet::all(),
             class_colors: crate::classes::default_colors(),
             returns: 15,
@@ -350,7 +516,14 @@ impl Default for Style {
 impl Style {
     /// A style whose ramps span the store.
     pub fn fit(s: &PointStore) -> Self {
-        let area = ((s.bounds[3] - s.bounds[0]) * (s.bounds[4] - s.bounds[1])).max(1.0) * 0.5;
+        let extent = ((s.bounds[3] - s.bounds[0]) * (s.bounds[4] - s.bounds[1])).max(1.0);
+        // the area the files cover, never more than the box around them
+        let covered = if s.area > 0.0 {
+            s.area.min(extent)
+        } else {
+            extent
+        };
+        let area = covered.max(1.0) * 0.5;
         Self {
             spacing: (area / s.len().max(1) as f64).sqrt(),
             zmin: s.bounds[2],
@@ -640,6 +813,41 @@ pub struct Orbit {
 }
 
 impl Orbit {
+    /// The view that shows what was loaded. When the files lie far apart (a cloud in Albacete and
+    /// another in Galicia) the box around all of them would show none of them, so it frames the
+    /// first file instead: the others are a click away (zoom to a layer).
+    pub fn fit_scene(s: &PointStore) -> Self {
+        let diag = |b: &[f64; 6]| ((b[3] - b[0]).hypot(b[4] - b[1])).max(1.0);
+        let biggest = s.file_bounds.iter().map(diag).fold(0.0, f64::max);
+        match s.file_bounds.first() {
+            Some(first) if s.file_bounds.len() > 1 && diag(&s.bounds) > 4.0 * biggest => {
+                Self::fit(*first)
+            }
+            _ => Self::fit(s.bounds),
+        }
+    }
+
+    /// The view that frames a map area (min x, min y, max x, max y): the heights are those of the
+    /// files that touch it, and the direction and exaggeration are kept.
+    pub fn fit_area(&self, s: &PointStore, b: [f64; 4]) -> Self {
+        let (mut zmin, mut zmax) = (f64::INFINITY, f64::NEG_INFINITY);
+        for f in &s.file_bounds {
+            if f[0] <= b[2] && f[3] >= b[0] && f[1] <= b[3] && f[4] >= b[1] {
+                zmin = zmin.min(f[2]);
+                zmax = zmax.max(f[5]);
+            }
+        }
+        if !zmin.is_finite() {
+            (zmin, zmax) = (s.bounds[2], s.bounds[5]);
+        }
+        Self {
+            yaw: self.yaw,
+            pitch: self.pitch,
+            exaggeration: self.exaggeration,
+            ..Self::fit([b[0], b[1], zmin, b[2], b[3], zmax])
+        }
+    }
+
     pub fn fit(b: [f64; 6]) -> Self {
         let d = ((b[3] - b[0]).powi(2) + (b[4] - b[1]).powi(2) + (b[5] - b[2]).powi(2))
             .sqrt()
@@ -821,9 +1029,7 @@ pub fn render_profile(
         (w as f64 - len * k) / 2.0,
         (h as f64 - (zhi - zlo) * k) / 2.0,
     );
-    // the spacing of points in this slice, so zooming in grows the dots instead of leaving specks
-    let slice_spacing = (len * (zhi - zlo) / inside.len() as f64).sqrt();
-    let size = ((slice_spacing * k * st.profile_scale).round() as i64).clamp(1, 24);
+    let size = (st.profile_size as i64).clamp(1, 24);
     let mut layer = Layer::new(w, h);
     for (i, u, z, t) in inside {
         let px = (ox + u * k).floor() as i64;
@@ -1061,6 +1267,19 @@ pub struct VectorData {
 
 /// Reads a shapefile with its attributes.
 pub fn read_vector(path: &Path) -> Result<VectorData> {
+    crate::check_vector_format(path)?;
+    if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("geojson") || e.eq_ignore_ascii_case("json"))
+    {
+        return crate::geojson::read_vector(path).map(|r| r.0);
+    }
+    if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("gpkg"))
+    {
+        return crate::gpkg::read_layer(path, None).map(|l| crate::geojson::vector_of(l).0);
+    }
     use shapefile::Shape;
     use shapefile::dbase::FieldValue;
     let mut rd =
@@ -1297,6 +1516,88 @@ mod tests {
         s
     }
 
+    /// A LAS 1.2 file of format 1 with the given (x, y, z) points on a 0.01 grid.
+    fn write_las(path: &Path, pts: &[[f64; 3]]) -> Result<()> {
+        let mut h = vec![0u8; 227];
+        h[..4].copy_from_slice(b"LASF");
+        h[24] = 1;
+        h[25] = 2;
+        h[94..96].copy_from_slice(&227u16.to_le_bytes());
+        h[96..100].copy_from_slice(&227u32.to_le_bytes());
+        h[104] = 1;
+        h[105..107].copy_from_slice(&28u16.to_le_bytes());
+        h[107..111].copy_from_slice(&(pts.len() as u32).to_le_bytes());
+        let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+        for p in pts {
+            for k in 0..3 {
+                lo[k] = lo[k].min(p[k]);
+                hi[k] = hi[k].max(p[k]);
+            }
+        }
+        for (at, v) in [(131, 0.01), (139, 0.01), (147, 0.01)] {
+            h[at..at + 8].copy_from_slice(&f64::to_le_bytes(v));
+        }
+        for (at, v) in [
+            (179, hi[0]),
+            (187, lo[0]),
+            (195, hi[1]),
+            (203, lo[1]),
+            (211, hi[2]),
+            (219, lo[2]),
+        ] {
+            h[at..at + 8].copy_from_slice(&f64::to_le_bytes(v));
+        }
+        let mut bytes = h;
+        for p in pts {
+            let mut rec = [0u8; 28];
+            for (k, v) in p.iter().enumerate() {
+                rec[4 * k..4 * k + 4].copy_from_slice(&((v / 0.01).round() as i32).to_le_bytes());
+            }
+            rec[14] = 1 | (1 << 3);
+            rec[15] = 2;
+            bytes.extend_from_slice(&rec);
+        }
+        std::fs::write(path, bytes)?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_region_comes_at_full_density_while_the_view_is_thinned() -> Result<()> {
+        let path = std::env::temp_dir().join(format!("rl_region_{}.las", std::process::id()));
+        let mut pts = Vec::new();
+        for i in 0..100 {
+            for j in 0..100 {
+                pts.push([f64::from(i), f64::from(j), 5.0]);
+            }
+        }
+        write_las(&path, &pts)?;
+        let files = vec![path.clone()];
+        let thinned = load(&files, 1000)?;
+        assert_eq!(thinned.stride, 10);
+        let region = [10.0, 10.0, 19.5, 19.5];
+        let inside = |s: &PointStore| {
+            (0..s.len())
+                .filter(|&i| {
+                    let p = s.xyz(i);
+                    p[0] >= region[0] && p[0] <= region[2] && p[1] >= region[1] && p[1] <= region[3]
+                })
+                .count()
+        };
+        let full = load_region(&files, region, 100_000, &thinned)?;
+        // every point of the region, 10 x 10, against about a tenth of them in the view
+        assert_eq!(full.len(), 100);
+        assert_eq!(inside(&full), 100);
+        assert!(inside(&thinned) < 30, "{}", inside(&thinned));
+        // a cap thins what comes
+        let capped = load_region(&files, region, 50, &thinned)?;
+        assert!(capped.len() <= 60 && capped.len() >= 25, "{}", capped.len());
+        // a region off the cloud is empty, not an error
+        let none = load_region(&files, [500.0, 500.0, 600.0, 600.0], 100, &thinned)?;
+        assert!(none.is_empty());
+        let _ = std::fs::remove_file(&path);
+        Ok(())
+    }
+
     #[test]
     fn plan_puts_points_where_the_map_says() {
         let s = store();
@@ -1362,5 +1663,68 @@ mod tests {
             assert!((x1 - x0 - 40.0).abs() < 1e-6, "{yaw} {x1} {x0}");
             assert!((y1 - y0 + 25.0).abs() < 1e-6, "{yaw} {y1} {y0}");
         }
+    }
+
+    #[test]
+    fn a_copc_cloud_is_thinned_by_levels_not_by_reading_it_all() -> Result<()> {
+        let path =
+            std::env::temp_dir().join(format!("rl_view_copc_{}.copc.laz", std::process::id()));
+        crate::copc::tests::build(&path)?;
+        // room for everything: all 400 points
+        assert_eq!(load(std::slice::from_ref(&path), 1000)?.len(), 400);
+        // room for 100: the root level alone (100 points) instead of one in four of all of them
+        let thin = load(std::slice::from_ref(&path), 100)?;
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(thin.len(), 100);
+        assert_eq!(thin.total, 400);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod scattered_tests {
+    use super::*;
+
+    /// Two clouds of 1 km, 600 km apart, 100 000 points each.
+    fn two_far_clouds() -> PointStore {
+        PointStore {
+            bounds: [0.0, 0.0, 100.0, 601_000.0, 400_000.0, 900.0],
+            file_bounds: vec![
+                [0.0, 0.0, 100.0, 1000.0, 1000.0, 130.0],
+                [600_000.0, 399_000.0, 800.0, 601_000.0, 400_000.0, 900.0],
+            ],
+            area: 2.0e6,
+            x: vec![0.0; 200_000],
+            ..PointStore::default()
+        }
+    }
+
+    #[test]
+    fn dots_follow_the_land_the_clouds_cover_not_the_gap_between_them() {
+        let s = two_far_clouds();
+        let st = Style::fit(&s);
+        // 2 km² over 200 000 points: a few metres between points, not hundreds
+        assert!(st.spacing < 5.0, "{}", st.spacing);
+        assert!(dot(&st, 0.5) <= 3, "{}", dot(&st, 0.5));
+    }
+
+    #[test]
+    fn the_3d_view_frames_a_cloud_not_the_empty_land_between() {
+        let s = two_far_clouds();
+        let o = Orbit::fit_scene(&s);
+        assert!(
+            o.target[0] < 1000.0 && o.dist < 5000.0,
+            "{:?} {}",
+            o.target,
+            o.dist
+        );
+        // going to the other cloud takes its heights too
+        let o2 = o.fit_area(&s, [600_000.0, 399_000.0, 601_000.0, 400_000.0]);
+        assert!((o2.target[2] - 850.0).abs() < 1.0 && o2.target[0] > 599_000.0);
+        // one cloud, or clouds that touch: the whole box
+        let mut near = two_far_clouds();
+        near.file_bounds[1] = [1000.0, 0.0, 100.0, 2000.0, 1000.0, 130.0];
+        near.bounds = [0.0, 0.0, 100.0, 2000.0, 1000.0, 130.0];
+        assert!(Orbit::fit_scene(&near).target[0] > 900.0);
     }
 }

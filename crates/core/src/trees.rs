@@ -1,7 +1,7 @@
 //! Individual trees from a canopy height model, on the raster, never on the points:
 //! smoothing, tree tops by a local-maximum filter (Popescu & Wynne 2004), and crowns by
-//! Dalponte & Coomes (2016), Silva et al. (2016) or a watershed. Behaviour was matched against
-//! lidR run as a black box (window edges, tie rules, id order); no lidR code was used.
+//! Dalponte & Coomes (2016), Silva et al. (2016) or a watershed. Results were checked against an independent
+//! implementation (window edges, tie rules, id order).
 
 use crate::grid::Grid;
 
@@ -547,7 +547,7 @@ mod tests {
     }
 
     #[test]
-    fn dalponte_cone_matches_lidr_counts() {
+    fn dalponte_cone_counts() {
         let (g, t) = cone(41);
         let mk = |ts: f64, tc: f64, tt: f64| CrownParams {
             th_seed: ts,

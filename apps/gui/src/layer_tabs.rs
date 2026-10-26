@@ -52,7 +52,7 @@ impl App {
             return;
         };
         match (&self.refs[k].kind, tab) {
-            (RefKind::Vector(_), 5) => self.vector_symbology(ui, t, k),
+            (RefKind::Vector(_), FIRST_EXTRA) => self.vector_symbology(ui, t, k),
             (RefKind::Vector(_), _) => self.vector_edit_tab(ui, t, k),
             (RefKind::Image(_), _) => self.image_tab(ui, t, ctx, k),
             (RefKind::Raster { .. }, _) => self.grid_tab(ui, t, ctx, k),
@@ -181,10 +181,15 @@ impl App {
                     });
                 } else {
                     ui.horizontal(|ui| {
-                        ui.label("Grosor");
+                        let polygon = v.kind == view::GeomKind::Polygon;
+                        ui.label(if polygon {
+                            "Grosor (0 = sin borde)"
+                        } else {
+                            "Grosor"
+                        });
                         ui.add(
                             crate::numfield::NumField::new(&mut v.width)
-                                .range(0.5..=12.0)
+                                .range(if polygon { 0.0..=12.0 } else { 0.5..=12.0 })
                                 .speed(0.1),
                         );
                     });
@@ -319,7 +324,7 @@ impl App {
                         .filter(|i| !v.selected.contains(i))
                         .collect();
                 }
-                if ribbon::small_button(ui, t, "@clear", "Limpiar selección", false).clicked() {
+                if ribbon::small_button(ui, t, "@deselect", "Limpiar selección", false).clicked() {
                     self.clear_selection();
                 }
             });

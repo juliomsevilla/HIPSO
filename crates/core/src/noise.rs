@@ -1,4 +1,4 @@
-//! Isolated-point noise filter, as LAStools' lasnoise documents it: a point is noise when the
+//! Isolated-point noise filter, the usual criterion: a point is noise when the
 //! 3 x 3 x 3 block of cells centred on its own cell holds at most `isolated` other points.
 
 use std::collections::HashMap;

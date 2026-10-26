@@ -3,13 +3,14 @@ resolver = "3"
 members = ["crates/*", "apps/*"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "LicenseRef-EasyLiDAR-Freeware"
 rust-version = "1.90"
 
 [workspace.dependencies]
 rustlidar-core = { path = "crates/core" }
+rustlidar-crs = { path = "crates/crs" }
 laz = { version = "0.13", features = ["parallel"] }
 tiff = { version = "0.11", default-features = false, features = ["deflate", "lzw", "jpeg"] }
 clap = { version = "4.6", features = ["derive"] }
@@ -18,9 +19,14 @@ eframe = { version = "=0.36.2", features = ["glow"] }
 rfd = "0.17.2"
 shapefile = "0.9"
 png = "0.18"
+zune-jpeg = "0.5"
 rayon = "1.12"
 flate2 = "1.1"
 earcutr = "0.5"
+resvg = { version = "0.48", default-features = false }
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+jpeg-encoder = { version = "0.7", default-features = false, features = ["std"] }
+e57 = "0.11"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

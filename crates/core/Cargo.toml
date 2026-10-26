@@ -7,6 +7,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+rustlidar-crs.workspace = true
 laz.workspace = true
 tiff.workspace = true
 delaunator.workspace = true
@@ -14,6 +15,9 @@ rayon.workspace = true
 flate2.workspace = true
 shapefile.workspace = true
 png.workspace = true
+zune-jpeg.workspace = true
+jpeg-encoder.workspace = true
+e57.workspace = true
 
 [lints]
 workspace = true

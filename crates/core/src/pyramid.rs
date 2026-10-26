@@ -6,17 +6,19 @@
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use rayon::prelude::*;
 use tiff::ColorType;
 use tiff::decoder::{Decoder, DecodingResult, Limits};
 use tiff::tags::Tag;
 
+use crate::jp2::{self, Jp2};
 use crate::raster::Image;
 use crate::{Error, Result};
 
 fn tiff_err(e: tiff::TiffError) -> Error {
-    Error::Format(format!("TIFF: {e}"))
+    Error::Format(format!("TIFF: {e}{}", crate::cloud_hint(&e.to_string())))
 }
 
 /// One resolution of the file: the main image (`ifd` 0) or an overview.
@@ -45,10 +47,24 @@ pub struct Pyramid {
     planar: bool,
     ycbcr: bool,
     nodata: Option<f32>,
+    /// Set when the file is JPEG 2000: the levels are then its wavelet reductions (`Level::ifd`
+    /// holds the number of halvings).
+    jp2: Option<Jp2>,
+    /// Set for the formats that are read whole (PNG, JPEG, ENVI, HGT).
+    mem: Option<Arc<Image>>,
+}
+
+/// Whether the file starts like a JPEG 2000 file (whatever its extension).
+pub fn is_jp2_file(path: &Path) -> bool {
+    use std::io::Read;
+    let mut head = [0u8; 12];
+    File::open(path)
+        .and_then(|mut f| f.read_exact(&mut head))
+        .is_ok_and(|()| jp2::is_jp2(&head))
 }
 
 fn open_decoder(path: &Path) -> Result<Decoder<BufReader<File>>> {
-    Ok(Decoder::new(BufReader::new(File::open(path)?))
+    Ok(Decoder::new(BufReader::new(crate::open_file(path)?))
         .map_err(tiff_err)?
         .with_limits(Limits::unlimited()))
 }
@@ -106,7 +122,19 @@ struct Piece {
 }
 
 impl Pyramid {
+    /// The value the file declares as "no data", if any.
+    pub fn nodata(&self) -> Option<f32> {
+        self.nodata
+    }
+
     pub fn open(path: &Path) -> Result<Self> {
+        crate::check_raster_format(path)?;
+        if is_jp2_file(path) {
+            return Self::open_jp2(path);
+        }
+        if let Some(l) = crate::rasterfmt::load(path)? {
+            return Ok(Self::from_memory(path, l));
+        }
         let mut d = open_decoder(path)?;
         let (w, h) = d.dimensions().map_err(tiff_err)?;
         let scale = d
@@ -115,7 +143,7 @@ impl Pyramid {
         let tie = d.get_tag_f64_vec(Tag::ModelTiepointTag).map_err(tiff_err)?;
         let (Some(&sx), Some(&tx), Some(&ty)) = (scale.first(), tie.get(3), tie.get(4)) else {
             return Err(Error::Format(format!(
-                "{}: not a GeoTIFF (no pixel scale or tie point)",
+                "{}: no es un GeoTIFF (sin escala de píxel ni punto de anclaje)",
                 path.display()
             )));
         };
@@ -175,6 +203,67 @@ impl Pyramid {
             planar,
             ycbcr: matches!(colortype, ColorType::YCbCr(_)) && spp == 3,
             nodata,
+            jp2: None,
+            mem: None,
+        })
+    }
+
+    fn from_memory(path: &Path, l: crate::rasterfmt::Loaded) -> Self {
+        let img = l.image;
+        Self {
+            path: path.to_path_buf(),
+            levels: vec![Level {
+                ifd: 0,
+                cols: img.cols as u32,
+                rows: img.rows as u32,
+            }],
+            x0: img.x0,
+            y_top: img.y0 + img.rows as f64 * img.cell,
+            cell: img.cell,
+            bands: img.bands.len(),
+            bits: l.bits,
+            epsg: l.epsg,
+            planar: false,
+            ycbcr: false,
+            nodata: None,
+            jp2: None,
+            mem: Some(Arc::new(img)),
+        }
+    }
+
+    fn open_jp2(path: &Path) -> Result<Self> {
+        let j = Jp2::open(path)?;
+        let geo = j.geo.ok_or_else(|| {
+            Error::Format(format!(
+                "{}: JPEG 2000 sin georreferenciar (ni GMLJP2 ni GeoJP2)",
+                path.display()
+            ))
+        })?;
+        let levels = (0..=j.levels)
+            .map(|r| {
+                let (w, h) = j.size_at(r);
+                Level {
+                    ifd: r as usize,
+                    cols: w as u32,
+                    rows: h as u32,
+                }
+            })
+            .filter(|l| l.cols > 0 && l.rows > 0)
+            .collect();
+        Ok(Self {
+            path: path.to_path_buf(),
+            levels,
+            x0: geo.x0,
+            y_top: geo.y_top,
+            cell: geo.cell,
+            bands: j.bands,
+            bits: j.depth,
+            epsg: geo.epsg,
+            planar: false,
+            ycbcr: false,
+            nodata: None,
+            jp2: Some(j),
+            mem: None,
         })
     }
 
@@ -223,9 +312,42 @@ impl Pyramid {
         let r0 = clamp(((self.y_top - win[3]) / cell).floor(), lv.rows);
         let r1 = clamp(((self.y_top - win[1]) / cell).ceil(), lv.rows);
         if c1 <= c0 || r1 <= r0 {
-            return Err(Error::Param("the window lies outside the image".into()));
+            return Err(Error::Param("la ventana queda fuera de la imagen".into()));
         }
         let (cols, rows) = ((c1 - c0).div_ceil(step), (r1 - r0).div_ceil(step));
+        if let Some(m) = &self.mem {
+            let bands = m
+                .bands
+                .iter()
+                .map(|b| {
+                    let mut v = Vec::with_capacity(cols * rows);
+                    for oy in 0..rows {
+                        let row = (r0 + oy * step) * m.cols;
+                        v.extend((0..cols).map(|ox| b[row + c0 + ox * step]));
+                    }
+                    v
+                })
+                .collect();
+            return Ok(Image {
+                x0: self.x0 + c0 as f64 * cell,
+                y0: self.y_top - (r0 + rows * step) as f64 * cell,
+                cell: cell * step as f64,
+                cols,
+                rows,
+                bands,
+            });
+        }
+        if let Some(j) = &self.jp2 {
+            let bands = j.read(lv.ifd as u32, (c0, r0, c1, r1), step)?;
+            return Ok(Image {
+                x0: self.x0 + c0 as f64 * cell,
+                y0: self.y_top - (r0 + rows * step) as f64 * cell,
+                cell: cell * step as f64,
+                cols,
+                rows,
+                bands,
+            });
+        }
         let (cw, ch) = {
             let mut d = open_decoder(&self.path)?;
             d.seek_to_image(lv.ifd).map_err(tiff_err)?;
@@ -255,10 +377,10 @@ impl Pyramid {
                     let (dw, dh) = d.chunk_data_dimensions(idx);
                     let (dw, dh) = (dw as usize, dh as usize);
                     let mut data = to_f32(d.read_chunk(idx).map_err(tiff_err)?)
-                        .ok_or_else(|| Error::Unsupported("this sample type is not read".into()))?;
+                        .ok_or_else(|| Error::Unsupported("este tipo de dato no se lee".into()))?;
                     let nb = if self.planar { 1 } else { self.bands };
                     if data.len() < dw * dh * nb {
-                        return Err(Error::Format("a tile is smaller than its size".into()));
+                        return Err(Error::Format("una tesela de la imagen es más pequeña de lo que declara (archivo dañado)".into()));
                     }
                     if self.ycbcr {
                         ycbcr_to_rgb(&mut data);

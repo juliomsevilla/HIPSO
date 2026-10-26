@@ -71,7 +71,7 @@ pub fn name(class: u8) -> &'static str {
         9 => "Agua",
         10 => "Ferrocarril",
         11 => "Superficie de carretera",
-        12 => "Reservado",
+        12 => "Reservado (solape en el PNOA)",
         13 => "Protección de cable",
         14 => "Conductor de cable",
         15 => "Torre de transmisión",

@@ -4,7 +4,7 @@ use crate::classes::ClassSet;
 use crate::las::Point;
 use crate::{Error, Result};
 
-/// A set of classes. `parse` reads FUSION's form: `2,3,5` or `~7,18` (all but those).
+/// A set of classes. `parse` reads the FUSION-compatible form: `2,3,5` or `~7,18` (all but those).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClassSel {
     pub set: ClassSet,
@@ -26,7 +26,7 @@ impl ClassSel {
         let mut set = ClassSet::none();
         for part in list.split([',', ' ', ';']).filter(|p| !p.is_empty()) {
             let c: u8 = part.parse().map_err(|_| {
-                Error::Param(format!("class '{part}' is not a number from 0 to 255"))
+                Error::Param(format!("la clase '{part}' no es un número de 0 a 255"))
             })?;
             set.set(c, true);
         }
@@ -74,7 +74,7 @@ impl ReturnKind {
     }
 }
 
-/// A set of returns, by kind and by number. `parse` reads FUSION's form: `A`, `F`, `L`, `1235`.
+/// A set of returns, by kind and by number. `parse` reads the FUSION-compatible form: `A`, `F`, `L`, `1235`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReturnSel {
     pub kinds: [bool; 4],
@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn class_lists_follow_fusion() -> Result<()> {
+    fn class_lists_accept_the_compatible_form() -> Result<()> {
         let s = ClassSel::parse("2,5")?;
         assert!(s.allows(2) && s.allows(5) && !s.allows(3) && !s.allows(70));
         let s = ClassSel::parse("~7,18")?;

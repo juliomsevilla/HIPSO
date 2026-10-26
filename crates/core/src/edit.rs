@@ -145,6 +145,20 @@ pub struct Edit {
     pub sel: Vec<SelOp>,
     pub action: Action,
     pub label: String,
+    /// A step the user has switched off stays in the history but does nothing: the others
+    /// are applied as if it had never been made.
+    pub enabled: bool,
+}
+
+impl Edit {
+    pub fn new(sel: Vec<SelOp>, action: Action, label: String) -> Self {
+        Self {
+            sel,
+            action,
+            label,
+            enabled: true,
+        }
+    }
 }
 
 /// The values of a point a selection looks at.
@@ -302,6 +316,9 @@ impl Session {
     }
 
     fn run(s: &mut PointStore, e: &Edit) -> usize {
+        if !e.enabled {
+            return 0;
+        }
         let sel = selection(s, &e.sel);
         if sel.is_empty() {
             return 0;
@@ -337,6 +354,30 @@ impl Session {
         for e in &self.edits {
             Self::run(s, e);
         }
+    }
+
+    /// Switches the edit `k` off or on again, leaving the others as they are; whether it
+    /// exists. A later edit that selects by class sees the points as they now are.
+    pub fn toggle(&mut self, s: &mut PointStore, k: usize) -> bool {
+        let Some(e) = self.edits.get_mut(k) else {
+            return false;
+        };
+        e.enabled = !e.enabled;
+        self.replay(s);
+        true
+    }
+
+    /// Applies the edits that count to another store of the same clouds (a region read at
+    /// full density), so it shows what the store of the session shows.
+    pub fn apply_to(&self, s: &mut PointStore) {
+        for e in &self.edits {
+            Self::run(s, e);
+        }
+    }
+
+    /// The edits that count when saving.
+    pub fn active(&self) -> Vec<Edit> {
+        self.edits.iter().filter(|e| e.enabled).cloned().collect()
     }
 
     pub fn undo(&mut self, s: &mut PointStore) -> bool {
@@ -376,9 +417,11 @@ pub struct SaveReport {
 /// Applies the edits to every point of `input` and writes the rest to `output` (LAS, or LAZ by
 /// extension), one streaming pass in batches processed on all cores.
 pub fn save(input: &Path, output: &Path, edits: &[Edit]) -> Result<SaveReport> {
+    let active: Vec<Edit> = edits.iter().filter(|e| e.enabled).cloned().collect();
+    let edits = &active[..];
     if input == output {
         return Err(Error::Param(
-            "the edited cloud must go to a new file, not over the original".into(),
+            "la nube editada debe ir a un archivo nuevo, no sobre el original".into(),
         ));
     }
     crate::paths::ensure_parent(output)?;
@@ -390,7 +433,7 @@ pub fn save(input: &Path, output: &Path, edits: &[Edit]) -> Result<SaveReport> {
     let upgrade = match (big, r.header.format) {
         (true, f) if f < 6 => Some(las::upgraded_format(f).ok_or_else(|| {
             Error::Unsupported(format!(
-                "point format {f} cannot hold classes above 31: convert the cloud first"
+                "el formato de punto {f} no admite clases por encima de 31: convierte antes la nube"
             ))
         })?),
         _ => None,
@@ -463,7 +506,9 @@ pub fn save(input: &Path, output: &Path, edits: &[Edit]) -> Result<SaveReport> {
 /// streaming pass); how many. The processing tools run on this when a selection is active.
 pub fn extract_selected(input: &Path, ops: &[SelOp], output: &Path) -> Result<u64> {
     if input == output {
-        return Err(Error::Param("the selection must go to a new file".into()));
+        return Err(Error::Param(
+            "la selección debe ir a un archivo nuevo".into(),
+        ));
     }
     crate::paths::ensure_parent(output)?;
     let r = Reader::open(input)?;
@@ -567,6 +612,40 @@ mod tests {
     }
 
     #[test]
+    fn an_edit_can_be_switched_off_without_touching_the_others() {
+        let mut s = store();
+        let mut ses = Session::new(&s);
+        let by_class = |c: u8| {
+            vec![op(
+                Mode::New,
+                Region::All,
+                Attr {
+                    classes: ClassSet::from_bits(1 << c),
+                    ..Attr::default()
+                },
+            )]
+        };
+        ses.apply(
+            &mut s,
+            Edit::new(by_class(5), Action::Reclassify(7), "veg a ruido".into()),
+        );
+        ses.apply(
+            &mut s,
+            Edit::new(by_class(1), Action::Delete, "borrar".into()),
+        );
+        assert_eq!(s.class, [2, 7, 7, 1, 2]);
+        assert_eq!(s.deleted, [false, false, false, true, false]);
+        // the first goes off: vegetation is back, the deletion stays
+        assert!(ses.toggle(&mut s, 0));
+        assert_eq!(s.class, [2, 5, 5, 1, 2]);
+        assert_eq!(s.deleted, [false, false, false, true, false]);
+        assert_eq!(ses.active().len(), 1);
+        assert!(ses.toggle(&mut s, 0));
+        assert_eq!(s.class, [2, 7, 7, 1, 2]);
+        assert!(!ses.toggle(&mut s, 9));
+    }
+
+    #[test]
     fn profile_region_uses_distance_and_height() {
         let s = store();
         let bx = ProfileBox {
@@ -604,7 +683,8 @@ mod tests {
                 Edit {
                     sel: all_veg.clone(),
                     action: Action::Reclassify(7),
-                    label: "ruido".into()
+                    label: "ruido".into(),
+                    enabled: true
                 }
             ),
             2
@@ -617,7 +697,8 @@ mod tests {
                 Edit {
                     sel: all_veg,
                     action: Action::Delete,
-                    label: "x".into()
+                    label: "x".into(),
+                    enabled: true
                 }
             ),
             0
@@ -636,6 +717,7 @@ mod tests {
                 sel: noise,
                 action: Action::Delete,
                 label: "borrar ruido".into(),
+                enabled: true,
             },
         );
         assert_eq!(s.deleted, [false, true, true, false, false]);
@@ -715,6 +797,7 @@ mod tests {
             sel: steep,
             action: Action::Delete,
             label: "barrido".into(),
+            enabled: true,
         };
         let del = save(&input, &out, std::slice::from_ref(&edit))?;
         // pass 3 only
@@ -722,6 +805,7 @@ mod tests {
             sel: rule(AttrKind::Source, vec![(3.0, 4.0)]),
             action: Action::Reclassify(7),
             label: "pasada".into(),
+            enabled: true,
         };
         let re = save(&input, &out, std::slice::from_ref(&only))?;
         let _ = std::fs::remove_file(&input);

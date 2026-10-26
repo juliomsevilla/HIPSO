@@ -378,6 +378,91 @@ pub struct ReadOptions {
     pub side_y_field: Option<String>,
 }
 
+/// The long names of the fields of a plot-metrics layer whose `_campos.txt` is missing: short
+/// name (lower case) to long name, for the height break whose columns match the most fields.
+fn restored_plot_names(fields: &[String]) -> HashMap<String, String> {
+    let mut best: (usize, HashMap<String, String>) = (0, HashMap::new());
+    for hb in [2.0, 1.0, 1.3, 0.5, 1.5, 3.0, 4.0, 5.0, 10.0] {
+        let mut cols = vec!["Parcela".to_string(), "Area".to_string()];
+        cols.extend(crate::metrics::sample_header(hb));
+        cols.push(CAPTURE_FIELD.to_string());
+        let map: HashMap<String, String> = dbf_names(&cols)
+            .into_iter()
+            .map(|(s, l)| (s.to_lowercase(), l))
+            .collect();
+        let hits = fields
+            .iter()
+            .filter(|f| {
+                map.get(&f.to_lowercase())
+                    .is_some_and(|l| !l.eq_ignore_ascii_case(f))
+            })
+            .count();
+        if hits > best.0 {
+            best = (hits, map);
+        }
+    }
+    // only when most of the table is recognised: a layer of something else is left as it is
+    if best.0 * 2 >= fields.len() {
+        best.1
+    } else {
+        HashMap::new()
+    }
+}
+
+/// The attribute table of a shapefile as text: the field names, with the long names restored
+/// from `<name>_campos.txt` when the process that wrote it had to shorten them, and the rows.
+pub(crate) fn attribute_table(path: &Path) -> Result<(Vec<String>, Vec<Vec<String>>)> {
+    let dbf = path.with_extension("dbf");
+    let bad = |e: dbase::Error| Error::Format(format!("{}: {e}", dbf.display()));
+    let mut reader = dbase::Reader::from_path(&dbf).map_err(bad)?;
+    let order: Vec<String> = reader
+        .fields()
+        .iter()
+        .map(|f| f.name().to_string())
+        .collect();
+    let records = reader.read().map_err(bad)?;
+    let stem = path
+        .file_stem()
+        .map_or(String::new(), |s| s.to_string_lossy().into_owned());
+    let long: HashMap<String, String> =
+        std::fs::read_to_string(path.with_file_name(format!("{stem}_campos.txt")))
+            .map(|t| {
+                t.lines()
+                    .skip(1)
+                    .filter_map(|l| l.split_once('\t'))
+                    .map(|(s, l)| (s.trim().to_lowercase(), l.trim().to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+    // Without the `_campos.txt` (a layer copied alone) the long names of a plots layer are worked
+    // out again: the shortening is deterministic, so the table of plot metrics gives the same
+    // short names.
+    let long = if long.is_empty() {
+        restored_plot_names(&order)
+    } else {
+        long
+    };
+    let names = order
+        .iter()
+        .map(|n| {
+            long.get(&n.to_lowercase())
+                .cloned()
+                .unwrap_or_else(|| n.clone())
+        })
+        .collect();
+    let rows = records
+        .into_iter()
+        .map(|r| {
+            let map: HashMap<String, FieldValue> = r.into();
+            order
+                .iter()
+                .map(|k| map.get(k).map_or(String::new(), field_text))
+                .collect()
+        })
+        .collect();
+    Ok((names, rows))
+}
+
 fn field_text(v: &FieldValue) -> String {
     match v {
         FieldValue::Character(Some(s)) | FieldValue::Memo(s) => s.trim().to_string(),
@@ -405,12 +490,17 @@ fn ring_points<P>(points: &[P], xy: impl Fn(&P) -> [f64; 2]) -> Vec<[f64; 2]> {
 
 /// Reads regions from a shapefile (polygons, or points with a radius) or a text list.
 pub fn read_regions(path: &Path, opts: &ReadOptions) -> Result<Vec<Region>> {
+    crate::check_vector_format(path)?;
     let ext = path
         .extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
     if ext == "shp" {
         read_shapefile(path, opts)
+    } else if ext == "geojson" || ext == "json" {
+        crate::geojson::read_regions(path, opts)
+    } else if ext == "gpkg" {
+        crate::geojson::regions_of(&crate::gpkg::read_layer(path, None)?, opts)
     } else {
         read_text_regions(path, opts)
     }
@@ -421,7 +511,7 @@ fn read_shapefile(path: &Path, opts: &ReadOptions) -> Result<Vec<Region>> {
     let order: Vec<String> = dbase::Reader::from_path(path.with_extension("dbf"))
         .map(|r| r.fields().iter().map(|f| f.name().to_string()).collect())
         .unwrap_or_default();
-    let mut reader = shapefile::Reader::from_path(path).map_err(shp_err)?;
+    let mut reader = shapefile::Reader::from_path(path).map_err(shp_open_err(path))?;
     let mut out = Vec::new();
     for (n, item) in reader.iter_shapes_and_records().enumerate() {
         let (shape, record) = item.map_err(shp_err)?;
@@ -438,7 +528,7 @@ fn read_shapefile(path: &Path, opts: &ReadOptions) -> Result<Vec<Region>> {
         };
         let name = match &opts.name_field {
             Some(f) => match f.parse::<usize>() {
-                // A number is a 1-based position among the fields, as in FUSION's /shape.
+                // A number is a 1-based position among the fields, as in the FUSION-compatible shape option.
                 Ok(i) if by_name(f).is_none() => {
                     attrs.get(i.saturating_sub(1)).map(|(_, v)| v.clone())
                 }
@@ -479,7 +569,7 @@ fn read_shapefile(path: &Path, opts: &ReadOptions) -> Result<Vec<Region>> {
             Shape::NullShape => continue,
             other => {
                 return Err(Error::Unsupported(format!(
-                    "{}: shapes of type {} can't clip points (use polygons, or points with a radius)",
+                    "{}: las formas de tipo {} no sirven para recortar puntos (usa polígonos, o puntos con un radio)",
                     path.display(),
                     other.shapetype()
                 )));
@@ -520,7 +610,7 @@ fn plot_at(
             y + h / 2.0,
         ])),
         _ => Err(Error::Param(format!(
-            "{}: the plots are squares: give the side (or the field that holds it)",
+            "{}: las parcelas son cuadradas: indica el lado (o el campo que lo tiene)",
             path.display()
         ))),
     }
@@ -530,7 +620,7 @@ fn circle(x: f64, y: f64, radius: Option<f64>, path: &Path) -> Result<Shape2> {
     match radius.filter(|r| *r > 0.0) {
         Some(r) => Ok(Shape2::Circle { cx: x, cy: y, r }),
         None => Err(Error::Param(format!(
-            "{}: the shapes are points: give a radius (or the field that holds it)",
+            "{}: las formas son puntos: indica un radio (o el campo que lo tiene)",
             path.display()
         ))),
     }
@@ -575,7 +665,7 @@ fn read_text_regions(path: &Path, opts: &ReadOptions) -> Result<Vec<Region>> {
     }
     if out.is_empty() {
         return Err(Error::Format(format!(
-            "{}: no regions found in it",
+            "{}: no se encuentran zonas en él",
             path.display()
         )));
     }
@@ -584,6 +674,11 @@ fn read_text_regions(path: &Path, opts: &ReadOptions) -> Result<Vec<Region>> {
 
 fn shp_err(e: shapefile::Error) -> Error {
     Error::Format(format!("shapefile: {e}"))
+}
+
+/// The error of opening a shapefile, with its path.
+fn shp_open_err(path: &Path) -> impl Fn(shapefile::Error) -> Error + '_ {
+    move |e| Error::Format(format!("{}: {e}", path.display()))
 }
 
 /// A value in an attribute table.
@@ -665,7 +760,7 @@ pub fn write_points(
     table: &Table,
     prj: Option<&str>,
 ) -> Result<()> {
-    let mut w = shapefile::Writer::from_path(path, table.builder()?).map_err(shp_err)?;
+    let mut w = shapefile::Writer::from_path(path, table.builder()?).map_err(shp_open_err(path))?;
     for (k, p) in pts.iter().enumerate() {
         let rec = table.record(k);
         if with_z {
@@ -687,7 +782,7 @@ pub fn write_polygons(
     table: &Table,
     prj: Option<&str>,
 ) -> Result<()> {
-    let mut w = shapefile::Writer::from_path(path, table.builder()?).map_err(shp_err)?;
+    let mut w = shapefile::Writer::from_path(path, table.builder()?).map_err(shp_open_err(path))?;
     for (k, poly) in polys.iter().enumerate() {
         let rings: Vec<PolygonRing<ShpPoint>> = poly
             .rings
@@ -714,7 +809,7 @@ pub fn write_polylines(
     table: &Table,
     prj: Option<&str>,
 ) -> Result<()> {
-    let mut w = shapefile::Writer::from_path(path, table.builder()?).map_err(shp_err)?;
+    let mut w = shapefile::Writer::from_path(path, table.builder()?).map_err(shp_open_err(path))?;
     for (k, line) in lines.iter().enumerate() {
         if line.len() < 2 {
             continue;
@@ -756,7 +851,7 @@ pub struct Drawing {
 
 /// Reads any shapefile for display, keeping elevations when it has them.
 pub fn read_drawing(path: &Path) -> Result<Drawing> {
-    let mut reader = shapefile::ShapeReader::from_path(path).map_err(shp_err)?;
+    let mut reader = shapefile::ShapeReader::from_path(path).map_err(shp_open_err(path))?;
     let mut d = Drawing::default();
     for shape in reader.iter_shapes() {
         match shape.map_err(shp_err)? {
@@ -884,6 +979,40 @@ pub fn prj_for_epsg(code: u16) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_saved_layer_keeps_its_holes() {
+        use crate::view::{Feature, GeomKind, VectorData};
+        // the hole drawn in the same direction as the ring around it
+        let outer = vec![
+            [0.0, 0.0],
+            [10.0, 0.0],
+            [10.0, 10.0],
+            [0.0, 10.0],
+            [0.0, 0.0],
+        ];
+        let hole = vec![[2.0, 2.0], [4.0, 2.0], [4.0, 4.0], [2.0, 4.0], [2.0, 2.0]];
+        let d = VectorData {
+            features: vec![Feature {
+                parts: vec![outer, hole],
+            }],
+            polygons: true,
+            ..VectorData::default()
+        };
+        let path = std::env::temp_dir().join(format!("rl_holes_{}.shp", std::process::id()));
+        assert!(write_layer(&path, &d, GeomKind::Polygon, None).is_ok());
+        let shapes = shapefile::read_shapes_as::<_, shapefile::Polygon>(&path).unwrap_or_default();
+        for e in ["shp", "shx", "dbf"] {
+            let _ = std::fs::remove_file(path.with_extension(e));
+        }
+        let rings = shapes
+            .first()
+            .map(|p| p.rings().to_vec())
+            .unwrap_or_default();
+        assert_eq!(rings.len(), 2);
+        assert!(matches!(rings[0], PolygonRing::Outer(_)));
+        assert!(matches!(rings[1], PolygonRing::Inner(_)));
+    }
+
     #[test]
     fn prj_text_names_the_code_and_reads_back() {
         for code in [25829u16, 25830, 32630, 23030] {
@@ -1099,7 +1228,7 @@ mod tests {
 // ---------------------------------------------------------------------------------------
 // Attribute tables on polygons (metrics by cell or by plot) as shapefiles.
 
-/// Words of FUSION's metric names and the short form used in a 10-character DBF field name.
+/// Words of the metric names and the short form used in a 10-character DBF field name.
 fn short_word(w: &str) -> String {
     let s = match w.to_ascii_lowercase().as_str() {
         "elev" => "E",
@@ -1205,11 +1334,18 @@ enum FieldKind {
     Text,
 }
 
+/// Name of the column with the date the LiDAR data were captured (blank when it is not known).
+/// It is never the day the table was made.
+pub const CAPTURE_FIELD: &str = "captura";
+
 /// Records with polygon geometry written one at a time, so a table with a row per grid cell
 /// never sits in memory. Column types come from the first row: whole numbers, decimals or text.
 pub struct PolyTable {
     w: shapefile::Writer<std::io::BufWriter<std::fs::File>>,
     names: Vec<String>,
+    /// Value of the extra `captura` column, the capture date of the LiDAR data: blank unless the
+    /// caller gives it. `None` when a column of the data is the capture date already.
+    capture: Option<String>,
     kinds: Vec<FieldKind>,
     path: std::path::PathBuf,
     prj: Option<String>,
@@ -1223,6 +1359,18 @@ impl PolyTable {
         first_row: &[String],
         prj: Option<&str>,
     ) -> Result<Self> {
+        // a `Date` column of the data is the capture date: one date field, not two
+        let columns: Vec<String> = columns
+            .iter()
+            .map(|c| {
+                if c.eq_ignore_ascii_case("date") {
+                    CAPTURE_FIELD.to_string()
+                } else {
+                    c.clone()
+                }
+            })
+            .collect();
+        let columns = columns.as_slice();
         let named = dbf_names(columns);
         let kinds: Vec<FieldKind> = columns
             .iter()
@@ -1243,10 +1391,20 @@ impl PolyTable {
                 FieldKind::Text => b.add_character_field(n, 50),
             };
         }
+        // every polygon says when its LiDAR data were captured; blank when that is not known
+        let capture = (!named
+            .iter()
+            .any(|(s, _)| s.eq_ignore_ascii_case(CAPTURE_FIELD)))
+        .then(String::new);
+        if capture.is_some() {
+            let n = FieldName::try_from(CAPTURE_FIELD)
+                .map_err(|e| Error::Param(format!("field '{CAPTURE_FIELD}': {e}")))?;
+            b = b.add_character_field(n, 24);
+        }
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             std::fs::create_dir_all(dir)?;
         }
-        let w = shapefile::Writer::from_path(path, b).map_err(shp_err)?;
+        let w = shapefile::Writer::from_path(path, b).map_err(shp_open_err(path))?;
         if named.iter().any(|(s, l)| s != l) {
             let mut text = String::from("campo\tsignificado\n");
             for (s, l) in &named {
@@ -1259,6 +1417,7 @@ impl PolyTable {
         }
         Ok(Self {
             w,
+            capture,
             names: named.into_iter().map(|n| n.0).collect(),
             kinds,
             path: path.to_path_buf(),
@@ -1266,17 +1425,40 @@ impl PolyTable {
         })
     }
 
+    /// Sets the capture date of the LiDAR data the polygons come from (the extra `captura`
+    /// column, which is blank otherwise).
+    pub fn with_capture(mut self, date: Option<String>) -> Self {
+        if self.capture.is_some() {
+            self.capture = Some(date.unwrap_or_default());
+        }
+        self
+    }
+
+    fn stamp_record(&self, rec: &mut dbase::Record) {
+        if let Some(t) = &self.capture {
+            rec.insert(
+                CAPTURE_FIELD.to_string(),
+                FieldValue::Character(Some(t.clone())),
+            );
+        }
+    }
+
     /// Adds a record: its rings (each an outer ring) and one value per column.
     pub fn push(&mut self, rings: &[Vec<[f64; 2]>], row: &[String]) -> Result<()> {
         let mut rec = dbase::Record::default();
         for (k, name) in self.names.iter().enumerate() {
-            let v = row.get(k).map_or("", |v| v.trim());
+            let mut v = row.get(k).map_or("", |v| v.trim());
+            // `NA` is how the text tables say the capture date is not known
+            if name.eq_ignore_ascii_case(CAPTURE_FIELD) && v.eq_ignore_ascii_case("na") {
+                v = "";
+            }
             let value = match self.kinds[k] {
                 FieldKind::Text => FieldValue::Character(Some(truncate(v, 50))),
                 _ => FieldValue::Numeric(v.parse::<f64>().ok()),
             };
             rec.insert(name.clone(), value);
         }
+        self.stamp_record(&mut rec);
         let parts: Vec<PolygonRing<ShpPoint>> = rings
             .iter()
             .filter(|r| r.len() >= 3)
@@ -1300,6 +1482,66 @@ impl PolyTable {
         if parts.is_empty() {
             return Ok(());
         }
+        self.w
+            .write_shape_and_record(&shapefile::Polygon::with_rings(parts), &rec)
+            .map_err(shp_err)
+    }
+
+    /// Adds a record made of outer rings and the holes cut in them (rings of any orientation:
+    /// outer rings are written clockwise and holes counter-clockwise, as readers expect).
+    pub fn push_with_holes(
+        &mut self,
+        outers: &[Vec<[f64; 2]>],
+        holes: &[Vec<[f64; 2]>],
+        row: &[String],
+    ) -> Result<()> {
+        let mut rec = dbase::Record::default();
+        for (k, name) in self.names.iter().enumerate() {
+            let mut v = row.get(k).map_or("", |v| v.trim());
+            // `NA` is how the text tables say the capture date is not known
+            if name.eq_ignore_ascii_case(CAPTURE_FIELD) && v.eq_ignore_ascii_case("na") {
+                v = "";
+            }
+            let value = match self.kinds[k] {
+                FieldKind::Text => FieldValue::Character(Some(truncate(v, 50))),
+                _ => FieldValue::Numeric(v.parse::<f64>().ok()),
+            };
+            rec.insert(name.clone(), value);
+        }
+        self.stamp_record(&mut rec);
+        let oriented = |r: &Vec<[f64; 2]>, clockwise: bool| -> Option<Vec<ShpPoint>> {
+            if r.len() < 3 {
+                return None;
+            }
+            let area: f64 = r
+                .iter()
+                .zip(r.iter().cycle().skip(1))
+                .map(|(a, b)| a[0] * b[1] - b[0] * a[1])
+                .sum();
+            let mut pts: Vec<ShpPoint> = r.iter().map(|p| ShpPoint::new(p[0], p[1])).collect();
+            // a positive sum is counter-clockwise
+            if (area > 0.0) == clockwise {
+                pts.reverse();
+            }
+            if pts.first() != pts.last() {
+                pts.push(pts[0]);
+            }
+            Some(pts)
+        };
+        let mut parts: Vec<PolygonRing<ShpPoint>> = outers
+            .iter()
+            .filter_map(|r| oriented(r, true))
+            .map(PolygonRing::Outer)
+            .collect();
+        if parts.is_empty() {
+            return Ok(());
+        }
+        parts.extend(
+            holes
+                .iter()
+                .filter_map(|r| oriented(r, false))
+                .map(PolygonRing::Inner),
+        );
         self.w
             .write_shape_and_record(&shapefile::Polygon::with_rings(parts), &rec)
             .map_err(shp_err)
@@ -1368,6 +1610,22 @@ pub fn metrics_csv_to_shp(
     Ok(n)
 }
 
+/// Whether the point is inside the ring (even-odd rule).
+fn ring_contains(ring: &[[f64; 2]], p: [f64; 2]) -> bool {
+    let mut inside = false;
+    let mut j = ring.len() - 1;
+    for i in 0..ring.len() {
+        let (a, b) = (ring[i], ring[j]);
+        if (a[1] > p[1]) != (b[1] > p[1])
+            && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0]
+        {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
 /// Saves a layer made in the viewer: its features and its attribute table (a field is a number
 /// when every value in it is one, else text), with the `.prj` text of the coordinate system.
 pub fn write_layer(
@@ -1377,6 +1635,12 @@ pub fn write_layer(
     prj: Option<&str>,
 ) -> Result<()> {
     use crate::view::GeomKind;
+    if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("geojson") || e.eq_ignore_ascii_case("json"))
+    {
+        return crate::geojson::write_vector(path, d, kind, prj.and_then(epsg_from_prj));
+    }
     let numeric: Vec<bool> = (0..d.fields.len())
         .map(|c| {
             d.text.iter().all(|row| {
@@ -1396,7 +1660,7 @@ pub fn write_layer(
             b.add_character_field(n, 80)
         };
     }
-    let mut w = shapefile::Writer::from_path(path, b).map_err(shp_err)?;
+    let mut w = shapefile::Writer::from_path(path, b).map_err(shp_open_err(path))?;
     for (k, f) in d.features.iter().enumerate() {
         let mut rec = dbase::Record::default();
         for (c, name) in names.iter().enumerate() {
@@ -1435,11 +1699,19 @@ pub fn write_layer(
                 }
             }
             GeomKind::Polygon => {
-                let rings: Vec<PolygonRing<ShpPoint>> = f
-                    .parts
+                // a ring inside an odd number of the others is a hole: outer rings go clockwise
+                // and holes counter-clockwise, which is what readers use to tell them apart
+                let all: Vec<&Vec<[f64; 2]>> = f.parts.iter().filter(|r| r.len() >= 3).collect();
+                let rings: Vec<PolygonRing<ShpPoint>> = all
                     .iter()
-                    .filter(|r| r.len() >= 3)
-                    .map(|r| {
+                    .enumerate()
+                    .map(|(i, r)| {
+                        let inside = all
+                            .iter()
+                            .enumerate()
+                            .filter(|(j, o)| *j != i && ring_contains(o, r[0]))
+                            .count();
+                        let hole = inside % 2 == 1;
                         let area: f64 = r
                             .iter()
                             .zip(r.iter().cycle().skip(1))
@@ -1447,13 +1719,18 @@ pub fn write_layer(
                             .sum();
                         let mut pts: Vec<ShpPoint> =
                             r.iter().map(|p| ShpPoint::new(p[0], p[1])).collect();
-                        if area > 0.0 {
+                        // a positive sum is counter-clockwise
+                        if (area > 0.0) != hole {
                             pts.reverse();
                         }
                         if pts.first() != pts.last() {
                             pts.push(pts[0]);
                         }
-                        PolygonRing::Outer(pts)
+                        if hole {
+                            PolygonRing::Inner(pts)
+                        } else {
+                            PolygonRing::Outer(pts)
+                        }
                     })
                     .collect();
                 if !rings.is_empty() {
@@ -1465,4 +1742,99 @@ pub fn write_layer(
     }
     drop(w);
     write_prj(path, prj)
+}
+
+#[cfg(test)]
+mod capture_tests {
+    use super::*;
+
+    fn square() -> Vec<Vec<[f64; 2]>> {
+        vec![vec![[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]]]
+    }
+
+    /// The capture-date column of a one-row table written with `cols`/`row`.
+    fn captura_of(name: &str, cols: &[&str], row: &[&str]) -> Result<(Vec<String>, String)> {
+        let dir = std::env::temp_dir().join(format!("easylidar_capture_{name}"));
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join("t.shp");
+        let cols: Vec<String> = cols.iter().map(|s| s.to_string()).collect();
+        let row: Vec<String> = row.iter().map(|s| s.to_string()).collect();
+        let mut t = PolyTable::create(&path, &cols, &row, None)?;
+        t.push(&square(), &row)?;
+        t.finish()?;
+        let (names, rows) = attribute_table(&path)?;
+        let at = names
+            .iter()
+            .position(|n| n == CAPTURE_FIELD)
+            .ok_or_else(|| Error::Param("no captura".into()))?;
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok((names, rows[0][at].clone()))
+    }
+
+    #[test]
+    fn the_only_date_is_the_capture_date_of_the_data() -> Result<()> {
+        let (names, v) = captura_of("known", &["id", "Date"], &["1", "2012-05-18"])?;
+        assert_eq!(
+            names.iter().filter(|n| n.as_str() == CAPTURE_FIELD).count(),
+            1
+        );
+        assert_eq!(names.len(), 2);
+        assert_eq!(v, "2012-05-18");
+        Ok(())
+    }
+
+    #[test]
+    fn an_unknown_capture_date_is_blank() -> Result<()> {
+        let (names, v) = captura_of("na", &["id", "Date"], &["1", "NA"])?;
+        assert_eq!(names.len(), 2);
+        assert_eq!(v, "");
+        // a table with no date at all gets the field, blank: never the day it was made
+        let (names, v) = captura_of("none", &["id"], &["1"])?;
+        assert_eq!(names, vec!["id".to_string(), CAPTURE_FIELD.to_string()]);
+        assert_eq!(v, "");
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod restored_names_tests {
+    use super::*;
+
+    #[test]
+    fn a_plots_layer_without_its_campos_file_gets_its_long_names_back() -> Result<()> {
+        let dir = std::env::temp_dir().join("easylidar_restore_names");
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join("p.shp");
+        let mut cols = vec!["Parcela".to_string(), "Area".to_string()];
+        cols.extend(crate::metrics::sample_header(2.0));
+        cols.push("Date".to_string());
+        let row: Vec<String> = cols.iter().map(|_| "1.5".to_string()).collect();
+        let mut t = PolyTable::create(&path, &cols, &row, None)?;
+        t.push(
+            &[vec![[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]]],
+            &row,
+        )?;
+        t.finish()?;
+        // with the file: long names
+        let (with, _) = attribute_table(&path)?;
+        assert!(with.iter().any(|n| n == "Elev P95"), "{with:?}");
+        // the layer copied alone: the same long names, worked out
+        std::fs::remove_file(dir.join("p_campos.txt"))?;
+        let (without, _) = attribute_table(&path)?;
+        assert_eq!(with, without);
+        // a table of something else is left as it is
+        let other = dir.join("o.shp");
+        let cols = vec!["id".to_string(), "uso".to_string(), "sup".to_string()];
+        let row = vec!["1".to_string(), "x".to_string(), "2.5".to_string()];
+        let mut o = PolyTable::create(&other, &cols, &row, None)?;
+        o.push(
+            &[vec![[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]]],
+            &row,
+        )?;
+        o.finish()?;
+        let (names, _) = attribute_table(&other)?;
+        assert_eq!(&names[..3], &["id", "uso", "sup"]);
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
+    }
 }

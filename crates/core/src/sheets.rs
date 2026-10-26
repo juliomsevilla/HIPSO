@@ -22,14 +22,16 @@ pub enum Overlap {
 
 /// Joins rasters on the same cell lattice into one.
 pub fn mosaic(paths: &[PathBuf], output: &Path, how: Overlap, epsg: Option<u16>) -> Result<()> {
+    let unified = crate::crs::unify(paths, false)?;
+    let paths = unified.all(paths);
     let grids: Vec<Grid> = paths.iter().map(|p| Grid::read(p)).collect::<Result<_>>()?;
     let first = grids
         .first()
-        .ok_or_else(|| Error::Param("nothing to join".into()))?;
+        .ok_or_else(|| Error::Param("no hay nada que unir".into()))?;
     let cell = first.cell;
     if grids.iter().any(|g| (g.cell - cell).abs() > cell * 1e-6) {
         return Err(Error::Param(
-            "the sheets have different cell sizes: they cannot be joined".into(),
+            "las hojas tienen celdas distintas: no se pueden unir".into(),
         ));
     }
     let x0 = grids.iter().map(|g| g.x0).fold(f64::INFINITY, f64::min);

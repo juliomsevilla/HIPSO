@@ -3,21 +3,34 @@
 //! command line one click away, with a ribbon interface.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod aba_plots;
+mod aba_ui;
+mod align_ui;
+mod basemap;
+mod change_ui;
 mod classtable;
+mod contents;
+mod corridor_ui;
 mod editing;
 mod histo;
+mod icons;
 mod layer_tabs;
 mod layers;
 mod manual;
 mod numfield;
+mod obia_ui;
+mod prefs;
+mod profile_data;
 mod ribbon;
 mod rs;
 mod rstools;
 mod symbology;
 mod terrain;
 mod theme;
+mod tips;
 mod tools;
 mod vecedit;
+mod warp;
 
 use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
@@ -219,11 +232,23 @@ enum Layout {
     All,
 }
 
+/// The ribbon tabs before the ones that depend on the selected layer: Inicio, Vista, Procesar
+/// and Ayuda. Editing points lives in the side panel, so it stays within reach of the others.
+const FIRST_EXTRA: usize = 4;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Side {
     Layers,
     Info,
     Edit,
+}
+
+/// A cloud load that finished: the points, the files they came from (converted copies replace
+/// the clouds that were in another coordinate system) and what the log should say.
+struct CloudLoad {
+    store: PointStore,
+    files: Vec<PathBuf>,
+    notes: Vec<String>,
 }
 
 enum RefKind {
@@ -263,29 +288,35 @@ struct Running {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Action {
-    OpenClouds,
-    AddClouds,
+    Open,
     CloseAll,
     SaveShot,
     ZoomFull,
     ZoomPrev,
     Nav(Nav),
     Tool(ToolId),
+    Shortcuts,
     Info,
     Color(ColorBy),
     PointSize(i32),
+    ProfileSize(i32),
     ToggleTin,
     ToggleContours,
     ToggleLog,
+    ToggleBasemap,
     LoadRaster,
     LoadVector,
-    LoadLayers,
     NewLayer,
     SaveLayer,
     LayerTable,
     ImageTool(u8),
     RasterTool(u8),
     Terrain,
+    Obia,
+    Align,
+    Change,
+    Model,
+    Corridor,
     ClearMarks,
     ToggleTheme,
     NorthUp,
@@ -312,10 +343,12 @@ struct App {
     layout: Layout,
     side: Side,
     show_log: bool,
+    /// A message that stays on screen until the user closes it.
+    notice: Option<String>,
     clouds: Vec<PathBuf>,
     store: Option<Arc<PointStore>>,
     rev: u64,
-    loading: Option<(Receiver<Result<PointStore, String>>, Instant)>,
+    loading: Option<(Receiver<Result<CloudLoad, String>>, Instant)>,
     max_points_m: f64,
     class_counts: [u64; 256],
     style: Style,
@@ -330,9 +363,18 @@ struct App {
     profile_width: f64,
     tex_plan: Option<(egui::TextureHandle, u64)>,
     tex_prof: Option<(egui::TextureHandle, u64, f64, f64)>,
+    /// The profile reads the points of its region from the files, at full density.
+    prof_full: bool,
+    prof_data: Option<profile_data::ProfData>,
+    prof_job: Option<profile_data::ProfJob>,
+    prof_failed: Option<u64>,
+    /// Where the profile was drawn in the last frame.
+    profile_rect: Option<Rect>,
     tex_3d: Option<(egui::TextureHandle, u64)>,
     moving_until: Instant,
     refs: Vec<RefLayer>,
+    /// How many of the layers are drawn under the point clouds (the first ones in `refs`).
+    cloud_slot: usize,
     show_points: bool,
     tin_on: bool,
     tin_classes: ClassSet,
@@ -369,7 +411,21 @@ struct App {
     ctable: classtable::ClassTable,
     rt: rstools::RasterTools,
     tt: terrain::TerrainTool,
+    ot: obia_ui::ObiaTool,
+    at: align_ui::AlignTool,
+    ct: change_ui::ChangeTool,
+    mo: aba_ui::ModelTool,
+    co: corridor_ui::CorridorTool,
+    /// The coordinate system each file declares, read once.
+    crs_cache: std::collections::HashMap<PathBuf, Option<u16>>,
+    /// The map of web tiles under the layers (made when it is first turned on).
+    basemap: Option<basemap::Basemap>,
+    /// Layers opened before any cloud: they are moved to the cloud's system once there is one.
+    pending_conform: Vec<PathBuf>,
     show_about: bool,
+    show_shortcuts: bool,
+    /// When the log last said how far the running job is.
+    last_progress_log: Instant,
     logo: Option<egui::TextureHandle>,
     manual: manual::Manual,
 }
@@ -390,6 +446,7 @@ impl Default for App {
             layout: Layout::Plan,
             side: Side::Layers,
             show_log: false,
+            notice: None,
             clouds: Vec::new(),
             store: None,
             rev: 0,
@@ -418,9 +475,15 @@ impl Default for App {
             profile_width: 10.0,
             tex_plan: None,
             tex_prof: None,
+            prof_full: true,
+            prof_data: None,
+            prof_job: None,
+            prof_failed: None,
+            profile_rect: None,
             tex_3d: None,
             moving_until: Instant::now(),
             refs: Vec::new(),
+            cloud_slot: 0,
             show_points: true,
             tin_on: false,
             tin_classes: ClassSet::from_bits(1 << 2),
@@ -454,7 +517,17 @@ impl Default for App {
             ctable: classtable::ClassTable::load(),
             rt: rstools::RasterTools::default(),
             tt: terrain::TerrainTool::default(),
+            ot: obia_ui::ObiaTool::default(),
+            at: align_ui::AlignTool::default(),
+            ct: change_ui::ChangeTool::default(),
+            mo: aba_ui::ModelTool::default(),
+            co: corridor_ui::CorridorTool::default(),
+            crs_cache: std::collections::HashMap::new(),
+            basemap: None,
+            pending_conform: Vec::new(),
             show_about: false,
+            show_shortcuts: false,
+            last_progress_log: Instant::now(),
             logo: None,
             manual: manual::Manual::default(),
         }
@@ -521,6 +594,23 @@ impl App {
 
     fn tokens(&self) -> Tokens {
         if self.dark { theme::DARK } else { theme::LIGHT }
+    }
+
+    /// The EPSG code a file declares (read once; `None` when it declares none or is not a file).
+    fn crs_of(&mut self, path: &Path) -> Option<u16> {
+        if path.as_os_str().is_empty() {
+            return None;
+        }
+        *self
+            .crs_cache
+            .entry(path.to_path_buf())
+            .or_insert_with(|| rustlidar_core::crs::epsg_of(path))
+    }
+
+    /// The system of the work: that of the first cloud.
+    fn project_crs(&mut self) -> Option<u16> {
+        let first = self.clouds.first()?.clone();
+        self.crs_of(&first)
     }
 
     fn log(&mut self, m: impl Into<String>) {
@@ -610,9 +700,14 @@ impl App {
                 "--table" => self.table_layer = Some(0),
                 "--ndvi" => self.rs.compute_at_start = true,
                 "--newlayer" => self.new_layer = Some(layers::NewLayerDlg::default()),
-                "--tin" => {
-                    self.tin_on = true;
-                    self.show_points = false;
+                "--tin" => self.tin_on = true,
+                "--basemap" => {
+                    let k = it.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+                    let bm = self
+                        .basemap
+                        .get_or_insert_with(|| basemap::Basemap::new(ctx));
+                    bm.on = true;
+                    bm.provider = k;
                 }
                 "--run" => self.tools.autorun = true,
                 "--select" => {
@@ -673,6 +768,7 @@ impl App {
         } else {
             [221, 225, 231]
         };
+        prefs::opened(&files);
         for f in files {
             self.open_path(ctx, f, true);
         }
@@ -698,12 +794,62 @@ impl App {
             .map(|e| e.to_string_lossy().to_ascii_lowercase())
             .unwrap_or_default();
         match ext.as_str() {
-            "tif" | "tiff" | "asc" => {
+            e if rustlidar_core::raster::is_raster_ext(e) => {
                 if !self.add_raster(ctx, &p) {
                     self.log(format!("No se pudo abrir {}", p.display()));
                 }
             }
-            "shp" => self.add_vector(&p),
+            "shp" | "geojson" | "json" | "gpkg" => self.add_vector(&p),
+            "e57" => {
+                if self.running.is_some() {
+                    self.log("Hay otro proceso en marcha: espera a que termine para abrir el E57.");
+                } else {
+                    // an E57 is converted to LAZ (in the results folder) and that file is opened
+                    let out = rustlidar_core::paths::unique(&rustlidar_core::paths::product(
+                        &p, "e57", "laz",
+                    ));
+                    let (src, dst) = (p.clone(), out.clone());
+                    let task: tools::Task = Box::new(move || {
+                        let r = rustlidar_core::e57::convert(&src, &dst, None)?;
+                        Ok(rustlidar_core::e57::describe(&r, &dst))
+                    });
+                    self.log("El E57 no suele decir su sistema de coordenadas: asígnalo después con «Asignar proyección» si lo necesitas.");
+                    self.start(
+                        ctx,
+                        Launch {
+                            label: "Convertir E57 a LAZ".to_string(),
+                            task,
+                            show: vec![out.clone()],
+                            outputs: vec![out],
+                        },
+                    );
+                }
+            }
+            "ply" => {
+                if self.running.is_some() {
+                    self.log("Hay otro proceso en marcha: espera a que termine para abrir el PLY.");
+                } else {
+                    // a PLY is converted to LAZ (in the results folder) and that file is opened
+                    let out = rustlidar_core::paths::unique(&rustlidar_core::paths::product(
+                        &p, "ply", "laz",
+                    ));
+                    let (src, dst) = (p.clone(), out.clone());
+                    let task: tools::Task = Box::new(move || {
+                        let r = rustlidar_core::ply::convert(&src, &dst, None)?;
+                        Ok(rustlidar_core::ply::describe(&r, &dst))
+                    });
+                    self.log("El PLY no dice su sistema de coordenadas: asígnalo después con «Asignar proyección» si lo necesitas.");
+                    self.start(
+                        ctx,
+                        Launch {
+                            label: "Convertir PLY a LAZ".to_string(),
+                            task,
+                            show: vec![out.clone()],
+                            outputs: vec![out],
+                        },
+                    );
+                }
+            }
             _ if is_cloud(&p) => {
                 if replace && self.loading.is_none() && !self.clouds.contains(&p) {
                     // the first file of a batch replaces what was open
@@ -717,20 +863,162 @@ impl App {
         }
     }
 
+    /// The groups of the Procesar tab: what each button shows, whether its window is open and
+    /// what it does. Large buttons first, then columns of up to three small ones.
+    fn process_groups(&self) -> Vec<ribbon::Group<Action>> {
+        use ribbon::{Group, Item};
+        let tool = |icon: &'static str, label: &'static str, id: ToolId| Item {
+            icon,
+            label,
+            on: self.tools.open == Some(id),
+            action: Action::Tool(id),
+        };
+        let other = |icon: &'static str, label: &'static str, on: bool, action: Action| Item {
+            icon,
+            label,
+            on,
+            action,
+        };
+        vec![
+            Group {
+                caption: "Preparar",
+                icon: "@classify",
+                big: vec![tool("@classify", "Clasificar", ToolId::Classify)],
+                columns: vec![
+                    vec![
+                        other("ℹ", "Información", false, Action::Info),
+                        tool("@crs", "Asignar proyección", ToolId::Crs),
+                        tool("@export", "Exportar puntos", ToolId::Export),
+                    ],
+                    vec![
+                        tool("@thin", "Adelgazar nube", ToolId::Thin),
+                        tool("@hag", "Alturas sobre suelo", ToolId::Hag),
+                        tool("@dups", "Quitar duplicados", ToolId::Dups),
+                    ],
+                    vec![
+                        tool("@colorize", "Colorear con imagen", ToolId::Colorize),
+                        tool("@intensity", "Normalizar intensidad", ToolId::Intensity),
+                        tool("@copc", "Guardar como COPC", ToolId::Copc),
+                    ],
+                ],
+            },
+            Group {
+                caption: "Calidad",
+                icon: "@compare",
+                big: vec![],
+                columns: vec![vec![
+                    tool("@compare", "Comparar nubes", ToolId::Compare),
+                    tool("@fit", "Ajustar nubes", ToolId::Fit),
+                    tool("@swath", "Entre pasadas", ToolId::Swath),
+                ]],
+            },
+            Group {
+                caption: "Superficies",
+                icon: "@dtm",
+                big: vec![
+                    tool("@dtm", "MDT", ToolId::Dtm),
+                    tool("@chm", "MDS / CHM", ToolId::Chm),
+                ],
+                columns: vec![vec![
+                    other(
+                        "@terrain",
+                        "Análisis de terreno",
+                        self.tt.open,
+                        Action::Terrain,
+                    ),
+                    tool("@volume", "Volumen sobre MDT", ToolId::Volume),
+                ]],
+            },
+            Group {
+                caption: "Inventario forestal",
+                icon: "@metrics",
+                big: vec![tool("@metrics", "Métricas\nde rodal", ToolId::Metrics)],
+                columns: vec![
+                    vec![
+                        tool("@clip", "Recortar parcelas", ToolId::Clip),
+                        tool("@segment", "Segmentar árboles", ToolId::Trees),
+                        tool("@tree", "Cubicar (TLS)", ToolId::Tls),
+                    ],
+                    vec![
+                        other(
+                            "@model",
+                            "Modelos de transición",
+                            self.mo.open,
+                            Action::Model,
+                        ),
+                        other("@change", "Cambio forestal", self.ct.open, Action::Change),
+                        other("@obia", "Análisis por objetos", self.ot.open, Action::Obia),
+                    ],
+                ],
+            },
+            Group {
+                caption: "Infraestructuras",
+                icon: "@corridor",
+                big: vec![other(
+                    "@corridor",
+                    "Corredores\neléctricos",
+                    self.co.open,
+                    Action::Corridor,
+                )],
+                columns: vec![],
+            },
+        ]
+    }
+
+    /// Opens what was picked or dropped: the clouds are added together (one load), the rest one by
+    /// one as layers.
+    fn open_files(&mut self, ctx: &egui::Context, files: Vec<PathBuf>) {
+        prefs::opened(&files);
+        let mut clouds = false;
+        for f in files {
+            if is_cloud(&f) {
+                if !self.clouds.contains(&f) {
+                    self.clouds.push(f);
+                }
+                clouds = true;
+            } else {
+                self.open_path(ctx, f, false);
+            }
+        }
+        if clouds {
+            self.reload(ctx);
+        }
+    }
+
     fn reload(&mut self, ctx: &egui::Context) {
         let files = self.clouds.clone();
+        rustlidar_core::progress::reset();
+        self.last_progress_log = Instant::now();
         let max = (self.max_points_m * 1e6) as usize;
+        // clouds in another system than the first one are converted while they load
+        let (target, other) = rustlidar_core::reproject::clouds_in_other_system(&files);
         let (tx, rx) = channel();
         let c = ctx.clone();
         std::thread::spawn(move || {
-            let r = std::panic::catch_unwind(|| view::load(&files, max))
-                .map_err(|_| "error interno al leer".to_string())
-                .and_then(|r| r.map_err(|e| e.to_string()));
+            let r = std::panic::catch_unwind(|| {
+                let moved = rustlidar_core::reproject::project_clouds(&files);
+                if moved.files.is_empty() {
+                    return Err(rustlidar_core::Error::Param(moved.notes.join("\n")));
+                }
+                view::load(&moved.files, max).map(|store| CloudLoad {
+                    store,
+                    files: moved.files,
+                    notes: moved.notes,
+                })
+            })
+            .map_err(|_| "error interno al leer".to_string())
+            .and_then(|r| r.map_err(|e| e.to_string()));
             let _ = tx.send(r);
             c.request_repaint();
         });
         self.loading = Some((rx, Instant::now()));
         self.log(format!("Cargando {} archivo(s)…", self.clouds.len()));
+        if let (Some(t), true) = (target, other > 0) {
+            self.log(format!(
+                "{other} nube(s) están en un sistema distinto del de la primera ({}): se pasan a él al cargar, y eso tarda más. La copia convertida queda guardada junto a la original y la próxima vez se carga sin convertir.",
+                rustlidar_core::crs::name(t)
+            ));
+        }
         self.run_info(ctx);
     }
 
@@ -784,19 +1072,22 @@ impl App {
             &rs::render_grid(&shown, &style),
             egui::TextureOptions::LINEAR,
         );
-        self.refs.retain(|r| r.path != path);
-        self.refs.push(RefLayer {
-            name,
-            path,
-            kind: RefKind::Raster {
-                grid: shown,
-                tex,
-                style,
+        self.remove_paths(&path);
+        let k = self.add_ref(
+            RefLayer {
+                name,
+                path,
+                kind: RefKind::Raster {
+                    grid: shown,
+                    tex,
+                    style,
+                },
+                visible: true,
+                opacity: 1.0,
             },
-            visible: true,
-            opacity: 1.0,
-        });
-        self.sel_layer = Some(self.refs.len() - 1);
+            true,
+        );
+        self.sel_layer = Some(k);
         if self.store.is_none() {
             self.plan_fit = true;
         }
@@ -804,13 +1095,49 @@ impl App {
 
     fn poll(&mut self, ctx: &egui::Context) {
         self.poll_images(ctx);
+        // every half minute the log says how far the job is and how long it has left
+        if self.last_progress_log.elapsed() >= Duration::from_secs(30) {
+            let started = self
+                .running
+                .as_ref()
+                .map(|r| (r.label.clone(), r.started))
+                .or_else(|| {
+                    self.loading
+                        .as_ref()
+                        .map(|(_, st)| ("Cargando".to_string(), *st))
+                });
+            if let Some((label, st)) = started {
+                self.last_progress_log = Instant::now();
+                if let Some(p) = progress_text(st) {
+                    self.log(format!("{label}: {p}"));
+                }
+            }
+        }
         if let Some((rx, started)) = &self.loading
             && let Ok(r) = rx.try_recv()
         {
             let secs = started.elapsed().as_secs_f64();
             self.loading = None;
             match r {
-                Ok(s) => {
+                Ok(CloudLoad {
+                    store: s,
+                    files,
+                    notes,
+                }) => {
+                    for n in notes {
+                        self.log(n);
+                    }
+                    self.clouds = files;
+                    // layers that were opened before the cloud are moved to its system now
+                    for q in std::mem::take(&mut self.pending_conform) {
+                        if self.crs_move(&q).is_some() {
+                            self.log(format!(
+                                "«{}» se vuelve a cargar en el sistema de la nube.",
+                                q.display()
+                            ));
+                            self.open_path(ctx, q, false);
+                        }
+                    }
                     let n = s.len();
                     self.log(format!(
                         "{} puntos en pantalla de {} (1 de cada {}) en {secs:.1} s",
@@ -837,7 +1164,7 @@ impl App {
                         yaw: self.orbit.yaw,
                         pitch: self.orbit.pitch,
                         exaggeration: self.orbit.exaggeration,
-                        ..Orbit::fit(s.bounds)
+                        ..Orbit::fit_scene(&s)
                     };
                     self.tin = None;
                     self.query = None;
@@ -876,11 +1203,7 @@ impl App {
             match result {
                 Ok(summary) => {
                     self.log(format!("{label}: {summary}\nhecho en {secs:.2} s"));
-                    for f in show {
-                        if f.is_file() {
-                            self.open_path(ctx, f, false);
-                        }
-                    }
+                    self.load_results(ctx, show, &outputs, &pre);
                 }
                 Err(e) => {
                     if e.contains("cancelado") {
@@ -906,8 +1229,76 @@ impl App {
         }
     }
 
+    /// Loads what a job made, so a result is never left on disk unseen: the files the tool asked
+    /// to show and every raster, vector layer or cloud among its outputs. The first result ends
+    /// up first in the layer list (drawn on top and selected); a result cloud goes first in the
+    /// cloud list.
+    fn load_results(
+        &mut self,
+        ctx: &egui::Context,
+        show: Vec<PathBuf>,
+        outputs: &[PathBuf],
+        pre: &std::collections::HashSet<PathBuf>,
+    ) {
+        const MAX_CLOUDS: usize = 8;
+        let ext = |p: &Path| {
+            p.extension()
+                .map(|e| e.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default()
+        };
+        let mut list: Vec<PathBuf> = Vec::new();
+        for f in show
+            .iter()
+            .chain(outputs.iter().filter(|o| !pre.contains(*o)))
+        {
+            let e = ext(f);
+            let loadable = rustlidar_core::raster::is_raster_ext(&e)
+                || matches!(e.as_str(), "shp" | "geojson" | "gpkg" | "las" | "laz");
+            if f.is_file() && loadable && !list.contains(f) {
+                list.push(f.clone());
+            }
+        }
+        let (clouds, layers): (Vec<PathBuf>, Vec<PathBuf>) =
+            list.into_iter().partition(|f| is_cloud(f));
+        // last loaded is on top: the first result goes last
+        for f in layers.into_iter().rev() {
+            self.open_path(ctx, f, false);
+        }
+        if clouds.is_empty() {
+            return;
+        }
+        if clouds.len() > MAX_CLOUDS {
+            let msg = format!(
+                "El proceso ha dado {} nubes. Se han cargado las {MAX_CLOUDS} primeras en el visor; el resto está en disco, junto a las originales, y puedes abrirlas con Abrir o Añadir.",
+                clouds.len()
+            );
+            self.log(msg.clone());
+            self.notice = Some(msg);
+        }
+        for f in clouds.into_iter().take(MAX_CLOUDS).rev() {
+            if self.clouds.contains(&f) {
+                continue;
+            }
+            self.clouds.insert(0, f);
+            // the visibility bits follow the list: the new first cloud is on
+            self.style.files = self.style.files << 1 | 1;
+        }
+        self.reload(ctx);
+    }
+
+    /// Removes the cloud at `k` from the list, keeping the visibility bits of the others.
+    fn drop_cloud(&mut self, k: usize) {
+        self.clouds.remove(k);
+        if k < 64 {
+            let low = self.style.files & ((1u64 << k) - 1);
+            self.style.files = low | (self.style.files >> (k + 1) << k);
+        }
+    }
+
     fn start(&mut self, ctx: &egui::Context, l: Launch) {
         rustlidar_core::reset_cancel();
+        rustlidar_core::progress::reset();
+        self.last_progress_log = Instant::now();
         let (tx, rx) = channel();
         let c = ctx.clone();
         let task = l.task;
@@ -952,7 +1343,7 @@ impl App {
         let s = &self.style;
         hash_of((
             s.files,
-            s.profile_scale.to_bits(),
+            s.profile_size,
             (
                 s.color_by as u8,
                 s.zmin.to_bits(),
@@ -972,34 +1363,36 @@ impl App {
 
     fn act(&mut self, ctx: &egui::Context, a: Action) {
         match a {
-            Action::OpenClouds => {
-                let files = rfd::FileDialog::new()
-                    .add_filter("Nubes de puntos", &["las", "laz", "xyz", "txt"])
+            Action::Open => {
+                // one door for everything: point clouds, rasters, images and vector layers; what
+                // is opened is added to what is there (Cerrar todo starts again)
+                let mut every = vec!["las", "laz", "ply", "e57", "xyz", "txt"];
+                every.extend(layer_extensions());
+                let files = crate::prefs::dialog()
+                    .add_filter("Todo lo que se puede abrir", &every)
+                    .add_filter(
+                        "Nubes de puntos",
+                        &["las", "laz", "ply", "e57", "xyz", "txt"],
+                    )
+                    .add_filter("Capas (ráster y vectoriales)", &layer_extensions())
                     .pick_files()
                     .unwrap_or_default();
-                if !files.is_empty() {
-                    self.clouds = files;
-                    self.reload(ctx);
-                }
-            }
-            Action::AddClouds => {
-                let files = rfd::FileDialog::new()
-                    .add_filter("Nubes de puntos", &["las", "laz", "xyz", "txt"])
-                    .pick_files()
-                    .unwrap_or_default();
-                if !files.is_empty() {
-                    for f in files {
-                        if !self.clouds.contains(&f) {
-                            self.clouds.push(f);
-                        }
-                    }
-                    self.reload(ctx);
-                }
+                self.open_files(ctx, files);
             }
             Action::CloseAll => {
                 self.clouds.clear();
+                self.crs_cache.clear();
+                // a load still running would bring the cloud back when it finishes
+                self.loading = None;
+                self.info_run = None;
                 self.store = None;
+                self.ed.session = None;
+                self.ed.draft.clear();
+                self.ed.pdraft.clear();
+                self.query = None;
+                self.class_counts = [0; 256];
                 self.refs.clear();
+                self.cloud_slot = 0;
                 self.tin = None;
                 self.profile = None;
                 self.info_text.clear();
@@ -1011,7 +1404,7 @@ impl App {
                     self.show_log = true;
                     return;
                 };
-                if let Some(p) = rfd::FileDialog::new()
+                if let Some(p) = crate::prefs::dialog()
                     .add_filter("PNG", &["png"])
                     .set_file_name("vista.png")
                     .save_file()
@@ -1039,6 +1432,9 @@ impl App {
                 }
             }
             Action::Nav(n) => {
+                if editing::is_select(n) {
+                    self.side = Side::Edit;
+                }
                 self.nav = n;
                 self.profile_clicks.clear();
                 self.dig_draft.clear();
@@ -1056,41 +1452,41 @@ impl App {
                 self.touch();
             }
             Action::PointSize(d) => {
-                self.style.profile_scale =
-                    (self.style.profile_scale * 1.3f64.powi(d)).clamp(0.05, 4.0);
                 self.style.point_size = (self.style.point_size as i32 + d).clamp(1, 12) as usize
             }
-            Action::ToggleTin => {
-                self.tin_on = !self.tin_on;
-                if self.tin_on {
-                    self.show_points = false;
-                }
+            Action::ProfileSize(d) => {
+                self.style.profile_size = (self.style.profile_size as i32 + d).clamp(1, 12) as usize
             }
+            Action::ToggleTin => self.tin_on = !self.tin_on,
             Action::ToggleContours => self.contours_on = !self.contours_on,
             Action::ToggleLog => self.show_log = !self.show_log,
-            Action::LoadLayers => {
-                let files = rfd::FileDialog::new()
-                    .add_filter(
-                        "Capas (ráster y vectoriales)",
-                        &["tif", "tiff", "asc", "shp"],
-                    )
-                    .pick_files()
-                    .unwrap_or_default();
-                for f in files {
-                    self.open_path(ctx, f, false);
+            Action::ToggleBasemap => {
+                let bm = self
+                    .basemap
+                    .get_or_insert_with(|| basemap::Basemap::new(ctx));
+                bm.on = !bm.on;
+                let on = bm.on;
+                if on {
+                    match self.project_crs() {
+                        Some(c) => self.log(format!(
+                            "Mapa base encendido (se coloca en {}). Las teselas se descargan de internet y se guardan una semana en la caché del sistema.",
+                            rustlidar_core::crs::name(c)
+                        )),
+                        None => self.log("Mapa base encendido, pero hace falta abrir una nube que declare su sistema de coordenadas para colocarlo."),
+                    }
                 }
             }
             Action::LoadRaster => {
-                if let Some(p) = rfd::FileDialog::new()
-                    .add_filter("Ráster", &["tif", "tiff", "asc"])
+                if let Some(p) = crate::prefs::dialog()
+                    .add_filter("Ráster", rustlidar_core::raster::EXTENSIONS)
                     .pick_file()
                 {
                     self.add_raster(ctx, &p);
                 }
             }
             Action::LoadVector => {
-                if let Some(p) = rfd::FileDialog::new()
-                    .add_filter("Shapefile", &["shp"])
+                if let Some(p) = crate::prefs::dialog()
+                    .add_filter("Capa vectorial", &["shp", "geojson", "json", "gpkg"])
                     .pick_file()
                 {
                     self.add_vector(&p);
@@ -1128,14 +1524,19 @@ impl App {
                 }) {
                     Some(k) => {
                         self.sel_layer = Some(k);
-                        self.tab = 5;
+                        self.tab = FIRST_EXTRA;
                     }
-                    None => self.log("No hay imágenes cargadas: abre una con «Cargar capas»."),
+                    None => self.log("No hay imágenes cargadas: abre una con «Abrir»."),
                 }
             }
             Action::ImageTool(_) => self.rs.open = true,
             Action::RasterTool(k) => self.rt.open = Some(k),
             Action::Terrain => self.tt.open = true,
+            Action::Obia => self.ot.open = true,
+            Action::Align => self.at.open = true,
+            Action::Change => self.ct.open = true,
+            Action::Model => self.mo.open = true,
+            Action::Corridor => self.co.open = true,
             Action::ClearMarks => {
                 self.measure.clear();
                 self.density = None;
@@ -1163,14 +1564,14 @@ impl App {
             }
             Action::Classes => self.show_classes = !self.show_classes,
             Action::About => self.show_about = true,
+            Action::Shortcuts => self.show_shortcuts = !self.show_shortcuts,
             Action::Manual => self.manual.open = true,
         }
     }
 
     fn commands() -> Vec<(&'static str, Action)> {
         vec![
-            ("Abrir nubes de puntos", Action::OpenClouds),
-            ("Añadir nubes", Action::AddClouds),
+            ("Abrir (nubes, ráster y vectores)", Action::Open),
             ("Cerrar todo", Action::CloseAll),
             ("Guardar vista como PNG", Action::SaveShot),
             ("Zoom a la extensión completa", Action::ZoomFull),
@@ -1193,8 +1594,28 @@ impl App {
             ("Crear imagen multibanda", Action::RasterTool(0)),
             ("Mosaico de rásteres", Action::RasterTool(1)),
             (
+                "Igualar rásteres (mismas celdas que una referencia)",
+                Action::Align,
+            ),
+            (
                 "Análisis de terreno (pendiente, orientación, drenaje, visibilidad…)",
                 Action::Terrain,
+            ),
+            (
+                "OBIA: análisis por objetos (segmentar, describir y clasificar)",
+                Action::Obia,
+            ),
+            (
+                "Cambio forestal entre dos fechas (diferencia de CHM, perturbaciones, crecimiento)",
+                Action::Change,
+            ),
+            (
+                "Modelos de transición (regresión de una variable de campo sobre las métricas LiDAR de las parcelas)",
+                Action::Model,
+            ),
+            (
+                "Corredores eléctricos (conductores, postes y vegetación en riesgo)",
+                Action::Corridor,
             ),
             (
                 "Editar: seleccionar con rectángulo",
@@ -1216,6 +1637,16 @@ impl App {
             ("Cubicar árboles (TLS)", Action::Tool(ToolId::Tls)),
             ("Volúmenes respecto al MDT", Action::Tool(ToolId::Volume)),
             ("Quitar puntos duplicados", Action::Tool(ToolId::Dups)),
+            ("Alturas sobre el suelo", Action::Tool(ToolId::Hag)),
+            (
+                "Colorear la nube con una ortofoto (RGB)",
+                Action::Tool(ToolId::Colorize),
+            ),
+            (
+                "Normalizar la intensidad por distancia",
+                Action::Tool(ToolId::Intensity),
+            ),
+            ("Guardar como COPC", Action::Tool(ToolId::Copc)),
             ("Comparar nubes (cambios)", Action::Tool(ToolId::Compare)),
             ("Ajustar una nube a otra", Action::Tool(ToolId::Fit)),
             ("Separación entre pasadas", Action::Tool(ToolId::Swath)),
@@ -1241,13 +1672,13 @@ impl App {
             ("Colorear por RGB", Action::Color(ColorBy::Rgb)),
             ("TIN sombreado", Action::ToggleTin),
             ("Curvas de nivel", Action::ToggleContours),
-            ("Cargar capas (ráster y shapefile)", Action::LoadLayers),
             ("Cargar ráster de fondo", Action::LoadRaster),
             ("Cargar shapefile de referencia", Action::LoadVector),
             ("Limpiar mediciones y perfil", Action::ClearMarks),
             ("Cambiar tema claro / oscuro", Action::ToggleTheme),
             ("Clases visibles y colores", Action::Classes),
             ("Mostrar u ocultar el registro", Action::ToggleLog),
+            ("Atajos de teclado", Action::Shortcuts),
             ("Acerca de EasyLiDAR", Action::About),
             ("Manual de uso (F1)", Action::Manual),
         ]
@@ -1274,7 +1705,7 @@ impl App {
                     );
                     ui.add_space(8.0);
                     for (icon, tip, a) in [
-                        ("@open", "Abrir nubes (Ctrl+O)", Action::OpenClouds),
+                        ("@open", "Abrir (Ctrl+O)", Action::Open),
                         ("🖼", "Guardar vista PNG", Action::SaveShot),
                         ("@full", "Zoom completo", Action::ZoomFull),
                         ("@prev", "Zoom anterior", Action::ZoomPrev),
@@ -1322,313 +1753,608 @@ impl App {
                         .and_then(|k| self.refs.get(k))
                         .map(|r| &r.kind),
                 );
-                if self.tab >= 5 + extra.len() {
+                if self.tab >= FIRST_EXTRA + extra.len() {
                     self.tab = 0;
                 }
-                let mut names = vec!["Inicio", "Vista", "Edición", "Procesar", "Ayuda"];
+                let mut names = vec!["Inicio", "Vista", "Procesar", "Ayuda"];
                 names.extend_from_slice(extra);
                 let mut tab = self.tab;
-                if ribbon::tab_strip(ui, &t, "Archivo", &names, 5, &mut tab) {
-                    self.act(ctx, Action::OpenClouds);
+                if ribbon::tab_strip(ui, &t, "Archivo", &names, FIRST_EXTRA, &mut tab) {
+                    self.act(ctx, Action::Open);
                 }
                 self.tab = tab;
             });
-        egui::Panel::top("ribbon").exact_size(108.0).frame(egui::Frame::new().fill(t.ribbon).inner_margin(egui::Margin::symmetric(10, 6)).stroke(Stroke::new(1.0, t.border))).show(ui, |ui| {
-            let busy = self.running.is_some();
-            egui::ScrollArea::horizontal().auto_shrink([false, true]).show(ui, |ui| {
-ui.horizontal(|ui| match self.tab {
-                0 => {
-                    ribbon::group(ui, &t, "Archivo", |ui| {
-                        if ribbon::big_button(ui, &t, "@open", "Abrir", false).clicked() {
-                            self.act(ctx, Action::OpenClouds);
-                        }
-                        if ribbon::big_button(ui, &t, "➕", "Añadir", false).clicked() {
-                            self.act(ctx, Action::AddClouds);
-                        }
-                        ui.vertical(|ui| {
-                            if ribbon::small_button(ui, &t, "ℹ", "Información", false).clicked() {
-                                self.act(ctx, Action::Info);
-                            }
-                            if ribbon::small_button(ui, &t, "🖼", "Guardar vista", false).clicked() {
-                                self.act(ctx, Action::SaveShot);
-                            }
-                            if ribbon::small_button(ui, &t, "✖", "Cerrar todo", false).clicked() {
-                                self.act(ctx, Action::CloseAll);
-                            }
-                        });
-                    });
-                    ribbon::group(ui, &t, "Capas", |ui| {
-                        if ribbon::big_button(ui, &t, "🗺", "Cargar\ncapas", false).clicked() {
-                            self.act(ctx, Action::LoadLayers);
-                        }
-                        if ribbon::big_button(ui, &t, "@newlayer", "Nueva\ncapa", false).clicked() {
-                            self.act(ctx, Action::NewLayer);
-                        }
-                        if ribbon::big_button(ui, &t, "@table", "Tabla de\natributos", self.table_layer.is_some()).clicked() {
-                            self.act(ctx, Action::LayerTable);
-                        }
-                        ui.vertical(|ui| {
-                            if ribbon::small_button(ui, &t, "@pencil", "Digitalizar", self.nav == Nav::Digitize).clicked() {
-                                self.act(ctx, Action::Nav(Nav::Digitize));
-                            }
-                            if ribbon::small_button(ui, &t, "@save", "Guardar capa", false).clicked() {
-                                self.act(ctx, Action::SaveLayer);
-                            }
-                        });
-                    });
-                    ribbon::group(ui, &t, "Teledetección", |ui| {
-                        if ribbon::big_button(ui, &t, "@rs", "Composición\nde bandas", false).clicked() {
-                            self.act(ctx, Action::ImageTool(0));
-                        }
-                        if ribbon::big_button(ui, &t, "@bands", "Índices\nespectrales", self.rs.open).clicked() {
-                            self.act(ctx, Action::ImageTool(1));
-                        }
-                        ui.vertical(|ui| {
-                            if ribbon::small_button(ui, &t, "@stack", "Crear multibanda", self.rt.open == Some(0)).clicked() {
-                                self.act(ctx, Action::RasterTool(0));
-                            }
-                            if ribbon::small_button(ui, &t, "@mosaic", "Mosaico", self.rt.open == Some(1)).clicked() {
-                                self.act(ctx, Action::RasterTool(1));
-                            }
-                        });
-                    });
-                    ribbon::group(ui, &t, "Aspecto", |ui| {
-                        if ribbon::big_button(ui, &t, if self.dark { "☀" } else { "🌙" }, "Tema", false).clicked() {
-                            self.act(ctx, Action::ToggleTheme);
-                        }
-                        if ribbon::big_button(ui, &t, "📜", "Registro", self.show_log).clicked() {
-                            self.act(ctx, Action::ToggleLog);
-                        }
-                    });
-                }
-                2 => self.edit_ribbon(ui, &t),
-                3 => {
-                    ribbon::group(ui, &t, "Preparar", |ui| {
-                        if ribbon::big_button(ui, &t, "ℹ", "Información\nde los datos", false).clicked() {
-                            self.act(ctx, Action::Info);
-                        }
-                        if ribbon::big_button(ui, &t, "@crs", "Asignar
-proyección", self.tools.open == Some(ToolId::Crs)).clicked() {
-                            self.act(ctx, Action::Tool(ToolId::Crs));
-                        }
-                        if ribbon::big_button(ui, &t, "@thin", "Adelgazar
-nube", self.tools.open == Some(ToolId::Thin)).clicked() {
-                            self.act(ctx, Action::Tool(ToolId::Thin));
-                        }
-                        if ribbon::big_button(ui, &t, "@classify", "Clasificar\nruido / suelo", self.tools.open == Some(ToolId::Classify)).clicked() {
-                            self.act(ctx, Action::Tool(ToolId::Classify));
-                        }
-                    });
-                    ribbon::group(ui, &t, "Superficies", |ui| {
-                        if ribbon::big_button(ui, &t, "@dtm", "MDT", self.tools.open == Some(ToolId::Dtm)).clicked() {
-                            self.act(ctx, Action::Tool(ToolId::Dtm));
-                        }
-                        if ribbon::big_button(ui, &t, "@chm", "MDS / CHM", self.tools.open == Some(ToolId::Chm)).clicked() {
-                            self.act(ctx, Action::Tool(ToolId::Chm));
-                        }
-                    });
-                    ribbon::group(ui, &t, "Terreno", |ui| {
-                        if ribbon::big_button(ui, &t, "@terrain", "Análisis\nde terreno", self.tt.open).clicked() {
-                            self.act(ctx, Action::Terrain);
-                        }
-                    });
-                    ribbon::group(ui, &t, "Inventario forestal", |ui| {
-                        if ribbon::big_button(ui, &t, "📊", "Métricas\nde rodal", self.tools.open == Some(ToolId::Metrics)).clicked() {
-                            self.act(ctx, Action::Tool(ToolId::Metrics));
-                        }
-                        if ribbon::big_button(ui, &t, "🌲", "Segmentar\nárboles", self.tools.open == Some(ToolId::Trees)).clicked() {
-                            self.act(ctx, Action::Tool(ToolId::Trees));
-                        }
-                        if ribbon::big_button(ui, &t, "✂", "Recortar\nparcelas", self.tools.open == Some(ToolId::Clip)).clicked() {
-                            self.act(ctx, Action::Tool(ToolId::Clip));
-                        }
-                        if ribbon::big_button(ui, &t, "📤", "Exportar\npuntos", self.tools.open == Some(ToolId::Export)).clicked() {
-                            self.act(ctx, Action::Tool(ToolId::Export));
-                        }
-                        if ribbon::big_button(ui, &t, "@tree", "Cubicar\nárboles", self.tools.open == Some(ToolId::Tls)).clicked() {
-                            self.act(ctx, Action::Tool(ToolId::Tls));
-                        }
-                    });
-                    ribbon::group(ui, &t, "Calidad y comparación", |ui| {
-                        for (icon, name, id) in [
-                            ("@dups", "Quitar\nduplicados", ToolId::Dups),
-                            ("@compare", "Comparar\nnubes", ToolId::Compare),
-                            ("@fit", "Ajustar\nnubes", ToolId::Fit),
-                            ("@swath", "Entre\npasadas", ToolId::Swath),
-                        ] {
-                            if ribbon::big_button(ui, &t, icon, name, self.tools.open == Some(id)).clicked() {
-                                self.act(ctx, Action::Tool(id));
-                            }
-                        }
-                    });
-                    ribbon::group(ui, &t, "Volúmenes", |ui| {
-                        if ribbon::big_button(ui, &t, "@volume", "Volumen\nsobre MDT", self.tools.open == Some(ToolId::Volume)).clicked() {
-                            self.act(ctx, Action::Tool(ToolId::Volume));
-                        }
-                    });
-                    if busy {
-                        ui.spinner();
-                    }
-                }
-                1 => {
-                    ribbon::group(ui, &t, "Navegación", |ui| {
-                        for (icon, name, n) in [("🔍", "Zoom", Nav::Zoom), ("✋", "Desplazar", Nav::Pan)] {
-                            if ribbon::big_button(ui, &t, icon, name, self.nav == n).clicked() {
-                                self.act(ctx, Action::Nav(n));
-                            }
-                        }
-                        ui.vertical(|ui| {
-                            if ribbon::small_button(ui, &t, "@full", "Extensión completa", false).clicked() {
-                                self.act(ctx, Action::ZoomFull);
-                            }
-                            if ribbon::small_button(ui, &t, "@prev", "Zoom anterior", false).clicked() {
-                                self.act(ctx, Action::ZoomPrev);
-                            }
-                            if ribbon::small_button(ui, &t, "@clear", "Limpiar marcas", false).clicked() {
-                                self.act(ctx, Action::ClearMarks);
-                            }
-                        });
-                    });
-                    ribbon::group(ui, &t, "Herramientas", |ui| {
-                        for (icon, name, n) in [("❓", "Consultar\n(Q)", Nav::Query), ("📏", "Medir\n(W)", Nav::Measure), ("@density", "Densidad", Nav::Density), ("📈", "Perfil", Nav::Profile)] {
-                            if ribbon::big_button(ui, &t, icon, name, self.nav == n).clicked() {
-                                self.act(ctx, Action::Nav(n));
-                            }
-                        }
-                    });
-                    ribbon::group(ui, &t, "Ventanas", |ui| {
-                        ui.vertical(|ui| {
-                            let names = ["2D", "2D + perfil", "3D", "2D + perfil + 3D"];
-                            let cur = [Layout::Plan, Layout::PlanProfile, Layout::View3d, Layout::All]
-                                .iter()
-                                .position(|l| *l == self.layout)
-                                .unwrap_or(0);
-                            egui::ComboBox::from_id_salt("layout").width(130.0).selected_text(names[cur]).show_ui(ui, |ui| {
-                                for (k, n) in names.iter().enumerate() {
-                                    if ui.selectable_label(k == cur, *n).clicked() {
-                                        self.act(ctx, Action::Layout(k as u8));
+        egui::Panel::top("ribbon")
+            .exact_size(108.0)
+            .frame(
+                egui::Frame::new()
+                    .fill(t.ribbon)
+                    .inner_margin(egui::Margin::symmetric(10, 6))
+                    .stroke(Stroke::new(1.0, t.border)),
+            )
+            .show(ui, |ui| {
+                let busy = self.running.is_some();
+                egui::ScrollArea::horizontal()
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| match self.tab {
+                            0 => {
+                                ribbon::group(ui, &t, "Archivo", |ui| {
+                                    if ribbon::big_button(ui, &t, "@open", "Abrir", false).clicked()
+                                    {
+                                        self.act(ctx, Action::Open);
                                     }
-                                }
-                            });
-                            ui.menu_button("Vista 3D…", |ui| {
-                                if ui.button("Norte arriba (N)").clicked() {
-                                    self.act(ctx, Action::NorthUp);
-                                }
-                                if ui.button("Exageración vertical +").clicked() {
-                                    self.act(ctx, Action::Exaggeration(1));
-                                }
-                                if ui.button("Exageración vertical −").clicked() {
-                                    self.act(ctx, Action::Exaggeration(-1));
-                                }
-                                ui.checkbox(&mut self.follow_plan, "Enlazar con la planta (2D+perfil+3D)");
-                            });
-                        });
-                    });
-                    ribbon::group(ui, &t, "Puntos", |ui| {
-                        ui.vertical(|ui| {
-                            let names = [("Elevación (azul-rojo)", ColorBy::Elevation), ("Elevación (tierra)", ColorBy::ElevationEarth), ("Clasificación", ColorBy::Class), ("Intensidad", ColorBy::Intensity), ("Retorno", ColorBy::Return), ("ID de fuente", ColorBy::Source), ("Archivo", ColorBy::File), ("RGB", ColorBy::Rgb)];
-                            let cur = names.iter().find(|n| n.1 == self.style.color_by).map_or("Colorear por…", |n| n.0);
-                            egui::ComboBox::from_id_salt("colorby").width(160.0).selected_text(cur).show_ui(ui, |ui| {
-                                for (name, c) in names {
-                                    if ui.selectable_label(self.style.color_by == c, name).clicked() {
-                                        self.act(ctx, Action::Color(c));
+                                    ui.vertical(|ui| {
+                                        let recent = prefs::recent();
+                                        let mut reopen = None;
+                                        ribbon::small_menu(
+                                            ui,
+                                            &t,
+                                            "@open",
+                                            "Recientes",
+                                            !recent.is_empty(),
+                                            |ui| {
+                                                for f in &recent {
+                                                    if ui
+                                                        .button(prefs::label(f))
+                                                        .on_hover_text(f.display().to_string())
+                                                        .clicked()
+                                                    {
+                                                        reopen = Some(f.clone());
+                                                    }
+                                                }
+                                                ui.separator();
+                                                if ui.button("Vaciar la lista").clicked() {
+                                                    prefs::clear_recent();
+                                                }
+                                            },
+                                        )
+                                        .on_hover_text("Los últimos archivos abiertos")
+                                        .on_disabled_hover_text("Aún no se ha abierto ningún archivo");
+                                        if let Some(f) = reopen {
+                                            self.open_files(ctx, vec![f]);
+                                        }
+                                        if ribbon::small_button(ui, &t, "ℹ", "Información", false)
+                                            .clicked()
+                                        {
+                                            self.act(ctx, Action::Info);
+                                        }
+                                        if ribbon::small_button(ui, &t, "✖", "Cerrar todo", false)
+                                            .clicked()
+                                        {
+                                            self.act(ctx, Action::CloseAll);
+                                        }
+                                    });
+                                });
+                                ribbon::group(ui, &t, "Vectorial", |ui| {
+                                    if ribbon::big_button(ui, &t, "@newlayer", "Nueva\ncapa", false)
+                                        .clicked()
+                                    {
+                                        self.act(ctx, Action::NewLayer);
                                     }
-                                }
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label("Tamaño");
-                                if ui.button("−").clicked() {
-                                    self.act(ctx, Action::PointSize(-1));
-                                }
-                                if ui.button("+").clicked() {
-                                    self.act(ctx, Action::PointSize(1));
-                                }
-                                ui.checkbox(&mut self.show_points, "Ver");
-                            });
-                        });
-                        ui.vertical(|ui| {
-                            ui.menu_button("Rango de elevación…", |ui| {
-                                let (lo, hi) = self.store.as_ref().map_or((0.0, 1.0), |s| (s.bounds[2], s.bounds[5]));
-                                ui.horizontal(|ui| {
-                                    ui.label("Mín");
-                                    if ui.add(crate::numfield::NumField::new(&mut self.style.zmin).range(lo - 1000.0..=hi).speed(0.5)).changed() {
-                                        self.touch();
+                                    if ribbon::big_button(
+                                        ui,
+                                        &t,
+                                        "@table",
+                                        "Tabla de\natributos",
+                                        self.table_layer.is_some(),
+                                    )
+                                    .clicked()
+                                    {
+                                        self.act(ctx, Action::LayerTable);
                                     }
-                                    ui.label("Máx");
-                                    if ui.add(crate::numfield::NumField::new(&mut self.style.zmax).range(lo..=hi + 1000.0).speed(0.5)).changed() {
-                                        self.touch();
+                                    ui.vertical(|ui| {
+                                        if ribbon::small_button(
+                                            ui,
+                                            &t,
+                                            "@pencil",
+                                            "Digitalizar",
+                                            self.nav == Nav::Digitize,
+                                        )
+                                        .clicked()
+                                        {
+                                            self.act(ctx, Action::Nav(Nav::Digitize));
+                                        }
+                                        if ribbon::small_button(
+                                            ui,
+                                            &t,
+                                            "@save",
+                                            "Guardar capa",
+                                            false,
+                                        )
+                                        .clicked()
+                                        {
+                                            self.act(ctx, Action::SaveLayer);
+                                        }
+                                    });
+                                });
+                                ribbon::group(ui, &t, "Ráster", |ui| {
+                                    if ribbon::big_button(
+                                        ui,
+                                        &t,
+                                        "@rs",
+                                        "Composición\nde bandas",
+                                        false,
+                                    )
+                                    .clicked()
+                                    {
+                                        self.act(ctx, Action::ImageTool(0));
+                                    }
+                                    if ribbon::big_button(
+                                        ui,
+                                        &t,
+                                        "@bands",
+                                        "Índices\nespectrales",
+                                        self.rs.open,
+                                    )
+                                    .clicked()
+                                    {
+                                        self.act(ctx, Action::ImageTool(1));
+                                    }
+                                    ui.vertical(|ui| {
+                                        if ribbon::small_button(
+                                            ui,
+                                            &t,
+                                            "@stack",
+                                            "Crear multibanda",
+                                            self.rt.open == Some(0),
+                                        )
+                                        .clicked()
+                                        {
+                                            self.act(ctx, Action::RasterTool(0));
+                                        }
+                                        if ribbon::small_button(
+                                            ui,
+                                            &t,
+                                            "@mosaic",
+                                            "Mosaico",
+                                            self.rt.open == Some(1),
+                                        )
+                                        .clicked()
+                                        {
+                                            self.act(ctx, Action::RasterTool(1));
+                                        }
+                                        if ribbon::small_button(
+                                            ui,
+                                            &t,
+                                            "@stack",
+                                            "Igualar rásteres",
+                                            self.at.open,
+                                        )
+                                        .clicked()
+                                        {
+                                            self.act(ctx, Action::Align);
+                                        }
+                                    });
+                                });
+                                ribbon::group(ui, &t, "Aspecto", |ui| {
+                                    if ribbon::big_button(
+                                        ui,
+                                        &t,
+                                        if self.dark { "☀" } else { "🌙" },
+                                        "Tema",
+                                        false,
+                                    )
+                                    .clicked()
+                                    {
+                                        self.act(ctx, Action::ToggleTheme);
+                                    }
+                                    if ribbon::big_button(ui, &t, "📜", "Registro", self.show_log)
+                                        .clicked()
+                                    {
+                                        self.act(ctx, Action::ToggleLog);
                                     }
                                 });
-                                if ui.button("Ajustar a los datos").clicked() {
-                                    self.style.zmin = lo;
-                                    self.style.zmax = hi;
+                            }
+                            2 => {
+                                let groups = self.process_groups();
+                                ribbon::adaptive_groups(ui, &t, &groups, |a| self.act(ctx, a));
+                                if busy {
+                                    ui.spinner();
                                 }
-                            });
-                            ui.menu_button("Filtros…", |ui| {
-                                for (k, n) in ["Primeros retornos", "Retornos intermedios", "Últimos retornos", "Retornos únicos"].iter().enumerate() {
-                                    let mut on = self.style.returns & (1 << k) != 0;
-                                    if ui.checkbox(&mut on, *n).changed() {
-                                        self.style.returns ^= 1 << k;
+                            }
+                            1 => {
+                                ribbon::group(ui, &t, "Navegación", |ui| {
+                                    for (icon, name, n) in
+                                        [("🔍", "Zoom", Nav::Zoom), ("✋", "Desplazar", Nav::Pan)]
+                                    {
+                                        if ribbon::big_button(ui, &t, icon, name, self.nav == n)
+                                            .clicked()
+                                        {
+                                            self.act(ctx, Action::Nav(n));
+                                        }
                                     }
-                                }
-                                ui.separator();
-                                if ui.button("Clases y colores…").clicked() {
-                                    self.act(ctx, Action::Classes);
-                                }
-                            });
+                                    ui.vertical(|ui| {
+                                        if ribbon::small_button(
+                                            ui,
+                                            &t,
+                                            "@full",
+                                            "Extensión completa",
+                                            false,
+                                        )
+                                        .clicked()
+                                        {
+                                            self.act(ctx, Action::ZoomFull);
+                                        }
+                                        if ribbon::small_button(
+                                            ui,
+                                            &t,
+                                            "@prev",
+                                            "Zoom anterior",
+                                            false,
+                                        )
+                                        .clicked()
+                                        {
+                                            self.act(ctx, Action::ZoomPrev);
+                                        }
+                                        if ribbon::small_button(
+                                            ui,
+                                            &t,
+                                            "@clear",
+                                            "Limpiar marcas",
+                                            false,
+                                        )
+                                        .clicked()
+                                        {
+                                            self.act(ctx, Action::ClearMarks);
+                                        }
+                                    });
+                                });
+                                ribbon::group(ui, &t, "Ventanas", |ui| {
+                                    ribbon::compact(ui);
+                                    egui::Grid::new("rb_windows")
+                                        .num_columns(2)
+                                        .spacing([8.0, 3.0])
+                                        .show(ui, |ui| {
+                                            ui.label("Disposición");
+                                            let names = ["2D", "2D + perfil", "3D", "2D + perfil + 3D"];
+                                            let cur = [
+                                                Layout::Plan,
+                                                Layout::PlanProfile,
+                                                Layout::View3d,
+                                                Layout::All,
+                                            ]
+                                            .iter()
+                                            .position(|l| *l == self.layout)
+                                            .unwrap_or(0);
+                                            egui::ComboBox::from_id_salt("layout")
+                                                .width(128.0)
+                                                .selected_text(names[cur])
+                                                .show_ui(ui, |ui| {
+                                                    for (k, n) in names.iter().enumerate() {
+                                                        if ui.selectable_label(k == cur, *n).clicked() {
+                                                            self.act(ctx, Action::Layout(k as u8));
+                                                        }
+                                                    }
+                                                })
+                                                .response
+                                                .on_hover_text("Qué vistas se muestran a la vez: planta, perfil y 3D.");
+                                            ui.end_row();
+                                            ui.label("Puntos");
+                                            ribbon::stepper(
+                                                ui,
+                                                "Puntos más pequeños en la planta y el 3D (−)",
+                                                "Puntos más grandes en la planta y el 3D (+)",
+                                                |d| self.act(ctx, Action::PointSize(d)),
+                                            );
+                                            ui.end_row();
+                                            ui.label("3D");
+                                            ui.menu_button("Opciones 3D  ▾", |ui| {
+                                                if ui.button("Norte arriba").clicked() {
+                                                    self.act(ctx, Action::NorthUp);
+                                                }
+                                                if ui.button("Exageración vertical +").clicked() {
+                                                    self.act(ctx, Action::Exaggeration(1));
+                                                }
+                                                if ui.button("Exageración vertical −").clicked() {
+                                                    self.act(ctx, Action::Exaggeration(-1));
+                                                }
+                                                ui.checkbox(
+                                                    &mut self.follow_plan,
+                                                    "Enlazar con la planta (2D+perfil+3D)",
+                                                );
+                                            })
+                                            .response
+                                            .on_hover_text("Norte arriba, exageración vertical y enlace de la vista 3D con la planta.");
+                                            ui.end_row();
+                                        });
+                                });
+                                ribbon::group(ui, &t, "Perfil", |ui| {
+                                    ribbon::compact(ui);
+                                    egui::Grid::new("rb_profile")
+                                        .num_columns(2)
+                                        .spacing([8.0, 3.0])
+                                        .show(ui, |ui| {
+                                            ui.label("Ancho");
+                                            ui.add(
+                                                crate::numfield::NumField::new(&mut self.profile_width)
+                                                    .range(0.5..=1000.0)
+                                                    .speed(0.5)
+                                                    .suffix(" m"),
+                                            )
+                                            .on_hover_text("Ancho de la caja del perfil");
+                                            ui.end_row();
+                                            ui.label("Puntos");
+                                            ribbon::stepper(
+                                                ui,
+                                                "Puntos más pequeños en el perfil (− con el cursor sobre él)",
+                                                "Puntos más grandes en el perfil (+ con el cursor sobre él)",
+                                                |d| self.act(ctx, Action::ProfileSize(d)),
+                                            );
+                                            ui.end_row();
+                                            ui.label("");
+                                            ui.checkbox(&mut self.prof_full, "Sin decimar")
+                                                .on_hover_text("El perfil lee de los archivos los puntos de su caja sin decimar (hasta 6 millones), en segundo plano. Sin esto usa los mismos puntos que la planta y el 3D.");
+                                            ui.end_row();
+                                        });
+                                });
+                                ribbon::group(ui, &t, "Carga de puntos", |ui| {
+                                    ribbon::compact(ui);
+                                    let status = self.store.as_ref().map_or_else(
+                                        || "Aún no hay ninguna nube cargada.".to_string(),
+                                        |st| {
+                                            format!(
+                                                "Ahora: 1 de cada {} ({} de {} puntos).",
+                                                st.stride,
+                                                st.len(),
+                                                st.total
+                                            )
+                                        },
+                                    );
+                                    egui::Grid::new("rb_load")
+                                        .num_columns(2)
+                                        .spacing([8.0, 3.0])
+                                        .show(ui, |ui| {
+                                            ui.label("Máximo");
+                                            ui.add(
+                                                crate::numfield::NumField::new(&mut self.max_points_m)
+                                                    .range(0.5..=200.0)
+                                                    .speed(0.5)
+                                                    .suffix(" M"),
+                                            )
+                                            .on_hover_text(format!("Millones de puntos que se cargan en pantalla; una nube mayor se decima. Pulsa Aplicar para recargar. {status}"));
+                                            ui.end_row();
+                                            ui.label("");
+                                            if ui
+                                                .button("Aplicar")
+                                                .on_hover_text(format!("Vuelve a cargar las nubes con ese máximo. {status}"))
+                                                .clicked()
+                                                && !self.clouds.is_empty()
+                                            {
+                                                self.reload(ctx);
+                                            }
+                                            ui.end_row();
+                                        });
+                                });
+                                ribbon::group(ui, &t, "Visualización", |ui| {
+                                    ribbon::compact(ui);
+                                    ui.vertical(|ui| {
+                                        let names = [
+                                            ("Elevación (azul-rojo)", ColorBy::Elevation),
+                                            ("Elevación (tierra)", ColorBy::ElevationEarth),
+                                            ("Clasificación", ColorBy::Class),
+                                            ("Intensidad", ColorBy::Intensity),
+                                            ("Retorno", ColorBy::Return),
+                                            ("ID de fuente", ColorBy::Source),
+                                            ("Archivo", ColorBy::File),
+                                            ("RGB", ColorBy::Rgb),
+                                        ];
+                                        let cur = names
+                                            .iter()
+                                            .find(|n| n.1 == self.style.color_by)
+                                            .map_or("Colorear por…", |n| n.0);
+                                        ui.horizontal(|ui| {
+                                        ui.label("Color");
+                                        egui::ComboBox::from_id_salt("colorby")
+                                            .width(150.0)
+                                            .selected_text(cur)
+                                            .show_ui(ui, |ui| {
+                                                for (name, c) in names {
+                                                    if ui
+                                                        .selectable_label(
+                                                            self.style.color_by == c,
+                                                            name,
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        self.act(ctx, Action::Color(c));
+                                                    }
+                                                }
+                                            })
+.response
+.on_hover_text("Atributo con el que se colorean los puntos.");
+                                        });
+                                        ui.menu_button("Rango de elevación  ▾", |ui| {
+                                            let (lo, hi) = self
+                                                .store
+                                                .as_ref()
+                                                .map_or((0.0, 1.0), |s| (s.bounds[2], s.bounds[5]));
+                                            ui.horizontal(|ui| {
+                                                ui.label("Mín");
+                                                if ui
+                                                    .add(
+                                                        crate::numfield::NumField::new(
+                                                            &mut self.style.zmin,
+                                                        )
+                                                        .range(lo - 1000.0..=hi)
+                                                        .speed(0.5),
+                                                    )
+                                                    .changed()
+                                                {
+                                                    self.touch();
+                                                }
+                                                ui.label("Máx");
+                                                if ui
+                                                    .add(
+                                                        crate::numfield::NumField::new(
+                                                            &mut self.style.zmax,
+                                                        )
+                                                        .range(lo..=hi + 1000.0)
+                                                        .speed(0.5),
+                                                    )
+                                                    .changed()
+                                                {
+                                                    self.touch();
+                                                }
+                                            });
+                                            if ui.button("Ajustar a los datos").clicked() {
+                                                self.style.zmin = lo;
+                                                self.style.zmax = hi;
+                                            }
+                                        })
+.response
+.on_hover_text("Rango de elevaciones al que se reparte la rampa de color.");
+                                        ui.menu_button("Filtros de retornos y clases  ▾", |ui| {
+                                            for (k, n) in [
+                                                "Primeros retornos",
+                                                "Retornos intermedios",
+                                                "Últimos retornos",
+                                                "Retornos únicos",
+                                            ]
+                                            .iter()
+                                            .enumerate()
+                                            {
+                                                let mut on = self.style.returns & (1 << k) != 0;
+                                                if ui.checkbox(&mut on, *n).changed() {
+                                                    self.style.returns ^= 1 << k;
+                                                }
+                                            }
+                                            ui.separator();
+                                            if ui.button("Clases y colores…").clicked() {
+                                                self.act(ctx, Action::Classes);
+                                            }
+                                        })
+.response
+.on_hover_text("Qué retornos y qué clases se dibujan.");
+                                    });
+                                });
+                                ribbon::group(ui, &t, "Herramientas", |ui| {
+                                    for (icon, name, n) in [
+                                        ("❓", "Consultar", Nav::Query),
+                                        ("@density", "Densidad", Nav::Density),
+                                        ("📈", "Perfil", Nav::Profile),
+                                    ] {
+                                        if ribbon::big_button(ui, &t, icon, name, self.nav == n)
+                                            .clicked()
+                                        {
+                                            self.act(ctx, Action::Nav(n));
+                                        }
+                                    }
+                                    ui.vertical(|ui| {
+                                        if ribbon::small_button(
+                                            ui,
+                                            &t,
+                                            "📏",
+                                            "Medir",
+                                            self.nav == Nav::Measure,
+                                        )
+                                        .clicked()
+                                        {
+                                            self.act(ctx, Action::Nav(Nav::Measure));
+                                        }
+                                        ui.horizontal(|ui| {
+                                        if ribbon::small_button(
+                                            ui,
+                                            &t,
+                                            "@tin",
+                                            "TIN",
+                                            self.tin_on,
+                                        )
+                                        .clicked()
+                                        {
+                                            self.act(ctx, Action::ToggleTin);
+                                        }
+ui.menu_button("⚙", |ui| {
+                                                ui.horizontal(|ui| {
+                                                    ui.label("Equidistancia");
+                                                    ui.add(
+                                                        crate::numfield::NumField::new(
+                                                            &mut self.contour_iv,
+                                                        )
+                                                        .range(0.1..=500.0),
+                                                    );
+                                                    ui.label("m");
+                                                });
+                                                ui.horizontal(|ui| {
+                                                    ui.label("TIN con");
+                                                    let ground = self.tin_classes
+                                                        == ClassSet::from_bits(1 << 2);
+                                                    if ui
+                                                        .selectable_label(ground, "suelo")
+                                                        .clicked()
+                                                    {
+                                                        self.tin_classes =
+                                                            ClassSet::from_bits(1 << 2);
+                                                    }
+                                                    if ui
+                                                        .selectable_label(
+                                                            !ground,
+                                                            "todas las clases",
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        self.tin_classes = ClassSet::all();
+                                                    }
+                                                });
+                                            })
+                                            .response
+                                            .on_hover_text("Opciones del TIN y las curvas");
+                                        });
+                                                                                    if ribbon::small_button(
+                                                ui,
+                                                &t,
+                                                "〰",
+                                                "Curvas de nivel",
+                                                self.contours_on,
+                                            )
+                                            .clicked()
+                                            {
+                                                self.act(ctx, Action::ToggleContours);
+                                            }
+
+
+                                    });
+                                });
+                            }
+                            3 => {
+                                ribbon::group(ui, &t, "Ayuda", |ui| {
+                                    if ribbon::big_button(
+                                        ui,
+                                        &t,
+                                        "@manual",
+                                        "Manual",
+                                        self.manual.open,
+                                    )
+                                    .clicked()
+                                    {
+                                        self.act(ctx, Action::Manual);
+                                    }
+                                    if ribbon::big_button(
+                                        ui,
+                                        &t,
+                                        "@keys",
+                                        "Atajos de\nteclado",
+                                        self.show_shortcuts,
+                                    )
+                                    .clicked()
+                                    {
+                                        self.act(ctx, Action::Shortcuts);
+                                    }
+                                    if ribbon::big_button(ui, &t, "ℹ", "Acerca de", false).clicked()
+                                    {
+                                        self.act(ctx, Action::About);
+                                    }
+                                    if ribbon::big_button(ui, &t, "🔍", "Buscar\ncomando", false)
+                                        .clicked()
+                                    {
+                                        self.palette = Some(String::new());
+                                    }
+                                });
+                            }
+                            _ => self.layer_tab(ui, &t, ctx, self.tab),
                         });
                     });
-                    ribbon::group(ui, &t, "Superficie", |ui| {
-                        if ribbon::big_button(ui, &t, "@tin", "TIN\nsombreado (T)", self.tin_on).clicked() {
-                            self.act(ctx, Action::ToggleTin);
-                        }
-                        if ribbon::big_button(ui, &t, "〰", "Curvas\nde nivel", self.contours_on).clicked() {
-                            self.act(ctx, Action::ToggleContours);
-                        }
-                        ui.vertical(|ui| {
-                            ui.menu_button("Opciones…", |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label("Equidistancia");
-                                    ui.add(crate::numfield::NumField::new(&mut self.contour_iv).range(0.1..=500.0));
-                                    ui.label("m");
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label("TIN con");
-                                    let ground = self.tin_classes == ClassSet::from_bits(1 << 2);
-                                    if ui.selectable_label(ground, "suelo").clicked() {
-                                        self.tin_classes = ClassSet::from_bits(1 << 2);
-                                    }
-                                    if ui.selectable_label(!ground, "todas las clases").clicked() {
-                                        self.tin_classes = ClassSet::all();
-                                    }
-                                });
-                            });
-                        });
-                    });
-                }
-                4 => {
-                    ribbon::group(ui, &t, "Ayuda", |ui| {
-                        if ribbon::big_button(ui, &t, "@manual", "Manual\n(F1)", self.manual.open).clicked() {
-                            self.act(ctx, Action::Manual);
-                        }
-                        if ribbon::big_button(ui, &t, "ℹ", "Acerca de", false).clicked() {
-                            self.act(ctx, Action::About);
-                        }
-                        if ribbon::big_button(ui, &t, "🔍", "Buscar\ncomando", false).clicked() {
-                            self.palette = Some(String::new());
-                        }
-                    });
-                    ui.vertical(|ui| {
-                        ui.label(egui::RichText::new("Atajos").strong());
-                        ui.label("Q consultar · W medir · Z zoom · X desplazar · T TIN · Ctrl+Z deshacer");
-                        ui.label("+ / − tamaño del punto · flechas: mover el perfil · Ctrl+O abrir · Ctrl+K comandos");
-                        ui.label("Zoom: clic acerca ×2, clic derecho aleja, arrastrar = ventana, rueda, botón central = anterior");
-                    });
-                }
-                _ => self.layer_tab(ui, &t, ctx, self.tab),
             });
-});
-        });
     }
 
     fn side_panel(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -1645,17 +2371,30 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
             )
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.side, Side::Layers, "Capas");
+                    ui.selectable_value(&mut self.side, Side::Layers, "Contenido");
                     ui.selectable_value(&mut self.side, Side::Info, "Información");
                     ui.selectable_value(&mut self.side, Side::Edit, "Edición");
                 });
                 ui.separator();
                 match self.side {
-                    Side::Edit => self.edit_side(ui),
+                    Side::Edit => self.edit_side(ui, ctx),
                     Side::Info => {
-                        if ui.button("↻ Analizar de nuevo").clicked() {
-                            self.run_info(ctx);
-                        }
+                        ui.horizontal(|ui| {
+                            if ui.button("↻ Analizar de nuevo").clicked() {
+                                self.run_info(ctx);
+                            }
+                            if ui
+                                .add_enabled(
+                                    !self.info_text.is_empty(),
+                                    egui::Button::new("⧉ Copiar todo"),
+                                )
+                                .on_hover_text("Copia todo el informe al portapapeles")
+                                .clicked()
+                            {
+                                ctx.copy_text(self.info_text.clone());
+                                self.log("Información copiada al portapapeles.");
+                            }
+                        });
                         egui::ScrollArea::both()
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
@@ -1665,127 +2404,27 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
                                     )
                                     .selectable(true)
                                     .wrap_mode(egui::TextWrapMode::Extend),
-                                );
-                            });
-                    }
-                    Side::Layers => {
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            egui::CollapsingHeader::new(format!(
-                                "Nubes de puntos ({})",
-                                self.clouds.len()
-                            ))
-                            .default_open(true)
-                            .id_salt("clouds_header")
-                            .show(ui, |ui| {
-                                let mut remove = None;
-                                for (k, p) in self.clouds.iter().enumerate() {
-                                    ui.horizontal(|ui| {
-                                        let mut on = k >= 64 || self.style.files & (1u64 << k) != 0;
-                                        let width = (ui.available_width() - 34.0).max(40.0);
-                                        let changed = ui
-                                            .scope(|ui| {
-                                                ui.set_max_width(width);
-                                                ui.style_mut().wrap_mode =
-                                                    Some(egui::TextWrapMode::Truncate);
-                                                ui.checkbox(
-                                                    &mut on,
-                                                    p.file_name().map_or(String::new(), |n| {
-                                                        n.to_string_lossy().into_owned()
-                                                    }),
-                                                )
-                                                .on_hover_text(p.display().to_string())
-                                                .changed()
-                                            })
-                                            .inner;
-                                        if changed && k < 64 {
-                                            self.style.files ^= 1u64 << k;
-                                        }
-                                        if ui.small_button("✖").clicked() {
-                                            remove = Some(k);
-                                        }
-                                    });
-                                }
-                                if let Some(k) = remove {
-                                    self.clouds.remove(k);
-                                    if self.clouds.is_empty() {
-                                        self.act(ctx, Action::CloseAll);
-                                    } else {
-                                        self.reload(ctx);
-                                    }
-                                }
-                                ui.checkbox(&mut self.show_points, "Mostrar las nubes de puntos");
-                                ui.horizontal(|ui| {
-                                    ui.label("Puntos en pantalla (M)");
-                                    ui.add(
-                                        crate::numfield::NumField::new(&mut self.max_points_m)
-                                            .range(0.5..=200.0)
-                                            .speed(0.5),
-                                    );
-                                    if ui
-                                        .button("Aplicar")
-                                        .on_hover_text("Vuelve a cargar con esa decimación")
-                                        .clicked()
-                                        && !self.clouds.is_empty()
-                                    {
-                                        self.reload(ctx);
+                                )
+                                .context_menu(|ui| {
+                                    if ui.button("Copiar todo").clicked() {
+                                        ctx.copy_text(self.info_text.clone());
+                                        ui.close();
                                     }
                                 });
-                                if let Some(s) = &self.store {
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "{} de {} puntos (1 de cada {})",
-                                            s.len(),
-                                            s.total,
-                                            s.stride
-                                        ))
-                                        .color(t.weak)
-                                        .size(11.0),
-                                    );
-                                }
-                                if let Some((_, st)) = &self.loading {
-                                    ui.horizontal(|ui| {
-                                        ui.spinner();
-                                        ui.label(format!(
-                                            "cargando… {:.0} s",
-                                            st.elapsed().as_secs_f64()
-                                        ));
-                                    });
-                                }
                             });
-                            egui::CollapsingHeader::new(format!("Capas ({})", self.refs.len()))
-                                .default_open(true)
-                                .show(ui, |ui| self.layers_ui(ui, ctx));
-                            if self.nav == Nav::Profile || self.profile.is_some() {
-                                egui::CollapsingHeader::new("Perfil")
-                                    .default_open(true)
-                                    .show(ui, |ui| {
-                                        ui.horizontal(|ui| {
-                                            ui.label("Ancho de la caja (m)");
-                                            ui.add(
-                                                crate::numfield::NumField::new(
-                                                    &mut self.profile_width,
-                                                )
-                                                .range(0.5..=1000.0)
-                                                .speed(0.5),
-                                            );
-                                        });
-                                        if let Some(p) = &mut self.profile {
-                                            p.width = self.profile_width;
-                                            ui.label(format!(
-                                                "Longitud {:.1} m · ↑/↓ o rueda mueven la caja",
-                                                p.length()
-                                            ));
-                                        }
-                                    });
-                            }
-                        });
                     }
+                    Side::Layers => self.contents_ui(ui, ctx),
                 }
             });
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         let t = self.tokens();
+        // the system of the view: that of the first cloud (the others are brought to it)
+        let system = (!self.clouds.is_empty()).then(|| match self.project_crs() {
+            Some(code) => rustlidar_core::crs::name(code),
+            None => "sin declarar".to_string(),
+        });
         egui::Panel::bottom("status")
             .exact_size(24.0)
             .frame(
@@ -1802,6 +2441,12 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
                         None => "X —   Y —".into(),
                     }));
                     ui.separator();
+                    if let Some(sys) = &system {
+                        ui.label(small(format!("Sistema: {sys}"))).on_hover_text(
+                            "Sistema de coordenadas de la vista: el de la primera nube. Las capas en otro sistema se pasan a este al cargarlas.",
+                        );
+                        ui.separator();
+                    }
                     if let Some(s) = &self.store {
                         ui.label(small(format!(
                             "{} puntos de {} (1 de cada {})",
@@ -1844,16 +2489,18 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
                         ui.separator();
                         ui.spinner();
                         ui.label(small(format!(
-                            "{} · {:.0} s",
+                            "{} · {:.0} s{}",
                             r.label,
-                            r.started.elapsed().as_secs_f64()
+                            r.started.elapsed().as_secs_f64(),
+                            progress_text(r.started).map_or(String::new(), |p| format!(" · {p}"))
                         )));
                     } else if let Some((_, st)) = &self.loading {
                         ui.separator();
                         ui.spinner();
                         ui.label(small(format!(
-                            "cargando… {:.0} s",
-                            st.elapsed().as_secs_f64()
+                            "cargando… {:.0} s{}",
+                            st.elapsed().as_secs_f64(),
+                            progress_text(*st).map_or(String::new(), |p| format!(" · {p}"))
                         )));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -2249,12 +2896,34 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
         // paint: images and grids, TIN, points, vectors, marks
         let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
         self.update_images(ctx, w, h);
-        self.paint_refs(&painter, rect, w, h);
+        // the layers under the point clouds, then the clouds, then the layers over them
+        let slot = self.cloud_slot.min(self.refs.len());
+        // the base map goes under everything
+        let project = if self.basemap.as_ref().is_some_and(|b| b.on) {
+            self.project_crs()
+        } else {
+            None
+        };
+        let plan_now = self.plan;
+        if let Some(bm) = &mut self.basemap
+            && let Some(msg) = bm.paint(ctx, &painter, &plan_now, rect, w, h, project)
+        {
+            painter.text(
+                rect.left_top() + Vec2::new(10.0, 8.0),
+                egui::Align2::LEFT_TOP,
+                msg,
+                egui::FontId::proportional(12.0),
+                Color32::from_rgb(230, 170, 60),
+            );
+        }
+        self.paint_layers(&painter, rect, w, h, 0..slot);
         if let Some(store) = &store {
             if self.tin_on || self.contours_on {
                 self.paint_tin(ctx, &painter, store, rect, w, h);
             }
+            // the TIN and the contours stand where the points would
             if self.show_points
+                && !(self.tin_on || self.contours_on)
                 && let Some((tex, _)) = &self.tex_plan
             {
                 painter.image(tex.id(), rect, uv, Color32::WHITE);
@@ -2264,7 +2933,7 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
             let (px, py) = s.plan.to_screen(x, y, w, h);
             Pos2::new(px as f32, py as f32) + origin
         };
-        self.paint_vectors(&painter, rect, w, h);
+        self.paint_layers(&painter, rect, w, h, slot..self.refs.len());
         self.paint_draft(&painter, pointer, rect, w, h);
         if let Some(bx) = &self.profile {
             let l = bx.length().max(1e-9);
@@ -2564,11 +3233,16 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 0.0, color32(self.style.background));
         let resp = ui.interact(rect, ui.id().with("prof"), Sense::click_and_drag());
+        self.profile_rect = Some(rect);
         let (w, h) = (
             rect.width().max(8.0) as usize,
             rect.height().max(8.0) as usize,
         );
-        if let (Some(store), Some(bx)) = (self.store.clone(), self.profile) {
+        if let Some(p) = &mut self.profile {
+            p.width = self.profile_width;
+        }
+        let pstore = self.profile.and_then(|b| self.profile_store(ctx, &b));
+        if let (Some(store), Some(bx)) = (pstore, self.profile) {
             if resp.hovered() {
                 let step = ui.input(|i| i.smooth_scroll_delta.y);
                 let arrows = ui.input(|i| i.key_pressed(Key::ArrowUp)) as i32
@@ -2594,6 +3268,7 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
                 bx.b[0].to_bits(),
                 bx.b[1].to_bits(),
                 bx.width.to_bits(),
+                Arc::as_ptr(&store) as usize,
             ));
             if self.tex_prof.as_ref().is_none_or(|t| t.1 != key) {
                 let (img, lo, hi) = view::render_profile(&store, &bx, w, h, &self.style);
@@ -2628,12 +3303,32 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
                     rect.right_top() + Vec2::new(-8.0, 6.0),
                     Align2::RIGHT_TOP,
                     format!(
-                        "Z {lo:.1} – {hi:.1} m · longitud {:.1} m · ancho {:.1} m",
+                        "Z {lo:.1} – {hi:.1} m · longitud {:.1} m · ancho {:.1} m · {} puntos{}{}",
                         bx.length(),
-                        bx.width
+                        bx.width,
+                        store.len(),
+                        if store.stride > 1 {
+                            format!(" (1 de cada {})", store.stride)
+                        } else {
+                            String::new()
+                        },
+                        if self.profile_loading() {
+                            " · leyendo todos…"
+                        } else {
+                            ""
+                        }
                     ),
                     FontId::proportional(11.5),
                     t.weak,
+                );
+            }
+            if self.profile_loading() {
+                painter.text(
+                    rect.left_bottom() + Vec2::new(10.0, -8.0),
+                    Align2::LEFT_BOTTOM,
+                    "⏳ Leyendo todos los puntos de la zona; ahora se ven solo los de pantalla…",
+                    FontId::proportional(12.0),
+                    t.accent,
                 );
             }
             if let Some((_, _, lo, hi)) = &self.tex_prof {
@@ -2650,6 +3345,7 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
     /// Navegación 3D: izquierdo gira (sin tope), derecho y central desplazan en el plano de la
     /// pantalla (el punto sigue al cursor), rueda acerca, doble clic centra, teclas como LDV.
     fn nav_3d(&mut self, ui: &egui::Ui, resp: &egui::Response, w: usize, h: usize, b: [f64; 6]) {
+        let store = self.store.clone();
         let mut moved = false;
         let (mods, hovered) = (ui.input(|i| i.modifiers), resp.hovered());
         let d = resp.drag_delta();
@@ -2695,7 +3391,10 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
             }
             if home || resp.double_clicked() {
                 let keep = o.exaggeration;
-                *o = Orbit::fit(b);
+                *o = match &store {
+                    Some(s) => Orbit::fit_scene(s),
+                    None => Orbit::fit(b),
+                };
                 o.exaggeration = keep;
                 moved = true;
             }
@@ -3000,9 +3699,14 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
                 .collect(),
             )
         });
+        // + and − size the dots of the profile when the cursor is over it, else those of 2D and 3D
+        let over_profile = self.profile_rect.take().is_some_and(|r| {
+            ctx.input(|i| i.pointer.hover_pos())
+                .is_some_and(|p| r.contains(p))
+        });
         for k in pressed {
             match (k, ctrl) {
-                (Key::O, true) => self.act(ctx, Action::OpenClouds),
+                (Key::O, true) => self.act(ctx, Action::Open),
                 (Key::K, true) => self.palette = Some(String::new()),
                 (Key::Q, false) => self.act(ctx, Action::Nav(Nav::Query)),
                 (Key::W, false) => self.act(ctx, Action::Nav(Nav::Measure)),
@@ -3010,8 +3714,22 @@ nube", self.tools.open == Some(ToolId::Thin)).clicked() {
                 (Key::X, false) => self.act(ctx, Action::Nav(Nav::Pan)),
                 (Key::T, false) => self.act(ctx, Action::ToggleTin),
                 (Key::N, false) => self.act(ctx, Action::NorthUp),
-                (Key::Plus | Key::Equals, false) => self.act(ctx, Action::PointSize(1)),
-                (Key::Minus, false) => self.act(ctx, Action::PointSize(-1)),
+                (Key::Plus | Key::Equals, false) => self.act(
+                    ctx,
+                    if over_profile {
+                        Action::ProfileSize(1)
+                    } else {
+                        Action::PointSize(1)
+                    },
+                ),
+                (Key::Minus, false) => self.act(
+                    ctx,
+                    if over_profile {
+                        Action::ProfileSize(-1)
+                    } else {
+                        Action::PointSize(-1)
+                    },
+                ),
                 (Key::F1, _) => self.manual.open = true,
                 (Key::Escape, _) => {
                     self.dig_draft.clear();
@@ -3073,9 +3791,7 @@ impl eframe::App for App {
                 .map(|f| f.path().to_path_buf())
                 .collect()
         });
-        for p in dropped {
-            self.open_path(&ctx, p, false);
-        }
+        self.open_files(&ctx, dropped);
         self.keys(&ctx);
         self.header(ui, &ctx);
         self.ribbon(ui, &ctx);
@@ -3104,6 +3820,7 @@ impl eframe::App for App {
                     | ToolId::Export
                     | ToolId::Thin
                     | ToolId::Dups
+                    | ToolId::Hag
                     | ToolId::Compare
                     | ToolId::Fit
             )
@@ -3132,12 +3849,35 @@ impl eframe::App for App {
             self.log(m);
             self.show_log = true;
         }
+        if let Some(msg) = self.notice.clone() {
+            let mut close = false;
+            egui::Window::new("Aviso")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+                .fixed_size([380.0, 0.0])
+                .show(&ctx, |ui| {
+                    ui.label(&msg);
+                    ui.add_space(6.0);
+                    if ui.button("Entendido").clicked() {
+                        close = true;
+                    }
+                });
+            if close {
+                self.notice = None;
+            }
+        }
         self.palette_window(&ctx);
         self.new_layer_window(&ctx);
         self.table_window(&ctx);
         self.rs_window(&ctx);
         self.raster_tools_window(&ctx);
         self.terrain_window(&ctx);
+        self.obia_window(&ctx);
+        self.align_window(&ctx);
+        self.change_window(&ctx);
+        self.model_window(&ctx);
+        self.corridor_window(&ctx);
         if !self.ed.cmds.is_empty() || self.ed.want_save {
             ctx.request_repaint();
         }
@@ -3187,6 +3927,71 @@ impl eframe::App for App {
                 });
             self.show_about = open;
         }
+        if self.show_shortcuts {
+            let mut open = true;
+            egui::Window::new("Atajos de teclado")
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .show(&ctx, |ui| {
+                    egui::Grid::new("shortcuts")
+                        .num_columns(2)
+                        .spacing([24.0, 4.0])
+                        .show(ui, |ui| {
+                            for (k, d) in [
+                                ("Ctrl+O", "Abrir nubes"),
+                                ("Ctrl+K", "Buscar comando"),
+                                ("F1", "Manual"),
+                                ("Z / X", "Zoom / desplazar"),
+                                ("Q / W", "Consultar / medir"),
+                                ("T", "TIN sombreado"),
+                                ("N", "Norte arriba (vista 3D)"),
+                                ("+ / −", "Tamaño del punto"),
+                                ("Flechas", "Mover el perfil"),
+                                ("Clic / clic derecho", "Zoom: acerca ×2 / aleja"),
+                                ("Arrastrar · rueda", "Zoom: ventana / continuo"),
+                                ("Botón central", "Zoom anterior"),
+                                ("Ctrl+Z / Ctrl+Y", "Deshacer / rehacer (edición)"),
+                                ("Ctrl+A / Ctrl+I", "Seleccionar todo / invertir"),
+                                ("Esc", "Quitar la selección"),
+                                ("Supr", "Eliminar los puntos seleccionados"),
+                                ("Mayús", "Selección: añadir"),
+                                ("Alt", "Selección: restar"),
+                                ("Ctrl", "Selección: intersecar"),
+                            ] {
+                                ui.label(egui::RichText::new(k).strong());
+                                ui.label(d);
+                                ui.end_row();
+                            }
+                        });
+                });
+            self.show_shortcuts = open;
+        }
         self.manual.window(&ctx);
     }
+}
+
+/// "42 % · quedan ~ 3 min 20 s" for a job started at `started`, when it says how far it is.
+fn progress_text(started: Instant) -> Option<String> {
+    let f = rustlidar_core::progress::fraction()?;
+    let elapsed = started.elapsed().as_secs_f64();
+    // too early for a steady rate: show the share only
+    if f < 0.02 || elapsed < 5.0 {
+        return Some(format!("{:.0} %", f * 100.0));
+    }
+    let left = (elapsed * (1.0 - f) / f).round() as u64;
+    let (m, s) = (left / 60, left % 60);
+    let when = match (left / 3600, m % 60) {
+        (0, 0) => format!("{s} s"),
+        (0, m) => format!("{m} min {s:02} s"),
+        (h, m) => format!("{h} h {m:02} min"),
+    };
+    Some(format!("{:.0} % · quedan ~ {when}", f * 100.0))
+}
+
+/// Extensions of everything the Layers dialog opens.
+fn layer_extensions() -> Vec<&'static str> {
+    let mut v = rustlidar_core::raster::EXTENSIONS.to_vec();
+    v.extend(["shp", "geojson", "json", "gpkg"]);
+    v
 }

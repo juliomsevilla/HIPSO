@@ -5,6 +5,7 @@ use crate::axelsson::{self, AxelssonParams};
 use crate::buildings::{self, BuildingParams};
 use crate::csf::{self, CsfParams};
 use crate::extras::{self, Extras};
+use crate::footprint::Footprint;
 use crate::grid::{Grid, MeanGrid};
 use crate::ground::{GroundFilter, GroundParams};
 use crate::idw;
@@ -13,6 +14,7 @@ use crate::mcc::{self, MccParams};
 use crate::noise::{self, NoiseParams};
 use crate::pmf::{self, PmfParams};
 use crate::rules::{self, ClassRule};
+use crate::smrf::{self, SmrfParams};
 use crate::tile::{Layout, Tile, Tiled};
 use crate::{Error, Result, tin};
 
@@ -23,7 +25,7 @@ pub const UNCLASSIFIED: u8 = 1;
 /// How ground points are found.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Ground {
-    /// FUSION's GroundFilter (Kraus & Pfeifer).
+    /// Kraus & Pfeifer iterative filter.
     Fusion(GroundParams),
     /// Multiscale Curvature Classification.
     Mcc(MccParams),
@@ -31,6 +33,8 @@ pub enum Ground {
     Csf(CsfParams),
     /// Progressive Morphological Filter.
     Pmf(PmfParams),
+    /// Simple Morphological Filter (Pingel et al. 2013).
+    Smrf(SmrfParams),
     /// Progressive TIN densification (Axelsson).
     Axelsson(AxelssonParams),
     /// The points already classified as ground (class 2).
@@ -40,7 +44,7 @@ pub enum Ground {
 /// How noise is found.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Noise {
-    /// Isolated points in a 3 x 3 x 3 block of cells (lasnoise, lidR's ivf).
+    /// Isolated points in a 3 x 3 x 3 block of cells .
     Isolated(NoiseParams),
     /// Statistical outlier removal on the mean distance to the k nearest neighbours.
     Sor { k: usize, m: f64 },
@@ -134,6 +138,7 @@ fn classify_tile(work: &mut Points, s: &Steps) -> Result<TileClasses> {
         Ground::Mcc(p) => mcc::ground(&work.pts, p),
         Ground::Csf(p) => csf::ground(&work.pts, p)?,
         Ground::Pmf(p) => pmf::ground(&work.pts, p),
+        Ground::Smrf(p) => smrf::ground(&work.pts, p),
         Ground::Axelsson(p) => axelsson::ground(&work.pts, p)?,
         Ground::Classes => work
             .pts
@@ -205,7 +210,7 @@ pub fn classify(
     let readers = open_all(inputs)?;
     let template = readers
         .first()
-        .ok_or_else(|| Error::Param("no input files".into()))?;
+        .ok_or_else(|| Error::Param("no hay archivos de entrada".into()))?;
     let layout = Layout::new(union(&readers), t.size, t.buffer, 1.0)?;
     let tiled = Tiled::spool(&readers, layout)?;
     let format = tiled.header.format;
@@ -274,7 +279,7 @@ pub fn classify(
 /// How the DTM is made from the ground points.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Surface {
-    /// Mean elevation of the ground points in each cell (FUSION's GridSurfaceCreate).
+    /// Mean elevation of the ground points in each cell (mean surface).
     Mean,
     /// Interpolated on a Delaunay triangulation of the ground points.
     Tin,
@@ -289,18 +294,23 @@ pub fn dtm(
     s: &Steps,
     surface: Surface,
     t: &Tiling,
+    breaklines: Option<&crate::breaklines::Breaklines>,
 ) -> Result<(Grid, Report, Option<u16>)> {
     let readers = open_all(inputs)?;
     let epsg = readers.first().and_then(|r| r.header.epsg);
     let b = union(&readers);
     let layout = Layout::new(b, t.size, t.buffer, cell)?;
     let mut out = Grid::covering(b, cell)?;
+    let fp = Footprint::new(b, cell);
     let mut tiled = Tiled::spool(&readers, layout)?;
     tiled.keep_records = false;
     let mut report = Report::default();
     tiled.process(
         t.threads,
         |mut tile: Tile| {
+            for q in tile.points.pts.iter().filter(|q| !q.is_noise()) {
+                fp.add(q.x, q.y);
+            }
             let TileClasses { class, ground, .. } = classify_tile(&mut tile.points, s)?;
             let e = tile.core;
             let cols = ((e[2] - e[0]) / cell).round() as usize;
@@ -314,8 +324,8 @@ pub fn dtm(
                     }
                     g = m.finish();
                 }
-                Surface::Tin => {
-                    let pts: Vec<[f64; 3]> = tile
+                Surface::Tin | Surface::Idw => {
+                    let mut pts: Vec<[f64; 3]> = tile
                         .points
                         .pts
                         .iter()
@@ -323,18 +333,15 @@ pub fn dtm(
                         .filter(|(_, g)| **g)
                         .map(|(q, _)| [q.x, q.y, q.z])
                         .collect();
-                    tin::rasterize(&pts, &mut g);
-                }
-                Surface::Idw => {
-                    let pts: Vec<[f64; 3]> = tile
-                        .points
-                        .pts
-                        .iter()
-                        .zip(&ground)
-                        .filter(|(_, g)| **g)
-                        .map(|(q, _)| [q.x, q.y, q.z])
-                        .collect();
-                    idw::rasterize(&pts, &mut g, false);
+                    if let Some(lines) = breaklines {
+                        let b = tile.points.bounds;
+                        lines.apply(&mut pts, [b[0], b[1], b[3], b[4]], cell);
+                    }
+                    if surface == Surface::Tin {
+                        tin::rasterize(&pts, &mut g);
+                    } else {
+                        idw::rasterize(&pts, &mut g, false);
+                    }
                 }
             }
             let mut r = Report {
@@ -381,9 +388,10 @@ pub fn dtm(
         },
     )?;
     if report.ground == 0 {
-        return Err(Error::Param("no ground point found".into()));
+        return Err(Error::Param("no se encuentra ningún punto de suelo".into()));
     }
     out.fill_holes();
+    fp.apply(&mut out);
     Ok((out, report, epsg))
 }
 
@@ -418,11 +426,15 @@ pub fn chm_pitfree(
     let b = union(&readers);
     let layout = Layout::new(b, t.size, t.buffer, cell)?;
     let mut out = Grid::covering(b, cell)?;
+    let fp = Footprint::new(b, cell);
     let mut tiled = Tiled::spool(&readers, layout)?;
     tiled.keep_records = false;
     tiled.process(
         t.threads,
         |tile: Tile| {
+            for q in tile.points.pts.iter().filter(|q| !q.is_noise()) {
+                fp.add(q.x, q.y);
+            }
             let e = tile.core;
             let cols = ((e[2] - e[0]) / cell).round() as usize;
             let rows = ((e[3] - e[1]) / cell).round() as usize;
@@ -467,6 +479,7 @@ pub fn chm_pitfree(
         },
     )?;
     out.fill_holes();
+    fp.apply(&mut out);
     Ok((out, epsg))
 }
 
@@ -483,11 +496,15 @@ pub fn dsm(
     let b = union(&readers);
     let layout = Layout::new(b, t.size, t.buffer, cell)?;
     let mut out = Grid::covering(b, cell)?;
+    let fp = Footprint::new(b, cell);
     let mut tiled = Tiled::spool(&readers, layout)?;
     tiled.keep_records = false;
     tiled.process(
         t.threads,
         |tile: Tile| {
+            for q in tile.points.pts.iter().filter(|q| !q.is_noise()) {
+                fp.add(q.x, q.y);
+            }
             let e = tile.core;
             let cols = ((e[2] - e[0]) / cell).round() as usize;
             let rows = ((e[3] - e[1]) / cell).round() as usize;
@@ -521,5 +538,6 @@ pub fn dsm(
         },
     )?;
     out.fill_holes();
+    fp.apply(&mut out);
     Ok((out, epsg))
 }

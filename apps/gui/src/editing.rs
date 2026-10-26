@@ -17,6 +17,8 @@ pub enum Cmd {
     Reclass(u8),
     Undo,
     Redo,
+    /// Switches the edit of the history at this position off or on.
+    Toggle(usize),
     Discard,
 }
 
@@ -40,6 +42,8 @@ pub struct Editing {
     pub i_hi: String,
     /// Edits already written to a file.
     pub saved: usize,
+    /// An edit was switched off or on since the last save.
+    pub toggled: bool,
     pub want_save: bool,
     /// Save without asking where (command-line `--save-edited`).
     pub auto_save: bool,
@@ -65,6 +69,7 @@ impl Default for Editing {
             i_lo: String::new(),
             i_hi: String::new(),
             saved: 0,
+            toggled: false,
             want_save: false,
             auto_save: false,
         }
@@ -389,6 +394,8 @@ impl App {
                 "{} cambio(s) sin guardar",
                 ses.edits.len() - self.ed.saved
             ));
+        } else if self.ed.toggled {
+            parts.push("cambios sin guardar".into());
         }
         (!parts.is_empty()).then(|| parts.join(" · "))
     }
@@ -450,26 +457,29 @@ impl App {
                             format!("Clase {k} ({}) a {n} puntos", self.ctable.name(k))
                         }
                     };
-                    let e = Edit {
-                        sel: std::mem::take(&mut self.ed.ops),
-                        action,
-                        label: label.clone(),
-                    };
+                    let e = Edit::new(std::mem::take(&mut self.ed.ops), action, label.clone());
                     if let Some(ses) = &mut self.ed.session {
                         ses.apply(store, e);
                     }
                     self.log.push(format!("Edición: {label} (en pantalla)"));
                     edited = true;
                 }
-                Cmd::Undo | Cmd::Redo | Cmd::Discard => {
+                Cmd::Undo | Cmd::Redo | Cmd::Discard | Cmd::Toggle(_) => {
                     self.ed.ops.clear();
                     if let Some(ses) = &mut self.ed.session {
                         match c {
                             Cmd::Undo => edited |= ses.undo(store),
                             Cmd::Redo => edited |= ses.redo(store),
+                            Cmd::Toggle(k) => {
+                                if ses.toggle(store, k) {
+                                    self.ed.toggled = true;
+                                    edited = true;
+                                }
+                            }
                             _ => {
                                 ses.discard(store);
                                 self.ed.saved = 0;
+                                self.ed.toggled = false;
                                 edited = true;
                             }
                         }
@@ -503,7 +513,13 @@ impl App {
             self.log.push("No hay cambios que guardar.".into());
             return;
         }
-        let edits = ses.edits.clone();
+        let edits = ses.active();
+        if edits.is_empty() {
+            self.log
+                .push("Todas las ediciones están desactivadas: no hay nada que guardar.".into());
+            return;
+        }
+        let saved_len = ses.edits.len();
         let inputs: Vec<PathBuf> = self
             .clouds
             .iter()
@@ -526,7 +542,7 @@ impl App {
             let auto =
                 rustlidar_core::paths::unique(&rustlidar_core::paths::product(i, "editada", &ext));
             let out = if inputs.len() == 1 && !self.ed.auto_save {
-                match rfd::FileDialog::new()
+                match crate::prefs::dialog()
                     .add_filter("LAS/LAZ", &["las", "laz"])
                     .set_directory(auto.parent().unwrap_or(Path::new(".")))
                     .set_file_name(
@@ -543,7 +559,8 @@ impl App {
             };
             pairs.push((i.clone(), out));
         }
-        self.ed.saved = edits.len();
+        self.ed.saved = saved_len;
+        self.ed.toggled = false;
         let outputs: Vec<PathBuf> = pairs.iter().map(|p| p.1.clone()).collect();
         let launch = Launch {
             outputs,
@@ -601,115 +618,6 @@ impl App {
         }
     }
 
-    // ---------------------------------------------------------------------------- ribbon
-
-    pub fn edit_ribbon(&mut self, ui: &mut egui::Ui, t: &Tokens) {
-        let has = self.store.is_some();
-        ribbon::group(ui, t, "Navegación", |ui| {
-            for (icon, name, n) in [("🔍", "Zoom", Nav::Zoom), ("✋", "Desplazar", Nav::Pan)] {
-                if ribbon::big_button(ui, t, icon, name, self.nav == n).clicked() {
-                    self.nav = n;
-                    self.ed.draft.clear();
-                    self.ed.pdraft.clear();
-                }
-            }
-            ui.vertical(|ui| {
-                if ribbon::small_button(ui, t, "@full", "Extensión completa", false).clicked() {
-                    self.prev_plans.push(self.plan);
-                    self.plan_fit = true;
-                }
-                if ribbon::small_button(ui, t, "@prev", "Zoom anterior", false).clicked()
-                    && let Some(p) = self.prev_plans.pop()
-                {
-                    self.plan = p;
-                }
-            });
-        });
-        ribbon::group(ui, t, "Selección", |ui| {
-            for (icon, name, n) in [
-                ("@selrect", "Rectángulo", Nav::SelRect),
-                ("@aoi", "Polígono", Nav::SelPoly),
-                ("@lasso", "Lazo", Nav::SelLasso),
-                ("@circle", "Círculo", Nav::SelCircle),
-            ] {
-                if ribbon::big_button(ui, t, icon, name, self.nav == n).clicked() {
-                    self.nav = n;
-                    self.ed.draft.clear();
-                    self.ed.pdraft.clear();
-                }
-            }
-            ui.vertical(|ui| {
-                if ribbon::small_button(ui, t, "@selall", "Todo (Ctrl+A)", false).clicked() && has {
-                    self.queue(Cmd::All);
-                }
-                if ribbon::small_button(ui, t, "@invert", "Invertir (Ctrl+I)", false).clicked()
-                    && has
-                {
-                    self.queue(Cmd::Invert);
-                }
-                if ribbon::small_button(ui, t, "@clear", "Quitar (Esc)", false).clicked() {
-                    self.queue(Cmd::Clear);
-                }
-            });
-        });
-        ribbon::group(ui, t, "Combinar con la selección", |ui| {
-            ui.vertical(|ui| {
-                for (m, n) in [
-                    (Mode::New, "Nueva"),
-                    (Mode::Add, "Añadir (Mayús)"),
-                    (Mode::Subtract, "Restar (Alt)"),
-                    (Mode::Intersect, "Intersecar (Ctrl)"),
-                ] {
-                    ui.radio_value(&mut self.ed.mode, m, n);
-                }
-            });
-        });
-        ribbon::group(ui, t, "Estadística", |ui| {
-            if ribbon::big_button(ui, t, "@hist", "Histogramas", self.ed.hist.open).clicked() && has
-            {
-                self.ed.hist.open = !self.ed.hist.open;
-            }
-        });
-        ribbon::group(ui, t, "Editar", |ui| {
-            if ribbon::big_button(ui, t, "@trash", "Eliminar\n(Supr)", false).clicked() {
-                self.queue(Cmd::Delete);
-            }
-            if ribbon::big_button(ui, t, "@reclass", "Cambiar\nclase", false).clicked() {
-                self.queue(Cmd::Reclass(self.ed.class));
-            }
-            // two rows per column: the group is 70 px high, and a third pushes its caption down
-            ui.vertical(|ui| self.class_combo(ui));
-            ui.vertical(|ui| {
-                if ribbon::small_button(ui, t, "@prev", "Deshacer (Ctrl+Z)", false).clicked() {
-                    self.queue(Cmd::Undo);
-                }
-                if ribbon::small_button(ui, t, "@redo", "Rehacer (Ctrl+Y)", false).clicked() {
-                    self.queue(Cmd::Redo);
-                }
-            });
-        });
-        ribbon::group(ui, t, "Guardar", |ui| {
-            let dirty = self
-                .ed
-                .session
-                .as_ref()
-                .is_some_and(|s| s.edits.len() > self.ed.saved);
-            if ribbon::big_button(ui, t, "@save", "Guardar nube\neditada", dirty).clicked() {
-                self.ed.want_save = true;
-            }
-            ui.vertical(|ui| {
-                if ribbon::small_button(ui, t, "@clear", "Descartar cambios", false).clicked() {
-                    self.queue(Cmd::Discard);
-                }
-                ui.label(
-                    egui::RichText::new(self.edit_status().unwrap_or_else(|| "sin cambios".into()))
-                        .size(11.0)
-                        .color(t.weak),
-                );
-            });
-        });
-    }
-
     pub fn class_combo(&mut self, ui: &mut egui::Ui) {
         let present = self.class_counts;
         egui::ComboBox::from_id_salt("target_class")
@@ -724,7 +632,9 @@ impl App {
                     let label = format!("{c} · {}", self.ctable.name(c));
                     ui.selectable_value(&mut self.ed.class, c, label);
                 }
-            });
+            })
+            .response
+            .on_hover_text("Clase que se asigna con «Cambiar clase».");
         let mut code = i32::from(self.ed.class);
         if ui
             .add(
@@ -741,35 +651,253 @@ impl App {
 
     // ---------------------------------------------------------------------------- side tab
 
-    pub fn edit_side(&mut self, ui: &mut egui::Ui) {
+    /// The editing panel: every tool of point editing in one place, beside the ribbon, so the
+    /// View tools and these can be at hand together.
+    pub fn edit_side(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let t = self.tokens();
         if self.store.is_none() {
             ui.label("Abre una nube para editar sus puntos.");
             return;
         }
-        ui.label(egui::RichText::new("Elige una herramienta de selección en la pestaña Edición y dibuja sobre la planta o el perfil. Las ediciones se aplican a todos los puntos del archivo al guardar, no solo a los que se ven.").size(11.0).color(t.weak));
-        ui.separator();
-        ui.label(
-            egui::RichText::new(format!(
-                "Selección: {} puntos en pantalla (≈ {} en el archivo)",
-                self.ed.sel_count,
-                self.ed.sel_count as u64 * self.store.as_ref().map_or(1, |s| s.stride)
-            ))
-            .strong(),
+        let dirty = self
+            .ed
+            .session
+            .as_ref()
+            .is_some_and(|s| s.edits.len() > self.ed.saved || self.ed.toggled);
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("Las ediciones se aplican a todos los puntos del archivo al guardar, no solo a los que se ven.").size(11.0).color(t.weak));
+                egui::CollapsingHeader::new(egui::RichText::new("Selección").strong())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = Vec2::splat(2.0);
+                            for (icon, name, n) in [
+                                ("@selrect", "Seleccionar con rectángulo", Nav::SelRect),
+                                ("@aoi", "Seleccionar con polígono", Nav::SelPoly),
+                                ("@lasso", "Seleccionar con lazo", Nav::SelLasso),
+                                ("@circle", "Seleccionar con círculo", Nav::SelCircle),
+                            ] {
+                                if ribbon::tool_button(ui, &t, icon, name, self.nav == n).clicked()
+                                {
+                                    self.act(ctx, Action::Nav(n));
+                                }
+                            }
+                        });
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = Vec2::splat(2.0);
+                            if ribbon::small_button(ui, &t, "@selall", "Todo", false).clicked() {
+                                self.queue(Cmd::All);
+                            }
+                            if ribbon::small_button(ui, &t, "@invert", "Invertir", false).clicked()
+                            {
+                                self.queue(Cmd::Invert);
+                            }
+                            if ribbon::small_button(ui, &t, "@deselect", "Quitar", false).clicked() {
+                                self.queue(Cmd::Clear);
+                            }
+                        });
+                        ui.label(
+                            egui::RichText::new("Combinar selección")
+                                .size(11.0)
+                                .color(t.weak),
+                        );
+                        ui.horizontal_wrapped(|ui| {
+                            for (m, n) in [
+                                (Mode::New, "Nueva"),
+                                (Mode::Add, "Añadir"),
+                                (Mode::Subtract, "Restar"),
+                                (Mode::Intersect, "Intersecar"),
+                            ] {
+                                ui.radio_value(&mut self.ed.mode, m, n).on_hover_text(match m {
+                                    Mode::New => "La nueva selección sustituye a la anterior.",
+                                    Mode::Add => "Suma los puntos nuevos a la selección (Mayús).",
+                                    Mode::Subtract => "Resta los puntos nuevos de la selección (Alt).",
+                                    _ => "Deja solo los puntos que están en las dos selecciones (Ctrl).",
+                                });
+                            }
+                        });
+                        if ribbon::small_button(
+                            ui,
+                            &t,
+                            "📤",
+                            "Exportar puntos…",
+                            self.tools.open == Some(ToolId::Export),
+                        )
+                        .clicked()
+                        {
+                            self.act(ctx, Action::Tool(ToolId::Export));
+                        }
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Seleccionados: {} puntos en pantalla (≈ {} en el archivo)",
+                                self.ed.sel_count,
+                                self.ed.sel_count as u64
+                                    * self.store.as_ref().map_or(1, |s| s.stride)
+                            ))
+                            .strong(),
+                        );
+                        self.attr_filter(ui, &t);
+                    });
+                egui::CollapsingHeader::new(egui::RichText::new("Editar").strong())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = Vec2::splat(2.0);
+                            if ribbon::small_button(ui, &t, "@trash", "Eliminar", false)
+                                .clicked()
+                            {
+                                self.queue(Cmd::Delete);
+                            }
+                            if ribbon::small_button(ui, &t, "@reclass", "Cambiar clase", false)
+                                .clicked()
+                            {
+                                self.queue(Cmd::Reclass(self.ed.class));
+                            }
+                        });
+                        self.class_combo(ui);
+                        ui.horizontal_wrapped(|ui| {
+                            for (c, n) in [
+                                (2u8, "Suelo"),
+                                (3, "Veg. baja"),
+                                (4, "Veg. media"),
+                                (5, "Veg. alta"),
+                                (6, "Edificio"),
+                                (7, "Ruido"),
+                                (1, "Sin clasificar"),
+                            ] {
+                                if ui
+                                    .small_button(n)
+                                    .on_hover_text(format!(
+                                        "Asigna la clase {c} ({}) a los puntos seleccionados.",
+                                        self.ctable.name(c)
+                                    ))
+                                    .clicked()
+                                {
+                                    self.ed.class = c;
+                                    self.queue(Cmd::Reclass(c));
+                                }
+                            }
+                        });
+                        ui.separator();
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = Vec2::splat(2.0);
+                            if ribbon::small_button(
+                                ui,
+                                &t,
+                                "@dups",
+                                "Quitar duplicados",
+                                self.tools.open == Some(ToolId::Dups),
+                            )
+                            .clicked()
+                            {
+                                self.tools.open = Some(ToolId::Dups);
+                            }
+                            if ribbon::small_button(
+                                ui,
+                                &t,
+                                "@hist",
+                                "Histogramas",
+                                self.ed.hist.open,
+                            )
+                            .clicked()
+                            {
+                                self.ed.hist.open = !self.ed.hist.open;
+                            }
+                        });
+                        ui.separator();
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = Vec2::splat(2.0);
+                            if ribbon::small_button(
+                                ui,
+                                &t,
+                                "@save",
+                                "Guardar nube editada…",
+                                dirty,
+                            )
+                            .clicked()
+                            {
+                                self.ed.want_save = true;
+                            }
+                            if ribbon::small_button(ui, &t, "@discard", "Descartar todo", false)
+                                .clicked()
+                            {
+                                self.queue(Cmd::Discard);
+                            }
+                        });
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = Vec2::splat(2.0);
+                            if ribbon::small_button(ui, &t, "@undo", "Deshacer", false).clicked() {
+                                self.queue(Cmd::Undo);
+                            }
+                            if ribbon::small_button(ui, &t, "@redo", "Rehacer", false).clicked() {
+                                self.queue(Cmd::Redo);
+                            }
+                        });
+                        ui.label(
+                            egui::RichText::new(
+                                self.edit_status().unwrap_or_else(|| "sin cambios".into()),
+                            )
+                            .size(11.0)
+                            .color(t.weak),
+                        );
+                    });
+                self.history(ui, &t);
+            });
+    }
+
+    /// The edit history. Each step has a box: clearing it undoes that edit alone and leaves the
+    /// others as they are.
+    fn history(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        let (n_edits, n_saved) = (
+            self.ed.session.as_ref().map_or(0, |s| s.edits.len()),
+            self.ed.saved,
         );
-        ui.horizontal(|ui| {
-            if ui.button("Todo").clicked() {
-                self.queue(Cmd::All);
-            }
-            if ui.button("Invertir").clicked() {
-                self.queue(Cmd::Invert);
-            }
-            if ui.button("Quitar").clicked() {
-                self.queue(Cmd::Clear);
-            }
-        });
-        egui::CollapsingHeader::new("Filtro de atributos de las selecciones")
+        egui::CollapsingHeader::new(egui::RichText::new(format!("Historial ({n_edits})")).strong())
             .default_open(true)
+            .show(ui, |ui| {
+                if n_edits == 0 {
+                    ui.label(
+                        egui::RichText::new("Aún no hay ediciones.")
+                            .size(11.0)
+                            .color(t.weak),
+                    );
+                    return;
+                }
+                ui.label(
+                    egui::RichText::new("Quita la marca de una edición para deshacerla sin tocar las demás (✔ = ya guardada).")
+                        .size(11.0)
+                        .color(t.weak),
+                );
+                let mut toggle = None;
+                if let Some(ses) = &self.ed.session {
+                    for (k, e) in ses.edits.iter().enumerate() {
+                        let mut on = e.enabled;
+                        let mark = if k < n_saved { "✔ " } else { "" };
+                        let text = egui::RichText::new(format!("{mark}{}. {}", k + 1, e.label));
+                        let text = if on { text } else { text.strikethrough().color(t.weak) };
+                        if ui
+                            .checkbox(&mut on, text)
+                            .on_hover_text(
+                                "Una edición posterior que elige por clase ve los puntos como están ahora.",
+                            )
+                            .changed()
+                        {
+                            toggle = Some(k);
+                        }
+                    }
+                }
+                if let Some(k) = toggle {
+                    self.queue(Cmd::Toggle(k));
+                }
+            });
+    }
+
+    /// The attribute filter every selection passes through.
+    fn attr_filter(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        egui::CollapsingHeader::new("Filtro de atributos de las selecciones")
+            .default_open(false)
             .show(ui, |ui| {
                 ui.label(
                     egui::RichText::new(
@@ -805,7 +933,7 @@ impl App {
                     ui.label("a");
                     ui.add(egui::TextEdit::singleline(&mut self.ed.i_hi).desired_width(45.0));
                 });
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     for (k, n) in ["Primeros", "Intermedios", "Últimos", "Únicos"]
                         .iter()
                         .enumerate()
@@ -831,7 +959,13 @@ impl App {
                     )
                 });
                 ui.horizontal(|ui| {
-                    if ui.button("Seleccionar por atributos").clicked() {
+                    if ui
+                        .button("Seleccionar por atributos")
+                        .on_hover_text(
+                            "Selecciona los puntos que cumplen las condiciones de arriba.",
+                        )
+                        .clicked()
+                    {
                         let op = SelOp {
                             mode: self.ed.mode,
                             region: Region::All,
@@ -839,7 +973,11 @@ impl App {
                         };
                         self.queue(Cmd::AddOp(Box::new(op)));
                     }
-                    if ui.button("Restablecer").clicked() {
+                    if ui
+                        .button("Restablecer")
+                        .on_hover_text("Borra las condiciones del filtro.")
+                        .clicked()
+                    {
                         self.ed.attr = Attr::default();
                         self.ed.z_lo.clear();
                         self.ed.z_hi.clear();
@@ -848,75 +986,5 @@ impl App {
                     }
                 });
             });
-        egui::CollapsingHeader::new("Qué hacer con la selección")
-            .default_open(true)
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    if ui.button("Eliminar").clicked() {
-                        self.queue(Cmd::Delete);
-                    }
-                    if ui.button("Asignar clase").clicked() {
-                        self.queue(Cmd::Reclass(self.ed.class));
-                    }
-                });
-                self.class_combo(ui);
-                ui.horizontal_wrapped(|ui| {
-                    for (c, n) in [
-                        (2u8, "Suelo"),
-                        (3, "Veg. baja"),
-                        (4, "Veg. media"),
-                        (5, "Veg. alta"),
-                        (6, "Edificio"),
-                        (7, "Ruido"),
-                        (1, "Sin clasificar"),
-                    ] {
-                        if ui.small_button(n).clicked() {
-                            self.ed.class = c;
-                            self.queue(Cmd::Reclass(c));
-                        }
-                    }
-                });
-            });
-        ui.separator();
-        let (n_edits, n_saved) = (
-            self.ed.session.as_ref().map_or(0, |s| s.edits.len()),
-            self.ed.saved,
-        );
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(format!("Historial ({n_edits})")).strong());
-            if ui.button("Deshacer").clicked() {
-                self.queue(Cmd::Undo);
-            }
-            if ui.button("Rehacer").clicked() {
-                self.queue(Cmd::Redo);
-            }
-        });
-        egui::ScrollArea::vertical()
-            .max_height(180.0)
-            .show(ui, |ui| {
-                if let Some(ses) = &self.ed.session {
-                    for (k, e) in ses.edits.iter().enumerate() {
-                        let mark = if k < n_saved { "✔" } else { "•" };
-                        ui.label(format!("{mark} {}. {}", k + 1, e.label));
-                    }
-                }
-            });
-        ui.horizontal(|ui| {
-            if ui
-                .add_enabled(
-                    n_edits > n_saved,
-                    egui::Button::new("Guardar nube editada…"),
-                )
-                .clicked()
-            {
-                self.ed.want_save = true;
-            }
-            if ui
-                .add_enabled(n_edits > 0, egui::Button::new("Descartar todo"))
-                .clicked()
-            {
-                self.queue(Cmd::Discard);
-            }
-        });
     }
 }

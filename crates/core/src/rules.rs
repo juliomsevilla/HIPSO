@@ -58,14 +58,16 @@ impl ClassRule {
         let mut rule = Self::new(0);
         let mut has_to = false;
         for part in text.split(';').map(str::trim).filter(|p| !p.is_empty()) {
-            let (key, value) = part
-                .split_once('=')
-                .ok_or_else(|| Error::Param(format!("rule part '{part}' must be name=value")))?;
+            let (key, value) = part.split_once('=').ok_or_else(|| {
+                Error::Param(format!(
+                    "la parte de la regla '{part}' debe ser nombre=valor"
+                ))
+            })?;
             let value = value.trim();
             match key.trim() {
                 "to" => {
                     rule.to = value.parse().map_err(|_| {
-                        Error::Param(format!("class '{value}' is not a number from 0 to 255"))
+                        Error::Param(format!("la clase '{value}' no es un número de 0 a 255"))
                     })?;
                     has_to = true;
                 }
@@ -74,7 +76,7 @@ impl ClassRule {
                 "angle" => {
                     let num = |t: &str| {
                         t.trim().replace(',', ".").parse::<f64>().map_err(|_| {
-                            Error::Param(format!("angle '{t}' is not a number of degrees"))
+                            Error::Param(format!("el ángulo '{t}' no es un número de grados"))
                         })
                     };
                     rule.angle = Some(match value.split_once("..") {
@@ -84,14 +86,14 @@ impl ClassRule {
                 }
                 other => {
                     return Err(Error::Param(format!(
-                        "unknown rule part '{other}': use to, from, returns or angle"
+                        "parte de regla desconocida '{other}': usa to, from, returns o angle"
                     )));
                 }
             }
         }
         if !has_to {
             return Err(Error::Param(
-                "a rule needs the class it sends to: to=12".into(),
+                "una regla necesita la clase de destino: to=12".into(),
             ));
         }
         Ok(rule)
@@ -129,7 +131,7 @@ fn parse_returns(text: &str) -> Result<ReturnSel> {
             ',' | ' ' => {}
             other => {
                 return Err(Error::Param(format!(
-                    "'{other}' is not an echo: use S, F, I, L, A or 1 to 9"
+                    "'{other}' no es un eco: usa S, F, I, L, A o de 1 a 9"
                 )));
             }
         }

@@ -1,11 +1,13 @@
 //! The point-cloud tools beyond the forestry chain: thinning, duplicates, comparison of two
-//! clouds, alignment, swath separation, colouring from an image and the extra classifiers.
+//! clouds, alignment, swath separation, colouring from an image, intensity normalised for range,
+//! COPC and the extra classifiers.
 //! Each loaded cloud is a sheet and gets its own result, like the other tools.
 
 use std::collections::HashMap;
 
 use super::*;
 use rustlidar_core::cloudtools::{self, DupFields};
+use rustlidar_core::hag::{self, HagParams};
 use rustlidar_core::thin::{self, ThinMethod, ThinParams};
 use rustlidar_core::tls::{self, TlsJob, TlsParams};
 use rustlidar_core::volume::{self, ReferenceSource, VolumeJob};
@@ -23,6 +25,7 @@ pub struct State {
     pub tls_clouds: bool,
     pub dup: DupFields,
     pub dup_all: bool,
+    pub hag: HagParams,
     pub cmp_ref: String,
     pub cmp_dist: f64,
     pub cmp_neigh: f64,
@@ -45,6 +48,18 @@ pub struct State {
     /// 0 the whole raster, 1 the drawn AOIs, 2 the regions of a vector file.
     pub vol_regions: usize,
     pub vol_file: String,
+    /// The image the points take their colour from, its bands for red, green and blue, and
+    /// whether points outside it keep their colour.
+    pub col_image: String,
+    pub col_bands: [f64; 3],
+    pub col_keep: bool,
+    /// Intensity: 0 trajectory, 1 flight altitude; the trajectory file, the altitude, the
+    /// exponent and the reference range (0: the mean range).
+    pub int_mode: usize,
+    pub int_traj: String,
+    pub int_alt: f64,
+    pub int_exp: f64,
+    pub int_ref: f64,
 }
 
 impl Default for State {
@@ -62,6 +77,7 @@ impl Default for State {
             tls_clouds: false,
             dup: DupFields::default(),
             dup_all: false,
+            hag: HagParams::default(),
             cmp_ref: String::new(),
             cmp_dist: 0.5,
             cmp_neigh: 3.0,
@@ -82,6 +98,14 @@ impl Default for State {
             vol_min: 0.0,
             vol_regions: 0,
             vol_file: String::new(),
+            col_image: String::new(),
+            col_bands: [1.0, 2.0, 3.0],
+            col_keep: false,
+            int_mode: 0,
+            int_traj: String::new(),
+            int_alt: 3000.0,
+            int_exp: 2.0,
+            int_ref: 0.0,
         }
     }
 }
@@ -387,6 +411,126 @@ impl Tools {
         );
     }
 
+    pub fn colorize_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        let s = &mut self.lx;
+        ui.label(egui::RichText::new("Da a cada punto el color del píxel de una imagen del mismo sitio (una ortofoto PNOA, por ejemplo): rojo, verde y azul, y el infrarrojo si la nube es de formato 8 y la imagen tiene esa banda. La imagen debe estar en el mismo sistema de coordenadas que la nube. Las nubes sin color (formatos 0, 1 y 6) se guardan en formato 7. Se escribe una copia nueva (…_rgb).").color(t.weak).size(11.0));
+        ui.horizontal(|ui| {
+            ui.label("Imagen");
+            ui.add(
+                egui::TextEdit::singleline(&mut s.col_image)
+                    .hint_text("ortofoto .tif o .jp2")
+                    .desired_width(260.0),
+            );
+            if ui.button("…").clicked()
+                && let Some(p) = pick_file("Imagen", rustlidar_core::raster::EXTENSIONS)
+            {
+                s.col_image = p.display().to_string();
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Bandas: rojo");
+            ui.add(
+                crate::numfield::NumField::new(&mut s.col_bands[0])
+                    .range(1.0..=64.0)
+                    .speed(1.0),
+            );
+            ui.label("verde");
+            ui.add(
+                crate::numfield::NumField::new(&mut s.col_bands[1])
+                    .range(1.0..=64.0)
+                    .speed(1.0),
+            );
+            ui.label("azul");
+            ui.add(
+                crate::numfield::NumField::new(&mut s.col_bands[2])
+                    .range(1.0..=64.0)
+                    .speed(1.0),
+            );
+        });
+        ui.checkbox(
+            &mut s.col_keep,
+            "Los puntos fuera de la imagen conservan su color (si no, quedan en negro)",
+        );
+    }
+
+    pub fn intensity_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        let s = &mut self.lx;
+        ui.label(egui::RichText::new("La intensidad cae con el cuadrado de la distancia al escáner: la misma superficie sale más oscura en el borde de una pasada o desde una pasada más alta. Se corrige multiplicando por (R / R_ref)^a (Höfle y Pfeifer, 2007). R sale de la trayectoria del vuelo (lo más exacto) o, si no la tienes, de la altura de vuelo y el ángulo de escaneo. Se escribe una copia nueva (…_intensidad).").color(t.weak).size(11.0));
+        ui.radio_value(
+            &mut s.int_mode,
+            0,
+            "Trayectoria del vuelo (archivo de texto «tiempo x y z», con el tiempo GPS de la nube)",
+        );
+        if s.int_mode == 0 {
+            ui.horizontal(|ui| {
+                ui.add_space(18.0);
+                ui.add(
+                    egui::TextEdit::singleline(&mut s.int_traj)
+                        .hint_text("trayectoria .txt / .csv")
+                        .desired_width(260.0),
+                );
+                if ui.button("…").clicked()
+                    && let Some(p) = pick_file("Trayectoria", &["txt", "csv", "xyz", "traj"])
+                {
+                    s.int_traj = p.display().to_string();
+                }
+            });
+        }
+        ui.radio_value(
+            &mut s.int_mode,
+            1,
+            "Altura de vuelo constante y ángulo de escaneo",
+        );
+        if s.int_mode == 1 {
+            num(
+                ui,
+                "      Altitud del vuelo (m, mismo sistema de alturas que la nube)",
+                &mut s.int_alt,
+                1.0..=20_000.0,
+                10.0,
+            );
+        }
+        num(
+            ui,
+            "Exponente a (2 para suelo y copas, ~3 para cables)",
+            &mut s.int_exp,
+            0.5..=6.0,
+            0.1,
+        );
+        num(
+            ui,
+            "Distancia de referencia R_ref (m; 0 = la media de la nube)",
+            &mut s.int_ref,
+            0.0..=20_000.0,
+            10.0,
+        );
+    }
+
+    pub fn copc_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        let _ = &self.lx;
+        ui.label(egui::RichText::new("Reescribe cada nube como COPC (Cloud Optimized Point Cloud): un LAZ normal, que lee cualquier programa, cuyos bloques son los nodos de un octree. Así un visor o un servidor (QGIS, visores web) lee solo la zona y el detalle que necesita, y se publica en internet sin servidor especial. Se conservan todos los atributos; los formatos 0 a 3 pasan a 6 o 7, como pide el formato. Se escribe una copia nueva (….copc.laz).").color(t.weak).size(11.0));
+        ui.label(egui::RichText::new("La nube se guarda entera en memoria mientras se ordena (unos 40 bytes por punto): para nubes de cientos de millones de puntos, divídelas antes en teselas.").color(t.weak).size(11.0));
+    }
+
+    pub fn hag_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        let s = &mut self.lx;
+        ui.label(egui::RichText::new("Calcula la altura de cada punto sobre el suelo a partir de los puntos de suelo que ya tiene la nube (clasifícala antes si no los tiene): una TIN de esos puntos da el suelo bajo cada punto. No hace falta un MDT aparte. Se escribe una copia nueva (…_alturas).").color(t.weak).size(11.0));
+        ui.radio_value(
+            &mut s.hag.replace_z,
+            false,
+            "Guardar la altura como atributo «HeightAboveGround» y conservar las cotas",
+        );
+        ui.radio_value(
+            &mut s.hag.replace_z,
+            true,
+            "Poner la altura en lugar de la cota (nube normalizada)",
+        );
+        num(ui, "Celda del suelo (m)", &mut s.hag.cell, 0.1..=10.0, 0.1);
+        let mut class = f64::from(s.hag.ground_class);
+        num(ui, "Clase del suelo", &mut class, 0.0..=255.0, 1.0);
+        s.hag.ground_class = class as u8;
+    }
+
     pub fn compare_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         let s = &mut self.lx;
         ui.label(egui::RichText::new("Detección de cambios: escribe los puntos de la nube cargada que están a más de la distancia indicada de todos los puntos de la referencia (por ejemplo, la primera y la tercera cobertura del PNOA adelgazadas a la misma densidad). Da también la distancia media y la compleción.").color(t.weak).size(11.0));
@@ -447,16 +591,19 @@ impl Tools {
         let s = &mut self.lx;
         ui.label(egui::RichText::new("Diferencia de altura entre pasadas de vuelo: por celda, la mayor distancia entre las elevaciones medias de las pasadas (ID de fuente) que la cubren. Se guarda un ráster (…_pasadas) y se da el porcentaje de celdas que pasa de 8 y 16 cm.").color(t.weak).size(11.0));
         num(ui, "Celda (m)", &mut s.sw_cell, 0.1..=100.0, 0.1);
-        egui::ComboBox::from_label("Retornos")
-            .selected_text(["Últimos y únicos", "Todos", "Solo únicos"][s.sw_returns])
-            .show_ui(ui, |ui| {
-                for (k, n) in ["Últimos y únicos", "Todos", "Solo únicos"]
-                    .iter()
-                    .enumerate()
-                {
-                    ui.selectable_value(&mut s.sw_returns, k, *n);
-                }
-            });
+        ui.horizontal(|ui| {
+            ui.label("Retornos");
+            egui::ComboBox::from_id_salt("Retornos")
+                .selected_text(["Últimos y únicos", "Todos", "Solo únicos"][s.sw_returns])
+                .show_ui(ui, |ui| {
+                    for (k, n) in ["Últimos y únicos", "Todos", "Solo únicos"]
+                        .iter()
+                        .enumerate()
+                    {
+                        ui.selectable_value(&mut s.sw_returns, k, *n);
+                    }
+                });
+        });
         ui.checkbox(
             &mut s.sw_by_cloud,
             "Cada nube cargada es una pasada (en vez del ID de fuente)",
@@ -464,7 +611,7 @@ impl Tools {
     }
 
     /// A text box for a path with a file picker; empty means "the one found for each cloud".
-    fn raster_row(ui: &mut egui::Ui, label: &str, text: &mut String, exts: &[&str]) {
+    pub(super) fn raster_row(ui: &mut egui::Ui, label: &str, text: &mut String, exts: &[&str]) {
         ui.horizontal(|ui| {
             ui.label(label);
             ui.add(
@@ -506,9 +653,19 @@ impl Tools {
                 }
             });
         let surface = ["CHM", "MDS", "MDS"][s.vol_source];
-        Self::raster_row(ui, surface, &mut s.vol_surface, &["tif", "tiff", "asc"]);
+        Self::raster_row(
+            ui,
+            surface,
+            &mut s.vol_surface,
+            rustlidar_core::raster::EXTENSIONS,
+        );
         match s.vol_source {
-            1 => Self::raster_row(ui, "MDT", &mut s.vol_dtm, &["tif", "tiff", "asc"]),
+            1 => Self::raster_row(
+                ui,
+                "MDT",
+                &mut s.vol_dtm,
+                rustlidar_core::raster::EXTENSIONS,
+            ),
             2 => num(
                 ui,
                 "Cota de referencia (m)",
@@ -719,6 +876,115 @@ impl Tools {
                                 &Filter::default(),
                             )?;
                             lines.push(thin::report(r, k, &out));
+                        }
+                        Ok(lines.join("\n"))
+                    }),
+                    outputs,
+                )
+            }
+            ToolId::Hag => {
+                let p = self.lx.hag.clone();
+                let outs = names(if p.replace_z {
+                    "normalizada"
+                } else {
+                    "alturas"
+                });
+                let outputs: Vec<PathBuf> = outs.values().cloned().collect();
+                (
+                    Box::new(move || {
+                        let mut lines = Vec::new();
+                        for f in &inputs_v {
+                            rustlidar_core::check_cancel()?;
+                            let out = outs.get(f).cloned().unwrap_or_default();
+                            lines.push(hag::run(f, &out, &p)?);
+                        }
+                        Ok(lines.join("\n"))
+                    }),
+                    outputs,
+                )
+            }
+            ToolId::Colorize => {
+                let image = PathBuf::from(self.lx.col_image.trim());
+                if !image.is_file() {
+                    _log.push("Elige la imagen con la que colorear.".into());
+                    return None;
+                }
+                let b = self.lx.col_bands.map(|v| v.round().max(1.0) as usize);
+                let keep = self.lx.col_keep;
+                let outs = names("rgb");
+                let outputs: Vec<PathBuf> = outs.values().cloned().collect();
+                let pairs: Vec<(PathBuf, PathBuf)> = inputs_v
+                    .iter()
+                    .map(|p| (p.clone(), outs.get(p).cloned().unwrap_or_default()))
+                    .collect();
+                (
+                    Box::new(move || {
+                        rustlidar_core::colorize::run(&rustlidar_core::colorize::ColorizeJob {
+                            image,
+                            rgb: b,
+                            nir: None,
+                            inputs: pairs,
+                            keep_outside: keep,
+                        })
+                    }),
+                    outputs,
+                )
+            }
+            ToolId::Intensity => {
+                use rustlidar_core::intensity::{IntensityJob, Sensor};
+                let sensor = if self.lx.int_mode == 0 {
+                    let p = PathBuf::from(self.lx.int_traj.trim());
+                    if !p.is_file() {
+                        _log.push(
+                            "Elige el archivo de la trayectoria, o usa la altura de vuelo.".into(),
+                        );
+                        return None;
+                    }
+                    Sensor::Trajectory(p)
+                } else {
+                    Sensor::Altitude(self.lx.int_alt)
+                };
+                let (exponent, r) = (self.lx.int_exp, self.lx.int_ref);
+                let outs = names("intensidad");
+                let outputs: Vec<PathBuf> = outs.values().cloned().collect();
+                let pairs: Vec<(PathBuf, PathBuf)> = inputs_v
+                    .iter()
+                    .map(|p| (p.clone(), outs.get(p).cloned().unwrap_or_default()))
+                    .collect();
+                (
+                    Box::new(move || {
+                        rustlidar_core::intensity::run(&IntensityJob {
+                            sensor,
+                            exponent,
+                            reference: (r > 0.0).then_some(r),
+                            inputs: pairs,
+                        })
+                    }),
+                    outputs,
+                )
+            }
+            ToolId::Copc => {
+                let outs: HashMap<PathBuf, PathBuf> = inputs
+                    .iter()
+                    .map(|p| {
+                        let stem = paths::stem(p);
+                        let stem = stem.strip_suffix(".copc").unwrap_or(&stem).to_string();
+                        (
+                            p.clone(),
+                            paths::unique(&paths::results_dir(p).join(format!("{stem}.copc.laz"))),
+                        )
+                    })
+                    .collect();
+                let outputs: Vec<PathBuf> = outs.values().cloned().collect();
+                (
+                    Box::new(move || {
+                        let mut lines = Vec::new();
+                        for p in &inputs_v {
+                            rustlidar_core::check_cancel()?;
+                            let out = outs.get(p).cloned().unwrap_or_default();
+                            let format = rustlidar_core::las::Reader::open(p)?.header.format;
+                            let r = rustlidar_core::copc_write::write(p, &out)?;
+                            lines.push(rustlidar_core::copc_write::describe(&r, format, &out));
                         }
                         Ok(lines.join("\n"))
                     }),

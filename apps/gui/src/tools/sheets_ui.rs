@@ -21,6 +21,8 @@ pub struct State {
     pub dtm_smooth: f64,
     pub dtm_smoothing: Smoothing,
     pub mosaic_dtm: bool,
+    /// Shapefile of breaklines for the DTM (empty: none).
+    pub dtm_breaklines: String,
     pub chm_smooth: f64,
     pub chm_smoothing: Smoothing,
     pub mosaic_chm: bool,
@@ -65,6 +67,7 @@ impl Default for State {
             dtm_smooth: 0.0,
             dtm_smoothing: Smoothing::Mean,
             mosaic_dtm: false,
+            dtm_breaklines: String::new(),
             chm_smooth: 0.0,
             chm_smoothing: Smoothing::Mean,
             mosaic_chm: false,
@@ -140,11 +143,16 @@ impl Tools {
                 .size(11.0),
         );
         if let Some(f) = inputs.first() {
+            let out = paths::product(f, tag, ext);
+            let name = out
+                .file_name()
+                .map_or(String::new(), |n| n.to_string_lossy().into_owned());
             ui.label(
-                egui::RichText::new(format!("p. ej. {}", paths::product(f, tag, ext).display()))
+                egui::RichText::new(format!("Resultado, p. ej.: {name}"))
                     .color(t.weak)
                     .size(11.0),
-            );
+            )
+            .on_hover_text(out.display().to_string());
         }
     }
 
@@ -170,23 +178,27 @@ impl Tools {
             (GroundChoice::Mcc, "MCC (curvatura multiescala)"),
             (GroundChoice::Csf, "CSF (simulación de tela)"),
             (GroundChoice::Pmf, "PMF (morfológico progresivo)"),
+            (GroundChoice::Smrf, "SMRF (morfológico simple, Pingel)"),
             (
                 GroundChoice::Axelsson,
                 "Axelsson (TIN progresivo, ángulo y distancia)",
             ),
         ];
-        egui::ComboBox::from_label("Suelo")
-            .selected_text(
-                names
-                    .iter()
-                    .find(|n| n.0 == self.ground)
-                    .map_or("", |n| n.1),
-            )
-            .show_ui(ui, |ui| {
-                for (c, n) in names {
-                    ui.selectable_value(&mut self.ground, c, n);
-                }
-            });
+        ui.horizontal(|ui| {
+            ui.label("Suelo");
+            egui::ComboBox::from_id_salt("Suelo")
+                .selected_text(
+                    names
+                        .iter()
+                        .find(|n| n.0 == self.ground)
+                        .map_or("", |n| n.1),
+                )
+                .show_ui(ui, |ui| {
+                    for (c, n) in names {
+                        ui.selectable_value(&mut self.ground, c, n);
+                    }
+                });
+        });
         ui.label(egui::RichText::new("Otro método vuelve a buscar el suelo solo para este MDT: sirve para probar varios modelos con distinta clasificación. No modifica la nube.").size(11.0));
         match self.ground {
             GroundChoice::Fusion => {
@@ -231,6 +243,7 @@ impl Tools {
                 );
                 num(ui, "Pendiente", &mut self.pmf.slope, 0.0..=10.0, 0.1);
             }
+            GroundChoice::Smrf => smrf_fields(ui, &mut self.smrf),
             GroundChoice::Axelsson => axelsson_fields(ui, &mut self.ax),
             GroundChoice::Classes => {}
         }
@@ -256,31 +269,50 @@ impl Tools {
         );
         self.sheet_note(ui, t, inputs, &tag, "tif");
         num(ui, "Celda", &mut self.dtm_cell, 0.1..=100.0, 0.1);
-        egui::ComboBox::from_label("Método")
-            .selected_text(match self.dtm_surface {
-                Surface::Tin => "Triangulación (TIN)",
-                Surface::Mean => "Media por celda",
-                Surface::Idw => "Ponderado por distancia (IDW)",
-            })
-            .show_ui(ui, |ui| {
-                ui.selectable_value(
-                    &mut self.dtm_surface,
-                    Surface::Tin,
-                    "Triangulación (TIN): superficie continua, el mejor equilibrio",
-                );
-                ui.selectable_value(
-                    &mut self.dtm_surface,
-                    Surface::Idw,
-                    "Ponderado por distancia (IDW): suave y rápido",
-                );
-                ui.selectable_value(
-                    &mut self.dtm_surface,
-                    Surface::Mean,
-                    "Media por celda: la más rápida, en una sola pasada",
-                );
-            });
+        ui.horizontal(|ui| {
+            ui.label("Método");
+            egui::ComboBox::from_id_salt("Método")
+                .selected_text(match self.dtm_surface {
+                    Surface::Tin => "Triangulación (TIN)",
+                    Surface::Mean => "Media por celda",
+                    Surface::Idw => "Ponderado por distancia (IDW)",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.dtm_surface,
+                        Surface::Tin,
+                        "Triangulación (TIN): superficie continua, el mejor equilibrio",
+                    );
+                    ui.selectable_value(
+                        &mut self.dtm_surface,
+                        Surface::Idw,
+                        "Ponderado por distancia (IDW): suave y rápido",
+                    );
+                    ui.selectable_value(
+                        &mut self.dtm_surface,
+                        Surface::Mean,
+                        "Media por celda: la más rápida, en una sola pasada",
+                    );
+                });
+        });
         self.ground_only(ui);
         Self::smoothing_row(ui, &mut self.s2.dtm_smooth, &mut self.s2.dtm_smoothing);
+        ui.horizontal(|ui| {
+            ui.label("Líneas de rotura")
+                .on_hover_text("Bordes de camino, taludes, cunetas, orillas: el MDT las sigue en lugar de redondearlas. Con cotas (PolylineZ) fijan la altura; sin cotas, toman el suelo más bajo junto a ellas (cauces). Solo con TIN o IDW.");
+            ui.add(egui::TextEdit::singleline(&mut self.s2.dtm_breaklines).hint_text("(ninguna)").desired_width(220.0));
+            if ui.button("…").clicked()
+                && let Some(p) = super::pick_file("Líneas", &["shp"])
+            {
+                self.s2.dtm_breaklines = p.display().to_string();
+            }
+            if !self.s2.dtm_breaklines.is_empty() && ui.small_button("✕").on_hover_text("Sin líneas de rotura").clicked() {
+                self.s2.dtm_breaklines.clear();
+            }
+        });
+        if !self.s2.dtm_breaklines.is_empty() && self.dtm_surface == Surface::Mean {
+            ui.label(egui::RichText::new("Las líneas de rotura necesitan TIN o IDW: con «Media por celda» no se pueden usar.").color(egui::Color32::from_rgb(200, 60, 40)).size(11.0));
+        }
         ui.checkbox(
             &mut self.s2.mosaic_dtm,
             "Hacer además un mosaico con todas las hojas",
@@ -348,20 +380,23 @@ impl Tools {
             "Ponderado por distancia (IDW) de los puntos más altos",
             "Sin huecos (pit-free, Khosravipour et al. 2014)",
         ];
-        egui::ComboBox::from_label("Método")
-            .selected_text(names[self.s2.surf_method.min(3)])
-            .show_ui(ui, |ui| {
-                for (k, n) in names.iter().enumerate() {
-                    if k == 3 && !with_dtm {
-                        ui.add_enabled(false, egui::Button::selectable(false, *n))
+        ui.horizontal(|ui| {
+            ui.label("Método");
+            egui::ComboBox::from_id_salt("Método")
+                .selected_text(names[self.s2.surf_method.min(3)])
+                .show_ui(ui, |ui| {
+                    for (k, n) in names.iter().enumerate() {
+                        if k == 3 && !with_dtm {
+                            ui.add_enabled(false, egui::Button::selectable(false, *n))
                             .on_disabled_hover_text(
                                 "El pit-free trabaja con alturas sobre el suelo: necesita el MDT.",
                             );
-                    } else {
-                        ui.selectable_value(&mut self.s2.surf_method, k, *n);
+                        } else {
+                            ui.selectable_value(&mut self.s2.surf_method, k, *n);
+                        }
                     }
-                }
-            });
+                });
+        });
         match self.s2.surf_method {
             1 => {
                 ui.checkbox(&mut self.fill, "Rellenar celdas vacías");
@@ -410,6 +445,50 @@ impl Tools {
         );
         ui.checkbox(&mut self.intensity, "Métricas de intensidad (_intensity)");
         ui.checkbox(&mut self.strata, "Métricas por estratos (_strata)");
+        let mut structure = self.mp.structure.is_some();
+        if ui
+            .checkbox(&mut structure, "Métricas de estructura (_estructura)")
+            .on_hover_text("Fracción de huecos, índice de área foliar, diversidad de alturas del follaje, complejidad vertical y altura de la base de la copa")
+            .changed()
+        {
+            self.mp.structure = structure.then(rustlidar_core::metrics::StructureParams::default);
+        }
+        if let Some(sp) = &mut self.mp.structure {
+            ui.horizontal(|ui| {
+                ui.label("Capa del perfil");
+                ui.add(
+                    crate::numfield::NumField::new(&mut sp.layer)
+                        .range(0.1..=10.0)
+                        .suffix(" m"),
+                );
+                ui.label("Altura del perfil");
+                ui.add(
+                    crate::numfield::NumField::new(&mut sp.top)
+                        .range(1.0..=200.0)
+                        .suffix(" m"),
+                );
+            });
+            ui.horizontal(|ui| {
+                ui.label("Hueco bajo");
+                ui.add(
+                    crate::numfield::NumField::new(&mut sp.gap_height)
+                        .range(0.0..=10.0)
+                        .suffix(" m"),
+                );
+                ui.label("Extinción k");
+                ui.add(crate::numfield::NumField::new(&mut sp.k).range(0.05..=2.0));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Base de copa sobre");
+                ui.add(
+                    crate::numfield::NumField::new(&mut sp.cbh_floor)
+                        .range(0.0..=50.0)
+                        .suffix(" m"),
+                );
+                ui.label("proporción");
+                ui.add(crate::numfield::NumField::new(&mut sp.cbh_share).range(0.01..=1.0));
+            });
+        }
         let mut mb = (self.mp.memory >> 20) as f64;
         num(ui, "Memoria máxima (MB)", &mut mb, 16.0..=65536.0, 16.0);
         self.mp.memory = (mb as u64) << 20;
@@ -489,7 +568,10 @@ impl Tools {
                     ui.label("Archivo");
                     ui.add(egui::TextEdit::singleline(&mut self.s2.file).desired_width(330.0));
                     if ui.button("…").clicked()
-                        && let Some(p) = pick_file("Parcelas", &["shp", "csv", "txt"])
+                        && let Some(p) = pick_file(
+                            "Parcelas",
+                            &["shp", "geojson", "json", "gpkg", "csv", "txt"],
+                        )
                     {
                         self.s2.file = p.display().to_string();
                     }
@@ -590,7 +672,7 @@ impl Tools {
                             .desired_width(220.0),
                     );
                     if ui.button("…").clicked()
-                        && let Some(p) = pick_file("Polígonos", &["shp"])
+                        && let Some(p) = pick_file("Polígonos", &["shp", "geojson", "json", "gpkg"])
                     {
                         self.s2.limit = p.display().to_string();
                     }
@@ -646,11 +728,25 @@ impl Tools {
             });
             ui.checkbox(
                 &mut self.clip_normalise,
-                "Alturas sobre el suelo (normalizar con el MDT de la primera hoja)",
+                "Alturas sobre el suelo: cada nube menos su MDT (recomendado)",
             );
-            ui.checkbox(
+            ui.label(
+                egui::RichText::new(
+                    "Marcada, las parcelas y sus métricas salen con alturas normalizadas y hace falta el MDT de cada nube. Desmárcala para trabajar con las cotas originales.",
+                )
+                .size(11.0)
+                .weak(),
+            );
+            ui.label("Puntos en el solape de dos parcelas:");
+            ui.radio_value(
                 &mut self.s2.exclusive,
-                "Parcelas solapadas: cada punto va solo a la primera",
+                false,
+                "se cuentan en todas las parcelas que los contienen",
+            );
+            ui.radio_value(
+                &mut self.s2.exclusive,
+                true,
+                "se asignan solo a la primera parcela que los contiene (la primera del archivo)",
             );
         });
     }
@@ -740,6 +836,8 @@ impl Tools {
                     tiling: self.tiling(),
                     smooth: self.s2.dtm_smooth,
                     smoothing: self.s2.dtm_smoothing,
+                    breaklines: Some(PathBuf::from(self.s2.dtm_breaklines.trim()))
+                        .filter(|p| !p.as_os_str().is_empty()),
                 };
                 let mut outputs: Vec<PathBuf> = outs.values().cloned().collect();
                 outputs.extend(mosaic.clone());
@@ -839,8 +937,11 @@ impl Tools {
                     outputs.push(o.clone());
                     if formats.vector {
                         show.push(paths::swap_ext(o, "shp"));
-                        for (on, suffix) in [(self.intensity, "intensity"), (self.strata, "strata")]
-                        {
+                        for (on, suffix) in [
+                            (self.intensity, "intensity"),
+                            (self.strata, "strata"),
+                            (self.mp.structure.is_some(), "estructura"),
+                        ] {
                             if on {
                                 show.push(
                                     o.with_file_name(format!("{}_{suffix}.shp", paths::stem(o))),
@@ -1112,6 +1213,9 @@ impl Tools {
         }
         let mut job = ClipJob::new(inputs.to_vec(), regions, cloud_out);
         job.mode = mode;
+        if matches!(s.source, PlotSource::File) {
+            job.regions_source = Some(PathBuf::from(s.file.trim()));
+        }
         job.filter = Filter {
             classes,
             returns,
@@ -1121,11 +1225,16 @@ impl Tools {
             skip_noise: false,
         };
         if self.clip_normalise {
-            match paths::find_dtm(&first) {
-                Some(d) => job.dtm = Some(d),
-                None => {
-                    log.push("Falta el MDT de la primera hoja para normalizar las alturas.".into());
-                    return None;
+            for p in inputs {
+                match paths::find_dtm(p) {
+                    Some(d) => job.dtms.push(d),
+                    None => {
+                        log.push(format!(
+                            "Falta el MDT de {}: calcúlalo antes, o desmarca «Alturas sobre el suelo» en Filtros y opciones.",
+                            paths::stem(p)
+                        ));
+                        return None;
+                    }
                 }
             }
         }

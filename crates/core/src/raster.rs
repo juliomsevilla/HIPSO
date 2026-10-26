@@ -2,7 +2,6 @@
 //! colour composites and spectral indices (NDVI, NDWI, EVI, SAVI…) from band expressions. The
 //! images serve as base maps for the clouds and the indices as rasters to compare with the CHM.
 
-use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
@@ -23,13 +22,32 @@ pub struct Image {
     pub bands: Vec<Vec<f32>>,
 }
 
+/// Extensions of the rasters that can be read (for file dialogs), in lower case.
+pub const EXTENSIONS: &[&str] = &[
+    "tif", "tiff", "asc", "jp2", "j2k", "j2c", "png", "jpg", "jpeg", "bil", "bsq", "bip", "img",
+    "hgt", "flt",
+];
+
+/// Whether a lower-case extension is one of [`EXTENSIONS`].
+pub fn is_raster_ext(ext: &str) -> bool {
+    EXTENSIONS.contains(&ext)
+}
+
 fn tiff_err(e: tiff::TiffError) -> Error {
-    Error::Format(format!("TIFF: {e}"))
+    Error::Format(format!("TIFF: {e}{}", crate::cloud_hint(&e.to_string())))
 }
 
 /// Reads a GeoTIFF of any sample type (8 or 16 bits, integer or float) with interleaved bands.
 pub fn read_image(path: &Path) -> Result<Image> {
-    let mut d = Decoder::new(BufReader::new(File::open(path)?)).map_err(tiff_err)?;
+    crate::check_raster_format(path)?;
+    if crate::pyramid::is_jp2_file(path) {
+        let pyr = crate::pyramid::Pyramid::open(path)?;
+        return pyr.read(0, pyr.extent());
+    }
+    if let Some(l) = crate::rasterfmt::load(path)? {
+        return Ok(l.image);
+    }
+    let mut d = Decoder::new(BufReader::new(crate::open_file(path)?)).map_err(tiff_err)?;
     let (w, h) = d.dimensions().map_err(tiff_err)?;
     let scale = d
         .get_tag_f64_vec(Tag::ModelPixelScaleTag)
@@ -39,7 +57,7 @@ pub fn read_image(path: &Path) -> Result<Image> {
         (scale.first(), scale.get(1), tie.get(3), tie.get(4))
     else {
         return Err(Error::Format(format!(
-            "{}: not a GeoTIFF (no pixel scale or tie point)",
+            "{}: no es un GeoTIFF (sin escala de píxel ni punto de anclaje)",
             path.display()
         )));
     };
@@ -62,7 +80,7 @@ pub fn read_image(path: &Path) -> Result<Image> {
         DecodingResult::F64(v) => v.into_iter().map(|x| x as f32).collect(),
         _ => {
             return Err(Error::Unsupported(format!(
-                "{}: this sample type is not read",
+                "{}: este tipo de dato no se lee",
                 path.display()
             )));
         }
@@ -70,7 +88,7 @@ pub fn read_image(path: &Path) -> Result<Image> {
     let n = cols * rows;
     if n == 0 || !raw.len().is_multiple_of(n) {
         return Err(Error::Format(format!(
-            "{}: the pixel data does not fit {cols} x {rows}",
+            "{}: los datos de píxel no encajan en {cols} x {rows}",
             path.display()
         )));
     }
@@ -260,7 +278,7 @@ impl Expr {
                 let t: String = chars[s..i].iter().collect();
                 toks.push(Tok::Num(
                     t.parse()
-                        .map_err(|_| Error::Param(format!("bad number '{t}'")))?,
+                        .map_err(|_| Error::Param(format!("número no válido: '{t}'")))?,
                 ));
                 continue;
             }
@@ -283,7 +301,7 @@ impl Expr {
                     Some(b) => toks.push(Tok::Band(b)),
                     None => {
                         return Err(Error::Param(format!(
-                            "'{name}' is not a band of this image ({nbands} bands)"
+                            "'{name}' no es una banda de esta imagen (tiene {nbands})"
                         )));
                     }
                 }
@@ -293,7 +311,7 @@ impl Expr {
                 '+' | '-' | '*' | '/' => Tok::Op(c),
                 '(' => Tok::Open,
                 ')' => Tok::Close,
-                _ => return Err(Error::Param(format!("unexpected '{c}' in the expression"))),
+                _ => return Err(Error::Param(format!("'{c}' inesperado en la expresión"))),
             });
             i += 1;
         }
@@ -310,7 +328,7 @@ impl Expr {
                 Tok::Op(o) => {
                     if !prev_value {
                         if o != '-' {
-                            return Err(Error::Param("the expression is malformed".into()));
+                            return Err(Error::Param("la expresión está mal formada".into()));
                         }
                         out.push(Tok::Num(0.0));
                     }
@@ -333,7 +351,7 @@ impl Expr {
                         match ops.pop() {
                             Some(Tok::Open) => break,
                             Some(o) => out.push(o),
-                            None => return Err(Error::Param("unbalanced brackets".into())),
+                            None => return Err(Error::Param("paréntesis desequilibrados".into())),
                         }
                     }
                     prev_value = true;
@@ -342,7 +360,7 @@ impl Expr {
         }
         while let Some(o) = ops.pop() {
             if o == Tok::Open {
-                return Err(Error::Param("unbalanced brackets".into()));
+                return Err(Error::Param("paréntesis desequilibrados".into()));
             }
             out.push(o);
         }

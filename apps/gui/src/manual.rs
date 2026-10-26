@@ -13,7 +13,61 @@ pub struct Manual {
     filter: String,
 }
 
-/// Inline text with `**bold**` and `` `code` `` as one galley.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Style {
+    Plain,
+    Bold,
+    Italic,
+    Code,
+}
+
+/// The pieces of a line: `**bold**`, `*italic*` and `` `code` `` apart from plain text. A `*` that
+/// does not open and close an emphasis (a product sign, `* 100`) stays as it is.
+fn spans(text: &str) -> Vec<(Style, &str)> {
+    let mut out = Vec::new();
+    let mut plain_from = 0;
+    let mut at = 0;
+    while at < text.len() {
+        let rest = &text[at..];
+        let found = if let Some(inner) = rest.strip_prefix("**") {
+            inner
+                .find("**")
+                .filter(|e| *e > 0)
+                .map(|e| (Style::Bold, 2, e))
+        } else if let Some(inner) = rest.strip_prefix('`') {
+            inner.find('`').map(|e| (Style::Code, 1, e))
+        } else if let Some(inner) = rest.strip_prefix('*') {
+            // the opening star touches a word, the closing one too
+            let opens = inner
+                .chars()
+                .next()
+                .is_some_and(|c| !c.is_whitespace() && c != '*');
+            let close = inner
+                .char_indices()
+                .find(|(k, c)| *c == '*' && *k > 0 && !inner[..*k].ends_with(char::is_whitespace));
+            close.filter(|_| opens).map(|(e, _)| (Style::Italic, 1, e))
+        } else {
+            None
+        };
+        match found {
+            Some((style, open, len)) => {
+                if at > plain_from {
+                    out.push((Style::Plain, &text[plain_from..at]));
+                }
+                out.push((style, &rest[open..open + len]));
+                at += open + len + open;
+                plain_from = at;
+            }
+            None => at += rest.chars().next().map_or(1, char::len_utf8),
+        }
+    }
+    if text.len() > plain_from {
+        out.push((Style::Plain, &text[plain_from..]));
+    }
+    out
+}
+
+/// Inline text with bold, italic and code as one galley.
 fn inline(ui: &egui::Ui, text: &str, size: f32) -> LayoutJob {
     let visuals = ui.visuals();
     let (body, strong, code_bg) = (
@@ -22,39 +76,24 @@ fn inline(ui: &egui::Ui, text: &str, size: f32) -> LayoutJob {
         visuals.code_bg_color,
     );
     let mut job = LayoutJob::default();
-    let mut rest = text;
-    while !rest.is_empty() {
-        let (b, c) = (rest.find("**"), rest.find('`'));
-        let next = match (b, c) {
-            (Some(b), Some(c)) => b.min(c),
-            (Some(b), None) => b,
-            (None, Some(c)) => c,
-            (None, None) => {
-                job.append(rest, 0.0, plain(body, size));
-                break;
+    for (style, s) in spans(text) {
+        let mut f = plain(
+            if style == Style::Bold { strong } else { body },
+            if style == Style::Code {
+                size - 1.0
+            } else {
+                size
+            },
+        );
+        match style {
+            Style::Italic => f.italics = true,
+            Style::Code => {
+                f.font_id = FontId::monospace(size - 1.0);
+                f.background = code_bg;
             }
-        };
-        if next > 0 {
-            job.append(&rest[..next], 0.0, plain(body, size));
+            _ => {}
         }
-        let tail = &rest[next..];
-        if let Some(inner) = tail.strip_prefix("**")
-            && let Some(end) = inner.find("**")
-        {
-            job.append(&inner[..end], 0.0, plain(strong, size));
-            rest = &inner[end + 2..];
-        } else if let Some(inner) = tail.strip_prefix('`')
-            && let Some(end) = inner.find('`')
-        {
-            let mut f = plain(body, size - 1.0);
-            f.font_id = FontId::monospace(size - 1.0);
-            f.background = code_bg;
-            job.append(&inner[..end], 0.0, f);
-            rest = &inner[end + 1..];
-        } else {
-            job.append(&tail[..1], 0.0, plain(body, size));
-            rest = &tail[1..];
-        }
+        job.append(s, 0.0, f);
     }
     job
 }
@@ -225,5 +264,39 @@ impl Manual {
                     });
             });
         self.open = open;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn emphasis_loses_its_stars_and_products_keep_them() {
+        assert_eq!(
+            spans("a **b** *c* `d * e` f"),
+            vec![
+                (Style::Plain, "a "),
+                (Style::Bold, "b"),
+                (Style::Plain, " "),
+                (Style::Italic, "c"),
+                (Style::Plain, " "),
+                (Style::Code, "d * e"),
+                (Style::Plain, " f"),
+            ]
+        );
+        assert_eq!(
+            spans("(n) * 100 y 2 * 3"),
+            vec![(Style::Plain, "(n) * 100 y 2 * 3")]
+        );
+        assert_eq!(
+            spans("**TIN** *(predeterminado)*:"),
+            vec![
+                (Style::Bold, "TIN"),
+                (Style::Plain, " "),
+                (Style::Italic, "(predeterminado)"),
+                (Style::Plain, ":"),
+            ]
+        );
     }
 }

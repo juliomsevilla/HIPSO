@@ -1,5 +1,5 @@
-//! Multiscale Curvature Classification of ground points (Evans & Hudak 2007), following the
-//! behaviour of MCC-LIDAR 2.1 (Apache-2.0, https://sourceforge.net/projects/mcclidar/).
+//! Multiscale Curvature Classification of ground points (Evans & Hudak 2007), implemented from
+//! the paper.
 //!
 //! Three scale domains, with cell sizes 0.5 s, s and 1.5 s and curvature thresholds t, t + 0.1
 //! and t + 0.2. In each, passes repeat until fewer than 1%, 0.1% and 0.01% of the remaining
@@ -26,7 +26,7 @@ impl Default for MccParams {
     }
 }
 
-/// Points per spline, as MCC-LIDAR (ArcGIS Spline's default).
+/// Points per spline, as the paper sets it.
 const PTS_PER_REGION: usize = 12;
 /// A spline that stays singular with this many points is given up.
 const MAX_SPLINE_PTS: usize = 300;
@@ -75,7 +75,7 @@ pub fn ground(pts: &[Point], p: &MccParams) -> Vec<bool> {
     }
 
     // Coordinates relative to the first point keep the splines well conditioned.
-    // In file order, as MCC-LIDAR walks them.
+    // In file order, in file order.
     keep.sort_unstable();
     let mut u: Vec<(usize, [f64; 3])> = keep
         .iter()
@@ -308,7 +308,7 @@ impl Raster {
 }
 
 /// The regions on the square ring `d` regions away from `(r, c)` (rows grow northward), in
-/// MCC-LIDAR's order: from the north-west corner, east along the north edge, south along the
+/// The order: from the north-west corner, east along the north edge, south along the
 /// east edge, west along the south edge and north along the west edge, ending at the corner.
 fn ring_cells(r: usize, c: usize, d: usize, nr: usize, nc: usize) -> Vec<(usize, usize)> {
     let (r, c, d) = (r as isize, c as isize, d as isize);

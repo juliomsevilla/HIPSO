@@ -5,9 +5,9 @@
 //!
 //! The methods are the published ones: Horn (1981) for slope, aspect and hillshade, Zevenbergen
 //! and Thorne (1987) for curvatures, Wilson et al. (2007) for the ruggedness index, and the
-//! position index of Weiss (2001). Conventions follow `gdaldem`: windows over empty or missing
+//! position index of Weiss (2001). Conventions: windows over empty or missing
 //! neighbours take the centre's height, and a cell that is empty stays empty. Written from the
-//! published methods; no source code of other programs is included (see the NOTICE).
+//! published methods.
 
 use std::path::PathBuf;
 

@@ -452,10 +452,54 @@ fn flush(mesh: &mut egui::Mesh, clip: &egui::Painter) {
 }
 
 impl App {
+    /// The system a layer must be moved from and to, when it is not the work's: `(from, to)`.
+    /// A layer opened before any cloud waits in `pending_conform` until the first cloud sets the
+    /// system of the work.
+    pub fn crs_move(&mut self, p: &Path) -> Option<(u16, u16)> {
+        let from = self.crs_of(p)?;
+        match self.project_crs() {
+            Some(to)
+                if rustlidar_core::crs::relation(to, from)
+                    == rustlidar_core::crs::Relation::Different =>
+            {
+                Some((from, to))
+            }
+            Some(_) => None,
+            None => {
+                if !self.pending_conform.iter().any(|q| q == p) {
+                    self.pending_conform.push(p.to_path_buf());
+                }
+                None
+            }
+        }
+    }
+
     pub fn add_vector(&mut self, p: &Path) {
         match view::read_vector(p) {
-            Ok(data) => {
-                self.refs.retain(|r| r.path != p);
+            Ok(mut data) => {
+                if let Some((from, to)) = self.crs_move(p) {
+                    let started = std::time::Instant::now();
+                    self.log(format!(
+                        "«{}» está en {}, distinto del de la nube ({}): se pasa a él al cargar.",
+                        p.display(),
+                        rustlidar_core::crs::name(from),
+                        rustlidar_core::crs::name(to)
+                    ));
+                    match rustlidar_core::reproject::vector_data(&mut data, from, to) {
+                        Ok(()) => self.log(format!(
+                            "  convertida en {:.1} s",
+                            started.elapsed().as_secs_f64()
+                        )),
+                        Err(e) => {
+                            self.log(format!(
+                                "No se pudo pasar {} al sistema de la nube: {e}",
+                                p.display()
+                            ));
+                            return;
+                        }
+                    }
+                }
+                self.remove_paths(p);
                 let n = data.features.len();
                 let kind = if data.points {
                     view::GeomKind::Point
@@ -464,15 +508,18 @@ impl App {
                 } else {
                     view::GeomKind::Line
                 };
-                self.refs.push(RefLayer {
-                    name: p
-                        .file_name()
-                        .map_or(String::new(), |n| n.to_string_lossy().into_owned()),
-                    path: p.to_path_buf(),
-                    kind: RefKind::Vector(Box::new(VecLayer::new(data, kind))),
-                    visible: true,
-                    opacity: 1.0,
-                });
+                self.add_ref(
+                    RefLayer {
+                        name: p
+                            .file_name()
+                            .map_or(String::new(), |n| n.to_string_lossy().into_owned()),
+                        path: p.to_path_buf(),
+                        kind: RefKind::Vector(Box::new(VecLayer::new(data, kind))),
+                        visible: true,
+                        opacity: 1.0,
+                    },
+                    false,
+                );
                 let k = self.refs.len() - 1;
                 self.sel_layer = Some(k);
                 self.active = Some(k);
@@ -495,7 +542,7 @@ impl App {
                 grid.y0 + grid.rows as f64 * grid.cell,
             ],
             RefKind::Vector(v) => v.data.bounds,
-            RefKind::Image(il) => il.pyr.extent(),
+            RefKind::Image(il) => il.display_extent(),
         };
         b.iter().all(|v| v.is_finite()).then_some(b)
     }
@@ -535,6 +582,13 @@ impl App {
             h.max(8),
         );
         self.zoom_to(p);
+        // the 3D view goes where the plan went: with clouds far apart it would show none
+        if let Some(s) = self.store.clone() {
+            self.orbit = self
+                .orbit
+                .fit_area(&s, [b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad]);
+            self.touch();
+        }
     }
 
     pub fn zoom_to_layer(&mut self, k: usize) {
@@ -544,7 +598,14 @@ impl App {
     }
 
     /// Draws the vector layers in the order of the list.
-    pub fn paint_vectors(&self, painter: &egui::Painter, rect: Rect, w: usize, h: usize) {
+    pub fn paint_vectors(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        w: usize,
+        h: usize,
+        range: std::ops::Range<usize>,
+    ) {
         let clip = painter.with_clip_rect(rect);
         let xf = Xf {
             plan: self.plan,
@@ -557,7 +618,12 @@ impl App {
             self.plan.to_map(w as f64, 0.0, w, h),
         );
         let view = [lo.0, lo.1, hi.0, hi.1];
-        for r in self.refs.iter().filter(|r| r.visible) {
+        for (_, r) in self
+            .refs
+            .iter()
+            .enumerate()
+            .filter(|(k, r)| r.visible && range.contains(k))
+        {
             let RefKind::Vector(v) = &r.kind else {
                 continue;
             };
@@ -621,7 +687,9 @@ impl App {
                     {
                         pts.push(f0);
                     }
-                    clip.add(egui::Shape::line(pts, Stroke::new(v.width, outline)));
+                    if v.kind != view::GeomKind::Polygon || v.width > 0.0 {
+                        clip.add(egui::Shape::line(pts, Stroke::new(v.width, outline)));
+                    }
                 }
             }
             self.paint_labels(&clip, v, &visible, &xf, rect);
@@ -772,135 +840,8 @@ impl App {
 
     /// The layers pane, in the manner of a GIS: the last layer is on top, each row has its
     /// visibility box, its symbol and its name (cut to fit); the context menu holds the actions.
-    pub fn layers_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        let t = self.tokens();
-        let mut act: Vec<(usize, LayerCmd)> = Vec::new();
-        for k in (0..self.refs.len()).rev() {
-            let sel = self.sel_layer == Some(k);
-            let (icon, tint, legend) = {
-                let r = &self.refs[k];
-                match &r.kind {
-                    RefKind::Vector(v) => (
-                        match v.kind {
-                            view::GeomKind::Point => "@lpoint",
-                            view::GeomKind::Line => "@lline",
-                            view::GeomKind::Polygon => "@lpoly",
-                        },
-                        color32(if v.kind == view::GeomKind::Polygon {
-                            v.fill
-                        } else {
-                            v.color
-                        }),
-                        if v.sym.kind == SymKind::Single {
-                            Vec::new()
-                        } else {
-                            v.sym.legend(v.color)
-                        },
-                    ),
-                    RefKind::Raster { .. } => ("@lraster", t.text, Vec::new()),
-                    RefKind::Image(_) => ("@lraster", t.text, Vec::new()),
-                }
-            };
-            let editing = self.active == Some(k) && self.edit_layer_on();
-            let r = &mut self.refs[k];
-            let dirty = matches!(&r.kind, RefKind::Vector(v) if v.dirty);
-            let name = format!("{}{}", r.name, if dirty { " *" } else { "" });
-            let tip = if r.path.as_os_str().is_empty() {
-                r.name.clone()
-            } else {
-                r.path.display().to_string()
-            };
-            let resp = ui
-                .horizontal(|ui| {
-                    ui.checkbox(&mut r.visible, "");
-                    let (ir, _) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
-                    ribbon::draw_icon(ui.painter(), ir.center(), 15.0, icon, tint);
-                    let w = (ui.available_width() - if editing { 30.0 } else { 0.0 }).max(30.0);
-                    let (rr, b) = ui.allocate_exact_size(Vec2::new(w, 20.0), Sense::click());
-                    if sel {
-                        ui.painter().rect_filled(rr, 3.0, t.selection);
-                    } else if b.hovered() {
-                        ui.painter().rect_filled(rr, 3.0, t.hover);
-                    }
-                    let mut job = egui::text::LayoutJob::simple_singleline(
-                        name,
-                        FontId::proportional(13.0),
-                        t.text,
-                    );
-                    job.wrap = egui::text::TextWrapping::truncate_at_width((w - 8.0).max(10.0));
-                    let galley = ui.painter().layout_job(job);
-                    ui.painter().galley(
-                        Pos2::new(rr.left() + 4.0, rr.center().y - galley.size().y / 2.0),
-                        galley,
-                        t.text,
-                    );
-                    if editing {
-                        let (ir, _) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
-                        ribbon::draw_icon(ui.painter(), ir.center(), 14.0, "@pencil", t.accent);
-                    }
-                    b
-                })
-                .inner;
-            let resp = resp.on_hover_text(tip);
-            if resp.clicked() {
-                act.push((k, LayerCmd::Select));
-            }
-            if resp.double_clicked() {
-                act.push((k, LayerCmd::Zoom));
-            }
-            resp.context_menu(|ui| {
-                let (is_vec, is_img) = (
-                    matches!(r.kind, RefKind::Vector(_)),
-                    matches!(r.kind, RefKind::Image(_)),
-                );
-                let mut item = |ui: &mut egui::Ui, text: &str, c: LayerCmd| {
-                    if ui.button(text).clicked() {
-                        act.push((k, c));
-                        ui.close();
-                    }
-                };
-                item(ui, "Zoom a la capa", LayerCmd::Zoom);
-                if is_vec {
-                    item(ui, "Tabla de atributos", LayerCmd::Table);
-                    item(ui, "Editar esta capa", LayerCmd::Edit);
-                    item(ui, "Guardar", LayerCmd::Save);
-                    item(ui, "Guardar como…", LayerCmd::SaveAs);
-                }
-                if is_img {
-                    item(ui, "Bandas e índices…", LayerCmd::Bands);
-                }
-                ui.separator();
-                item(ui, "Subir", LayerCmd::Up);
-                item(ui, "Bajar", LayerCmd::Down);
-                item(ui, "Quitar", LayerCmd::Remove);
-            });
-            for (text, c) in legend.iter().take(14) {
-                ui.horizontal(|ui| {
-                    ui.add_space(46.0);
-                    let (sr, _) = ui.allocate_exact_size(Vec2::splat(11.0), Sense::hover());
-                    ui.painter().rect_filled(sr, 2.0, color32(*c));
-                    ui.add(egui::Label::new(egui::RichText::new(text).size(11.0)).truncate());
-                });
-            }
-            if legend.len() > 14 {
-                ui.label(
-                    egui::RichText::new(format!("      … {} más", legend.len() - 14))
-                        .size(11.0)
-                        .color(t.weak),
-                );
-            }
-        }
-        if let Some(k) = self.sel_layer.filter(|k| *k < self.refs.len()) {
-            ui.separator();
-            self.layer_quick(ui, ctx, k);
-        }
-        for (k, c) in act {
-            self.layer_command(ctx, k, c);
-        }
-    }
-
     /// Opacity and colours of the selected layer, close at hand; the rest is in its ribbon tab.
-    fn layer_quick(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, k: usize) {
+    pub fn layer_quick(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, k: usize) {
         let r = &mut self.refs[k];
         ui.add(egui::Label::new(egui::RichText::new(&r.name).strong().size(12.0)).truncate());
         ui.horizontal(|ui| {
@@ -947,7 +888,126 @@ impl App {
         };
         let _ = ctx;
         if open_tab {
-            self.tab = 5;
+            self.tab = FIRST_EXTRA;
+        }
+    }
+
+    /// The drawing order, from the bottom: the layers under the point clouds, the clouds as one
+    /// item, and the layers over them.
+    pub fn order_items(&self) -> Vec<Item> {
+        let n = self.refs.len();
+        let slot = self.cloud_slot.min(n);
+        let mut v: Vec<Item> = (0..slot).map(Item::Layer).collect();
+        v.push(Item::Clouds);
+        v.extend((slot..n).map(Item::Layer));
+        v
+    }
+
+    /// Puts the layers (and the clouds) in the order given, from the bottom; the selection and
+    /// the other indices of layers follow their layer.
+    pub fn apply_order(&mut self, items: &[Item]) {
+        let n = self.refs.len();
+        let layers: Vec<usize> = items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Layer(k) if *k < n => Some(*k),
+                _ => None,
+            })
+            .collect();
+        if layers.len() != n {
+            return;
+        }
+        let mut to_new = vec![0usize; n];
+        for (new, old) in layers.iter().enumerate() {
+            to_new[*old] = new;
+        }
+        let mut taken: Vec<Option<RefLayer>> = std::mem::take(&mut self.refs)
+            .into_iter()
+            .map(Some)
+            .collect();
+        self.refs = layers.iter().filter_map(|k| taken[*k].take()).collect();
+        self.cloud_slot =
+            items
+                .iter()
+                .position(|i| *i == Item::Clouds)
+                .map_or(self.cloud_slot, |p| {
+                    items[..p]
+                        .iter()
+                        .filter(|i| matches!(i, Item::Layer(_)))
+                        .count()
+                });
+        let fix = |o: &mut Option<usize>| {
+            if let Some(i) = *o {
+                *o = to_new.get(i).copied();
+            }
+        };
+        fix(&mut self.sel_layer);
+        fix(&mut self.active);
+        fix(&mut self.table_layer);
+        if let Some(i) = to_new.get(self.rs.layer) {
+            self.rs.layer = *i;
+        }
+    }
+
+    /// Adds a layer: a vector goes over everything, a raster or an image under the point
+    /// clouds (a picture of the ground would hide them otherwise). Returns its index.
+    pub fn add_ref(&mut self, layer: RefLayer, under_clouds: bool) -> usize {
+        if !under_clouds {
+            self.refs.push(layer);
+            return self.refs.len() - 1;
+        }
+        self.refs.insert(0, layer);
+        self.cloud_slot += 1;
+        for i in [&mut self.sel_layer, &mut self.active, &mut self.table_layer]
+            .into_iter()
+            .flatten()
+        {
+            *i += 1;
+        }
+        self.rs.layer += 1;
+        0
+    }
+
+    /// Removes a layer and keeps the indices that point at layers right.
+    pub fn remove_ref(&mut self, k: usize) {
+        if k >= self.refs.len() {
+            return;
+        }
+        self.refs.remove(k);
+        if k < self.cloud_slot {
+            self.cloud_slot -= 1;
+        }
+        let fix = |o: &mut Option<usize>| match *o {
+            Some(i) if i == k => *o = None,
+            Some(i) if i > k => *o = Some(i - 1),
+            _ => {}
+        };
+        fix(&mut self.sel_layer);
+        fix(&mut self.active);
+        fix(&mut self.table_layer);
+        if self.rs.layer > k {
+            self.rs.layer -= 1;
+        }
+        self.dig_draft.clear();
+    }
+
+    /// Removes the layers made from a file (it is being loaded again).
+    pub fn remove_paths(&mut self, p: &Path) {
+        while let Some(k) = self.refs.iter().position(|r| r.path == p) {
+            self.remove_ref(k);
+        }
+    }
+
+    /// Moves a layer, or the clouds, one place up or down in the drawing order.
+    pub fn step_item(&mut self, item: Item, up: bool) {
+        let mut v = self.order_items();
+        let Some(at) = v.iter().position(|i| *i == item) else {
+            return;
+        };
+        let to = if up { at + 1 } else { at.wrapping_sub(1) };
+        if to < v.len() {
+            v.swap(at, to);
+            self.apply_order(&v);
         }
     }
 
@@ -971,7 +1031,7 @@ impl App {
             LayerCmd::Edit => {
                 self.sel_layer = Some(k);
                 self.active = Some(k);
-                self.tab = 6;
+                self.tab = FIRST_EXTRA + 1;
             }
             LayerCmd::Save => self.save_layer(k, false),
             LayerCmd::SaveAs => self.save_layer(k, true),
@@ -979,38 +1039,8 @@ impl App {
                 self.rs.open = true;
                 self.rs.layer = k;
             }
-            LayerCmd::Up | LayerCmd::Down => {
-                let to = if c == LayerCmd::Up {
-                    k + 1
-                } else {
-                    k.saturating_sub(1)
-                };
-                if to < self.refs.len() && to != k {
-                    self.refs.swap(k, to);
-                    let fix = |o: &mut Option<usize>| {
-                        if *o == Some(k) {
-                            *o = Some(to);
-                        } else if *o == Some(to) {
-                            *o = Some(k);
-                        }
-                    };
-                    fix(&mut self.sel_layer);
-                    fix(&mut self.active);
-                    fix(&mut self.table_layer);
-                }
-            }
-            LayerCmd::Remove => {
-                self.refs.remove(k);
-                let fix = |o: &mut Option<usize>| match *o {
-                    Some(i) if i == k => *o = None,
-                    Some(i) if i > k => *o = Some(i - 1),
-                    _ => {}
-                };
-                fix(&mut self.sel_layer);
-                fix(&mut self.active);
-                fix(&mut self.table_layer);
-                self.dig_draft.clear();
-            }
+            LayerCmd::Up | LayerCmd::Down => self.step_item(Item::Layer(k), c == LayerCmd::Up),
+            LayerCmd::Remove => self.remove_ref(k),
         }
         let _ = ctx;
     }
@@ -1092,7 +1122,11 @@ impl App {
                 for (k, f) in d.fields.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
                         ui.add(egui::TextEdit::singleline(f).desired_width(160.0));
-                        if ui.small_button("✖").clicked() {
+                        if ui
+                            .small_button("✖")
+                            .on_hover_text("Quitar este campo de la tabla")
+                            .clicked()
+                        {
                             remove = Some(k);
                         }
                     });
@@ -1125,20 +1159,23 @@ impl App {
             };
             let mut layer = VecLayer::new(data, d.kind);
             layer.dirty = true;
-            self.refs.push(RefLayer {
-                name: d.name.trim().to_string(),
-                path: PathBuf::new(),
-                kind: RefKind::Vector(Box::new(layer)),
-                visible: true,
-                opacity: 1.0,
-            });
+            self.add_ref(
+                RefLayer {
+                    name: d.name.trim().to_string(),
+                    path: PathBuf::new(),
+                    kind: RefKind::Vector(Box::new(layer)),
+                    visible: true,
+                    opacity: 1.0,
+                },
+                false,
+            );
             let k = self.refs.len() - 1;
             self.active = Some(k);
             self.sel_layer = Some(k);
             // an empty layer has no extent to fit: the view stays where it is
             self.plan_fit = self.plan_fit && self.refs.len() > 1;
             self.nav = Nav::Digitize;
-            self.tab = 6;
+            self.tab = FIRST_EXTRA + 1;
             self.log(format!(
                 "Capa «{}» creada: digitaliza sobre la planta.",
                 d.name
@@ -1171,13 +1208,14 @@ impl App {
         let path = if !ask
             && r.path
                 .extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("shp"))
+                .is_some_and(|e| e.eq_ignore_ascii_case("shp") || e.eq_ignore_ascii_case("geojson"))
         {
             r.path.clone()
         } else {
             let stem = rustlidar_core::paths::stem(Path::new(&r.name));
-            let Some(p) = rfd::FileDialog::new()
+            let Some(p) = crate::prefs::dialog()
                 .add_filter("Shapefile", &["shp"])
+                .add_filter("GeoJSON", &["geojson"])
                 .set_directory(if r.path.parent().is_some_and(|p| p.is_dir()) {
                     r.path.parent().map_or(dir.clone(), Path::to_path_buf)
                 } else {
@@ -1213,8 +1251,15 @@ impl App {
     }
 }
 
+/// An element of the drawing order: a layer, or the point clouds together.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Item {
+    Layer(usize),
+    Clouds,
+}
+
 /// What the layers pane asks of a layer.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayerCmd {
     Select,
     Zoom,
@@ -1226,4 +1271,87 @@ pub enum LayerCmd {
     Up,
     Down,
     Remove,
+}
+
+#[cfg(test)]
+mod order_tests {
+    use super::*;
+
+    fn layer(name: &str) -> RefLayer {
+        RefLayer {
+            name: name.to_string(),
+            path: PathBuf::from(format!("/tmp/{name}.shp")),
+            kind: RefKind::Vector(Box::new(VecLayer::new(
+                view::VectorData::default(),
+                view::GeomKind::Polygon,
+            ))),
+            visible: true,
+            opacity: 1.0,
+        }
+    }
+
+    fn names(a: &App) -> Vec<String> {
+        a.order_items()
+            .iter()
+            .map(|i| match i {
+                Item::Layer(k) => a.refs[*k].name.clone(),
+                Item::Clouds => "NUBES".to_string(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_clouds_move_through_the_layers_as_one_item() {
+        let mut a = App::default();
+        for n in ["a", "b", "c"] {
+            a.add_ref(layer(n), false);
+        }
+        // clouds under everything, by default (slot 0), layers a b c from the bottom
+        assert_eq!(names(&a), ["NUBES", "a", "b", "c"]);
+        a.step_item(Item::Clouds, true);
+        a.step_item(Item::Clouds, true);
+        assert_eq!(names(&a), ["a", "b", "NUBES", "c"]);
+        assert_eq!(a.cloud_slot, 2);
+        // a layer crosses the clouds without moving the others
+        a.sel_layer = Some(1);
+        a.step_item(Item::Layer(1), true);
+        assert_eq!(names(&a), ["a", "NUBES", "b", "c"]);
+        // the selection follows its layer
+        assert_eq!(a.refs[a.sel_layer.unwrap_or(99)].name, "b");
+        // to the top and the bottom
+        a.step_item(Item::Clouds, true);
+        a.step_item(Item::Clouds, true);
+        assert_eq!(names(&a), ["a", "b", "c", "NUBES"]);
+        a.step_item(Item::Clouds, true);
+        assert_eq!(names(&a), ["a", "b", "c", "NUBES"]);
+    }
+
+    #[test]
+    fn a_new_raster_goes_under_the_clouds_and_a_vector_over_them() {
+        let mut a = App::default();
+        a.add_ref(layer("v1"), false);
+        a.sel_layer = Some(0);
+        let k = a.add_ref(layer("ortofoto"), true);
+        assert_eq!(k, 0);
+        // the selected vector layer is still the same layer
+        assert_eq!(a.refs[a.sel_layer.unwrap_or(99)].name, "v1");
+        a.add_ref(layer("v2"), false);
+        assert_eq!(names(&a), ["ortofoto", "NUBES", "v1", "v2"]);
+    }
+
+    #[test]
+    fn removing_and_dragging_keep_the_slot_right() {
+        let mut a = App::default();
+        a.add_ref(layer("r1"), true);
+        a.add_ref(layer("r2"), true);
+        a.add_ref(layer("v1"), false);
+        assert_eq!(names(&a), ["r2", "r1", "NUBES", "v1"]);
+        a.remove_ref(0);
+        assert_eq!(names(&a), ["r1", "NUBES", "v1"]);
+        // the whole order at once, as a drag does: v1 to the bottom
+        let items = vec![Item::Layer(1), Item::Layer(0), Item::Clouds];
+        a.apply_order(&items);
+        assert_eq!(names(&a), ["v1", "r1", "NUBES"]);
+        assert_eq!(a.cloud_slot, 2);
+    }
 }

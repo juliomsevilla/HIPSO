@@ -5,8 +5,10 @@
 //!
 //! Wires and poles look at the points above the ground only. In the neighbourhood of a point
 //! the three eigenvalues l1 ≥ l2 ≥ l3 of the covariance say how the points lie: a line has
-//! linearity (l1 − l2)/l1 near 1. A wire is a nearly horizontal line high above the ground;
-//! a pole is a thin, nearly vertical one.
+//! linearity (l1 − l2)/l1 near 1. A wire is a nearly horizontal line high above the ground, in
+//! the air and long: the scan lines of a survey make pieces of crown straight for a metre or
+//! two, so short chains and crowded neighbourhoods are not wires. A pole or tower is a narrow
+//! structure, isolated from the crowns, that rises from the ground.
 
 use std::collections::HashMap;
 
@@ -20,6 +22,9 @@ pub const MEDIUM_VEGETATION: u8 = 4;
 pub const HIGH_VEGETATION: u8 = 5;
 pub const WIRE: u8 = 14;
 pub const POLE: u8 = 15;
+
+/// Lowest a tower head is above the ground (m).
+const HEAD_MIN_HEIGHT: f64 = 8.0;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct VegParams {
@@ -50,6 +55,13 @@ pub struct WireParams {
     pub linearity: f64,
     /// Steepest slope of the line (|dz| of its direction, 0 horizontal – 1 vertical).
     pub max_slope: f64,
+    /// A wire hangs in the air: at most this many points above `min_height` within
+    /// `2 × radius` of it. A branch in a crown has dozens.
+    pub max_neighbours: usize,
+    /// A wire is continuous: the chain of wire points (each within `2 × radius` of the next)
+    /// must reach this far. The scan lines of a survey make pieces of crown look straight for
+    /// a metre or two, never for several.
+    pub min_length: f64,
 }
 
 impl Default for WireParams {
@@ -59,29 +71,40 @@ impl Default for WireParams {
             radius: 1.5,
             linearity: 0.9,
             max_slope: 0.5,
+            max_neighbours: 20,
+            min_length: 4.0,
         }
     }
 }
 
+/// Poles and towers are found as isolated, narrow structures that rise from the ground: at the
+/// density of a survey a lattice tower is a loose column of points, not a clean line, so what
+/// marks it is its shape and that nothing touches it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PoleParams {
+    /// Points lower than this above the ground are not part of a structure.
     pub min_height: f64,
+    /// Points closer than this belong to the same structure.
     pub radius: f64,
-    pub linearity: f64,
-    /// Smallest verticality of the line (|dz| of its direction).
-    pub min_vertical: f64,
-    /// Widest the neighbourhood may be across the line (standard deviation, m).
+    /// Widest the structure may be (m, either side of the footprint).
     pub max_width: f64,
+    /// Least it must rise (m).
+    pub min_extent: f64,
+    /// At the density of a survey only the head of a tower may come back: a crossarm a few
+    /// metres long, high up, with nothing under it. A short isolated chain of points that
+    /// high and that long (m, 0 to turn off) is taken for the head of a tower. A conductor
+    /// is longer, and a crown has crown under it.
+    pub head_length: f64,
 }
 
 impl Default for PoleParams {
     fn default() -> Self {
         Self {
             min_height: 2.0,
-            radius: 1.0,
-            linearity: 0.9,
-            min_vertical: 0.9,
-            max_width: 0.25,
+            radius: 1.5,
+            max_width: 8.0,
+            min_extent: 6.0,
+            head_length: 12.0,
         }
     }
 }
@@ -202,6 +225,129 @@ fn line_features(pts: &[Point], set: &[usize], radius: f64) -> Vec<Option<(f64, 
         .collect()
 }
 
+/// For each point of `set`, how many other points of `set` lie within `radius`.
+fn neighbour_counts(pts: &[Point], set: &[usize], radius: f64) -> Vec<usize> {
+    let key = |q: &Point| -> Cell {
+        (
+            (q.x / radius).floor() as i32,
+            (q.y / radius).floor() as i32,
+            (q.z / radius).floor() as i32,
+        )
+    };
+    let mut cells: HashMap<Cell, Vec<u32>> = HashMap::new();
+    for (j, &i) in set.iter().enumerate() {
+        cells.entry(key(&pts[i])).or_default().push(j as u32);
+    }
+    let r2 = radius * radius;
+    (0..set.len())
+        .into_par_iter()
+        .map(|j| {
+            let q = &pts[set[j]];
+            let (cx, cy, cz) = key(q);
+            let mut n = 0;
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        for &o in cells
+                            .get(&(cx + dx, cy + dy, cz + dz))
+                            .into_iter()
+                            .flatten()
+                        {
+                            let w = &pts[set[o as usize]];
+                            if (w.x - q.x).powi(2) + (w.y - q.y).powi(2) + (w.z - q.z).powi(2) <= r2
+                            {
+                                n += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            n - 1
+        })
+        .collect()
+}
+
+/// Each chain's bounding box `[x0, y0, z0, x1, y1, z1]` and size, by chain.
+type ChainBoxes = HashMap<usize, ([f64; 6], usize)>;
+
+/// Groups the points `cand` (indices into `pts`) into chains: two points within `link` of each
+/// other are in the same one. Returns each point's group and each group's bounding box
+/// `[x0, y0, z0, x1, y1, z1]` and size.
+fn chains(pts: &[Point], cand: &[usize], link: f64) -> (Vec<usize>, ChainBoxes) {
+    fn root(parent: &mut [usize], mut i: usize) -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        i
+    }
+    let key = |q: &Point| -> Cell {
+        (
+            (q.x / link).floor() as i32,
+            (q.y / link).floor() as i32,
+            (q.z / link).floor() as i32,
+        )
+    };
+    let mut cells: HashMap<Cell, Vec<usize>> = HashMap::new();
+    for (j, &i) in cand.iter().enumerate() {
+        cells.entry(key(&pts[i])).or_default().push(j);
+    }
+    let mut parent: Vec<usize> = (0..cand.len()).collect();
+    let l2 = link * link;
+    for (j, &i) in cand.iter().enumerate() {
+        let q = &pts[i];
+        let (cx, cy, cz) = key(q);
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    for &o in cells
+                        .get(&(cx + dx, cy + dy, cz + dz))
+                        .into_iter()
+                        .flatten()
+                    {
+                        let w = &pts[cand[o]];
+                        if o > j
+                            && (w.x - q.x).powi(2) + (w.y - q.y).powi(2) + (w.z - q.z).powi(2) <= l2
+                        {
+                            let (a, b) = (root(&mut parent, j), root(&mut parent, o));
+                            parent[a] = b;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let group: Vec<usize> = (0..cand.len()).map(|j| root(&mut parent, j)).collect();
+    let mut boxes: HashMap<usize, ([f64; 6], usize)> = HashMap::new();
+    for (&g, &i) in group.iter().zip(cand) {
+        let q = &pts[i];
+        let (b, n) = boxes.entry(g).or_insert((
+            [f64::MAX, f64::MAX, f64::MAX, f64::MIN, f64::MIN, f64::MIN],
+            0,
+        ));
+        for (k, v) in [q.x, q.y, q.z].into_iter().enumerate() {
+            b[k] = b[k].min(v);
+            b[k + 3] = b[k + 3].max(v);
+        }
+        *n += 1;
+    }
+    (group, boxes)
+}
+
+/// Which of the points `cand` belong to a chain whose bounding box diagonal is at least
+/// `min_len`.
+fn long_chains(pts: &[Point], cand: &[usize], link: f64, min_len: f64) -> Vec<bool> {
+    let (group, boxes) = chains(pts, cand, link);
+    group
+        .iter()
+        .map(|g| {
+            let (b, _) = boxes[g];
+            ((b[3] - b[0]).powi(2) + (b[4] - b[1]).powi(2) + (b[5] - b[2]).powi(2)).sqrt()
+                >= min_len
+        })
+        .collect()
+}
+
 /// Gives the extra classes to the points of a tile. `class` holds the class each step decided
 /// (`None`: the point's own); `ground` says which points are ground.
 pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extras) {
@@ -240,11 +386,26 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
             .copied()
             .filter(|&k| height(k) >= w.min_height)
             .collect();
-        for (&k, f) in set.iter().zip(line_features(pts, &set, w.radius)) {
+        let crowd = neighbour_counts(pts, &set, 2.0 * w.radius);
+        let mut cand: Vec<usize> = Vec::new();
+        for ((&k, f), n) in set
+            .iter()
+            .zip(line_features(pts, &set, w.radius))
+            .zip(crowd)
+        {
             if let Some((lin, dz, _)) = f
                 && lin >= w.linearity
                 && dz <= w.max_slope
+                && n <= w.max_neighbours
             {
+                cand.push(k);
+            }
+        }
+        for (&k, keep) in cand
+            .iter()
+            .zip(long_chains(pts, &cand, 2.0 * w.radius, w.min_length))
+        {
+            if keep {
                 class[k] = Some(WIRE);
             }
         }
@@ -255,13 +416,149 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
             .copied()
             .filter(|&k| height(k) >= p.min_height && now(class, k) != WIRE)
             .collect();
-        for (&k, f) in set.iter().zip(line_features(pts, &set, p.radius)) {
-            if let Some((lin, dz, width)) = f
-                && lin >= p.linearity
-                && dz >= p.min_vertical
+        // what stands around a structure: points more than 3 m above the ground, by 3 m cell
+        let mut under: HashMap<(i32, i32), Vec<[f64; 3]>> = HashMap::new();
+        for &k in &above {
+            if height(k) >= 3.0 {
+                under
+                    .entry((
+                        (pts[k].x / 3.0).floor() as i32,
+                        (pts[k].y / 3.0).floor() as i32,
+                    ))
+                    .or_default()
+                    .push([pts[k].x, pts[k].y, pts[k].z]);
+            }
+        }
+        let (group, boxes) = chains(pts, &set, p.radius);
+        let mut members: HashMap<usize, usize> = HashMap::new();
+        for (&k, g) in set.iter().zip(&group) {
+            if height(k) >= 3.0 {
+                *members.entry(*g).or_default() += 1;
+            }
+        }
+        // points more than 3 m above the ground within 3 m of the chain on the plan, those of
+        // the chain apart: a tower in a corridor has none, a tree at the edge of a stand has
+        let crowded = |g: &usize| -> bool {
+            let (b, _) = boxes[g];
+            let (cx0, cx1) = (
+                (b[0] / 3.0).floor() as i32 - 1,
+                (b[3] / 3.0).floor() as i32 + 1,
+            );
+            let (cy0, cy1) = (
+                (b[1] / 3.0).floor() as i32 - 1,
+                (b[4] / 3.0).floor() as i32 + 1,
+            );
+            let near: usize = (cx0..=cx1)
+                .flat_map(|cx| (cy0..=cy1).map(move |cy| (cx, cy)))
+                .filter_map(|c| under.get(&c))
+                .flatten()
+                .filter(|q| {
+                    q[0] > b[0] - 3.0 && q[0] < b[3] + 3.0 && q[1] > b[1] - 3.0 && q[1] < b[4] + 3.0
+                })
+                .count();
+            near > members.get(g).copied().unwrap_or(0) + 2
+        };
+        // a structure stands on the ground, is narrow for its height and is sparse; a crown is
+        // wide and dense, a forest is one chain far wider than any tower
+        let is_pole = |g: &usize| -> bool {
+            let (b, n) = boxes[g];
+            let width = (b[3] - b[0]).max(b[4] - b[1]);
+            let extent = b[5] - b[2];
+            n >= 5
                 && width <= p.max_width
-            {
+                && extent >= p.min_extent
+                && width <= 0.35 * extent
+                && (n as f64) <= 12.0 * extent
+        };
+        let low = |g: &usize| -> bool {
+            // reaches the ground: some point of the chain is within 3 m of it
+            let (b, _) = boxes[g];
+            let (x, y) = ((b[0] + b[3]) / 2.0, (b[1] + b[4]) / 2.0);
+            surface
+                .sample(x, y)
+                .is_some_and(|gz| b[2] - f64::from(gz) <= p.min_height + 3.0)
+        };
+        let poles: std::collections::HashSet<usize> = boxes
+            .keys()
+            .filter(|g| is_pole(g) && low(g) && !crowded(g))
+            .copied()
+            .collect();
+        for (&k, g) in set.iter().zip(&group) {
+            if poles.contains(g) {
                 class[k] = Some(POLE);
+            }
+        }
+        if p.head_length > 0.0 {
+            let high: Vec<usize> = above
+                .iter()
+                .copied()
+                .filter(|&k| height(k) >= HEAD_MIN_HEIGHT && class[k] != Some(POLE))
+                .collect();
+            let (group, boxes) = chains(pts, &high, p.radius);
+            // a crossarm is a straight bar: the spread of its points on the plan is long
+            // one way and thin the other (a piece of crown is a blob)
+            let mut plan: HashMap<usize, Vec<[f64; 2]>> = HashMap::new();
+            for (&k, g) in high.iter().zip(&group) {
+                plan.entry(*g).or_default().push([pts[k].x, pts[k].y]);
+            }
+            let straight = |g: &usize| -> bool {
+                let q = &plan[g];
+                let n = q.len() as f64;
+                let (mx, my) = (
+                    q.iter().map(|v| v[0]).sum::<f64>() / n,
+                    q.iter().map(|v| v[1]).sum::<f64>() / n,
+                );
+                let (mut sxx, mut syy, mut sxy) = (0.0, 0.0, 0.0);
+                for v in q {
+                    sxx += (v[0] - mx).powi(2);
+                    syy += (v[1] - my).powi(2);
+                    sxy += (v[0] - mx) * (v[1] - my);
+                }
+                let (sxx, syy, sxy) = (sxx / n, syy / n, sxy / n);
+                let mid = (sxx + syy) / 2.0;
+                let d = ((sxx - syy) / 2.0).hypot(sxy);
+                let (l1, l2) = (mid + d, (mid - d).max(0.0));
+                l2.sqrt() <= 0.6 && l1.sqrt() >= 3.0 * l2.sqrt()
+            };
+            let is_head = |g: &usize| -> bool {
+                let (b, n) = boxes[g];
+                if !straight(g) {
+                    return false;
+                }
+                let diag =
+                    ((b[3] - b[0]).powi(2) + (b[4] - b[1]).powi(2) + (b[5] - b[2]).powi(2)).sqrt();
+                if n < 8 || diag < 3.0 || diag > p.head_length {
+                    return false;
+                }
+                // nothing within 3 m of the chain on the plan and under it, down to the ground
+                let (cx0, cx1) = (
+                    (b[0] / 3.0).floor() as i32 - 1,
+                    (b[3] / 3.0).floor() as i32 + 1,
+                );
+                let (cy0, cy1) = (
+                    (b[1] / 3.0).floor() as i32 - 1,
+                    (b[4] / 3.0).floor() as i32 + 1,
+                );
+                !(cx0..=cx1).any(|cx| {
+                    (cy0..=cy1).any(|cy| {
+                        under.get(&(cx, cy)).is_some_and(|ps| {
+                            ps.iter().any(|q| {
+                                q[2] < b[2] - 1.0
+                                    && q[0] > b[0] - 3.0
+                                    && q[0] < b[3] + 3.0
+                                    && q[1] > b[1] - 3.0
+                                    && q[1] < b[4] + 3.0
+                            })
+                        })
+                    })
+                })
+            };
+            let heads: std::collections::HashSet<usize> =
+                boxes.keys().filter(|g| is_head(g)).copied().collect();
+            for (&k, g) in high.iter().zip(&group) {
+                if heads.contains(g) {
+                    class[k] = Some(POLE);
+                }
             }
         }
     }
@@ -305,6 +602,32 @@ mod tests {
         for i in 0..30 {
             pts.push(pt(20.0, 10.0, 0.5 + f64::from(i) * 0.3));
         }
+        // a lattice tower far from the rest: a loose column 2 m wide, 18 m tall
+        let tower_from = pts.len();
+        for i in 0..24 {
+            let z = 1.0 + f64::from(i) * 0.75;
+            let w = 1.0 - z / 40.0;
+            pts.push(pt(10.0 - w, 3.0, z));
+            pts.push(pt(10.0 + w, 3.0 + w, z + 0.3));
+        }
+        let tower_to = pts.len();
+        // a lone crown, wide for its height, must not count
+        let crown_from = pts.len();
+        for i in 0..8 {
+            for j in 0..8 {
+                pts.push(pt(
+                    24.0 + f64::from(i) * 0.4,
+                    6.0 + f64::from(j) * 0.4,
+                    5.0 + f64::from(i % 3),
+                ));
+            }
+        }
+        // the head of a tower far from anything: a 6 m crossarm 12 m up with nothing under it
+        let head_from = pts.len();
+        for i in 0..24 {
+            pts.push(pt(27.0, 12.0 + f64::from(i) * 0.25, 12.0));
+        }
+        let head_to = pts.len();
         let mut ground_all = ground;
         ground_all.resize(pts.len(), false);
         let mut class = vec![None; pts.len()];
@@ -321,5 +644,20 @@ mod tests {
         let poles = class.iter().filter(|c| **c == Some(POLE)).count();
         assert!(wires >= 35, "{wires}");
         assert!(poles >= 25, "{poles}");
+        let tower = class[tower_from..tower_to]
+            .iter()
+            .filter(|c| **c == Some(POLE))
+            .count();
+        assert!(tower >= 40, "{tower}");
+        assert!(
+            class[crown_from..head_from]
+                .iter()
+                .all(|c| *c != Some(POLE))
+        );
+        assert!(
+            class[head_from..head_to].iter().all(|c| *c == Some(POLE)),
+            "{:?}",
+            &class[head_from..head_to]
+        );
     }
 }

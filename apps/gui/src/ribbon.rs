@@ -19,9 +19,17 @@ fn fill(t: &Tokens, r: &Response, selected: bool) -> Color32 {
 
 /// A 32 px icon over an 11.5 pt label.
 pub fn big_button(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: bool) -> Response {
+    let r = big_button_body(ui, t, icon, label, selected);
+    match crate::tips::tip(label) {
+        Some(tip) => r.on_hover_text(tip),
+        None => r,
+    }
+}
+
+fn big_button_body(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: bool) -> Response {
     let lines: Vec<&str> = label.split('\n').collect();
-    let w = lines.iter().map(|l| l.chars().count()).max().unwrap_or(4) as f32 * 6.4 + 14.0;
-    let (rect, r) = ui.allocate_exact_size(Vec2::new(w.max(52.0), 66.0), Sense::click());
+    let w = big_width(ui, label);
+    let (rect, r) = ui.allocate_exact_size(Vec2::new(w, 66.0), Sense::click());
     if ui.is_rect_visible(rect) {
         let p = ui.painter();
         p.rect_filled(rect, 4.0, fill(t, &r, selected));
@@ -55,8 +63,16 @@ pub fn big_button(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: bo
 
 /// An 18 px icon beside a label, in a 22 px row.
 pub fn small_button(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: bool) -> Response {
-    let w = label.chars().count() as f32 * 6.4 + 34.0;
-    let (rect, r) = ui.allocate_exact_size(Vec2::new(w.max(60.0), 22.0), Sense::click());
+    let r = small_button_body(ui, t, icon, label, selected);
+    match crate::tips::tip(label) {
+        Some(tip) => r.on_hover_text(tip),
+        None => r,
+    }
+}
+
+fn small_button_body(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: bool) -> Response {
+    let w = small_width(ui, label);
+    let (rect, r) = ui.allocate_exact_size(Vec2::new(w, 22.0), Sense::click());
     if ui.is_rect_visible(rect) {
         let p = ui.painter();
         p.rect_filled(rect, 4.0, fill(t, &r, selected));
@@ -78,13 +94,209 @@ pub fn small_button(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: 
     r
 }
 
+/// A small button that opens a menu below it, drawn like [`small_button`] with a ▾ after the
+/// label, so that menus sit in the ribbon as the other commands do.
+pub fn small_menu(
+    ui: &mut Ui,
+    t: &Tokens,
+    icon: &str,
+    label: &str,
+    enabled: bool,
+    add: impl FnOnce(&mut Ui),
+) -> Response {
+    let text = format!("{label}  ▾");
+    let r = ui
+        .add_enabled_ui(enabled, |ui| small_button_body(ui, t, icon, &text, false))
+        .inner;
+    egui::Popup::menu(&r).show(add);
+    r
+}
+
+/// One command of a ribbon group: its icon and label, whether its window is open, and what a
+/// click does.
+pub struct Item<A> {
+    pub icon: &'static str,
+    pub label: &'static str,
+    pub on: bool,
+    pub action: A,
+}
+
+/// A ribbon group described as data, so that it can be drawn whole or folded into one button.
+pub struct Group<A> {
+    pub caption: &'static str,
+    /// The icon of the group when it is folded.
+    pub icon: &'static str,
+    /// Large buttons, then columns of up to three small ones.
+    pub big: Vec<Item<A>>,
+    pub columns: Vec<Vec<Item<A>>>,
+}
+
+/// The width of a text in the ribbon's font.
+fn text_width(ui: &Ui, text: &str, size: f32) -> f32 {
+    ui.painter()
+        .layout_no_wrap(text.to_string(), FontId::proportional(size), Color32::WHITE)
+        .size()
+        .x
+}
+
+fn big_width(ui: &Ui, label: &str) -> f32 {
+    let w = label
+        .split('\n')
+        .map(|l| text_width(ui, l, 11.5))
+        .fold(0.0, f32::max);
+    (w + 16.0).max(52.0)
+}
+
+fn small_width(ui: &Ui, label: &str) -> f32 {
+    (text_width(ui, label, 12.0) + 34.0).max(60.0)
+}
+
+impl<A> Group<A> {
+    /// The width the group takes when drawn whole.
+    fn width(&self, ui: &Ui) -> f32 {
+        let big: f32 = self.big.iter().map(|i| big_width(ui, i.label) + 2.0).sum();
+        let cols: f32 = self
+            .columns
+            .iter()
+            .map(|c| {
+                c.iter()
+                    .map(|i| small_width(ui, i.label))
+                    .fold(0.0, f32::max)
+                    + 2.0
+            })
+            .sum();
+        (big + cols).max(text_width(ui, self.caption, 11.0)) + 12.0
+    }
+
+    fn folded_width(&self, ui: &Ui) -> f32 {
+        big_width(ui, &format!("{} ▾", self.caption)) + 12.0
+    }
+}
+
+/// Draws the groups whole when they fit the width of the ribbon; when they do not, the groups
+/// from the right are folded, each into one large button with a menu of its commands, so every
+/// command stays one click away whatever the size of the window.
+pub fn adaptive_groups<A: Copy>(
+    ui: &mut Ui,
+    t: &Tokens,
+    groups: &[Group<A>],
+    mut act: impl FnMut(A),
+) {
+    let avail = ui.available_width() - 24.0;
+    let mut folded = vec![false; groups.len()];
+    let mut total: f32 = groups.iter().map(|g| g.width(ui)).sum();
+    // from the right, and only where folding saves room
+    for k in (0..groups.len()).rev() {
+        if total <= avail {
+            break;
+        }
+        let saved = groups[k].width(ui) - groups[k].folded_width(ui);
+        if saved > 0.0 {
+            total -= saved;
+            folded[k] = true;
+        }
+    }
+    for (g, fold) in groups.iter().zip(folded) {
+        if fold {
+            group(ui, t, g.caption, |ui| {
+                let any_on = g.big.iter().chain(g.columns.iter().flatten()).any(|i| i.on);
+                let label = format!("{} ▾", g.caption);
+                let r = big_button_body(ui, t, g.icon, &label, any_on);
+                egui::Popup::menu(&r).show(|ui| {
+                    for i in g.big.iter().chain(g.columns.iter().flatten()) {
+                        if small_button(ui, t, i.icon, &i.label.replace('\n', " "), i.on).clicked()
+                        {
+                            act(i.action);
+                        }
+                    }
+                });
+            });
+            continue;
+        }
+        group(ui, t, g.caption, |ui| {
+            for i in &g.big {
+                if big_button(ui, t, i.icon, i.label, i.on).clicked() {
+                    act(i.action);
+                }
+            }
+            for col in &g.columns {
+                ui.vertical(|ui| {
+                    for i in col {
+                        if small_button(ui, t, i.icon, i.label, i.on).clicked() {
+                            act(i.action);
+                        }
+                    }
+                });
+            }
+        });
+    }
+}
+
+/// The spacing of the form controls inside a ribbon group: three rows fit the height of a
+/// group, every control has the same height and the rows line up across groups.
+pub fn compact(ui: &mut Ui) {
+    let s = ui.spacing_mut();
+    s.interact_size.y = 20.0;
+    s.button_padding = Vec2::new(6.0, 1.0);
+    s.item_spacing = Vec2::new(6.0, 3.0);
+}
+
+/// A − and a + button side by side, with their tooltips; `step(-1)` or `step(1)` on a click.
+pub fn stepper(ui: &mut Ui, less: &str, more: &str, mut step: impl FnMut(i32)) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        if ui
+            .add(egui::Button::new("−").min_size(Vec2::new(26.0, 20.0)))
+            .on_hover_text(less)
+            .clicked()
+        {
+            step(-1);
+        }
+        if ui
+            .add(egui::Button::new("+").min_size(Vec2::new(26.0, 20.0)))
+            .on_hover_text(more)
+            .clicked()
+        {
+            step(1);
+        }
+    });
+}
+
+/// A square 28 px icon button for panels, lit when `selected`, with its name as a tooltip.
+pub fn tool_button(ui: &mut Ui, t: &Tokens, icon: &str, tip: &str, selected: bool) -> Response {
+    let (rect, r) = ui.allocate_exact_size(Vec2::new(30.0, 28.0), Sense::click());
+    if ui.is_rect_visible(rect) {
+        let p = ui.painter();
+        p.rect_filled(rect, 4.0, fill(t, &r, selected));
+        if selected {
+            p.rect_stroke(
+                rect,
+                4.0,
+                Stroke::new(1.0, t.accent),
+                egui::StrokeKind::Inside,
+            );
+        }
+        draw_icon(
+            p,
+            rect.center(),
+            18.0,
+            icon,
+            if selected { t.accent } else { t.text },
+        );
+    }
+    r.on_hover_text(tip)
+}
+
 /// A group of controls with its caption centred below and a rule after it.
 pub fn group(ui: &mut Ui, t: &Tokens, caption: &str, add: impl FnOnce(&mut Ui)) {
     let r = ui
         .vertical(|ui| {
-            let inner = ui.horizontal(|ui| {
+            // controls start at the top of the group, as in every ribbon: rows of different
+            // groups line up and a taller group never pushes its caption out of the ribbon
+            let inner = ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
                 ui.spacing_mut().item_spacing = Vec2::new(2.0, 2.0);
                 ui.set_min_height(70.0);
+                ui.set_max_height(70.0);
                 add(ui);
             });
             let w = inner
@@ -721,6 +933,11 @@ fn icon_shapes(name: &str) -> (Vec<Line>, Vec<[f32; 2]>) {
 
 /// An icon: a drawn one when `icon` starts with `@`, else a glyph.
 pub fn draw_icon(p: &egui::Painter, c: Pos2, size: f32, icon: &str, color: Color32) {
+    if let Some(name) = crate::icons::resolve(icon)
+        && crate::icons::paint(p, c, size, name, color)
+    {
+        return;
+    }
     let Some(name) = icon.strip_prefix('@') else {
         p.text(
             c,
@@ -732,6 +949,9 @@ pub fn draw_icon(p: &egui::Painter, c: Pos2, size: f32, icon: &str, color: Color
         return;
     };
     let (lines, dots) = icon_shapes(name);
+    if lines.is_empty() && dots.is_empty() && crate::icons::paint(p, c, size, "missing", color) {
+        return;
+    }
     let s = size * 0.9;
     let at = |q: &[f32; 2]| Pos2::new(c.x + (q[0] - 0.5) * s, c.y + (q[1] - 0.5) * s);
     let stroke = Stroke::new((size / 14.0).max(1.3), color);

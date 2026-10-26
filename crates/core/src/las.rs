@@ -109,6 +109,11 @@ pub struct Extra {
     pub overlap: bool,
 }
 
+/// The length of the fields of point format `format`, without extra attributes.
+pub(crate) fn core_len(format: u8) -> Option<u16> {
+    RECORD_LEN.get(usize::from(format)).copied()
+}
+
 /// Where each format keeps its optional fields: GPS time, then colour.
 fn gps_at(format: u8) -> Option<usize> {
     match format {
@@ -208,17 +213,17 @@ fn f64_at(b: &[u8], at: usize) -> Option<f64> {
 }
 
 fn bad(what: &str) -> Error {
-    Error::Format(format!("not a readable LAS file ({what})"))
+    Error::Format(format!("no es un archivo LAS legible ({what})"))
 }
 
 /// Reads the header block (its first 375 bytes at most).
 fn parse_header(b: &[u8]) -> Result<Header> {
     if !b.starts_with(b"LASF") {
-        return Err(bad("no LASF signature"));
+        return Err(bad("no empieza por la firma LASF"));
     }
     let version = (
-        *b.get(24).ok_or_else(|| bad("version"))?,
-        *b.get(25).ok_or_else(|| bad("version"))?,
+        *b.get(24).ok_or_else(|| bad("versión"))?,
+        *b.get(25).ok_or_else(|| bad("versión"))?,
     );
     if version.0 != 1 || version.1 > 4 {
         return Err(Error::Unsupported(format!(
@@ -226,20 +231,20 @@ fn parse_header(b: &[u8]) -> Result<Header> {
             version.0, version.1
         )));
     }
-    let header_size = u16_at(b, 94).ok_or_else(|| bad("header size"))?;
-    let point_offset = u32_at(b, 96).ok_or_else(|| bad("point offset"))?;
-    let raw_format = *b.get(104).ok_or_else(|| bad("point format"))?;
+    let header_size = u16_at(b, 94).ok_or_else(|| bad("tamaño de la cabecera"))?;
+    let point_offset = u32_at(b, 96).ok_or_else(|| bad("posición de los puntos"))?;
+    let raw_format = *b.get(104).ok_or_else(|| bad("formato de punto"))?;
     // LAZ marks its formats with the top bits.
     let compressed = raw_format & 0xC0 != 0;
     let format = raw_format & 0x3F;
     let min_len = *RECORD_LEN
         .get(usize::from(format))
-        .ok_or_else(|| Error::Unsupported(format!("LAS point format {format}")))?;
-    let record_len = u16_at(b, 105).ok_or_else(|| bad("record length"))?;
+        .ok_or_else(|| Error::Unsupported(format!("formato de punto LAS {format}")))?;
+    let record_len = u16_at(b, 105).ok_or_else(|| bad("longitud de registro"))?;
     if record_len < min_len {
-        return Err(bad("records shorter than their format"));
+        return Err(bad("registros más cortos que su formato"));
     }
-    let legacy = u64::from(u32_at(b, 107).ok_or_else(|| bad("point count"))?);
+    let legacy = u64::from(u32_at(b, 107).ok_or_else(|| bad("número de puntos"))?);
     let count = if version.1 >= 4 && header_size >= 375 {
         u64_at(b, 247).filter(|n| *n > 0).unwrap_or(legacy)
     } else {
@@ -248,17 +253,17 @@ fn parse_header(b: &[u8]) -> Result<Header> {
     let f = |at| {
         f64_at(b, at)
             .filter(|x| x.is_finite())
-            .ok_or_else(|| bad("scale, offset or bounds"))
+            .ok_or_else(|| bad("escala, desplazamiento o extensión"))
     };
     let scale = [f(131)?, f(139)?, f(147)?];
     if scale.contains(&0.0) {
-        return Err(bad("a zero scale"));
+        return Err(bad("una escala nula"));
     }
     let offset = [f(155)?, f(163)?, f(171)?];
     // On disk: max x, min x, max y, min y, max z, min z.
     let bounds = [f(187)?, f(203)?, f(219)?, f(179)?, f(195)?, f(211)?];
     if u32::from(header_size) > point_offset || header_size < 227 {
-        return Err(bad("header size"));
+        return Err(bad("tamaño de la cabecera"));
     }
     Ok(Header {
         version,
@@ -468,7 +473,7 @@ pub fn gps_date(t: f64, global_encoding: u16, creation: (u16, u16)) -> Option<St
         let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
         era * 146_097 + doe - 719_468
     };
-    let days = if t.is_finite() && (global_encoding & 1 != 0 || t > 604_800.0 * 1.01) {
+    let mut days = if t.is_finite() && (global_encoding & 1 != 0 || t > 604_800.0 * 1.01) {
         // old files (LAS 1.0) hold adjusted time without the flag: no survey is from before 1992
         let secs = if global_encoding & 1 != 0 || t < 4e8 {
             t + 1e9
@@ -482,6 +487,17 @@ pub fn gps_date(t: f64, global_encoding: u16, creation: (u16, u16)) -> Option<St
     } else {
         return None;
     };
+    // A date in the future cannot be the survey's: some scanners (GeoSLAM among them) stamp the
+    // points with Unix time, which read as GPS time lands years ahead.
+    let today = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(i64::MAX, |d| (d.as_secs() / 86_400) as i64);
+    if t.is_finite() && t > 604_800.0 * 1.01 && days > today.saturating_add(1) {
+        let unix = (t / 86_400.0).floor() as i64;
+        if unix <= today.saturating_add(1) {
+            days = unix;
+        }
+    }
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z - era * 146_097;
@@ -627,7 +643,7 @@ pub struct Reader {
 
 impl Reader {
     pub fn open(path: &Path) -> Result<Self> {
-        let mut r = BufReader::new(File::open(path)?);
+        let mut r = BufReader::new(crate::open_file(path)?);
         let mut head = vec![0u8; 375];
         let got = read_up_to(&mut r, &mut head)?;
         head.truncate(got);
@@ -651,7 +667,7 @@ impl Reader {
             .find(|v| v.user == "LASF_Projection" && v.record == 2112)
             .map(|v| {
                 String::from_utf8_lossy(&v.data)
-                    .trim_end_matches(' ')
+                    .trim_end_matches('\0')
                     .trim()
                     .to_string()
             })
@@ -662,7 +678,7 @@ impl Reader {
             .find(|v| v.user == "laszip encoded" && v.record == 22204)
             .map(|v| v.data);
         if header.compressed && laz_vlr.is_none() {
-            return Err(bad("a LAZ file without its laszip record"));
+            return Err(bad("un LAZ sin su registro laszip"));
         }
         let (raw_vlrs, kept) = raw_vlrs(&mut r, u64::from(header_size), n_vlrs, end)?;
         Ok(Self {
@@ -679,6 +695,16 @@ impl Reader {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// The header block as it is in the file.
+    pub(crate) fn raw_header(&self) -> &[u8] {
+        &self.head
+    }
+
+    /// The variable length records other than the projection's and LASzip's, raw, and how many.
+    pub(crate) fn other_records(&self) -> (Vec<u8>, u32) {
+        split_projection(&self.vlrs, false)
     }
 
     /// The projection records (`LASF_Projection`) of this file as raw bytes, and how many.
@@ -701,6 +727,16 @@ impl Reader {
         self.n_vlrs = n_others + count;
         self.header.epsg = epsg;
         self.meta.wkt = wkt;
+        self
+    }
+
+    /// This reader with another coordinate offset: files written from it store their points
+    /// relative to `offset`, as data moved to another coordinate system needs.
+    pub fn with_offset(mut self, offset: [f64; 3]) -> Self {
+        for (k, v) in offset.iter().enumerate() {
+            put(&mut self.head, 155 + 8 * k, &v.to_le_bytes());
+        }
+        self.header.offset = offset;
         self
     }
 
@@ -805,7 +841,7 @@ impl Reader {
     pub fn scan_raw(&self, mut f: impl FnMut(&[u8]) -> Result<()>) -> Result<u64> {
         let h = &self.header;
         let rec_len = usize::from(h.record_len);
-        let mut r = BufReader::with_capacity(1 << 20, File::open(&self.path)?);
+        let mut r = BufReader::with_capacity(1 << 20, crate::open_file(&self.path)?);
         r.seek(SeekFrom::Start(u64::from(h.point_offset)))?;
         let mut batch = BATCH;
         let mut src = match &self.laz_vlr {
@@ -813,7 +849,7 @@ impl Reader {
                 let vlr =
                     laz::LazVlr::from_buffer(v).map_err(|e| Error::Format(format!("LAZ: {e}")))?;
                 if vlr.items_size() != u64::from(h.record_len) {
-                    return Err(bad("LAZ record size differs from the header's"));
+                    return Err(bad("el tamaño de registro LAZ no coincide con la cabecera"));
                 }
                 // Two chunks per core, so the decompressor has work for every thread.
                 let chunk = if vlr.uses_variable_size_chunks() {
@@ -840,9 +876,9 @@ impl Reader {
                 Source::Laz(d) => d
                     .decompress_many(bytes)
                     .map_err(|e| Error::Format(format!("LAZ: {e}")))?,
-                Source::Las(p) => p
-                    .read_exact(bytes)
-                    .map_err(|_| bad("the file ends before its last points"))?,
+                Source::Las(p) => p.read_exact(bytes).map_err(|_| {
+                    bad("el archivo se acaba antes de sus últimos puntos: está incompleto o dañado")
+                })?,
             }
             f(bytes)?;
             left -= n as u64;
@@ -851,7 +887,7 @@ impl Reader {
     }
 }
 
-/// The raw variable length records but LASzip's, and how many they are.
+/// The raw variable length records but LASzip's and COPC's, and how many they are.
 fn raw_vlrs<R: Read + Seek>(r: &mut R, at: u64, n: u32, end: u64) -> Result<(Vec<u8>, u32)> {
     let (mut out, mut kept, mut pos) = (Vec::new(), 0u32, at);
     for _ in 0..n.min(MAX_VLRS) {
@@ -866,7 +902,10 @@ fn raw_vlrs<R: Read + Seek>(r: &mut R, at: u64, n: u32, end: u64) -> Result<(Vec
         }
         let laszip =
             h.get(2..16) == Some(b"laszip encoded".as_slice()) && u16_at(&h, 18) == Some(22204);
-        if !laszip {
+        // the COPC record describes the octree of the file it came from: a file made from it is
+        // not one, and a reader that believed the record would look for chunks that are not there
+        let copc = h.get(2..6) == Some(b"copc".as_slice());
+        if !laszip && !copc {
             let mut data = vec![0u8; len as usize];
             r.read_exact(&mut data)?;
             out.extend_from_slice(&h);
@@ -1027,7 +1066,7 @@ impl Writer {
         let mut head = template.head.clone();
         let base = *RECORD_LEN
             .get(usize::from(h.format))
-            .ok_or_else(|| bad("point format"))?;
+            .ok_or_else(|| bad("formato de punto"))?;
         let extra_len: usize = opts.extra.iter().map(|a| a.kind.size()).sum();
         let out_len = usize::from(h.record_len) + extra_len;
         let (vlrs, n_vlrs) = merge_extra_vlrs(&template.vlrs, template.n_vlrs, &opts.extra);
@@ -1035,7 +1074,7 @@ impl Writer {
         let vlr = if laz {
             let items = laz::LazItemRecordBuilder::default_for_point_format_id(
                 h.format,
-                u16::try_from(out_len).map_err(|_| bad("record length"))? - base,
+                u16::try_from(out_len).map_err(|_| bad("longitud de registro"))? - base,
             )
             .map_err(|e| Error::Unsupported(format!("LAZ: {e}")))?;
             let vlr = laz::LazVlr::from_laz_items(items);
@@ -1071,7 +1110,7 @@ impl Writer {
             &mut head,
             105,
             &u16::try_from(out_len)
-                .map_err(|_| bad("record length"))?
+                .map_err(|_| bad("longitud de registro"))?
                 .to_le_bytes(),
         );
         if head.len() >= 375 {
@@ -1300,6 +1339,11 @@ mod tests {
             Some("2015-02-14")
         );
         assert_eq!(gps_date(f64::NAN, 0, (0, 0)), None);
+        // Unix time (1.78e9 s is June 2026) read as GPS time would be in 2036: it is read as Unix
+        assert_eq!(
+            gps_date(1_781_265_639.0, 0, (0, 0)).as_deref(),
+            Some("2026-06-12")
+        );
     }
 
     use super::*;

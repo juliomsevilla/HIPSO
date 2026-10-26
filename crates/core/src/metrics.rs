@@ -1,4 +1,4 @@
-//! Grid metrics, as FUSION's GridMetrics `*_all_returns_elevation_stats.csv`: descriptive
+//! Grid metrics, with the table layout of the FUSION-compatible `*_all_returns_elevation_stats.csv`: descriptive
 //! statistics of the point heights in each cell.
 //!
 //! Memory stays under a budget whatever the cloud's size: a first pass counts the points of
@@ -7,11 +7,13 @@
 
 use std::io::Write;
 
+use rayon::prelude::*;
+
 use crate::grid::Grid;
 use crate::las::Reader;
 use crate::{Error, Result};
 
-/// The output columns, in FUSION's order; `{hb}` is the height break.
+/// The output columns, in the order of that layout; `{hb}` is the height break.
 const COLUMNS: [&str; 71] = [
     "row",
     "col",
@@ -100,9 +102,143 @@ pub struct Outputs<'a> {
     pub elevation: &'a mut dyn Write,
     pub intensity: Option<&'a mut dyn Write>,
     pub strata: Option<&'a mut dyn Write>,
+    /// The structure metrics ([`StructureParams`]), when given.
+    pub structure: Option<&'a mut dyn Write>,
 }
 
-/// FUSION's intensity metrics: the distribution statistics of the elevation file (its
+/// Structure metrics of a cell, from the heights of its returns above the ground: how much light
+/// gets through, how the returns spread over the height, and where the crown begins.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StructureParams {
+    /// Thickness of the layers of the vertical profile, in the units of height.
+    pub layer: f64,
+    /// Height of the profile: returns above it fall in its last layer.
+    pub top: f64,
+    /// Returns under this height count as light that reached the ground.
+    pub gap_height: f64,
+    /// Extinction coefficient of the leaf area index (0.5 for a spherical leaf distribution).
+    pub k: f64,
+    /// The crown base is searched above this height (shrubs and surface fuels lie below).
+    pub cbh_floor: f64,
+    /// A layer belongs to the crown when it holds at least this share of the fullest layer.
+    pub cbh_share: f64,
+}
+
+impl Default for StructureParams {
+    fn default() -> Self {
+        Self {
+            layer: 1.0,
+            top: 30.0,
+            gap_height: 1.0,
+            k: 0.5,
+            cbh_floor: 2.0,
+            cbh_share: 0.1,
+        }
+    }
+}
+
+impl StructureParams {
+    fn layers(&self) -> usize {
+        (self.top / self.layer).ceil().max(1.0) as usize
+    }
+
+    fn check(&self) -> Result<()> {
+        if !(self.layer > 0.0) || !(self.top > self.layer) || self.layers() > MAX_LAYERS {
+            return Err(Error::Param(format!(
+                "el perfil vertical necesita capas positivas y entre 2 y {MAX_LAYERS} capas (altura / grosor)"
+            )));
+        }
+        if !(self.k > 0.0) || !(self.cbh_share > 0.0 && self.cbh_share <= 1.0) {
+            return Err(Error::Param(
+                "el coeficiente de extinción debe ser positivo y la proporción de la base de copa estar entre 0 y 1".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Most layers of the vertical profile.
+const MAX_LAYERS: usize = 256;
+
+/// The gap fraction, leaf area index, foliage height diversity, vertical complexity index and crown
+/// base height of a cell, from the heights above ground of its returns (NaN where they cannot be
+/// told).
+///
+/// - Gap fraction: the share of the returns under `gap_height`.
+/// - LAI: `-ln(gap fraction) / k` (Beer–Lambert), the fraction held at one return so that a
+///   cell with no light through does not give infinity.
+/// - FHD: the Shannon entropy of the share of returns in each layer (MacArthur and MacArthur, 1961).
+/// - VCI: that entropy over its maximum, `ln(layers)` (van Ewijk et al., 2011).
+/// - CBH: the lower edge of the first layer above `cbh_floor` with at least `cbh_share` of the
+///   returns of the fullest layer above it.
+fn structure_metrics(h: &[f32], sp: &StructureParams) -> [f64; 5] {
+    let n = h.len();
+    if n == 0 {
+        return [f64::NAN; 5];
+    }
+    let layers = sp.layers();
+    let mut counts = [0u32; MAX_LAYERS];
+    let mut ground = 0usize;
+    for &x in h {
+        let x = f64::from(x);
+        ground += usize::from(x < sp.gap_height);
+        let l = ((x.max(0.0) / sp.layer) as usize).min(layers - 1);
+        counts[l] += 1;
+    }
+    let nf = n as f64;
+    let gap = ground as f64 / nf;
+    let lai = -(gap.max(1.0 / nf)).ln() / sp.k;
+    let entropy: f64 = counts[..layers]
+        .iter()
+        .filter(|&&c| c > 0)
+        .map(|&c| {
+            let p = f64::from(c) / nf;
+            -p * p.ln()
+        })
+        .sum();
+    let vci = if layers > 1 {
+        entropy / (layers as f64).ln()
+    } else {
+        f64::NAN
+    };
+    let first = (sp.cbh_floor / sp.layer).ceil().max(0.0) as usize;
+    let fullest = counts[first.min(layers)..layers]
+        .iter()
+        .copied()
+        .max()
+        .unwrap_or(0);
+    let cbh = if fullest == 0 {
+        f64::NAN
+    } else {
+        let need = (sp.cbh_share * f64::from(fullest)).max(1.0);
+        (first..layers)
+            .find(|&l| f64::from(counts[l]) >= need)
+            .map_or(f64::NAN, |l| l as f64 * sp.layer)
+    };
+    // `+ 0.0` turns a negative zero (a cell with no returns above the ground) into a plain zero
+    [gap + 0.0, lai + 0.0, entropy + 0.0, vci + 0.0, cbh]
+}
+
+const STRUCTURE_COLUMNS: [&str; 6] = [
+    "Points",
+    "Gap fraction",
+    "Leaf area index",
+    "Foliage height diversity",
+    "Vertical complexity index",
+    "Crown base height",
+];
+
+/// The text of the metrics of one row of cells, ready to be written in order.
+#[derive(Default)]
+struct RowText {
+    elevation: Vec<u8>,
+    intensity: Vec<u8>,
+    strata: Vec<u8>,
+    structure: Vec<u8>,
+    with_metrics: usize,
+}
+
+/// Intensity metrics: the distribution statistics of the elevation file (its
 /// columns 5 to 38), of the intensities.
 const INT_STATS: usize = 34;
 
@@ -161,7 +297,7 @@ fn strata_header(p: &MetricParams) -> String {
     cols.join(",")
 }
 
-/// One stratum's statistics, formatted as FUSION writes them.
+/// One stratum's statistics, formatted for that layout.
 fn stratum(out: &mut dyn Write, v: &mut [f32], total: usize) -> std::io::Result<()> {
     let n = v.len();
     if n == 0 {
@@ -173,7 +309,7 @@ fn stratum(out: &mut dyn Write, v: &mut [f32], total: usize) -> std::io::Result<
     }
     let nf = n as f64;
     if n < 3 {
-        // FUSION gives strata of fewer than 3 points their mean only.
+        // Strata of fewer than 3 points get their mean only.
         let mean = v.iter().map(|&x| f64::from(x)).sum::<f64>() / nf;
         write!(
             out,
@@ -232,10 +368,12 @@ pub struct MetricParams {
     pub min_points: u32,
     /// Most bytes of point heights held at once.
     pub memory: u64,
-    /// Upper limits of the height strata (FUSION /strata) and of the intensity strata
-    /// (FUSION /intstrata).
+    /// Upper limits of the height strata (height strata) and of the intensity strata
+    /// (intensity strata).
     pub strata: Vec<f64>,
     pub int_strata: Vec<f64>,
+    /// Also compute the structure metrics (written beside the others).
+    pub structure: Option<StructureParams>,
 }
 
 impl Default for MetricParams {
@@ -247,14 +385,15 @@ impl Default for MetricParams {
             memory: 512 << 20,
             strata: vec![0.15, 1.37, 5.0, 10.0, 20.0, 30.0],
             int_strata: vec![0.15, 1.37],
+            structure: None,
         }
     }
 }
 
-/// FUSION's percentile (Resampling Stats "method 5"): linear between order statistics, at rank
+/// The percentile (Resampling Stats "method 5"): linear between order statistics, at rank
 /// `p (n - 1)`. `v` is sorted and not empty.
 fn percentile(v: &[f32], p: f64) -> f64 {
-    // FUSION computes the rank in single precision; doing the same picks the same order
+    // The rank is computed in single precision, which picks the same order
     // statistics and fraction, which matters where neighbouring values are far apart.
     let idx32 = p as f32 * (v.len() - 1) as f32;
     let i = idx32.floor() as usize;
@@ -268,7 +407,7 @@ fn percentile(v: &[f32], p: f64) -> f64 {
     lo + (idx - i as f64) * (hi - lo)
 }
 
-/// The mode as FUSION computes it: 64 bins `(max - min) / 63` wide (the maximum alone opens
+/// The mode: 64 bins `(max - min) / 63` wide (the maximum alone opens
 /// the last), and the lower edge of the fullest, the lowest on a tie.
 fn mode(v: &[f32], min: f64, max: f64) -> f64 {
     const BINS: usize = 64;
@@ -302,7 +441,7 @@ fn cell_metrics(h: &mut [f32], ret: &[u8], hb: f64) -> Vec<f64> {
         let x = f64::from(x);
         sum += x;
         sum2 += x * x;
-        // FUSION's cubic mean is of absolute values.
+        // The cubic mean is of absolute values.
         sum3 += x.abs().powi(3);
         min = min.min(x);
         max = max.max(x);
@@ -482,7 +621,7 @@ fn is_count(k: usize) -> bool {
     k == 0 || (34..44).contains(&k) || (47..49).contains(&k) || (55..61).contains(&k)
 }
 
-/// The header of a per-sample metrics row (FUSION CloudMetrics): the elevation metrics, then
+/// The header of a per-sample metrics row (per-sample table): the elevation metrics, then
 /// the intensity ones.
 pub fn sample_header(heightbreak: f64) -> Vec<String> {
     // (the capture date column is added by the caller, which knows the files)
@@ -499,7 +638,7 @@ pub fn sample_header(heightbreak: f64) -> Vec<String> {
 }
 
 /// One sample's metrics: `heights` and `intensity` of its points, `ret` their return numbers.
-/// Empty samples give -9999 throughout, as FUSION writes them.
+/// Empty samples give -9999 throughout, as the compatible layout requires.
 pub fn sample_row(
     heights: &mut [f32],
     ret: &[u8],
@@ -560,7 +699,16 @@ pub fn grid_metrics(
         elevation: out,
         mut intensity,
         mut strata,
+        mut structure,
     } = outs;
+    let structure_params = match (&structure, &p.structure) {
+        (Some(_), Some(sp)) => Some(sp.clone()),
+        (Some(_), None) => Some(StructureParams::default()),
+        _ => None,
+    };
+    if let Some(sp) = &structure_params {
+        sp.check()?;
+    }
     let with_int = intensity.is_some() || strata.is_some();
     let per_point = if with_int {
         BYTES_PER_POINT_INT
@@ -569,11 +717,11 @@ pub fn grid_metrics(
     };
     if !(p.cell > 0.0) || p.memory < per_point {
         return Err(Error::Param(
-            "metrics need a positive cell size and a memory budget".into(),
+            "las métricas necesitan una celda positiva y un límite de memoria".into(),
         ));
     }
     let h = &reader.header;
-    // FUSION's alignment: cell centres on multiples of the cell size.
+    // Alignment: cell centres on multiples of the cell size.
     let (c0, r0) = (
         (h.bounds[0] / p.cell).floor(),
         (h.bounds[1] / p.cell).floor(),
@@ -623,6 +771,13 @@ pub fn grid_metrics(
     }
     if let Some(o) = strata.as_mut() {
         writeln!(o, "{},Date", strata_header(p))?;
+    }
+    if let Some(o) = structure.as_mut() {
+        writeln!(
+            o,
+            "row,col,center X,center Y,{},Date",
+            STRUCTURE_COLUMNS.join(",")
+        )?;
     }
     let (elev_strata, int_strata) = (strata_names(&p.strata), strata_names(&p.int_strata));
 
@@ -675,85 +830,143 @@ pub fn grid_metrics(
             })?;
         }
         report.bands += 1;
-        for r in row..end {
-            for c in 0..cols {
-                let k = r * cols + c - first_cell;
-                let (Some(&s), Some(&e)) = (start.get(k), start.get(k + 1)) else {
-                    continue;
-                };
-                let (cx, cy) = grid.center(c, r);
-                write!(out, "{},{},{:.4},{:.4}", rows - 1 - r, c, cx, cy)?;
-                let n = e - s;
-                let enough = n >= p.min_points as usize && n > 0;
-                // Intensity and strata read the heights unsorted, so they come first.
-                if let (Some(o), Some(is), Some(rs)) =
-                    (intensity.as_mut(), ints.get(s..e), rets.get(s..e))
-                {
-                    write!(o, "{},{},{:.4},{:.4}", rows - 1 - r, c, cx, cy)?;
-                    if enough {
-                        let mut iv: Vec<f32> = is.iter().map(|&v| f32::from(v)).collect();
-                        let stats = cell_metrics(&mut iv, rs, p.heightbreak);
-                        for (k, v) in stats.into_iter().take(INT_STATS).enumerate() {
-                            if k == 0 {
-                                write!(o, ",{}", v as i64)?;
-                            } else {
-                                write!(o, ",{v:.4}")?;
-                            }
-                        }
-                    } else {
-                        for k in 0..INT_STATS {
-                            o.write_all(if k == 0 { b",-9999" } else { b",-9999.0000" })?;
-                        }
-                    }
-                    writeln!(o, ",{date}")?;
-                }
-                if let (Some(o), Some(hs), Some(is)) =
-                    (strata.as_mut(), heights.get(s..e), ints.get(s..e))
-                {
-                    write!(o, "{},{}", rows - 1 - r, c)?;
-                    for (by_height, limits) in [(true, &elev_strata), (false, &int_strata)] {
-                        for (_, low, up) in limits {
-                            if !enough {
-                                o.write_all(b",-9999,-9999.0")?;
-                                for _ in 0..9 {
-                                    o.write_all(b",-9999.0")?;
-                                }
-                                continue;
-                            }
-                            let mut v: Vec<f32> = hs
-                                .iter()
-                                .zip(is)
-                                .filter(|(h, _)| f64::from(**h) >= *low && f64::from(**h) < *up)
-                                .map(|(h, i)| if by_height { *h } else { f32::from(*i) })
-                                .collect();
-                            stratum(&mut **o, &mut v, n)?;
-                        }
-                    }
-                    writeln!(o, ",{date}")?;
-                }
-                if enough {
-                    let (Some(hs), Some(rs)) = (heights.get_mut(s..e), rets.get(s..e)) else {
-                        continue;
-                    };
-                    for (k, v) in cell_metrics(hs, rs, p.heightbreak).into_iter().enumerate() {
-                        if is_count(k) {
-                            write!(out, ",{}", v as i64)?;
-                        } else {
-                            write!(out, ",{v:.4}")?;
-                        }
-                    }
-                    report.cells_with_metrics += 1;
-                } else {
-                    for k in 0..67 {
-                        out.write_all(if is_count(k) {
-                            b",-9999"
-                        } else {
-                            b",-9999.0000"
-                        })?;
-                    }
-                }
-                writeln!(out, ",{date}")?;
+        crate::check_cancel()?;
+        // Each row of cells is formatted on its own thread and written in order afterwards: the
+        // ordering of a cell's heights (the costly part) is what runs in parallel.
+        let (want_int, want_strata) = (intensity.is_some(), strata.is_some());
+        let mut h_rows: Vec<&mut [f32]> = Vec::with_capacity(end - row);
+        {
+            let mut rest: &mut [f32] = &mut heights;
+            for ri in 0..end - row {
+                let (a, b) = (start[ri * cols], start[(ri + 1) * cols]);
+                let (cur, tail) = rest.split_at_mut(b - a);
+                h_rows.push(cur);
+                rest = tail;
             }
+        }
+        let texts: Vec<std::io::Result<RowText>> = h_rows
+            .par_iter_mut()
+            .enumerate()
+            .map(|(ri, hrow)| -> std::io::Result<RowText> {
+                let r = row + ri;
+                let base = start[ri * cols];
+                let mut t = RowText::default();
+                for c in 0..cols {
+                    let k = ri * cols + c;
+                    let (abs_s, abs_e) = (start[k], start[k + 1]);
+                    let (s, e) = (abs_s - base, abs_e - base);
+                    let (cx, cy) = grid.center(c, r);
+                    let prefix = format!("{},{},{:.4},{:.4}", rows - 1 - r, c, cx, cy);
+                    t.elevation.extend_from_slice(prefix.as_bytes());
+                    let n = e - s;
+                    let enough = n >= p.min_points as usize && n > 0;
+                    let rs = &rets[abs_s..abs_e];
+                    // Intensity and strata read the heights unsorted, so they come first.
+                    if want_int {
+                        let o = &mut t.intensity;
+                        o.extend_from_slice(prefix.as_bytes());
+                        if enough {
+                            let mut iv: Vec<f32> =
+                                ints[abs_s..abs_e].iter().map(|&v| f32::from(v)).collect();
+                            let stats = cell_metrics(&mut iv, rs, p.heightbreak);
+                            for (k, v) in stats.into_iter().take(INT_STATS).enumerate() {
+                                if k == 0 {
+                                    write!(o, ",{}", v as i64)?;
+                                } else {
+                                    write!(o, ",{v:.4}")?;
+                                }
+                            }
+                        } else {
+                            for k in 0..INT_STATS {
+                                o.write_all(if k == 0 { b",-9999" } else { b",-9999.0000" })?;
+                            }
+                        }
+                        writeln!(o, ",{date}")?;
+                    }
+                    if want_strata {
+                        let o = &mut t.strata;
+                        write!(o, "{},{}", rows - 1 - r, c)?;
+                        let (hs, is) = (&hrow[s..e], &ints[abs_s..abs_e]);
+                        for (by_height, limits) in [(true, &elev_strata), (false, &int_strata)] {
+                            for (_, low, up) in limits {
+                                if !enough {
+                                    o.write_all(b",-9999,-9999.0")?;
+                                    for _ in 0..9 {
+                                        o.write_all(b",-9999.0")?;
+                                    }
+                                    continue;
+                                }
+                                let mut v: Vec<f32> = hs
+                                    .iter()
+                                    .zip(is)
+                                    .filter(|(h, _)| f64::from(**h) >= *low && f64::from(**h) < *up)
+                                    .map(|(h, i)| if by_height { *h } else { f32::from(*i) })
+                                    .collect();
+                                stratum(&mut *o, &mut v, n)?;
+                            }
+                        }
+                        writeln!(o, ",{date}")?;
+                    }
+                    if let Some(sp) = &structure_params {
+                        let o = &mut t.structure;
+                        o.extend_from_slice(prefix.as_bytes());
+                        if enough {
+                            let m = structure_metrics(&hrow[s..e], sp);
+                            write!(o, ",{n}")?;
+                            for v in m {
+                                if v.is_nan() {
+                                    o.write_all(b",-9999.0000")?;
+                                } else {
+                                    write!(o, ",{v:.4}")?;
+                                }
+                            }
+                        } else {
+                            o.write_all(b",-9999")?;
+                            for _ in 0..5 {
+                                o.write_all(b",-9999.0000")?;
+                            }
+                        }
+                        writeln!(o, ",{date}")?;
+                    }
+                    if enough {
+                        for (k, v) in cell_metrics(&mut hrow[s..e], rs, p.heightbreak)
+                            .into_iter()
+                            .enumerate()
+                        {
+                            if is_count(k) {
+                                write!(t.elevation, ",{}", v as i64)?;
+                            } else {
+                                write!(t.elevation, ",{v:.4}")?;
+                            }
+                        }
+                        t.with_metrics += 1;
+                    } else {
+                        for k in 0..67 {
+                            t.elevation.write_all(if is_count(k) {
+                                b",-9999"
+                            } else {
+                                b",-9999.0000"
+                            })?;
+                        }
+                    }
+                    writeln!(t.elevation, ",{date}")?;
+                }
+                Ok(t)
+            })
+            .collect();
+        for t in texts {
+            let t = t?;
+            out.write_all(&t.elevation)?;
+            if let Some(o) = intensity.as_mut() {
+                o.write_all(&t.intensity)?;
+            }
+            if let Some(o) = strata.as_mut() {
+                o.write_all(&t.strata)?;
+            }
+            if let Some(o) = structure.as_mut() {
+                o.write_all(&t.structure)?;
+            }
+            report.cells_with_metrics += t.with_metrics;
         }
         row = end;
     }
@@ -763,6 +976,34 @@ pub fn grid_metrics(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn structure_of_bare_ground_a_uniform_profile_and_a_crown() {
+        let sp = StructureParams::default();
+        // all the light reaches the ground
+        let bare = structure_metrics(&[0.0, 0.2, 0.1, 0.4], &sp);
+        assert_eq!((bare[0], bare[1], bare[2]), (1.0, 0.0, 0.0));
+        assert!(bare[4].is_nan());
+        // ten layers of 1 m with the same number of returns each: entropy ln(10)
+        let heights: Vec<f32> = (0..100).map(|i| (i % 10) as f32 + 0.5).collect();
+        let uniform = structure_metrics(&heights, &sp);
+        assert!((uniform[0] - 0.1).abs() < 1e-12);
+        assert!((uniform[1] - (-(0.1f64).ln() / 0.5)).abs() < 1e-12);
+        assert!((uniform[2] - 10f64.ln()).abs() < 1e-9);
+        assert!((uniform[3] - 10f64.ln() / 30f64.ln()).abs() < 1e-9);
+        assert_eq!(uniform[4], 2.0);
+        // ground returns and a crown between 8 and 12 m: the base is at 8
+        let mut crown: Vec<f32> = vec![0.3; 40];
+        crown.extend((0..60).map(|i| 8.0 + (i % 4) as f32 + 0.5));
+        let c = structure_metrics(&crown, &sp);
+        assert_eq!(c[4], 8.0);
+        assert!((c[0] - 0.4).abs() < 1e-12);
+        // no returns, no answer
+        assert!(structure_metrics(&[], &sp)[0].is_nan());
+        // a profile that would need too many layers is refused
+        let bad = StructureParams { layer: 0.01, ..sp };
+        assert!(bad.check().is_err());
+    }
 
     #[test]
     fn percentile_is_method_5() {

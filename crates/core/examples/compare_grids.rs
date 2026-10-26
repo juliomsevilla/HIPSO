@@ -1,5 +1,5 @@
 //! Compares grid A with grid B at A's cell centres: `compare_grids a.tif b.asc [--b-nodes]`.
-//! `--b-nodes` reads B's ASCII corner as its first node (FUSION's DTM2ASCII output).
+//! `--b-nodes` reads B's ASCII corner as its first node (FUSION-compatible ASCII output).
 
 use std::path::Path;
 

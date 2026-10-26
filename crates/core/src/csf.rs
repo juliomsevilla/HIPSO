@@ -54,7 +54,9 @@ pub fn ground(pts: &[Point], p: &CsfParams) -> Result<Vec<bool>> {
         return Ok(out);
     }
     if !(p.resolution > 0.0) {
-        return Err(Error::Param("the cloth resolution must be positive".into()));
+        return Err(Error::Param(
+            "la resolución de la tela debe ser positiva".into(),
+        ));
     }
     let (mut x0, mut y0, mut x1, mut y1, mut top) = (
         f64::INFINITY,
@@ -76,21 +78,19 @@ pub fn ground(pts: &[Point], p: &CsfParams) -> Result<Vec<bool>> {
     let (cols_f, rows_f) = (((x1 - ox) / r).ceil() + 3.0, ((y1 - oy) / r).ceil() + 3.0);
     if !(cols_f * rows_f <= MAX_PARTICLES) {
         return Err(Error::Param(format!(
-            "the cloth resolution of {r} m is too fine for this area ({cols_f} x {rows_f} particles): use a larger resolution or smaller tiles"
+            "una resolución de tela de {r} m es demasiado fina para esta zona ({cols_f} x {rows_f} partículas): usa una resolución mayor o teselas más pequeñas"
         )));
     }
     let (cols, rows) = (cols_f as usize, rows_f as usize);
     let n = cols * rows;
-    // Each particle's collision height: the highest inverted point nearest it.
+    // Each particle's collision height: the highest inverted point (the lowest point) that
+    // rounds to it.
     let mut ihv = vec![f64::NEG_INFINITY; n];
-    let node = |x: f64, y: f64| -> usize {
-        let c = (((x - ox) / r).round().max(0.0) as usize).min(cols - 1);
-        let rr = (((y - oy) / r).round().max(0.0) as usize).min(rows - 1);
-        rr * cols + c
-    };
     for &i in &valid {
         let q = &pts[i];
-        let k = node(q.x, q.y);
+        let c = ((((q.x - ox) / r).round()).max(0.0) as usize).min(cols - 1);
+        let rr = ((((q.y - oy) / r).round()).max(0.0) as usize).min(rows - 1);
+        let k = rr * cols + c;
         ihv[k] = ihv[k].max(-q.z);
     }
     fill_scanline(&mut ihv, cols, rows);
@@ -101,7 +101,10 @@ pub fn ground(pts: &[Point], p: &CsfParams) -> Result<Vec<bool>> {
     let mut old = vec![start; n];
     let mut free = vec![true; n];
     let rig = usize::from(p.rigidness.clamp(1, 3));
-    let accel = -GRAVITY * p.time_step * p.time_step;
+    // The authors' library scales the force by the squared time step when it adds it and again
+    // when it integrates: the cloth falls by g·dt⁴ per step.
+    let dt2 = p.time_step * p.time_step;
+    let accel = -GRAVITY * dt2 * dt2;
     for _ in 0..p.iterations {
         let mut moved = 0.0f64;
         for k in 0..n {
@@ -112,28 +115,30 @@ pub fn ground(pts: &[Point], p: &CsfParams) -> Result<Vec<bool>> {
             z[k] = now + (now - old[k]) * (1.0 - DAMPING) + accel;
             old[k] = now;
         }
-        // Springs between 4-neighbours, applied `rigidness` times.
-        for _ in 0..rig {
-            for rr in 0..rows {
-                for c in 0..cols {
-                    let k = rr * cols + c;
-                    for j in [
-                        (c + 1 < cols).then(|| k + 1),
-                        (rr + 1 < rows).then(|| k + cols),
-                    ]
-                    .into_iter()
-                    .flatten()
-                    {
-                        let d = z[j] - z[k];
-                        match (free[k], free[j]) {
-                            (true, true) => {
-                                z[k] += d * DOUBLE_MOVE[rig];
-                                z[j] -= d * DOUBLE_MOVE[rig];
-                            }
-                            (true, false) => z[k] += d * SINGLE_MOVE[rig],
-                            (false, true) => z[j] -= d * SINGLE_MOVE[rig],
-                            (false, false) => {}
+        // Springs between 4-neighbours: each particle pulls on each of its neighbours once, so
+        // every spring is relaxed from both ends; the move tables already stand for `rigidness`
+        // repetitions of the constraint.
+        for rr in 0..rows {
+            for c in 0..cols {
+                let k = rr * cols + c;
+                for j in [
+                    (c > 0).then(|| k - 1),
+                    (c + 1 < cols).then(|| k + 1),
+                    (rr > 0).then(|| k - cols),
+                    (rr + 1 < rows).then(|| k + cols),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    let d = z[j] - z[k];
+                    match (free[k], free[j]) {
+                        (true, true) => {
+                            z[k] += d * DOUBLE_MOVE[rig];
+                            z[j] -= d * DOUBLE_MOVE[rig];
                         }
+                        (true, false) => z[k] += d * SINGLE_MOVE[rig],
+                        (false, true) => z[j] -= d * SINGLE_MOVE[rig],
+                        (false, false) => {}
                     }
                 }
             }

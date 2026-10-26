@@ -21,6 +21,7 @@ use rustlidar_core::paths;
 use rustlidar_core::pipeline::{Ground, Noise, PitFree, Steps, Surface, Tiling};
 use rustlidar_core::pmf::PmfParams;
 use rustlidar_core::rules::ClassRule;
+use rustlidar_core::smrf::SmrfParams;
 use rustlidar_core::trees::{CrownParams, Segmenter, Shape, Smoothing, TopParams};
 use rustlidar_core::vector::{self, Polygon, Region, Shape2};
 
@@ -59,6 +60,10 @@ pub enum ToolId {
     Fit,
     Swath,
     Volume,
+    Hag,
+    Colorize,
+    Intensity,
+    Copc,
 }
 
 impl ToolId {
@@ -70,7 +75,7 @@ impl ToolId {
             ToolId::Metrics => "Métricas de rodal",
             ToolId::Trees => "Segmentación de árboles",
             ToolId::Clip => "Parcelas: recorte y métricas",
-            ToolId::Export => "Exportar puntos (ASCII / shapefile)",
+            ToolId::Export => "Exportar puntos (LAZ / ASCII / shapefile)",
             ToolId::Crs => "Asignar sistema de coordenadas",
             ToolId::Thin => "Adelgazar nube (decimar)",
             ToolId::Tls => "Cubicar árboles (TLS)",
@@ -79,6 +84,10 @@ impl ToolId {
             ToolId::Fit => "Ajustar una nube a otra",
             ToolId::Swath => "Separación entre pasadas",
             ToolId::Volume => "Volúmenes respecto al MDT",
+            ToolId::Hag => "Alturas sobre el suelo",
+            ToolId::Colorize => "Colorear la nube con una imagen (RGB)",
+            ToolId::Intensity => "Normalizar la intensidad por distancia",
+            ToolId::Copc => "Guardar como COPC (nube optimizada para la nube)",
         }
     }
 }
@@ -198,6 +207,7 @@ enum GroundChoice {
     Mcc,
     Csf,
     Pmf,
+    Smrf,
     Axelsson,
     Classes,
 }
@@ -279,6 +289,7 @@ pub struct Tools {
     mcc: MccParams,
     csf: CsfParams,
     pmf: PmfParams,
+    smrf: SmrfParams,
     ax: AxelssonParams,
     rule_rows: Vec<RuleRow>,
     noise: NoiseChoice,
@@ -344,7 +355,10 @@ pub struct Tools {
     decimals: usize,
     decimate: u64,
     ex_class: String,
-    ex_shp: bool,
+    /// Export format: 0 LAZ, 1 LAS, 2 text, 3 3D shapefile.
+    ex_fmt: usize,
+    ex_norm: bool,
+    ex_dtm: String,
     // paths
     /// Folder the user picked for every result (empty: next to each input).
     out_dir: String,
@@ -374,6 +388,7 @@ impl Default for Tools {
             mcc: MccParams::default(),
             csf: CsfParams::default(),
             pmf: PmfParams::default(),
+            smrf: SmrfParams::default(),
             ax: AxelssonParams::default(),
             rule_rows: RuleRow::defaults(),
             noise: NoiseChoice::None,
@@ -423,7 +438,7 @@ impl Default for Tools {
             clip_returns: String::new(),
             clip_zmin: String::new(),
             clip_zmax: String::new(),
-            clip_normalise: false,
+            clip_normalise: true,
             exclusive: false,
             keep_empty: false,
             clip_metrics: false,
@@ -433,7 +448,9 @@ impl Default for Tools {
             decimals: 2,
             decimate: 1,
             ex_class: String::new(),
-            ex_shp: false,
+            ex_fmt: 0,
+            ex_norm: false,
+            ex_dtm: String::new(),
             out_dir: String::new(),
             out_classify: OutPath::default(),
             out_dtm: OutPath::default(),
@@ -448,6 +465,27 @@ impl Default for Tools {
             in_chm: FoundPath::default(),
         }
     }
+}
+
+/// The settings of the Simple Morphological Filter.
+fn smrf_fields(ui: &mut egui::Ui, p: &mut SmrfParams) {
+    num(ui, "Celda", &mut p.cell, 0.1..=10.0, 0.1);
+    num(
+        ui,
+        "Ventana máxima (radio)",
+        &mut p.max_window,
+        2.0..=200.0,
+        1.0,
+    );
+    num(
+        ui,
+        "Pendiente máxima del terreno",
+        &mut p.slope,
+        0.0..=2.0,
+        0.01,
+    );
+    num(ui, "Umbral de altura", &mut p.threshold, 0.05..=5.0, 0.05);
+    num(ui, "Factor por pendiente", &mut p.scalar, 0.0..=5.0, 0.05);
 }
 
 /// The parameters of the progressive TIN ground filter (Axelsson).
@@ -496,11 +534,11 @@ fn num(
 }
 
 fn pick_file(name: &str, exts: &[&str]) -> Option<PathBuf> {
-    rfd::FileDialog::new().add_filter(name, exts).pick_file()
+    crate::prefs::dialog().add_filter(name, exts).pick_file()
 }
 
 fn save_as(ext: &str, name: &str) -> Option<PathBuf> {
-    rfd::FileDialog::new()
+    crate::prefs::dialog()
         .add_filter(ext, &[ext])
         .set_file_name(name)
         .save_file()
@@ -560,6 +598,7 @@ impl Tools {
                 GroundChoice::Mcc => Ground::Mcc(self.mcc.clone()),
                 GroundChoice::Csf => Ground::Csf(self.csf.clone()),
                 GroundChoice::Pmf => Ground::Pmf(self.pmf.clone()),
+                GroundChoice::Smrf => Ground::Smrf(self.smrf.clone()),
                 GroundChoice::Axelsson => Ground::Axelsson(self.ax.clone()),
                 GroundChoice::Classes => Ground::Classes,
             },
@@ -600,6 +639,7 @@ impl Tools {
             GroundChoice::Mcc => "_mcc",
             GroundChoice::Csf => "_csf",
             GroundChoice::Pmf => "_pmf",
+            GroundChoice::Smrf => "_smrf",
             GroundChoice::Axelsson => "_axelsson",
             GroundChoice::Classes => "_clase2",
         }
@@ -669,12 +709,16 @@ impl Tools {
             _ => 0,
         }];
         self.out_clip.auto(paths::product(input, tag, &ext));
-        self.out_export.auto(paths::product(
-            input,
-            "export",
-            if self.ex_shp { "shp" } else { "csv" },
-        ));
+        let tag = if self.ex_norm {
+            "normalizada"
+        } else {
+            "export"
+        };
+        self.out_export
+            .auto(paths::product(input, tag, Self::EX_EXT[self.ex_fmt.min(3)]));
     }
+
+    const EX_EXT: [&'static str; 4] = ["laz", "las", "csv", "shp"];
 
     fn seg_name(&self) -> &'static str {
         match self.crown.method {
@@ -704,27 +748,37 @@ impl Tools {
         let mut open = true;
         let mut launch = None;
         let mut run = false;
+        // like a geoprocessing pane: on the right, under the ribbon, out of the way of the map
+        let right = ctx.content_rect().right();
         egui::Window::new(tool.title())
             .open(&mut open)
             .default_width(520.0)
-            .default_pos([320.0, 120.0])
+            .default_pos([(right - 560.0).max(320.0), 190.0])
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(!busy && first.is_some(), egui::Button::new("▶ Ejecutar"))
-                        .clicked()
-                        || (self.autorun && !busy && first.is_some())
-                    {
-                        run = true;
-                        self.autorun = false;
+                if self.autorun && !busy && first.is_some() {
+                    run = true;
+                    self.autorun = false;
+                }
+                // the input, by its name: the whole path is in the tooltip
+                match &first {
+                    Some(f) => {
+                        let name = f
+                            .file_name()
+                            .map_or(String::new(), |n| n.to_string_lossy().into_owned());
+                        let text = if inputs.len() > 1 {
+                            format!("Entrada: {name} y {} más", inputs.len() - 1)
+                        } else {
+                            format!("Entrada: {name}")
+                        };
+                        ui.label(egui::RichText::new(text).strong())
+                            .on_hover_text(f.display().to_string());
                     }
-                    if busy {
-                        ui.spinner();
-                        if ui.button("■ Detener y borrar lo parcial").clicked() {
-                            self.s2.stop = true;
-                        }
+                    None => {
+                        ui.label(
+                            egui::RichText::new("Abre primero una nube LAS/LAZ.").color(t.weak),
+                        );
                     }
-                });
+                }
                 ui.horizontal(|ui| {
                     ui.label("Guardar en");
                     ui.add(
@@ -733,7 +787,7 @@ impl Tools {
                             .desired_width(300.0),
                     );
                     if ui.button("…").clicked()
-                        && let Some(d) = rfd::FileDialog::new()
+                        && let Some(d) = crate::prefs::dialog()
                             .set_title("Carpeta donde guardar los resultados")
                             .pick_folder()
                     {
@@ -745,18 +799,8 @@ impl Tools {
                 });
                 ui.separator();
                 egui::ScrollArea::vertical()
-                    .max_height(ctx.content_rect().height() - 300.0)
+                    .max_height(ctx.content_rect().height() - 360.0)
                     .show(ui, |ui| {
-                        ui.label(
-                            egui::RichText::new(match &first {
-                                Some(f) if inputs.len() > 1 => {
-                                    format!("Entrada: {} (+{} más)", f.display(), inputs.len() - 1)
-                                }
-                                Some(f) => format!("Entrada: {}", f.display()),
-                                None => "Abre primero una nube LAS/LAZ.".to_string(),
-                            })
-                            .color(t.weak),
-                        );
                         if let Some(n) = &self.s2.sel_note {
                             ui.colored_label(egui::Color32::from_rgb(0, 220, 220), n.clone());
                         }
@@ -770,6 +814,10 @@ impl Tools {
                             ToolId::Thin => self.thin_form(ui, t, inputs),
                             ToolId::Tls => self.tls_form(ui, t),
                             ToolId::Dups => self.dups_form(ui, t),
+                            ToolId::Hag => self.hag_form(ui, t),
+                            ToolId::Colorize => self.colorize_form(ui, t),
+                            ToolId::Intensity => self.intensity_form(ui, t),
+                            ToolId::Copc => self.copc_form(ui, t),
                             ToolId::Compare => self.compare_form(ui, t),
                             ToolId::Fit => self.fit_form(ui, t),
                             ToolId::Swath => self.swath_form(ui, t),
@@ -779,6 +827,34 @@ impl Tools {
                             ToolId::Export => self.export_form(ui),
                         }
                     });
+                // the run button, alone at the foot, as the main action of the window
+                ui.separator();
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let go = egui::Button::new(
+                        egui::RichText::new("▶  Ejecutar")
+                            .strong()
+                            .color(egui::Color32::WHITE),
+                    )
+                    .fill(t.accent)
+                    .min_size(egui::vec2(120.0, 30.0));
+                    if ui
+                        .add_enabled(!busy && first.is_some(), go)
+                        .on_disabled_hover_text(if busy {
+                            "Hay un proceso en marcha"
+                        } else {
+                            "Abre primero una nube"
+                        })
+                        .clicked()
+                    {
+                        run = true;
+                    }
+                    if busy {
+                        if ui.button("■ Detener y borrar lo parcial").clicked() {
+                            self.s2.stop = true;
+                        }
+                        ui.spinner();
+                    }
+                });
             });
         if self.confirm == Some(tool) {
             egui::Window::new("El archivo ya existe")
@@ -818,24 +894,28 @@ impl Tools {
                     (GroundChoice::Mcc, "MCC (curvatura multiescala)"),
                     (GroundChoice::Csf, "CSF (simulación de tela)"),
                     (GroundChoice::Pmf, "PMF (morfológico progresivo)"),
+                    (GroundChoice::Smrf, "SMRF (morfológico simple, Pingel)"),
                     (
                         GroundChoice::Axelsson,
                         "Axelsson (TIN progresivo, ángulo y distancia)",
                     ),
                     (GroundChoice::Classes, "Clase 2 existente"),
                 ];
-                egui::ComboBox::from_label("Método")
-                    .selected_text(
-                        names
-                            .iter()
-                            .find(|n| n.0 == self.ground)
-                            .map_or("", |n| n.1),
-                    )
-                    .show_ui(ui, |ui| {
-                        for (c, n) in names {
-                            ui.selectable_value(&mut self.ground, c, n);
-                        }
-                    });
+                ui.horizontal(|ui| {
+                    ui.label("Método");
+                    egui::ComboBox::from_id_salt("Método")
+                        .selected_text(
+                            names
+                                .iter()
+                                .find(|n| n.0 == self.ground)
+                                .map_or("", |n| n.1),
+                        )
+                        .show_ui(ui, |ui| {
+                            for (c, n) in names {
+                                ui.selectable_value(&mut self.ground, c, n);
+                            }
+                        });
+                });
                 match self.ground {
                     GroundChoice::Fusion => {
                         num(
@@ -884,6 +964,7 @@ impl Tools {
                         );
                         num(ui, "Pendiente", &mut self.pmf.slope, 0.0..=10.0, 0.1);
                     }
+                    GroundChoice::Smrf => smrf_fields(ui, &mut self.smrf),
                     GroundChoice::Axelsson => {
                         axelsson_fields(ui, &mut self.ax);
                     }
@@ -1013,7 +1094,7 @@ impl Tools {
             }
             ui.checkbox(
                 &mut self.ex_pole,
-                "Postes y torres (15): líneas finas casi verticales",
+                "Postes y torres (15): estructuras verticales estrechas y aisladas",
             );
             if self.ex_pole {
                 num(
@@ -1025,7 +1106,7 @@ impl Tools {
                 );
                 num(
                     ui,
-                    "Radio del entorno (m)",
+                    "Distancia de unión (m)",
                     &mut self.pp.radius,
                     0.3..=10.0,
                     0.1,
@@ -1034,8 +1115,22 @@ impl Tools {
                     ui,
                     "Anchura máxima (m)",
                     &mut self.pp.max_width,
-                    0.05..=3.0,
-                    0.05,
+                    0.1..=30.0,
+                    0.5,
+                );
+                num(
+                    ui,
+                    "Altura mínima de la estructura (m)",
+                    &mut self.pp.min_extent,
+                    1.0..=100.0,
+                    0.5,
+                );
+                num(
+                    ui,
+                    "Cabeza de apoyo: longitud máxima (m, 0 = no)",
+                    &mut self.pp.head_length,
+                    0.0..=50.0,
+                    0.5,
                 );
             }
         });
@@ -1056,7 +1151,7 @@ impl Tools {
 
     fn trees_form(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf]) {
         self.in_chm.row(ui, t, "CHM", "CHM", || {
-            pick_file("Ráster", &["tif", "tiff", "asc"])
+            pick_file("Ráster", rustlidar_core::raster::EXTENSIONS)
         });
         if inputs.len() > 1 && !self.in_chm.manual {
             ui.label(
@@ -1244,11 +1339,41 @@ impl Tools {
     }
 
     fn export_form(&mut self, ui: &mut egui::Ui) {
-        ui.checkbox(&mut self.ex_shp, "Shapefile 3D (PointZ) en lugar de texto");
-        self.out_export.row(ui, "Salida", || {
-            save_as(if self.ex_shp { "shp" } else { "csv" }, "puntos")
+        ui.horizontal(|ui| {
+            ui.label("Formato");
+            for (k, n) in ["LAZ", "LAS", "Texto (ASCII)", "Shapefile 3D"]
+                .iter()
+                .enumerate()
+            {
+                if ui.radio_value(&mut self.ex_fmt, k, *n).clicked() {
+                    // a new format needs a new extension on the automatic name
+                    self.out_export.manual = false;
+                }
+            }
         });
-        if !self.ex_shp {
+        ui.checkbox(
+            &mut self.ex_norm,
+            "Normalizar: alturas sobre el suelo (cada nube menos su MDT)",
+        );
+        if self.ex_norm {
+            Self::raster_row(
+                ui,
+                "MDT",
+                &mut self.ex_dtm,
+                rustlidar_core::raster::EXTENSIONS,
+            );
+            ui.label(
+                egui::RichText::new(
+                    "Vacío: se usa el último MDT calculado de cada nube. Los puntos fuera del MDT no se exportan.",
+                )
+                .size(11.0)
+                .weak(),
+            );
+        }
+        self.out_export.row(ui, "Salida", || {
+            save_as(Self::EX_EXT[self.ex_fmt.min(3)], "puntos")
+        });
+        if self.ex_fmt == 2 {
             ui.label("Columnas (en este orden):");
             ui.horizontal_wrapped(|ui| {
                 for it in Item::ALL {
@@ -1318,9 +1443,13 @@ impl Tools {
             ToolId::Thin
             | ToolId::Tls
             | ToolId::Dups
+            | ToolId::Hag
             | ToolId::Compare
             | ToolId::Fit
-            | ToolId::Swath => {
+            | ToolId::Swath
+            | ToolId::Colorize
+            | ToolId::Intensity
+            | ToolId::Copc => {
                 return self.build_lidar(tool, inputs, log);
             }
             _ => {}
@@ -1362,9 +1491,13 @@ impl Tools {
             | ToolId::Thin
             | ToolId::Tls
             | ToolId::Dups
+            | ToolId::Hag
             | ToolId::Compare
             | ToolId::Fit
             | ToolId::Swath
+            | ToolId::Colorize
+            | ToolId::Intensity
+            | ToolId::Copc
             | ToolId::Volume
             | ToolId::Clip => return None,
             ToolId::Trees => {
@@ -1490,23 +1623,52 @@ impl Tools {
                     skip_noise: false,
                 };
                 let inputs = inputs.to_vec();
-                if self.ex_shp {
+                let mut dtms: Vec<PathBuf> = Vec::new();
+                if self.ex_norm {
+                    let manual = self.ex_dtm.trim();
+                    for i in &inputs {
+                        let found = if manual.is_empty() {
+                            paths::find_dtm(i)
+                        } else {
+                            Some(PathBuf::from(manual))
+                        };
+                        match found {
+                            Some(d) => dtms.push(d),
+                            None => {
+                                log.push(format!(
+                                    "Exportar: falta el MDT de {}; calcúlalo antes o elígelo a mano.",
+                                    paths::stem(i)
+                                ));
+                                return None;
+                            }
+                        }
+                    }
+                }
+                if self.ex_fmt != 2 {
+                    let ext = Self::EX_EXT[self.ex_fmt.min(3)];
+                    let to_cloud = self.ex_fmt < 2;
                     (
                         Box::new(move || {
-                            let mut n = 0;
+                            let mut total = export::Exported::default();
+                            export::begin_for(&inputs);
                             for (k, i) in inputs.iter().enumerate() {
                                 let o = if inputs.len() > 1 {
                                     output.with_file_name(format!(
-                                        "{}_{}.shp",
+                                        "{}_{}.{ext}",
                                         paths::stem(&output),
                                         k + 1
                                     ))
                                 } else {
                                     output.clone()
                                 };
-                                n += export::shapefile_points(i, &o, &filter)?;
+                                let d = dtms.get(k).map(PathBuf::as_path);
+                                total.add(&if to_cloud {
+                                    export::cloud(i, &o, &filter, d)?
+                                } else {
+                                    export::shapefile_points(i, &o, &filter, d)?
+                                });
                             }
-                            Ok(format!("{n} puntos exportados a {}", output.display()))
+                            Ok(total.text(&output.display().to_string()))
                         }),
                         vec![],
                     )
@@ -1520,15 +1682,15 @@ impl Tools {
                         header: self.header,
                         filter,
                         decimals: self.decimals,
+                        dtms,
                     };
                     (
                         Box::new(move || {
                             let (files, n) = export::ascii(&job)?;
-                            Ok(format!(
-                                "{n} puntos exportados a {}",
-                                files
+                            Ok(n.text(
+                                &files
                                     .first()
-                                    .map_or(String::new(), |f| f.display().to_string())
+                                    .map_or(String::new(), |f| f.display().to_string()),
                             ))
                         }),
                         vec![],

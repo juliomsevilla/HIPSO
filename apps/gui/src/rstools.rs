@@ -1,4 +1,4 @@
-//! Multiband images and mosaics made from rasters (Teledetección): the bands of several
+//! Multiband images and mosaics made from rasters (Ráster): the bands of several
 //! rasters stacked into one image, and a mosaic that says what to do where pixels overlap.
 
 use super::*;
@@ -64,6 +64,8 @@ impl App {
         let mut go = false;
         let weak = self.tokens().weak;
         egui::Window::new(title)
+            .vscroll(true)
+            .max_height((ctx.content_rect().height() - 90.0).max(240.0))
             .open(&mut open)
             .default_width(560.0)
             .show(ctx, |ui| {
@@ -79,8 +81,8 @@ impl App {
                 );
                 ui.horizontal(|ui| {
                     if ui.button("➕ Añadir archivos…").clicked()
-                        && let Some(v) = rfd::FileDialog::new()
-                            .add_filter("GeoTIFF", &["tif", "tiff"])
+                        && let Some(v) = crate::prefs::dialog()
+                            .add_filter("Ráster", rustlidar_core::raster::EXTENSIONS)
                             .pick_files()
                     {
                         for p in v {
@@ -112,13 +114,22 @@ impl App {
                     for k in 0..rt.files.len() {
                         ui.horizontal(|ui| {
                             ui.label(format!("{}.", k + 1));
-                            if ui.small_button("▲").clicked() && k > 0 {
+                            if ui
+.small_button("▲")
+.on_hover_text("Subir")
+.clicked() && k > 0 {
                                 swap = Some((k - 1, k));
                             }
-                            if ui.small_button("▼").clicked() && k + 1 < rt.files.len() {
+                            if ui
+.small_button("▼")
+.on_hover_text("Bajar")
+.clicked() && k + 1 < rt.files.len() {
                                 swap = Some((k, k + 1));
                             }
-                            if ui.small_button("🗑").clicked() {
+                            if ui
+.small_button("🗑")
+.on_hover_text("Quitar de la lista")
+.clicked() {
                                 remove = Some(k);
                             }
                             ui.label(paths::stem(&rt.files[k].0));
@@ -141,15 +152,20 @@ impl App {
                 }
                 ui.separator();
                 if mode == 1 {
-                    egui::ComboBox::from_label("Donde se solapan")
+                    ui.horizontal(|ui| {
+                        ui.label("Donde se solapan");
+                        egui::ComboBox::from_id_salt("Donde se solapan")
                         .selected_text(rt.overlap.name())
                         .show_ui(ui, |ui| {
                             for o in Overlap::ALL {
                                 ui.selectable_value(&mut rt.overlap, o, o.name());
                             }
                         });
+                    });
                 }
-                egui::ComboBox::from_label("Zona que cubre")
+                ui.horizontal(|ui| {
+                    ui.label("Zona que cubre");
+                    egui::ComboBox::from_id_salt("Zona que cubre")
                     .selected_text(match rt.extent {
                         Extent::Union => "Unión de todos",
                         Extent::Intersection => "Solo donde coinciden todos",
@@ -160,7 +176,10 @@ impl App {
                         ui.selectable_value(&mut rt.extent, Extent::Intersection, "Solo donde coinciden todos");
                         ui.selectable_value(&mut rt.extent, Extent::First, "La del primero");
                     });
-                egui::ComboBox::from_label("Remuestreo")
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Remuestreo");
+                    egui::ComboBox::from_id_salt("Remuestreo")
                     .selected_text(match rt.resample {
                         Resample::Nearest => "Vecino más cercano",
                         Resample::Bilinear => "Bilineal",
@@ -171,13 +190,17 @@ impl App {
                         ui.selectable_value(&mut rt.resample, Resample::Bilinear, "Bilineal");
                         ui.selectable_value(&mut rt.resample, Resample::Average, "Media (para reducir)");
                     });
-                egui::ComboBox::from_label("Tipo de dato")
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Tipo de dato");
+                    egui::ComboBox::from_id_salt("Tipo de dato")
                     .selected_text(["Como el primero", "8 bits", "16 bits", "Decimal de 32 bits"][rt.dtype])
                     .show_ui(ui, |ui| {
                         for (k, n) in ["Como el primero", "8 bits", "16 bits", "Decimal de 32 bits"].iter().enumerate() {
                             ui.selectable_value(&mut rt.dtype, k, *n);
                         }
                     });
+                });
                 ui.horizontal(|ui| {
                     ui.label("Tamaño de píxel");
                     ui.add(egui::TextEdit::singleline(&mut rt.cell).desired_width(70.0).hint_text("el menor"));
@@ -199,7 +222,7 @@ impl App {
                         rt.out_manual = true;
                     }
                     if ui.button("…").clicked()
-                        && let Some(p) = rfd::FileDialog::new().add_filter("GeoTIFF", &["tif"]).set_file_name("salida.tif").save_file()
+                        && let Some(p) = crate::prefs::dialog().add_filter("GeoTIFF", &["tif"]).set_file_name("salida.tif").save_file()
                     {
                         rt.out = p.display().to_string();
                         rt.out_manual = true;

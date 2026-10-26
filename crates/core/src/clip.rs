@@ -1,5 +1,5 @@
-//! Clipping point clouds with polygons, circles and rectangles: the work of FUSION's ClipData
-//! and PolyClipData. One pass over the cloud writes any number of outputs, and the plots can
+//! Clipping point clouds with polygons, circles and rectangles: selecting points by region.
+//! One pass over the cloud writes any number of outputs, and the plots can
 //! be measured as they go (CloudMetrics).
 
 use std::path::{Path, PathBuf};
@@ -30,9 +30,9 @@ pub struct SampleMetrics {
     /// Base path of the metrics table (its extension is replaced by the formats chosen).
     pub csv: PathBuf,
     pub formats: crate::paths::Formats,
-    /// Height break for the cover metrics (FUSION /above).
+    /// Height break for the cover metrics (height break).
     pub heightbreak: f64,
-    /// Only returns above this height count (FUSION /minht).
+    /// Only returns above this height count (minimum height).
     pub min_height: f64,
 }
 
@@ -47,6 +47,8 @@ pub struct ClipJob {
     pub filter: Filter,
     /// A ground model: points get their height above it as elevation.
     pub dtm: Option<PathBuf>,
+    /// One ground model per input, in order, instead of `dtm` (each cloud minus its own DTM).
+    pub dtms: Vec<PathBuf>,
     /// Added to every elevation (or height) written.
     pub z_offset: f64,
     /// A point goes to the first region that holds it only (PolyClipData's behaviour), not to
@@ -56,6 +58,9 @@ pub struct ClipJob {
     pub keep_empty: bool,
     /// Files open at once; more regions take more passes over the cloud.
     pub max_open: usize,
+    /// The file the regions were read from, so that its coordinate system can be checked
+    /// against the clouds' (regions drawn in the viewer have none).
+    pub regions_source: Option<PathBuf>,
     pub metrics: Option<SampleMetrics>,
 }
 
@@ -68,10 +73,12 @@ impl ClipJob {
             output,
             filter: Filter::default(),
             dtm: None,
+            dtms: Vec::new(),
             z_offset: 0.0,
             exclusive: false,
             keep_empty: false,
             max_open: 64,
+            regions_source: None,
             metrics: None,
         }
     }
@@ -138,10 +145,32 @@ struct Sample {
     intensity: Vec<f32>,
 }
 
+/// The job with everything in one coordinate system: clouds and models in another one are
+/// converted into temporary copies, the regions in memory.
+pub fn unified(job: &ClipJob) -> Result<(ClipJob, crate::crs::Unified)> {
+    let mut files = job.inputs.clone();
+    files.extend(job.dtm.clone());
+    files.extend(job.dtms.iter().cloned());
+    files.extend(job.regions_source.clone());
+    let u = crate::crs::unify(&files, true)?;
+    let moved = ClipJob {
+        inputs: u.all(&job.inputs),
+        dtm: job.dtm.as_ref().map(|p| u.path(p)),
+        dtms: u.all(&job.dtms),
+        regions: u.regions(&job.regions, job.regions_source.as_deref())?,
+        // the regions are in the clouds' system now: a second pass has nothing to convert
+        regions_source: None,
+        ..job.clone()
+    };
+    Ok((moved, u))
+}
+
 pub fn run(job: &ClipJob) -> Result<ClipReport> {
     if job.regions.is_empty() {
-        return Err(Error::Param("there are no regions to clip with".into()));
+        return Err(Error::Param("no hay zonas con las que recortar".into()));
     }
+    let (job, _unified) = unified(job)?;
+    let job = &job;
     let readers: Vec<Reader> = job
         .inputs
         .iter()
@@ -149,13 +178,13 @@ pub fn run(job: &ClipJob) -> Result<ClipReport> {
         .collect::<Result<_>>()?;
     let template = readers
         .first()
-        .ok_or_else(|| Error::Param("no input files".into()))?;
+        .ok_or_else(|| Error::Param("no hay archivos de entrada".into()))?;
     for r in &readers {
         if r.header.format != template.header.format
             || r.header.record_len != template.header.record_len
         {
             return Err(Error::Unsupported(format!(
-                "{}: its point format differs from the first file's; clip them separately",
+                "{}: su formato de punto es distinto del del primer archivo; recórtalos por separado",
                 r.path().display()
             )));
         }
@@ -163,7 +192,17 @@ pub fn run(job: &ClipJob) -> Result<ClipReport> {
     if let Some(parent) = job.output.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
-    let dtm = job.dtm.as_deref().map(Grid::read).transpose()?;
+    let shared = job.dtm.as_deref().map(Grid::read).transpose()?;
+    let own: Vec<Grid> = job
+        .dtms
+        .iter()
+        .map(|p| Grid::read(p))
+        .collect::<Result<_>>()?;
+    if !own.is_empty() && own.len() != job.inputs.len() {
+        return Err(Error::Param(
+            "indica un MDT por cada nube de entrada para normalizarlas".into(),
+        ));
+    }
     let mut report = ClipReport::default();
     let mut sample_rows: Vec<(usize, Vec<String>)> = Vec::new();
     let mut used = Vec::new();
@@ -180,10 +219,17 @@ pub fn run(job: &ClipJob) -> Result<ClipReport> {
         _ => std::iter::once(0..job.regions.len()).collect(),
     };
     // A compressed cloud read several times is decompressed once.
+    // (a COPC file is not: its tree lets each pass read just the nodes it needs)
     let readers: Vec<Reader> = if groups.len() > 1 {
         readers
             .into_iter()
-            .map(Reader::for_passes)
+            .map(|r| {
+                if crate::copc::Copc::open(r.path())?.is_some() {
+                    Ok(r)
+                } else {
+                    r.for_passes()
+                }
+            })
             .collect::<Result<_>>()?
     } else {
         readers
@@ -198,6 +244,9 @@ pub fn run(job: &ClipJob) -> Result<ClipReport> {
         _ => Vec::new(),
     };
 
+    crate::progress::begin(
+        readers.iter().map(|r| r.header.count).sum::<u64>() * groups.len() as u64,
+    );
     for group in groups {
         report.passes += 1;
         let regions = &job.regions[group.clone()];
@@ -241,7 +290,12 @@ pub fn run(job: &ClipJob) -> Result<ClipReport> {
         }
         let mut merged_count = 0u64;
         let mut decimate_n = 0u64;
-        for reader in &readers {
+        for (ri, reader) in readers.iter().enumerate() {
+            let dtm = if own.is_empty() {
+                shared.as_ref()
+            } else {
+                own.get(ri)
+            };
             let h = &reader.header;
             // A file whose extent misses every region of the group is not read (unless regions
             // are what is left out).
@@ -254,7 +308,23 @@ pub fn run(job: &ClipJob) -> Result<ClipReport> {
             }
             let rec_len = usize::from(h.record_len);
             let same = h.scale == template.header.scale && h.offset == template.header.offset;
-            let read = reader.scan_raw(|bytes| {
+            // A COPC file is read by the nodes that touch the regions when they are a good part
+            // fewer than the whole file's.
+            let copc_nodes = if job.mode == ClipMode::Outside {
+                None
+            } else {
+                match crate::copc::Copc::open(reader.path())? {
+                    Some(c) => {
+                        let nodes = c.nodes(Some(bb), None)?;
+                        let wanted: u64 = nodes.iter().map(|n| u64::from(n.points)).sum();
+                        (wanted.saturating_mul(10) < h.count.saturating_mul(7))
+                            .then_some((c, nodes))
+                    }
+                    None => None,
+                }
+            };
+            let mut body = |bytes: &[u8]| -> Result<()> {
+                crate::progress::advance((bytes.len() / rec_len.max(1)) as u64);
                 for rec in bytes.chunks_exact(rec_len) {
                     let Some(p) = reader.decode(rec) else {
                         continue;
@@ -267,7 +337,7 @@ pub fn run(job: &ClipJob) -> Result<ClipReport> {
                         continue;
                     }
                     let mut z = p.z;
-                    if let Some(g) = &dtm {
+                    if let Some(g) = dtm {
                         match g.sample(p.x, p.y) {
                             Some(gz) => z = p.z - f64::from(gz),
                             None => {
@@ -300,7 +370,7 @@ pub fn run(job: &ClipJob) -> Result<ClipReport> {
                         out = rec.to_vec();
                         if !las::set_xyz(&template.header, &mut out, p.x, p.y, z) {
                             return Err(Error::Param(
-                                "a point outside the first file's coordinate range".into(),
+                                "un punto fuera del rango de coordenadas del primer archivo".into(),
                             ));
                         }
                         &out
@@ -335,8 +405,11 @@ pub fn run(job: &ClipJob) -> Result<ClipReport> {
                     }
                 }
                 Ok(())
-            });
-            let scanned = read?;
+            };
+            let scanned = match &copc_nodes {
+                Some((c, nodes)) => c.read_raw(nodes, &mut body)?,
+                None => reader.scan_raw(&mut body)?,
+            };
             if report.passes == 1 {
                 report.points_read += scanned;
             }
@@ -610,6 +683,31 @@ mod tests {
                 .next()
                 .is_some_and(|h| h.starts_with("Parcela,Area,Total return count"))
         );
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_copc_file_is_read_only_where_the_regions_are() -> Result<()> {
+        let dir = std::env::temp_dir().join(format!("rl_clip_copc_{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let input = dir.join("nube.copc.laz");
+        let pts = crate::copc::tests::build(&input)?;
+        let window = [10.0, 10.0, 30.0, 30.0];
+        let region = Region {
+            name: "ventana".into(),
+            shape: Shape2::Rect(window),
+            attrs: Vec::new(),
+        };
+        let job = ClipJob::new(vec![input], vec![region], dir.join("out.las"));
+        let r = run(&job)?;
+        let expected = pts
+            .iter()
+            .filter(|p| p[0] >= 10.0 && p[0] <= 30.0 && p[1] >= 10.0 && p[1] <= 30.0)
+            .count() as u64;
+        assert_eq!(r.points_written, expected);
+        // not the whole cloud was read
+        assert!(r.points_read < 400, "{}", r.points_read);
         std::fs::remove_dir_all(&dir)?;
         Ok(())
     }

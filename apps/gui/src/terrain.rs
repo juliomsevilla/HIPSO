@@ -106,6 +106,8 @@ impl App {
         let mut open = true;
         let mut go = false;
         egui::Window::new("Análisis de terreno")
+            .vscroll(true)
+            .max_height((ctx.content_rect().height() - 90.0).max(240.0))
             .open(&mut open)
             .default_width(520.0)
             .show(ctx, |ui| {
@@ -120,8 +122,8 @@ impl App {
                     let shown = t.input.as_deref().map_or("(elige un MDT)".to_string(), paths::stem);
                     ui.label(shown);
                     if ui.button("Archivo…").clicked()
-                        && let Some(p) = rfd::FileDialog::new()
-                            .add_filter("Ráster", &["tif", "tiff", "asc"])
+                        && let Some(p) = crate::prefs::dialog()
+                            .add_filter("Ráster", rustlidar_core::raster::EXTENSIONS)
                             .pick_file()
                     {
                         t.input = Some(p);
@@ -138,7 +140,9 @@ impl App {
                         }
                     });
                 });
-                egui::ComboBox::from_label("Producto")
+                ui.horizontal(|ui| {
+                    ui.label("Producto");
+                    egui::ComboBox::from_id_salt("Producto")
                     .selected_text(t.product.name())
                     .height(420.0)
                     .show_ui(ui, |ui| {
@@ -154,6 +158,7 @@ impl App {
                             }
                         }
                     });
+                });
                 ui.label(egui::RichText::new(help(t.product)).color(weak).size(11.0));
                 ui.separator();
                 match t.product {
@@ -217,7 +222,7 @@ impl App {
                         t.out_manual = true;
                     }
                     if ui.button("…").clicked()
-                        && let Some(p) = rfd::FileDialog::new().add_filter("GeoTIFF", &["tif"]).set_file_name("salida.tif").save_file()
+                        && let Some(p) = crate::prefs::dialog().add_filter("GeoTIFF", &["tif"]).set_file_name("salida.tif").save_file()
                     {
                         t.out = p.display().to_string();
                         t.out_manual = true;

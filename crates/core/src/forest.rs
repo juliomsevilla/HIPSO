@@ -213,7 +213,7 @@ pub fn read_field(path: &Path, cols: &FieldColumns) -> Result<Vec<FieldTree>> {
     let mut lines = text.lines();
     let head = lines
         .next()
-        .ok_or_else(|| Error::Format("empty field file".into()))?;
+        .ok_or_else(|| Error::Format("el archivo de campo está vacío".into()))?;
     let delim = [('\t', 0), (';', 0), (',', 0)]
         .iter()
         .map(|(d, _)| (*d, head.matches(*d).count()))
@@ -226,7 +226,7 @@ pub fn read_field(path: &Path, cols: &FieldColumns) -> Result<Vec<FieldTree>> {
     let at = |n: &str| names.iter().position(|c| *c == n.to_lowercase());
     let (Some(ix), Some(iy)) = (at(&cols.x), at(&cols.y)) else {
         return Err(Error::Param(format!(
-            "columns '{}' and '{}' not found in {}",
+            "no se encuentran las columnas '{}' y '{}' en {}",
             cols.x,
             cols.y,
             path.display()

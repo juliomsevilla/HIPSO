@@ -2,3 +2,6 @@
 /dist
 docs/LICENCIAS.md
 graphify-out/
+
+# macOS
+.DS_Store

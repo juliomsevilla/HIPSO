@@ -77,7 +77,9 @@ pub fn generate(
 ) -> Result<Vec<Region>> {
     let (hx, hy) = shape.half_extent();
     if !(hx > 0.0 && hy > 0.0) {
-        return Err(Error::Param("the plots need a size above 0".into()));
+        return Err(Error::Param(
+            "las parcelas necesitan un tamaño mayor que 0".into(),
+        ));
     }
     let area = [
         bounds[0] + hx,
@@ -86,7 +88,9 @@ pub fn generate(
         bounds[3] - hy,
     ];
     if area[2] <= area[0] || area[3] <= area[1] {
-        return Err(Error::Param("the plots are larger than the area".into()));
+        return Err(Error::Param(
+            "las parcelas son más grandes que la zona".into(),
+        ));
     }
     let inside = |x: f64, y: f64| limit.is_none_or(|l| l.iter().any(|p| p.contains(x, y)));
     let mut centres: Vec<[f64; 2]> = Vec::new();
@@ -110,7 +114,7 @@ pub fn generate(
             }
             if centres.len() < count {
                 return Err(Error::Param(format!(
-                    "only {} of {count} plots fit: reduce the number, the size or the minimum distance",
+                    "solo caben {} de {count} parcelas: reduce el número, el tamaño o la distancia mínima",
                     centres.len()
                 )));
             }
@@ -121,7 +125,9 @@ pub fn generate(
             random_start,
         } => {
             if !(dx > 0.0 && dy > 0.0) {
-                return Err(Error::Param("the grid needs a spacing above 0".into()));
+                return Err(Error::Param(
+                    "la malla necesita un espaciado mayor que 0".into(),
+                ));
             }
             let (ox, oy) = if random_start {
                 (rng.next() * dx, rng.next() * dy)
@@ -140,7 +146,9 @@ pub fn generate(
                 y += dy;
             }
             if centres.len() > 1_000_000 {
-                return Err(Error::Param("too many plots: increase the spacing".into()));
+                return Err(Error::Param(
+                    "demasiadas parcelas: aumenta el espaciado".into(),
+                ));
             }
         }
     }

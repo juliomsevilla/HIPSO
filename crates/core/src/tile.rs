@@ -29,7 +29,7 @@ impl Layout {
     pub fn new(b: [f64; 4], size: f64, buffer: f64, align: f64) -> Result<Self> {
         if !(size > 0.0) || !(buffer >= 0.0) || !(align > 0.0) {
             return Err(Error::Param(
-                "tiles need a positive size and a buffer of 0 or more".into(),
+                "las teselas necesitan un tamaño positivo y un margen de 0 o más".into(),
             ));
         }
         let size = (size / align).round().max(1.0) * align;
@@ -39,7 +39,7 @@ impl Layout {
         let rows = ((b[3] - y0) / size).floor() as usize + 1;
         if cols.saturating_mul(rows) > 1 << 20 {
             return Err(Error::Param(
-                "too many tiles: use a larger tile size".into(),
+                "demasiadas teselas: usa teselas más grandes".into(),
             ));
         }
         Ok(Self {
@@ -129,7 +129,7 @@ impl Tiled {
     pub fn spool(inputs: &[Reader], layout: Layout) -> Result<Self> {
         let first = inputs
             .first()
-            .ok_or_else(|| Error::Param("no input files".into()))?;
+            .ok_or_else(|| Error::Param("no hay archivos de entrada".into()))?;
         let header = first.header.clone();
         let rec_len = usize::from(header.record_len);
         let dir = std::env::temp_dir().join(format!(
@@ -145,6 +145,8 @@ impl Tiled {
         let flush_at = (SPOOL_BUDGET / n.max(1)).clamp(64 << 10, 8 << 20);
         let mut bufs: Vec<Vec<u8>> = vec![Vec::new(); n];
         let mut counts = vec![0u64; n];
+        // reading and spreading the points is about half of the work, processing the tiles the rest
+        crate::progress::begin(2 * inputs.iter().map(|r| r.header.count).sum::<u64>());
         let flush = |t: usize, buf: &mut Vec<u8>| -> Result<()> {
             let mut f = OpenOptions::new()
                 .create(true)
@@ -158,7 +160,7 @@ impl Tiled {
             let h = &input.header;
             if h.format != header.format || h.record_len != header.record_len {
                 return Err(Error::Unsupported(format!(
-                    "{}: point format {} ({} bytes) differs from the first file's {} ({} bytes)",
+                    "{}: el formato de punto {} ({} bytes) es distinto del del primer archivo, {} ({} bytes)",
                     input.path().display(),
                     h.format,
                     h.record_len,
@@ -169,12 +171,13 @@ impl Tiled {
             let same = h.scale == header.scale && h.offset == header.offset;
             let mut err = None;
             input.scan_raw(|bytes| {
+                crate::progress::advance((bytes.len() / rec_len.max(1)) as u64);
                 for rec in bytes.chunks_exact(rec_len) {
                     let Some(p) = input.decode(rec) else { continue };
                     let mut rec = rec.to_vec();
                     if !same && !crate::las::set_xyz(&header, &mut rec, p.x, p.y, p.z) {
                         return Err(Error::Param(
-                            "a point outside the first file's coordinate range".into(),
+                            "un punto fuera del rango de coordenadas del primer archivo".into(),
                         ));
                     }
                     layout.visit(p.x, p.y, |t, home| {
@@ -286,6 +289,12 @@ impl Tiled {
             for r in results {
                 sink(r?)?;
             }
+            crate::progress::advance(
+                group
+                    .iter()
+                    .map(|&t| self.counts.get(t).copied().unwrap_or(0))
+                    .sum(),
+            );
         }
         Ok(())
     }

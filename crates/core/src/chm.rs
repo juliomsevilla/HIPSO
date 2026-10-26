@@ -1,7 +1,8 @@
-//! Canopy height model, as FUSION's CanopyModel: the highest return above the ground in each
+//! Canopy height model, the highest return above the ground in each
 //! cell, in one streaming pass.
 
 use crate::Result;
+use crate::footprint::Footprint;
 use crate::grid::Grid;
 use crate::las::Reader;
 
@@ -10,10 +11,12 @@ use crate::las::Reader;
 pub fn chm(reader: &Reader, dtm: &Grid, cell: f64, fill: bool) -> Result<Grid> {
     let h = &reader.header;
     let mut out = Grid::covering([h.bounds[0], h.bounds[1], h.bounds[3], h.bounds[4]], cell)?;
+    let fp = Footprint::new([h.bounds[0], h.bounds[1], h.bounds[3], h.bounds[4]], cell);
     reader.scan(|pt| {
         if pt.is_noise() {
             return;
         }
+        fp.add(pt.x, pt.y);
         let (Some(i), Some(gz)) = (out.index(pt.x, pt.y), dtm.sample(pt.x, pt.y)) else {
             return;
         };
@@ -26,6 +29,7 @@ pub fn chm(reader: &Reader, dtm: &Grid, cell: f64, fill: bool) -> Result<Grid> {
     })?;
     if fill {
         out.fill_holes();
+        fp.apply(&mut out);
     }
     Ok(out)
 }
@@ -35,10 +39,12 @@ pub fn chm(reader: &Reader, dtm: &Grid, cell: f64, fill: bool) -> Result<Grid> {
 pub fn dsm(reader: &Reader, cell: f64, fill: bool) -> Result<Grid> {
     let h = &reader.header;
     let mut out = Grid::covering([h.bounds[0], h.bounds[1], h.bounds[3], h.bounds[4]], cell)?;
+    let fp = Footprint::new([h.bounds[0], h.bounds[1], h.bounds[3], h.bounds[4]], cell);
     reader.scan(|pt| {
         if pt.is_noise() {
             return;
         }
+        fp.add(pt.x, pt.y);
         if let Some(i) = out.index(pt.x, pt.y)
             && let Some(v) = out.data.get_mut(i)
             && (v.is_nan() || pt.z as f32 > *v)
@@ -48,6 +54,7 @@ pub fn dsm(reader: &Reader, cell: f64, fill: bool) -> Result<Grid> {
     })?;
     if fill {
         out.fill_holes();
+        fp.apply(&mut out);
     }
     Ok(out)
 }

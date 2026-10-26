@@ -1,4 +1,4 @@
-//! Streaming utilities taken from the useful end of WhiteboxTools' LiDAR set, built for the same
+//! Streaming utilities, written from the standard definitions and built for the same
 //! premise as the rest: one pass, memory that follows the output and not the cloud. Point statistics on a grid (density, count, elevation, intensity),
 //! contour lines and hillshade from a surface, and the tile layout for splitting a cloud.
 
@@ -33,6 +33,9 @@ pub fn raster_stat(
     stat: Stat,
     filter: &Filter,
 ) -> Result<(Grid, Option<u16>)> {
+    let unified = crate::crs::unify(inputs, false)?;
+    let inputs = unified.all(inputs);
+    let inputs = inputs.as_slice();
     let mut b = [
         f64::INFINITY,
         f64::INFINITY,
@@ -204,7 +207,7 @@ pub fn hillshade(g: &Grid, azimuth: f64, altitude: f64) -> Image {
 pub fn tile_regions(bounds: [f64; 4], size: f64, buffer: f64, prefix: &str) -> Result<Vec<Region>> {
     if !(size > 0.0) || !(buffer >= 0.0) {
         return Err(Error::Param(
-            "tiles need a positive size and a buffer of 0 or more".into(),
+            "las teselas necesitan un tamaño positivo y un margen de 0 o más".into(),
         ));
     }
     let x0 = (bounds[0] / size).floor() * size;
@@ -215,7 +218,7 @@ pub fn tile_regions(bounds: [f64; 4], size: f64, buffer: f64, prefix: &str) -> R
     );
     if cols.saturating_mul(rows) > 1 << 20 {
         return Err(Error::Param(
-            "too many tiles: use a larger tile size".into(),
+            "demasiadas teselas: usa teselas más grandes".into(),
         ));
     }
     let mut out = Vec::new();
@@ -333,13 +336,13 @@ pub fn assign_projection(
 ) -> Result<String> {
     if input == output {
         return Err(Error::Param(
-            "the new file must not overwrite the original".into(),
+            "el archivo nuevo no debe sobrescribir el original".into(),
         ));
     }
     let r = Reader::open(input)?;
     if (r.header.epsg.is_some() || r.meta.wkt.is_some()) && !replace {
         return Err(Error::Param(format!(
-            "{} already has a coordinate system: choose to replace it",
+            "{} ya tiene sistema de coordenadas: elige reemplazarlo",
             input.display()
         )));
     }
@@ -349,7 +352,7 @@ pub fn assign_projection(
             let (rec, n) = s.projection_records();
             if n == 0 {
                 return Err(Error::Param(format!(
-                    "{} has no coordinate system to copy",
+                    "{} no tiene sistema de coordenadas que copiar",
                     p.display()
                 )));
             }

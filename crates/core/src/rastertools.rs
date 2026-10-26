@@ -1,17 +1,14 @@
-//! Raster tools in the way of GDAL's `gdal_merge -separate` and `gdalbuildvrt`/`gdal_merge`:
+//! Raster tools:
 //! a multiband image made from rasters (each input band becomes one output band) and a mosaic
 //! of rasters that says what to do where pixels overlap (first, last, mean, minimum, maximum,
-//! median, sum or the number of layers). Both read the inputs by window and write the output
-//! strip by strip (deflate), so memory follows a block of rows, never the images.
+//! median, sum or the number of layers). Both read the inputs by window and write the output as
+//! a cloud-optimized GeoTIFF (tiles and overviews, see [`crate::tiled`]), so memory follows a
+//! block of rows, never the images.
 //!
 //! The inputs must share one coordinate system (nothing is reprojected); their cells may
 //! differ: they are resampled to the output's.
 
-use std::fs::File;
-use std::io::BufWriter;
 use std::path::PathBuf;
-
-use rayon::prelude::*;
 
 use crate::pyramid::Pyramid;
 use crate::raster::Image;
@@ -120,6 +117,9 @@ pub struct RasterJob {
     pub nodata: f32,
     /// Write BigTIFF even if the image is small (it is used above 4 GB anyway).
     pub bigtiff: bool,
+    /// How the tiles are compressed; `None`: JPEG for 8-bit photographs of three bands,
+    /// deflate otherwise.
+    pub compression: Option<crate::tiled::Compression>,
 }
 
 impl RasterJob {
@@ -135,6 +135,7 @@ impl RasterJob {
             src_nodata: None,
             nodata: 0.0,
             bigtiff: false,
+            compression: None,
         }
     }
 }
@@ -159,7 +160,7 @@ struct Opened {
 
 fn open_all(job: &RasterJob) -> Result<Vec<Opened>> {
     if job.inputs.is_empty() {
-        return Err(Error::Param("no input raster".into()));
+        return Err(Error::Param("no hay ráster de entrada".into()));
     }
     let mut out = Vec::new();
     for s in &job.inputs {
@@ -171,7 +172,7 @@ fn open_all(job: &RasterJob) -> Result<Vec<Opened>> {
         };
         if let Some(b) = bands.iter().find(|b| **b >= pyr.bands) {
             return Err(Error::Param(format!(
-                "{} has {} band(s): there is no band {}",
+                "{} tiene {} banda(s): no existe la banda {}",
                 s.path.display(),
                 pyr.bands,
                 b + 1
@@ -181,7 +182,7 @@ fn open_all(job: &RasterJob) -> Result<Vec<Opened>> {
     }
     if let Some(a) = out.iter().find(|o| o.pyr.epsg != out[0].pyr.epsg) {
         return Err(Error::Param(format!(
-            "the rasters are in different coordinate systems (EPSG {:?} and {:?}): reproject them first",
+            "los rásteres están en sistemas de coordenadas distintos (EPSG {:?} y {:?}): reproyéctalos antes",
             out[0].pyr.epsg, a.pyr.epsg
         )));
     }
@@ -193,7 +194,7 @@ fn frame_of(job: &RasterJob, ins: &[Opened]) -> Result<Frame> {
         .cell
         .unwrap_or_else(|| ins.iter().map(|o| o.pyr.cell).fold(f64::INFINITY, f64::min));
     if !(cell > 0.0 && cell.is_finite()) {
-        return Err(Error::Param("the cell must be positive".into()));
+        return Err(Error::Param("la celda debe ser positiva".into()));
     }
     let ext: Vec<[f64; 4]> = ins.iter().map(|o| o.pyr.extent()).collect();
     let b = match job.extent {
@@ -216,14 +217,14 @@ fn frame_of(job: &RasterJob, ins: &[Opened]) -> Result<Frame> {
         }),
     };
     if b[2] <= b[0] || b[3] <= b[1] {
-        return Err(Error::Param("the rasters do not overlap".into()));
+        return Err(Error::Param("los rásteres no se solapan".into()));
     }
     let (cols, rows) = (
         ((b[2] - b[0]) / cell).round().max(1.0) as usize,
         ((b[3] - b[1]) / cell).round().max(1.0) as usize,
     );
     if (cols as u64) * (rows as u64) > (1 << 36) {
-        return Err(Error::Param("the output would be too large".into()));
+        return Err(Error::Param("el resultado sería demasiado grande".into()));
     }
     Ok(Frame {
         x0: b[0],
@@ -337,42 +338,7 @@ fn block_rows(f: &Frame, nb: usize, layers: usize) -> usize {
 
 // -------------------------------------------------------------------------------- writing
 
-fn put_samples(out: &mut Vec<u8>, block: &[f32], dtype: Dtype, nodata: f32) {
-    for &v in block {
-        let v = if v.is_finite() { v } else { nodata };
-        match dtype {
-            Dtype::U8 => out.push(v.round().clamp(0.0, 255.0) as u8),
-            Dtype::U16 => out.extend((v.round().clamp(0.0, 65535.0) as u16).to_le_bytes()),
-            Dtype::F32 => out.extend(v.to_le_bytes()),
-        }
-    }
-}
-
-fn deflate(strip: &[u8]) -> Result<Vec<u8>> {
-    use std::io::Write;
-    let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
-    z.write_all(strip)?;
-    Ok(z.finish()?)
-}
-
-/// One entry of an image file directory: tag, type (3 short, 4 long, 12 double, 2 ascii, 16
-/// long8), count and the value's bytes.
-struct Entry {
-    tag: u16,
-    kind: u16,
-    count: u64,
-    data: Vec<u8>,
-}
-
-fn shorts(v: &[u16]) -> Vec<u8> {
-    v.iter().flat_map(|x| x.to_le_bytes()).collect()
-}
-
-fn doubles(v: &[f64]) -> Vec<u8> {
-    v.iter().flat_map(|x| x.to_le_bytes()).collect()
-}
-
-/// Writes the frame as a GeoTIFF in strips compressed with deflate, asking `rows_of(r0, r1)`
+/// Writes the frame as a cloud-optimized GeoTIFF (tiles, overviews), asking `rows_of(r0, r1)`
 /// for the interleaved samples of those rows, `step` rows at a time. BigTIFF when the image
 /// could pass 4 GB.
 #[allow(clippy::too_many_arguments)]
@@ -383,239 +349,28 @@ fn write_frame(
     dtype: Dtype,
     nb: usize,
     step: usize,
-    mut rows_of: impl FnMut(usize, usize) -> Result<Vec<f32>>,
+    rows_of: impl FnMut(usize, usize) -> Result<Vec<f32>>,
 ) -> Result<()> {
-    use std::io::{Seek, SeekFrom, Write};
-    let path = &job.output;
-    crate::paths::ensure_parent(path)?;
-    let bytes_per = match dtype {
-        Dtype::U8 => 1usize,
-        Dtype::U16 => 2,
-        Dtype::F32 => 4,
+    let compression = job
+        .compression
+        .unwrap_or_else(|| crate::tiled::auto_compression(dtype, nb));
+    let spec = crate::tiled::Spec {
+        cols: f.cols,
+        rows: f.rows,
+        bands: nb,
+        dtype,
+        cell: f.cell,
+        x0: f.x0,
+        top: f.top,
+        epsg,
+        nodata: job.nodata,
+        compression,
+        // classes and counts are not averaged in the overviews
+        nearest: job.overlap == Overlap::Count
+            || (job.resample == Resample::Nearest && nb == 1 && dtype != Dtype::F32),
+        bigtiff: job.bigtiff,
     };
-    let row_bytes = f.cols * nb * bytes_per;
-    let big = job.bigtiff || (row_bytes as u64) * (f.rows as u64) > 3_900_000_000;
-    let rps = ((1usize << 20) / row_bytes.max(1)).clamp(1, f.rows);
-    let strip_bytes = rps * row_bytes;
-    let mut w = BufWriter::with_capacity(1 << 20, File::create(path)?);
-    let header_len: u64 = if big { 16 } else { 8 };
-    w.write_all(&vec![0u8; header_len as usize])?;
-    let (mut offsets, mut counts): (Vec<u64>, Vec<u64>) = (Vec::new(), Vec::new());
-    let mut pos = header_len;
-    let mut pending: Vec<u8> = Vec::new();
-    let mut flush = |pending: &mut Vec<u8>, last: bool, w: &mut BufWriter<File>| -> Result<()> {
-        let mut strips: Vec<Vec<u8>> = Vec::new();
-        while pending.len() >= strip_bytes {
-            strips.push(pending.drain(..strip_bytes).collect());
-        }
-        if last && !pending.is_empty() {
-            strips.push(std::mem::take(pending));
-        }
-        let packed: Vec<Result<Vec<u8>>> = strips.par_iter().map(|s| deflate(s)).collect();
-        for p in packed {
-            let p = p?;
-            w.write_all(&p)?;
-            offsets.push(pos);
-            counts.push(p.len() as u64);
-            pos += p.len() as u64;
-        }
-        Ok(())
-    };
-    let mut r = 0;
-    while r < f.rows {
-        crate::check_cancel()?;
-        let r1 = (r + step).min(f.rows);
-        put_samples(&mut pending, &rows_of(r, r1)?, dtype, job.nodata);
-        flush(&mut pending, false, &mut w)?;
-        r = r1;
-    }
-    flush(&mut pending, true, &mut w)?;
-    // the directory, after the strips, on an even offset
-    if pos % 2 == 1 {
-        w.write_all(&[0])?;
-        pos += 1;
-    }
-    let (bits, fmt): (u16, u16) = match dtype {
-        Dtype::U8 => (8, 1),
-        Dtype::U16 => (16, 1),
-        Dtype::F32 => (32, 3),
-    };
-    let mut keys: Vec<u16> = vec![1, 1, 0, 2, 1024, 0, 1, 1, 1025, 0, 1, 1];
-    if let Some(code) = epsg {
-        keys[3] = 3;
-        keys.extend([3072, 0, 1, code]);
-    }
-    let offs_data: Vec<u8> = if big {
-        offsets.iter().flat_map(|x| x.to_le_bytes()).collect()
-    } else {
-        offsets
-            .iter()
-            .flat_map(|x| (*x as u32).to_le_bytes())
-            .collect()
-    };
-    let cnt_data: Vec<u8> = if big {
-        counts.iter().flat_map(|x| x.to_le_bytes()).collect()
-    } else {
-        counts
-            .iter()
-            .flat_map(|x| (*x as u32).to_le_bytes())
-            .collect()
-    };
-    let long = |v: u64| -> Vec<u8> {
-        if big {
-            v.to_le_bytes().to_vec()
-        } else {
-            (v as u32).to_le_bytes().to_vec()
-        }
-    };
-    let nodata_text = format!("{}\0", job.nodata);
-    let mut entries = vec![
-        Entry {
-            tag: 256,
-            kind: if big { 16 } else { 4 },
-            count: 1,
-            data: long(f.cols as u64),
-        },
-        Entry {
-            tag: 257,
-            kind: if big { 16 } else { 4 },
-            count: 1,
-            data: long(f.rows as u64),
-        },
-        Entry {
-            tag: 258,
-            kind: 3,
-            count: nb as u64,
-            data: shorts(&vec![bits; nb]),
-        },
-        Entry {
-            tag: 259,
-            kind: 3,
-            count: 1,
-            data: shorts(&[8]),
-        },
-        Entry {
-            tag: 262,
-            kind: 3,
-            count: 1,
-            data: shorts(&[if nb == 3 { 2 } else { 1 }]),
-        },
-        Entry {
-            tag: 273,
-            kind: if big { 16 } else { 4 },
-            count: offsets.len() as u64,
-            data: offs_data,
-        },
-        Entry {
-            tag: 277,
-            kind: 3,
-            count: 1,
-            data: shorts(&[nb as u16]),
-        },
-        Entry {
-            tag: 278,
-            kind: if big { 16 } else { 4 },
-            count: 1,
-            data: long(rps as u64),
-        },
-        Entry {
-            tag: 279,
-            kind: if big { 16 } else { 4 },
-            count: counts.len() as u64,
-            data: cnt_data,
-        },
-        Entry {
-            tag: 284,
-            kind: 3,
-            count: 1,
-            data: shorts(&[1]),
-        },
-        Entry {
-            tag: 339,
-            kind: 3,
-            count: nb as u64,
-            data: shorts(&vec![fmt; nb]),
-        },
-        Entry {
-            tag: 33550,
-            kind: 12,
-            count: 3,
-            data: doubles(&[f.cell, f.cell, 0.0]),
-        },
-        Entry {
-            tag: 33922,
-            kind: 12,
-            count: 6,
-            data: doubles(&[0.0, 0.0, 0.0, f.x0, f.top, 0.0]),
-        },
-        Entry {
-            tag: 34735,
-            kind: 3,
-            count: keys.len() as u64,
-            data: shorts(&keys),
-        },
-        Entry {
-            tag: 42113,
-            kind: 2,
-            count: nodata_text.len() as u64,
-            data: nodata_text.into_bytes(),
-        },
-    ];
-    entries.sort_by_key(|e| e.tag);
-    let inline = if big { 8 } else { 4 };
-    // values that do not fit in the entry go before the directory
-    let mut outside: Vec<u8> = Vec::new();
-    let mut slots: Vec<Vec<u8>> = Vec::new();
-    for e in &entries {
-        if e.data.len() <= inline {
-            let mut v = e.data.clone();
-            v.resize(inline, 0);
-            slots.push(v);
-        } else {
-            let at = pos + outside.len() as u64;
-            outside.extend(&e.data);
-            if outside.len() % 2 == 1 {
-                outside.push(0);
-            }
-            slots.push(if big {
-                at.to_le_bytes().to_vec()
-            } else {
-                (at as u32).to_le_bytes().to_vec()
-            });
-        }
-    }
-    w.write_all(&outside)?;
-    let ifd_at = pos + outside.len() as u64;
-    if big {
-        w.write_all(&(entries.len() as u64).to_le_bytes())?;
-    } else {
-        w.write_all(&(entries.len() as u16).to_le_bytes())?;
-    }
-    for (e, slot) in entries.iter().zip(&slots) {
-        w.write_all(&e.tag.to_le_bytes())?;
-        w.write_all(&e.kind.to_le_bytes())?;
-        if big {
-            w.write_all(&e.count.to_le_bytes())?;
-        } else {
-            w.write_all(&(e.count as u32).to_le_bytes())?;
-        }
-        w.write_all(slot)?;
-    }
-    w.write_all(&if big { vec![0u8; 8] } else { vec![0u8; 4] })?;
-    w.seek(SeekFrom::Start(0))?;
-    if big {
-        w.write_all(b"II")?;
-        w.write_all(&43u16.to_le_bytes())?;
-        w.write_all(&8u16.to_le_bytes())?;
-        w.write_all(&0u16.to_le_bytes())?;
-        w.write_all(&ifd_at.to_le_bytes())?;
-    } else {
-        w.write_all(b"II")?;
-        w.write_all(&42u16.to_le_bytes())?;
-        w.write_all(&(ifd_at as u32).to_le_bytes())?;
-    }
-    w.flush()?;
-    Ok(())
+    crate::tiled::write(&job.output, spec, step, rows_of)
 }
 
 fn dtype_of(job: &RasterJob, first: &Pyramid) -> Dtype {
@@ -634,7 +389,7 @@ pub fn stack(job: &RasterJob) -> Result<String> {
     let nb: usize = ins.iter().map(|o| o.bands.len()).sum();
     if nb == 0 || nb > MAX_BANDS {
         return Err(Error::Param(format!(
-            "{nb} bands: an output has 1 to {MAX_BANDS}"
+            "{nb} bandas: un resultado tiene de 1 a {MAX_BANDS}"
         )));
     }
     let f = frame_of(job, &ins)?;
@@ -672,6 +427,137 @@ pub fn stack(job: &RasterJob) -> Result<String> {
     ))
 }
 
+// -------------------------------------------------------------------------------- align
+
+/// Puts rasters on the cells of another: same origin, same cell, same size, so that layer by layer
+/// they can be compared and stacked.
+#[derive(Clone, Debug)]
+pub struct AlignJob {
+    /// The raster whose cells every other one takes.
+    pub reference: PathBuf,
+    /// Each raster to align and where its aligned copy goes.
+    pub inputs: Vec<(PathBuf, PathBuf)>,
+    /// How values are carried over; `None` chooses by cell size: the mean of the source pixels
+    /// when they are finer than the reference's, else bilinear. Use `Nearest` for classes.
+    pub resample: Option<Resample>,
+    /// Sample type of the copies; that of each input when `None`.
+    pub dtype: Option<Dtype>,
+    /// What cells outside the input hold.
+    pub nodata: f32,
+    /// A value of the inputs that means "no data" (besides what their files declare).
+    pub src_nodata: Option<f32>,
+    /// How the copies are compressed; `None`: as [`RasterJob::compression`].
+    pub compression: Option<crate::tiled::Compression>,
+}
+
+/// The resampling used when none is asked for.
+fn auto_resample(source_cell: f64, reference_cell: f64) -> Resample {
+    if source_cell < reference_cell * 0.99 {
+        Resample::Average
+    } else {
+        Resample::Bilinear
+    }
+}
+
+/// Writes each raster of the job on the cells of the reference. The coordinate systems must be the
+/// same (nothing is reprojected). Memory follows a block of rows.
+pub fn align(job: &AlignJob) -> Result<String> {
+    let reference = Pyramid::open(&job.reference)?;
+    let frame_of_ref = || Frame {
+        x0: reference.x0,
+        top: reference.y_top,
+        cell: reference.cell,
+        cols: reference.levels[0].cols as usize,
+        rows: reference.levels[0].rows as usize,
+    };
+    let mut lines = Vec::new();
+    for (input, output) in &job.inputs {
+        crate::check_cancel()?;
+        let mut sub = RasterJob::new(
+            vec![Source {
+                path: input.clone(),
+                bands: Vec::new(),
+            }],
+            output.clone(),
+        );
+        sub.src_nodata = job.src_nodata;
+        sub.nodata = job.nodata;
+        sub.dtype = job.dtype;
+        sub.compression = job.compression;
+        let ins = open_all(&sub)?;
+        let o = &ins[0];
+        if let (Some(a), Some(b)) = (reference.epsg, o.pyr.epsg)
+            && a != b
+        {
+            return Err(Error::Param(format!(
+                "{} está en otro sistema de coordenadas (EPSG {b}) que la referencia (EPSG {a}): reproyéctalo antes",
+                input.display()
+            )));
+        }
+        let nb = o.bands.len();
+        if nb == 0 || nb > MAX_BANDS {
+            return Err(Error::Param(format!(
+                "{nb} bandas: una salida admite de 1 a {MAX_BANDS}"
+            )));
+        }
+        sub.resample = job
+            .resample
+            .unwrap_or_else(|| auto_resample(o.pyr.cell, reference.cell));
+        let f = frame_of_ref();
+        let dtype = dtype_of(&sub, &o.pyr);
+        let step = block_rows(&f, nb, 2);
+        let mut filled = 0u64;
+        write_frame(
+            &sub,
+            &f,
+            reference.epsg.or(o.pyr.epsg),
+            dtype,
+            nb,
+            step,
+            |r0, r1| {
+                let n = (r1 - r0) * f.cols;
+                let mut out = vec![f32::NAN; n * nb];
+                if let Some(img) = read_block(o, &f, r0, r1, &sub)? {
+                    for i in 0..n {
+                        let (r, c) = (r0 + i / f.cols, i % f.cols);
+                        let (x, y) = (
+                            f.x0 + (c as f64 + 0.5) * f.cell,
+                            f.top - (r as f64 + 0.5) * f.cell,
+                        );
+                        for (k, &b) in o.bands.iter().enumerate() {
+                            let v = sample(&img, b, x, y, f.cell, sub.resample);
+                            out[i * nb + k] = v;
+                            filled += u64::from(v.is_finite());
+                        }
+                    }
+                }
+                Ok(out)
+            },
+        )?;
+        let total = (f.cols as u64) * (f.rows as u64) * nb as u64;
+        let how = match sub.resample {
+            Resample::Nearest => "vecino más cercano",
+            Resample::Bilinear => "bilineal",
+            Resample::Average => "media",
+        };
+        let epsg_note = if reference.epsg.is_none() || o.pyr.epsg.is_none() {
+            " (no se pudo comprobar el sistema de coordenadas: falta en uno de los archivos)"
+        } else {
+            ""
+        };
+        lines.push(format!(
+            "{}: celdas de {} ({how}), {} x {}, {:.1} % con datos{epsg_note} → {}",
+            crate::paths::stem(input),
+            crate::paths::num(f.cell),
+            f.cols,
+            f.rows,
+            100.0 * filled as f64 / total.max(1) as f64,
+            output.display()
+        ));
+    }
+    Ok(lines.join("\n"))
+}
+
 // -------------------------------------------------------------------------------- mosaic
 
 /// A mosaic of rasters with the same bands, resolving overlaps as `job.overlap` says.
@@ -680,12 +566,12 @@ pub fn mosaic(job: &RasterJob) -> Result<String> {
     let nb = ins[0].bands.len();
     if ins.iter().any(|o| o.bands.len() != nb) {
         return Err(Error::Param(
-            "all the rasters of a mosaic need the same number of bands".into(),
+            "todos los rásteres de un mosaico necesitan el mismo número de bandas".into(),
         ));
     }
     if nb == 0 || nb > MAX_BANDS {
         return Err(Error::Param(format!(
-            "{nb} bands: 1 to {MAX_BANDS} are allowed"
+            "{nb} bandas: se admiten de 1 a {MAX_BANDS}"
         )));
     }
     let f = frame_of(job, &ins)?;
@@ -858,6 +744,74 @@ mod tests {
         mosaic(&job)?;
         let img = crate::raster::read_image(&out)?;
         assert_eq!(img.bands[0][3], 7.0);
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn align_puts_a_raster_on_the_reference_cells() -> Result<()> {
+        let dir = std::env::temp_dir().join(format!("rl-align-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        // reference: 1 m cells, x 100..106, y 200..204
+        let mut r = Grid::new(100.0, 200.0, 1.0, 6, 4)?;
+        r.data.fill(1.0);
+        r.write_tiff(&dir.join("ref.tif"), Some(25830))?;
+        // input: 0.5 m cells, shifted by a quarter of a metre, bigger than the reference
+        let mut g = Grid::new(99.0, 199.0, 0.5, 20, 14)?;
+        for (i, v) in g.data.iter_mut().enumerate() {
+            *v = if (i % 20) < 10 { 4.0 } else { 8.0 };
+        }
+        g.write_tiff(&dir.join("fine.tif"), Some(25830))?;
+        // and one that only covers part of the reference
+        let mut part = Grid::new(100.0, 200.0, 1.0, 3, 4)?;
+        part.data.fill(5.0);
+        part.write_tiff(&dir.join("part.tif"), Some(25830))?;
+        let job = AlignJob {
+            reference: dir.join("ref.tif"),
+            inputs: vec![
+                (dir.join("fine.tif"), dir.join("fine_a.tif")),
+                (dir.join("part.tif"), dir.join("part_a.tif")),
+            ],
+            resample: None,
+            dtype: Some(Dtype::F32),
+            nodata: -9999.0,
+            compression: None,
+            src_nodata: None,
+        };
+        let text = align(&job)?;
+        assert!(text.contains("media"), "{text}");
+        let reference = Grid::read(&dir.join("ref.tif"))?;
+        for name in ["fine_a.tif", "part_a.tif"] {
+            let a = Grid::read(&dir.join(name))?;
+            assert!(
+                (a.x0, a.y0, a.cell, a.cols, a.rows)
+                    == (
+                        reference.x0,
+                        reference.y0,
+                        reference.cell,
+                        reference.cols,
+                        reference.rows
+                    ),
+                "{name} does not sit on the reference cells"
+            );
+        }
+        // the fine raster changes from 4 to 8 at x = 104 (cell 10 of 0.5 m from 99): the first
+        // four columns of the reference are 4 and the last two 8
+        let a = Grid::read(&dir.join("fine_a.tif"))?;
+        assert_eq!(&a.data[..6], &[4.0, 4.0, 4.0, 4.0, 8.0, 8.0]);
+        // the partial raster leaves the cells it does not cover empty
+        let p = Grid::read(&dir.join("part_a.tif"))?;
+        assert_eq!(p.data[0], 5.0);
+        assert!(p.data[5].is_nan());
+        // another coordinate system is refused
+        let mut other = Grid::new(100.0, 200.0, 1.0, 6, 4)?;
+        other.data.fill(1.0);
+        other.write_tiff(&dir.join("other.tif"), Some(25829))?;
+        let bad = AlignJob {
+            inputs: vec![(dir.join("other.tif"), dir.join("other_a.tif"))],
+            ..job
+        };
+        assert!(align(&bad).is_err());
         std::fs::remove_dir_all(&dir)?;
         Ok(())
     }

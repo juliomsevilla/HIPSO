@@ -2,14 +2,36 @@ EasyLiDAR
 EasyLiDAR. Copyright (c) 2026 Julio M. Sevilla. Distributed under the EasyLiDAR free-use licence (see LICENSE).
 The Apache-2.0 text, which applies to the parts that follow the project below, is in licenses/Apache-2.0.txt.
 
-EasyLiDAR was written from scratch. No source code of the programs below is included in it.
-They are credited because EasyLiDAR follows their published methods or documented behaviour,
-or because its structure builds on a sister project.
+EasyLiDAR was written from scratch, with one exception: the coordinate-system engine in
+crates/crs, described first below, adapts source code and data that are licensed for reuse. Of the
+other programs below, no source code is included; they are credited because EasyLiDAR follows their
+published methods or documented behaviour, or because its structure builds on a sister project.
+
+- terrio, Qiusheng Wu (MIT, licenses/MIT-terrio.txt): the projections, EPSG and ESRI tables, WKT and
+  PROJ-string readers, datum shift grid reader and transformation routing of crates/crs are
+  adapted from terrio's `crs` module (https://github.com/opengeos/terrio), trimmed and changed to
+  stand alone. terrio itself ports them from PROJ.
+- PROJ (MIT): the map projections, ellipsoid helpers and datum grid interpolation come from PROJ
+  (https://proj.org). Copyright (c) 2000, Frank Warmerdam; 2004, Gerald I. Evenden; 2012, Martin
+  Raspaud; 2019, Even Rouault and the other PROJ contributors named in PROJ's source files. Its
+  permission notice is in licenses/MIT-terrio.txt.
+- EPSG Geodetic Parameter Dataset, IOGP (https://epsg.org, terms of use at
+  https://epsg.org/terms-of-use.html): crates/crs/data/epsg*.tsv.zst and datums.tsv.zst are derived
+  from it and redistributed under those terms, with this attribution. They are not the EPSG
+  dataset itself and carry no warranty.
+- Esri projection engine data (Apache-2.0, https://github.com/Esri/projection-engine-db-doc):
+  crates/crs/data/esri.tsv.zst is derived from it, through PROJ's database.
+- Datum shift grids and geoid models of Spain, built into crates/crs/data/grids (CC-BY 4.0,
+  converted by the PROJ-data project, https://github.com/OSGeo/PROJ-data): ED50 to ETRS89
+  (SPED2ETV2) and EGM08-REDNAP geoid, derived from data of the Instituto Geográfico Nacional
+  (www.ign.es); ED50 to ETRS89 for Catalonia, derived from data of the Institut Cartogràfic i
+  Geològic de Catalunya (www.icgc.cat). Licence: https://creativecommons.org/licenses/by/4.0/
 
 - RustGIS (Apache-2.0): the LAS reader's approach, the layered architecture and the look of the
   interface.
-- FUSION / LDV, R. J. McGaughey, USDA Forest Service (public domain): behaviour of GroundFilter,
-  CanopyModel, GridMetrics, ClipData and PolyClipData, reproduced from its manual and by testing.
+- FUSION / LDV, R. J. McGaughey, USDA Forest Service (public domain): the documented output formats of its
+  ground filter, canopy model, grid metrics and clipping tools, which EasyLiDAR's results are compatible
+  with and were compared against by testing.
 - MCC-LIDAR, Green Code LLC (Apache-2.0): the multiscale curvature classification of Evans and
   Hudak (2007) and its documented parameters.
 - CSF, Jianbo Qi (Apache-2.0): the cloth simulation filter of Zhang et al. (2016).
@@ -25,7 +47,23 @@ or because its structure builds on a sister project.
   (windows over missing neighbours, units), checked against an independent implementation.
 - WhiteboxTools, John Lindsay (MIT): inspiration for the choice of utilities (thinning, point
   statistics, tiling, contours).
+- Map tiles of the base map are not part of EasyLiDAR: they are fetched while the base map is on
+  from OpenStreetMap (© OpenStreetMap contributors, ODbL, https://www.openstreetmap.org/copyright;
+  the tile servers' terms are at https://operations.osmfoundation.org/policies/tiles/) and from the
+  IGN (ortophoto PNOA and base map © Instituto Geográfico Nacional, CC BY 4.0 scne.es). The credit
+  is drawn on the map. Tiles are cached for a week in the user's cache folder.
+- GeoPackage reading follows the OGC GeoPackage 1.x format and the SQLite file format, both public;
+  its page reader is shaped after the one in terrio (above).
+- SMRF follows Pingel, Clarke and McBride (2013); the height above ground uses a TIN of the cloud's
+  ground points.
+- COPC writing follows the COPC 1.0 specification (Hobu Inc. and contributors,
+  https://copc.io), a public format description; no code of other COPC writers is included.
+- E57 files are read with the e57 crate (MIT); the format is ASTM E2807.
+- The intensity normalised for range follows Höfle and Pfeifer (2007), "Correction of laser
+  scanning intensity data: data and model-driven approaches", ISPRS J. Photogramm. 62: 415–433.
+- JPEG tiles of the cloud-optimized GeoTIFFs are encoded with jpeg-encoder: this software is based
+  in part on the work of the Independent JPEG Group.
 - Third-party libraries: see THIRD_PARTY_LICENSES.md.
 
-The names FUSION, LAStools, lidR, Global Mapper, WhiteboxTools and FugroViewer belong to their
+The names FUSION, lidR and WhiteboxTools belong to their
 owners and appear only to say what a feature is comparable to.

@@ -14,6 +14,8 @@ use crate::pipeline::{self, Ground, PitFree, Steps, Surface, Tiling};
 use crate::trees::{self, CrownParams, TopParams};
 use crate::{Result, chm, ground, paths};
 
+pub use crate::obia::job::{ClassifyBy, ObiaJob, StrataOpts, obia};
+
 /// A full report on the files: header, points, quality warnings.
 pub fn info(paths: &[PathBuf]) -> Result<String> {
     let sum = crate::inspect::inspect_many(paths)?;
@@ -36,15 +38,27 @@ pub fn info(paths: &[PathBuf]) -> Result<String> {
     ))
 }
 
+/// What a classification did, naming only the classes it touched.
 fn report(r: &pipeline::Report) -> String {
-    let mut text = format!(
-        "{} points in {} tiles: {} ground, {} noise, {} buildings, {} high vegetation",
-        r.points, r.tiles, r.ground, r.noise, r.buildings, r.vegetation
-    );
-    if r.rules > 0 {
-        text.push_str(&format!(", {} changed by rules", r.rules));
+    let mut parts = vec![format!("{} de suelo", r.ground)];
+    for (n, what) in [
+        (r.noise, "de ruido"),
+        (r.buildings, "de edificios"),
+        (r.vegetation, "de vegetación"),
+        (r.wires, "de cables"),
+        (r.poles, "de postes"),
+        (r.rules, "cambiados por reglas"),
+    ] {
+        if n > 0 {
+            parts.push(format!("{n} {what}"));
+        }
     }
-    text
+    format!(
+        "{} puntos en {} teselas: {}",
+        r.points,
+        r.tiles,
+        parts.join(", ")
+    )
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -72,12 +86,26 @@ pub struct DtmJob {
     /// Smoothing window in map units (0: none) and its kind.
     pub smooth: f64,
     pub smoothing: trees::Smoothing,
+    /// Breaklines (shapefile of lines or polygons, with or without elevations) that the ground
+    /// model must follow; TIN and IDW surfaces only.
+    pub breaklines: Option<PathBuf>,
 }
 
-/// FUSION's filter on one file, with a mean surface and no other step, runs streamed over the
-/// whole file (identical to GroundFilter); anything else runs tiled.
+/// The Kraus & Pfeifer filter on one file, with a mean surface and no other step, runs streamed over the
+/// whole file (same result as the tiled path); anything else runs tiled.
 pub fn dtm(j: &DtmJob) -> Result<String> {
     paths::ensure_parent(&j.output)?;
+    let lines = match &j.breaklines {
+        Some(p) => {
+            if j.surface == Surface::Mean {
+                return Err(crate::Error::Param(
+                    "las líneas de rotura necesitan una superficie triangulada (TIN) o ponderada por distancia (IDW), no la media por celda".into(),
+                ));
+            }
+            Some(crate::breaklines::Breaklines::read(p)?)
+        }
+        None => None,
+    };
     let streamed = j.inputs.len() == 1
         && j.surface == Surface::Mean
         && j.steps.noise.is_none()
@@ -88,7 +116,7 @@ pub fn dtm(j: &DtmJob) -> Result<String> {
         let dtm = smoothed(dtm, j.smooth, j.smoothing);
         dtm.write_tiff(&j.output, r.header.epsg)?;
         return Ok(format!(
-            "{} ground points of {} ({} passes); {} x {} DTM: {}",
+            "{} puntos de suelo de {} ({} pasadas); MDT de {} x {}: {}",
             rep.ground,
             rep.points,
             rep.passes,
@@ -97,16 +125,35 @@ pub fn dtm(j: &DtmJob) -> Result<String> {
             j.output.display()
         ));
     }
-    let (dtm, rep, epsg) = pipeline::dtm(&j.inputs, j.cell, &j.steps, j.surface, &j.tiling)?;
+    let (dtm, rep, epsg) = pipeline::dtm(
+        &j.inputs,
+        j.cell,
+        &j.steps,
+        j.surface,
+        &j.tiling,
+        lines.as_ref(),
+    )?;
     let dtm = smoothed(dtm, j.smooth, j.smoothing);
     dtm.write_tiff(&j.output, epsg)?;
-    Ok(format!(
-        "{}\n{} x {} DTM: {}",
+    let mut text = format!(
+        "{}\nMDT de {} x {}: {}",
         report(&rep),
         dtm.cols,
         dtm.rows,
         j.output.display()
-    ))
+    );
+    if let Some(l) = &lines {
+        text.push_str(&format!(
+            "\n  {} línea(s) de rotura {}",
+            l.lines.len(),
+            if l.has_z() {
+                "con sus cotas"
+            } else {
+                "sin cotas: siguen el suelo más bajo junto a ellas"
+            }
+        ));
+    }
+    Ok(text)
 }
 
 /// How a surface model (highest returns) is made.
@@ -154,7 +201,7 @@ pub fn dsm(j: &DsmJob) -> Result<String> {
     let g = smoothed(g, j.smooth, j.smoothing);
     g.write_tiff(&j.output, epsg)?;
     Ok(format!(
-        "{} x {} DSM: {}",
+        "MDS de {} x {}: {}",
         g.cols,
         g.rows,
         j.output.display()
@@ -190,7 +237,7 @@ fn above_ground(mut g: Grid, dtm: &Grid) -> Grid {
 /// How a CHM is made.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChmMethod {
-    /// Highest point per cell (FUSION CanopyModel); empty cells filled unless `fill` is false.
+    /// Highest point per cell ; empty cells filled unless `fill` is false.
     Max { fill: bool },
     /// Pit-free stack of TINs.
     PitFree(PitFree),
@@ -214,6 +261,16 @@ pub struct ChmJob {
 }
 
 pub fn chm(j: &ChmJob) -> Result<String> {
+    let u = crate::crs::unify(&[j.input.as_path(), j.dtm.as_path()], false)?;
+    let j = ChmJob {
+        input: u.path(&j.input),
+        dtm: u.path(&j.dtm),
+        ..j.clone()
+    };
+    chm_run(&j).map(|s| s + &u.notes())
+}
+
+fn chm_run(j: &ChmJob) -> Result<String> {
     paths::ensure_parent(&j.output)?;
     let ground = Grid::read(&j.dtm)?;
     let (chm, epsg) = match &j.method {
@@ -242,7 +299,7 @@ pub fn chm(j: &ChmJob) -> Result<String> {
     let chm = smoothed(chm, j.smooth, j.smoothing);
     chm.write_tiff(&j.output, epsg)?;
     Ok(format!(
-        "{} x {} CHM: {}",
+        "CHM de {} x {}: {}",
         chm.cols,
         chm.rows,
         j.output.display()
@@ -273,8 +330,18 @@ impl MetricsJob {
 
 /// Metrics by cell. A `.shp` output (the default) gives a polygon per cell with the metrics as
 /// attributes (DBF field names are short: `<name>_campos.txt` lists their meaning); a `.csv`
-/// output keeps FUSION's text table.
+/// output keeps the FUSION-compatible text table.
 pub fn metrics(j: &MetricsJob) -> Result<String> {
+    let u = crate::crs::unify(&[j.input.as_path(), j.dtm.as_path()], false)?;
+    let j = MetricsJob {
+        input: u.path(&j.input),
+        dtm: u.path(&j.dtm),
+        ..j.clone()
+    };
+    metrics_run(&j).map(|s| s + &u.notes())
+}
+
+fn metrics_run(j: &MetricsJob) -> Result<String> {
     paths::ensure_parent(&j.output)?;
     let f = j.formats.fixed();
     let csv_main = paths::swap_ext(&j.output, "csv");
@@ -311,7 +378,11 @@ pub fn metrics(j: &MetricsJob) -> Result<String> {
         prj.as_deref(),
     )?;
     let mut texts = vec![csv_target.clone()];
-    for (flag, suffix) in [(j.intensity, "intensity"), (j.strata, "strata")] {
+    for (flag, suffix) in [
+        (j.intensity, "intensity"),
+        (j.strata, "strata"),
+        (j.params.structure.is_some(), "estructura"),
+    ] {
         if !flag {
             continue;
         }
@@ -356,21 +427,31 @@ fn metrics_csv(j: &MetricsJob, output: &std::path::Path) -> Result<String> {
     } else {
         None
     };
+    let mut structure_out = if j.params.structure.is_some() {
+        Some(BufWriter::new(File::create(j.sibling("estructura"))?))
+    } else {
+        None
+    };
     let outs = metrics::Outputs {
         elevation: &mut out,
         intensity: int_out.as_mut().map(|w| w as &mut dyn Write),
         strata: strata_out.as_mut().map(|w| w as &mut dyn Write),
+        structure: structure_out.as_mut().map(|w| w as &mut dyn Write),
     };
     let rep = metrics::grid_metrics(&r, &ground, &j.params, outs)?;
     out.flush()?;
-    for w in [int_out.as_mut(), strata_out.as_mut()]
-        .into_iter()
-        .flatten()
+    for w in [
+        int_out.as_mut(),
+        strata_out.as_mut(),
+        structure_out.as_mut(),
+    ]
+    .into_iter()
+    .flatten()
     {
         w.flush()?;
     }
     Ok(format!(
-        "{} of {} cells with metrics, {} points, {} band(s): {}",
+        "{} de {} celdas con métricas, {} puntos, {} banda(s): {}",
         rep.cells_with_metrics,
         rep.cells,
         rep.points,
@@ -438,6 +519,18 @@ fn manual_tops(path: &std::path::Path, g: &Grid) -> Result<Vec<trees::Tree>> {
 }
 
 pub fn trees(j: &TreesJob) -> Result<String> {
+    let mut files = vec![j.chm.clone()];
+    files.extend(j.cloud.iter().map(|c| c.0.clone()));
+    let u = crate::crs::unify(&files, false)?;
+    let j = TreesJob {
+        chm: u.path(&j.chm),
+        cloud: j.cloud.as_ref().map(|(i, o)| (u.path(i), o.clone())),
+        ..j.clone()
+    };
+    trees_run(&j).map(|s| s + &u.notes())
+}
+
+fn trees_run(j: &TreesJob) -> Result<String> {
     use crate::forest;
     let mut g = Grid::read(&j.chm)?;
     if j.smooth > 0.0 {
@@ -534,7 +627,9 @@ pub fn trees(j: &TreesJob) -> Result<String> {
 
 /// Clips clouds with regions and says what each output holds.
 pub fn clip(job: &crate::clip::ClipJob) -> Result<String> {
-    let r = crate::clip::run(job)?;
+    let (moved, unified) = crate::clip::unified(job)?;
+    let r = crate::clip::run(&moved)?;
+    let warnings = unified.warnings.clone();
     let mut lines: Vec<String> = r
         .files
         .iter()
@@ -566,10 +661,10 @@ pub fn clip(job: &crate::clip::ClipJob) -> Result<String> {
     if let Some(m) = &job.metrics {
         lines.push(format!("  métricas por parcela: {}", m.csv.display()));
     }
-    Ok(lines.join("\n"))
+    Ok(lines.join("\n") + &crate::crs::notes(&warnings))
 }
 
-/// FUSION's GroundFilter defaults, for building steps.
+/// Default Kraus & Pfeifer parameters, for building steps.
 pub fn fusion_ground() -> Ground {
     Ground::Fusion(GroundParams::default())
 }
