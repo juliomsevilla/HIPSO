@@ -50,12 +50,11 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/EasyLiDAR/relea
 
 | Grupo | Herramientas |
 |---|---|
-| **Preparar** | Información de los datos · Asignar proyección · **Colorear con una ortofoto (RGB)** · **Normalizar la intensidad por distancia** · **Guardar como COPC** · Adelgazar nube (densidad objetivo, celdas, percentil, 3D, uno de cada n) · Alturas sobre el suelo (atributo o nube normalizada) · Clasificar: ruido, suelo (Kraus y Pfeifer, MCC, CSF, PMF, SMRF, Axelsson), edificios, vegetación por estratos, cables y postes, reglas por eco y ángulo de barrido |
-| **Superficies** | MDT (triangulación por defecto, ponderado por distancia o media por celda, con **líneas de rotura**) · MDS (triangulación por defecto, ponderado por distancia o máximo por celda) · CHM (con *pit-free* y suavizado) |
-| **Terreno** | Análisis de terreno sobre el MDT: pendiente, orientación, sombreado, curvaturas, rugosidad, TRI, TPI · depresiones, acumulación de flujo, TWI, red de drenaje y subcuencas · cuenca visual |
-| **Inventario forestal** | Métricas de rodal · Segmentación de árboles (Dalponte, Silva, cuencas, ventana variable) con evaluación frente a campo · Parcelas (de archivo, muestreo o dibujadas) · **Modelos de transición**: regresión de volumen, área basimétrica… sobre las métricas LiDAR, validada dejando una parcela fuera cada vez, y su mapa · Exportar puntos · Cubicar árboles (TLS): mide diámetros a lo largo del tronco y cubica con Smalian |
-| **Calidad y comparación** | Quitar duplicados · Comparar nubes (cambios) · Ajustar una nube a otra (ICP) · Separación entre pasadas |
-| **Volúmenes** | Volumen sobre (y bajo) el MDT, desde el CHM o el MDS, por ráster completo, AOI o polígonos |
+| **Preparar** | **Clasificar**: ruido, suelo (Kraus y Pfeifer, MCC, CSF, PMF, SMRF, Axelsson), edificios, vegetación por estratos, cables y postes, reglas por eco y ángulo de barrido · Información de los datos · Asignar proyección · Exportar puntos · Adelgazar nube (densidad objetivo, celdas, percentil, 3D, uno de cada n) · Alturas sobre el suelo (atributo o nube normalizada) · Quitar duplicados · **Colorear con una imagen (RGB)** · **Normalizar la intensidad por distancia** · **Guardar como COPC** |
+| **Calidad** | Comparar nubes (cambios) · Ajustar una nube a otra (ICP) · Separación entre pasadas |
+| **Superficies** | MDT (triangulación por defecto, ponderado por distancia o media por celda, con **líneas de rotura**) · MDS / CHM (MDS por triangulación, ponderado por distancia o máximo por celda; CHM con *pit-free* y suavizado) · **Análisis de terreno** sobre el MDT: pendiente, orientación, sombreado, curvaturas, rugosidad, TRI, TPI, depresiones, acumulación de flujo, TWI, red de drenaje, subcuencas y cuenca visual · Volumen sobre (y bajo) el MDT, desde el CHM o el MDS, por ráster completo, AOI o polígonos |
+| **Inventario forestal** | Métricas de rodal · Recortar parcelas (de archivo, muestreo o dibujadas) · Segmentar árboles (Dalponte, Silva, cuencas, ventana variable) con evaluación frente a campo · Cubicar (TLS): mide diámetros a lo largo del tronco y cubica con Smalian · **Modelos de transición**: regresión de volumen, área basimétrica… sobre las métricas LiDAR, validada dejando una parcela fuera cada vez, y su mapa · Cambio forestal · Análisis por objetos (OBIA) |
+| **Infraestructuras** | Corredores eléctricos |
 
 ### Ráster
 
@@ -99,7 +98,7 @@ easylidar compare nube2.laz --reference nube1.laz --distance 0.5
 
 ## Limitaciones conocidas
 
-**Las coordenadas se pasan solas, pero solo en horizontal.** Cuando una herramienta combina archivos en sistemas distintos (por ejemplo una nube en ETRS89 UTM 30N con un MDT en 29N, o unas parcelas en ED50), EasyLiDAR **los pasa al sistema de la primera nube** y te lo dice en el informe. Las transformaciones coinciden con las de PROJ en todos los casos probados en España (ver más abajo) e incluyen las mallas oficiales del IGN y del ICGC para pasar de ED50 a ETRS89, que van dentro del programa.
+**Las coordenadas se pasan solas, pero solo en horizontal.** Cuando una herramienta combina archivos en sistemas distintos (por ejemplo una nube en ETRS89 UTM 30N con un MDT en 29N, o unas parcelas en ED50), EasyLiDAR **los pasa al sistema de la primera nube** y te lo dice en el informe. Las transformaciones coinciden con las de PROJ en todos los casos probados en España e incluyen las mallas oficiales del IGN y del ICGC para pasar de ED50 a ETRS89, que van dentro del programa.
 
 - En el visor, las capas en otro sistema se pasan al de la primera nube al cargarlas (el registro avisa de que tardará más solo cuando hay capas en sistemas distintos).
 - Qué se convierte: nubes LAS/LAZ y rásteres (copias temporales que se borran al terminar) y parcelas o muestras en shapefile o GeoJSON (en memoria, casi sin coste). Si todo está ya en el mismo sistema no se hace nada y no se pierde tiempo. El comando `easylidar reproject` convierte una nube o un ráster y guarda el resultado.
@@ -107,8 +106,6 @@ easylidar compare nube2.laz --reference nube1.laz --distance 0.5
 - Lo que no se convierte y sigue pidiendo que se haga antes: imágenes de varias bandas (ortofotos, satélite) y las herramientas de imágenes grandes (*Apilar*, *Mosaico* de imágenes e *Igualar rásteres*), que exigen el mismo sistema. Tampoco se pasan nubes desde o hacia coordenadas geográficas (grados).
 - Si un archivo no declara su sistema no se puede comprobar, y el resultado lleva un aviso. ETRS89 y WGS 84 del mismo huso se consideran equivalentes y solo avisan, porque difieren en torno a un metro.
 - Convertir una nube cuesta una pasada completa sobre ella, y su copia temporal ocupa espacio en disco. Si vas a trabajar mucho con ella, conviene convertirla una vez con `easylidar reproject` y guardar el resultado.
-
-**Comprobación en España.** `scripts/check_spain_crs.py` compara EasyLiDAR con PROJ en cientos de puntos de la Península, Baleares, Canarias y Cataluña (ETRS89, WGS 84, ED50, REGCAN95, husos 28 a 31, geográficas, Web Mercator, Lambert-93 y alturas con el geoide EGM08-REDNAP). Las diferencias son de orden milimétrico o menores, salvo ED50 en Canarias, donde ED50 no está definido y el resultado no debe usarse.
 
 ---
 
