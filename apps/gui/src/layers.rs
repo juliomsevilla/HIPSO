@@ -9,7 +9,7 @@ use crate::symbology::{Labels, SymKind, Symbology};
 /// The triangles of one polygon (outer ring and its holes), for filling it.
 pub struct Tri {
     pub verts: Vec<[f64; 2]>,
-    pub idx: Vec<usize>,
+    pub idx: Vec<u32>,
 }
 
 /// What is worked out from the geometry once and reused every frame.
@@ -18,7 +18,13 @@ pub struct Geom {
     pub bbox: Vec<[f64; 4]>,
     /// Where the label of each feature goes.
     pub anchor: Vec<[f64; 2]>,
-    pub tris: Vec<Vec<Tri>>,
+    /// Fill triangles of each feature, worked out the first time it is drawn: a layer of
+    /// millions of vertices would otherwise take minutes and gigabytes to open.
+    pub tris: Vec<std::sync::OnceLock<Vec<Tri>>>,
+    /// Which features lie in a window, worked out the first time it is asked for.
+    pub index: std::sync::OnceLock<rustlidar_core::rtree::RTree>,
+    /// Vertices of all the features.
+    pub nverts: usize,
 }
 
 /// A vector layer: its features and attributes, how they are drawn, and the editing state.
@@ -39,6 +45,10 @@ pub struct VecLayer {
     pub undo: Vec<view::VectorData>,
     pub redo: Vec<view::VectorData>,
     pub geom: Geom,
+    /// Changes with the geometry: what a picture of the layer is made for.
+    pub rev: u64,
+    /// The picture of a big layer.
+    pub raster: std::sync::Mutex<crate::vecraster::Cache>,
 }
 
 fn ring_area_centroid(r: &[[f64; 2]]) -> ([f64; 2], f64) {
@@ -106,7 +116,10 @@ fn triangulate(parts: &[Vec<[f64; 2]>]) -> Vec<Tri> {
             }
         }
         if let Ok(idx) = earcutr::earcut(&flat, &holes, 2) {
-            out.push(Tri { verts, idx });
+            out.push(Tri {
+                verts,
+                idx: idx.into_iter().map(|i| i as u32).collect(),
+            });
         }
     }
     out
@@ -134,13 +147,15 @@ impl VecLayer {
             undo: Vec::new(),
             redo: Vec::new(),
             geom: Geom::default(),
+            rev: 0,
+            raster: Default::default(),
         };
         l.rebuild();
         l
     }
 
     /// The extent, label place and fill triangles of one feature.
-    fn geom_of(&self, f: &view::Feature) -> ([f64; 4], [f64; 2], Vec<Tri>) {
+    fn geom_of(&self, f: &view::Feature) -> ([f64; 4], [f64; 2]) {
         let mut b = [
             f64::INFINITY,
             f64::INFINITY,
@@ -188,22 +203,40 @@ impl VecLayer {
             (_, Some(p)) if !p.is_empty() => p[0],
             _ => [0.0, 0.0],
         };
-        let tris = if self.kind == view::GeomKind::Polygon {
-            triangulate(&f.parts)
-        } else {
-            Vec::new()
-        };
-        (b, anchor, tris)
+        (b, anchor)
     }
 
-    /// Recomputes what depends on the geometry (extents, label places, fill triangles).
+    /// The features whose extent meets the window, in order.
+    pub fn in_window(&self, w: [f64; 4]) -> Vec<usize> {
+        self.geom
+            .index
+            .get_or_init(|| rustlidar_core::rtree::RTree::new(&self.geom.bbox))
+            .query(w)
+    }
+
+    /// The fill triangles of feature `i`, worked out the first time they are asked for.
+    pub fn tris(&self, i: usize) -> &[Tri] {
+        if self.kind != view::GeomKind::Polygon {
+            return &[];
+        }
+        self.geom.tris[i].get_or_init(|| triangulate(&self.data.features[i].parts))
+    }
+
+    /// Recomputes what depends on the geometry (extents, label places; the fill triangles wait
+    /// until the feature is drawn).
     pub fn rebuild(&mut self) {
+        use rayon::prelude::*;
+        let per: Vec<([f64; 4], [f64; 2])> = self
+            .data
+            .features
+            .par_iter()
+            .map(|f| self.geom_of(f))
+            .collect();
         let mut g = Geom::default();
-        for f in &self.data.features {
-            let (b, a, t) = self.geom_of(f);
+        for (b, a) in per {
             g.bbox.push(b);
             g.anchor.push(a);
-            g.tris.push(t);
+            g.tris.push(Default::default());
         }
         self.geom = g;
         self.refresh_bounds();
@@ -212,6 +245,13 @@ impl VecLayer {
 
     /// The extent of the layer, from the extents of its features.
     pub fn refresh_bounds(&mut self) {
+        self.rev += 1;
+        self.geom.nverts = self
+            .data
+            .features
+            .iter()
+            .map(|f| f.parts.iter().map(Vec::len).sum::<usize>())
+            .sum();
         self.data.bounds = self.geom.bbox.iter().fold(
             [
                 f64::INFINITY,
@@ -235,10 +275,11 @@ impl VecLayer {
         let Some(f) = self.data.features.get(i) else {
             return;
         };
-        let (b, a, t) = self.geom_of(f);
+        let (b, a) = self.geom_of(f);
         self.geom.bbox[i] = b;
         self.geom.anchor[i] = a;
-        self.geom.tris[i] = t;
+        self.geom.tris[i] = Default::default();
+        self.geom.index = Default::default();
         self.refresh_bounds();
         self.dirty = true;
         self.reclassify_if_data();
@@ -255,10 +296,11 @@ impl VecLayer {
             .num
             .push(row.iter().map(|t| t.parse().unwrap_or(f64::NAN)).collect());
         self.data.text.push(row);
-        let (b, a, t) = self.geom_of(&self.data.features[n - 1]);
+        let (b, a) = self.geom_of(&self.data.features[n - 1]);
         self.geom.bbox.push(b);
         self.geom.anchor.push(a);
-        self.geom.tris.push(t);
+        self.geom.tris.push(Default::default());
+        self.geom.index = Default::default();
         self.refresh_bounds();
         self.dirty = true;
         self.reclassify_if_data();
@@ -341,21 +383,24 @@ impl VecLayer {
         let near =
             |b: &[f64; 4]| x >= b[0] - tol && x <= b[2] + tol && y >= b[1] - tol && y <= b[3] + tol;
         // the last drawn is the one on top
-        (0..self.data.features.len()).rev().find(|&i| {
-            near(&self.geom.bbox[i])
-                && self.data.features[i].parts.iter().any(|p| {
-                    if p.len() == 1 {
-                        (p[0][0] - x).hypot(p[0][1] - y) <= tol
-                    } else if self.kind == view::GeomKind::Polygon {
-                        p.len() >= 4 && in_ring(p, x, y)
-                            || p.windows(2)
+        self.in_window([x - tol, y - tol, x + tol, y + tol])
+            .into_iter()
+            .rev()
+            .find(|&i| {
+                near(&self.geom.bbox[i])
+                    && self.data.features[i].parts.iter().any(|p| {
+                        if p.len() == 1 {
+                            (p[0][0] - x).hypot(p[0][1] - y) <= tol
+                        } else if self.kind == view::GeomKind::Polygon {
+                            p.len() >= 4 && in_ring(p, x, y)
+                                || p.windows(2)
+                                    .any(|s| dist_to_segment([x, y], s[0], s[1]) <= tol)
+                        } else {
+                            p.windows(2)
                                 .any(|s| dist_to_segment([x, y], s[0], s[1]) <= tol)
-                    } else {
-                        p.windows(2)
-                            .any(|s| dist_to_segment([x, y], s[0], s[1]) <= tol)
-                    }
-                })
-        })
+                        }
+                    })
+            })
     }
 
     pub fn selection_bounds(&self) -> Option<[f64; 4]> {
@@ -431,17 +476,52 @@ impl Xf {
     }
 
     /// The polyline on screen, leaving out vertices less than a pixel from the previous one.
-    fn path(&self, part: &[[f64; 2]]) -> Vec<Pos2> {
+    fn path(&self, part: &[[f64; 2]], min_d2: f32, heavy: bool) -> Vec<Pos2> {
         let mut out = Vec::with_capacity(part.len().min(1024));
         let mut last = Pos2::new(f32::NAN, f32::NAN);
         for (i, p) in part.iter().enumerate() {
             let s = self.s(p);
-            if i == 0 || i + 1 == part.len() || (s - last).length_sq() >= 0.7 {
+            if i == 0 || i + 1 == part.len() || (s - last).length_sq() >= min_d2 {
                 out.push(s);
                 last = s;
             }
         }
+        if heavy && out.len() > 4 {
+            // a small outline needs few points: every triangle sent to the screen costs memory
+            let (mut lo, mut hi) = (out[0], out[0]);
+            for p in &out {
+                lo = lo.min(*p);
+                hi = hi.max(*p);
+            }
+            if (hi - lo).max_elem() < 1.5 {
+                return Vec::new();
+            }
+            let keep = (((hi - lo).max_elem()) as usize).clamp(4, 64);
+            if out.len() > keep {
+                let n = out.len();
+                out = (0..keep).map(|k| out[k * (n - 1) / (keep - 1)]).collect();
+            }
+        }
         out
+    }
+}
+
+/// A polyline as one quad per segment in a mesh (no joins, no anti-aliasing: for the many thin
+/// outlines of a big layer, where a shape per part would take gigabytes).
+fn line_quads(mesh: &mut egui::Mesh, pts: &[Pos2], width: f32, col: Color32) {
+    for s in pts.windows(2) {
+        let d = s[1] - s[0];
+        let len = d.length();
+        if len < 1e-3 {
+            continue;
+        }
+        let n = Vec2::new(-d.y, d.x) / len * (width / 2.0);
+        let base = mesh.vertices.len() as u32;
+        for p in [s[0] + n, s[0] - n, s[1] - n, s[1] + n] {
+            mesh.colored_vertex(p, col);
+        }
+        mesh.add_triangle(base, base + 1, base + 2);
+        mesh.add_triangle(base, base + 2, base + 3);
     }
 }
 
@@ -456,7 +536,13 @@ impl App {
     /// A layer opened before any cloud waits in `pending_conform` until the first cloud sets the
     /// system of the work.
     pub fn crs_move(&mut self, p: &Path) -> Option<(u16, u16)> {
-        let from = self.crs_of(p)?;
+        let from = self.crs_of(p);
+        self.crs_move_from(p, from)
+    }
+
+    /// [`Self::crs_move`] for a layer whose system is already known (a table of a GeoPackage).
+    pub fn crs_move_from(&mut self, _p: &Path, from: Option<u16>) -> Option<(u16, u16)> {
+        let from = from?;
         match self.project_crs() {
             Some(to)
                 if rustlidar_core::crs::relation(to, from)
@@ -466,18 +552,72 @@ impl App {
             }
             Some(_) => None,
             None => {
-                if !self.pending_conform.iter().any(|q| q == p) {
-                    self.pending_conform.push(p.to_path_buf());
-                }
+                // the first layer sets the system of the work until a cloud says otherwise
+                self.work_crs = Some(from);
                 None
             }
         }
     }
 
     pub fn add_vector(&mut self, p: &Path) {
-        match view::read_vector(p) {
+        if p.extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("gpkg"))
+            && let Ok(t) = rustlidar_core::gpkg::layers(p)
+            && t.len() > 1
+        {
+            let first = t.first().map(|l| l.table.clone());
+            self.gpkg_pick = Some((
+                p.to_path_buf(),
+                t.into_iter()
+                    .map(|l| (l.table.clone(), Some(&l.table) == first.as_ref()))
+                    .collect(),
+            ));
+            return;
+        }
+        self.add_vector_table(p, None);
+    }
+
+    /// Asks which tables of a GeoPackage to open as layers.
+    pub fn gpkg_window(&mut self, ctx: &egui::Context) {
+        let Some((path, mut tables)) = self.gpkg_pick.take() else {
+            return;
+        };
+        let (mut open, mut load) = (true, false);
+        egui::Window::new("Tablas del GeoPackage")
+            .open(&mut open)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "{} tiene varias tablas. ¿Cuáles se abren?",
+                    path.display()
+                ));
+                for (name, on) in &mut tables {
+                    ui.checkbox(on, name.as_str());
+                }
+                load = ui.button("Abrir").clicked();
+            });
+        if load {
+            for (name, _) in tables.iter().filter(|t| t.1) {
+                self.add_vector_table(&path, Some(name));
+            }
+        } else if open {
+            self.gpkg_pick = Some((path, tables));
+        }
+    }
+
+    pub fn add_vector_table(&mut self, p: &Path, table: Option<&str>) {
+        let read = match (table, p.extension()) {
+            (Some(t), _) => rustlidar_core::gpkg::read_vector(p, Some(t)),
+            _ => view::read_vector(p),
+        };
+        match read {
             Ok(mut data) => {
-                if let Some((from, to)) = self.crs_move(p) {
+                let own = table.and_then(|t| rustlidar_core::gpkg::epsg_of_table(p, t));
+                if let Some((from, to)) = if own.is_some() {
+                    self.crs_move_from(p, own)
+                } else {
+                    self.crs_move(p)
+                } {
                     let started = std::time::Instant::now();
                     self.log(format!(
                         "«{}» está en {}, distinto del de la nube ({}): se pasa a él al cargar.",
@@ -499,7 +639,9 @@ impl App {
                         }
                     }
                 }
-                self.remove_paths(p);
+                if table.is_none() {
+                    self.remove_paths(p);
+                }
                 let n = data.features.len();
                 let kind = if data.points {
                     view::GeomKind::Point
@@ -510,9 +652,12 @@ impl App {
                 };
                 self.add_ref(
                     RefLayer {
-                        name: p
-                            .file_name()
-                            .map_or(String::new(), |n| n.to_string_lossy().into_owned()),
+                        name: {
+                            let f = p
+                                .file_name()
+                                .map_or(String::new(), |n| n.to_string_lossy().into_owned());
+                            table.map_or(f.clone(), |t| format!("{f} · {t}"))
+                        },
                         path: p.to_path_buf(),
                         kind: RefKind::Vector(Box::new(VecLayer::new(data, kind))),
                         visible: true,
@@ -591,6 +736,62 @@ impl App {
         }
     }
 
+    /// Zooms to the selected points or, failing that, to the selected features of the active
+    /// vector layer.
+    pub fn zoom_selection(&mut self) {
+        let mut b = [
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        ];
+        if let Some(s) = &self.store {
+            for (i, on) in s.selected.iter().enumerate() {
+                if *on {
+                    let (x, y) = (
+                        s.origin[0] + f64::from(s.x[i]),
+                        s.origin[1] + f64::from(s.y[i]),
+                    );
+                    b = [b[0].min(x), b[1].min(y), b[2].max(x), b[3].max(y)];
+                }
+            }
+        }
+        if !b[0].is_finite()
+            && let Some(k) = self.active
+            && let Some(RefKind::Vector(v)) = self.refs.get(k).map(|r| &r.kind)
+        {
+            for &i in &v.selected {
+                if let Some(e) = v.geom.bbox.get(i) {
+                    b = [
+                        b[0].min(e[0]),
+                        b[1].min(e[1]),
+                        b[2].max(e[2]),
+                        b[3].max(e[3]),
+                    ];
+                }
+            }
+        }
+        if b.iter().all(|v| v.is_finite()) {
+            self.zoom_to_bounds(b);
+        } else {
+            self.log(
+                "No hay nada seleccionado que encuadrar (puntos o elementos de la capa activa).",
+            );
+        }
+    }
+
+    /// Frames the 3D view on what the plan shows now, keeping its direction.
+    pub fn relink_3d(&mut self) {
+        let Some(s) = self.store.clone() else { return };
+        let (w, h) = (self.plan_px.0.max(8), self.plan_px.1.max(8));
+        let (lo, hi) = (
+            self.plan.to_map(0.0, h as f64, w, h),
+            self.plan.to_map(w as f64, 0.0, w, h),
+        );
+        self.orbit = self.orbit.fit_area(&s, [lo.0, lo.1, hi.0, hi.1]);
+        self.touch();
+    }
+
     pub fn zoom_to_layer(&mut self, k: usize) {
         if let Some(b) = self.layer_extent(k) {
             self.zoom_to_bounds(b);
@@ -628,29 +829,97 @@ impl App {
                 continue;
             };
             let op = r.opacity.clamp(0.0, 1.0);
-            let visible: Vec<usize> = (0..v.data.features.len())
-                .filter(|&i| {
+            if v.is_heavy() {
+                self.paint_raster(&clip, v, rect, w, h, op);
+                continue;
+            }
+            // a feature under a pixel is a dot: its outline and fill would only cost time
+            let tiny = |i: usize| {
+                let b = &v.geom.bbox[i];
+                (b[2] - b[0]).max(b[3] - b[1]) * self.plan.scale < 1.0
+            };
+            let visible: Vec<usize> = v.in_window(view);
+            // the more vertices are in view, the coarser they are drawn and the fewer small areas are
+            // filled: millions of them tessellated each frame take seconds and gigabytes
+            let nv: usize = visible
+                .iter()
+                .map(|&i| v.data.features[i].parts.iter().map(Vec::len).sum::<usize>())
+                .sum();
+            let min_d2 = match nv {
+                0..=200_000 => 0.7,
+                200_001..=1_000_000 => 2.5,
+                _ => 9.0,
+            };
+            let scale = self.plan.scale;
+            // the fills share a budget of vertices (their triangles cost memory in the renderer): the
+            // smallest areas lose theirs first
+            let fill_min = if v.kind == view::GeomKind::Polygon && nv > 150_000 {
+                const STEPS: [f64; 6] = [1.0, 4.0, 8.0, 16.0, 32.0, 64.0];
+                let mut cost = [0usize; 6];
+                for &i in &visible {
                     let b = &v.geom.bbox[i];
-                    b[2] >= view[0] && b[0] <= view[2] && b[3] >= view[1] && b[1] <= view[3]
-                })
-                .collect();
+                    let px = (b[2] - b[0]).max(b[3] - b[1]) * scale;
+                    let n: usize = v.data.features[i].parts.iter().map(Vec::len).sum();
+                    for (k, s) in STEPS.iter().enumerate() {
+                        if px >= *s {
+                            cost[k] += n;
+                        }
+                    }
+                }
+                let k = cost.iter().position(|c| *c <= 150_000).unwrap_or(5);
+                STEPS[k]
+            } else {
+                1.0
+            };
+            let tiny_fill = |i: usize| {
+                let b = &v.geom.bbox[i];
+                (b[2] - b[0]).max(b[3] - b[1]) * scale < fill_min
+            };
+            // the same for outlines: what is too small for its share of segments is drawn as a dot
+            let line_min = if v.kind != view::GeomKind::Point && nv > 150_000 {
+                const STEPS: [f64; 7] = [1.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0];
+                let mut cost = [0usize; 7];
+                for &i in &visible {
+                    let b = &v.geom.bbox[i];
+                    let px = (b[2] - b[0]).max(b[3] - b[1]) * scale;
+                    let n: usize = v.data.features[i].parts.iter().map(Vec::len).sum();
+                    let segs = n.min(px as usize + 1);
+                    for (k, s) in STEPS.iter().enumerate() {
+                        if px >= *s {
+                            cost[k] += segs;
+                        }
+                    }
+                }
+                let k = cost.iter().position(|c| *c <= 150_000).unwrap_or(6);
+                STEPS[k]
+            } else {
+                1.0
+            };
+            if v.kind == view::GeomKind::Polygon {
+                use rayon::prelude::*;
+                visible
+                    .par_iter()
+                    .filter(|&&i| !tiny_fill(i))
+                    .for_each(|&i| {
+                        v.tris(i);
+                    });
+            }
             // areas: fills first, as one mesh
             if v.kind == view::GeomKind::Polygon {
                 let mut mesh = egui::Mesh::default();
                 for &i in &visible {
+                    if tiny_fill(i) {
+                        continue;
+                    }
                     let c = v.sym.color_of(&v.data, i, v.fill);
                     let col = alpha(c, v.fill_alpha * op);
-                    for t in &v.geom.tris[i] {
+                    for t in v.tris(i) {
                         let base = mesh.vertices.len() as u32;
                         for p in &t.verts {
                             mesh.colored_vertex(xf.s(p), col);
                         }
                         for tri in t.idx.as_chunks::<3>().0 {
-                            mesh.add_triangle(
-                                base + tri[0] as u32,
-                                base + tri[1] as u32,
-                                base + tri[2] as u32,
-                            );
+                            mesh.add_triangle(base + tri[0], base + tri[1], base + tri[2]);
                         }
                         if mesh.vertices.len() > 50_000 {
                             flush(&mut mesh, &clip);
@@ -659,7 +928,26 @@ impl App {
                 }
                 flush(&mut mesh, &clip);
             }
+            let mut lines = egui::Mesh::default();
+            // one dot per 3 px square: points that fall on each other cost triangles for nothing
+            let mut seen: HashSet<(i32, i32)> = HashSet::new();
+            let mut fresh = |p: Pos2| seen.insert(((p.x / 3.0) as i32, (p.y / 3.0) as i32));
             for &i in &visible {
+                let small = |i: usize| {
+                    let b = &v.geom.bbox[i];
+                    (b[2] - b[0]).max(b[3] - b[1]) * scale < line_min
+                };
+                if v.kind != view::GeomKind::Point && (tiny(i) || small(i)) {
+                    let c = v.sym.color_of(&v.data, i, v.color);
+                    let p = xf.s(&v.geom.anchor[i]);
+                    if fresh(p) {
+                        disc(&mut lines, p, 0.8, 4, alpha(c, op));
+                        if lines.vertices.len() > 50_000 {
+                            flush(&mut lines, &clip);
+                        }
+                    }
+                    continue;
+                }
                 let f = &v.data.features[i];
                 let c = v.sym.color_of(&v.data, i, v.color);
                 let col = alpha(c, op);
@@ -672,6 +960,17 @@ impl App {
                 for part in &f.parts {
                     if v.kind == view::GeomKind::Point || part.len() == 1 {
                         let size = v.sym.size_of(&v.data, i, v.point_size);
+                        if visible.len() > 2000 {
+                            // thousands of circles as shapes cost gigabytes: one mesh instead
+                            let p = xf.s(&part[0]);
+                            if fresh(p) {
+                                disc(&mut lines, p, size, 6, col);
+                                if lines.vertices.len() > 50_000 {
+                                    flush(&mut lines, &clip);
+                                }
+                            }
+                            continue;
+                        }
                         clip.circle(
                             xf.s(&part[0]),
                             size,
@@ -680,7 +979,7 @@ impl App {
                         );
                         continue;
                     }
-                    let mut pts = xf.path(part);
+                    let mut pts = xf.path(part, min_d2, nv > 200_000);
                     if v.kind == view::GeomKind::Polygon
                         && part.first() != part.last()
                         && let Some(f0) = pts.first().copied()
@@ -688,10 +987,19 @@ impl App {
                         pts.push(f0);
                     }
                     if v.kind != view::GeomKind::Polygon || v.width > 0.0 {
-                        clip.add(egui::Shape::line(pts, Stroke::new(v.width, outline)));
+                        if nv > 200_000 {
+                            // a shape per part costs about 5 KB in egui: 200 000 parts are a gigabyte
+                            line_quads(&mut lines, &pts, v.width.max(1.0), outline);
+                            if lines.vertices.len() > 50_000 {
+                                flush(&mut lines, &clip);
+                            }
+                        } else {
+                            clip.add(egui::Shape::line(pts, Stroke::new(v.width, outline)));
+                        }
                     }
                 }
             }
+            flush(&mut lines, &clip);
             self.paint_labels(&clip, v, &visible, &xf, rect);
         }
     }
@@ -1216,6 +1524,7 @@ impl App {
             let Some(p) = crate::prefs::dialog()
                 .add_filter("Shapefile", &["shp"])
                 .add_filter("GeoJSON", &["geojson"])
+                .add_filter("GeoPackage", &["gpkg"])
                 .set_directory(if r.path.parent().is_some_and(|p| p.is_dir()) {
                     r.path.parent().map_or(dir.clone(), Path::to_path_buf)
                 } else {
@@ -1271,6 +1580,19 @@ pub enum LayerCmd {
     Up,
     Down,
     Remove,
+}
+
+/// A filled regular polygon (a dot) as a triangle fan in a mesh.
+fn disc(mesh: &mut egui::Mesh, c: Pos2, r: f32, sides: u32, col: Color32) {
+    let base = mesh.vertices.len() as u32;
+    mesh.colored_vertex(c, col);
+    for k in 0..sides {
+        let a = std::f32::consts::TAU * k as f32 / sides as f32;
+        mesh.colored_vertex(c + Vec2::new(a.cos(), a.sin()) * r, col);
+    }
+    for k in 0..sides {
+        mesh.add_triangle(base, base + 1 + k, base + 1 + (k + 1) % sides);
+    }
 }
 
 #[cfg(test)]

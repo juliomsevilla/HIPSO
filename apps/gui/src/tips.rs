@@ -42,6 +42,16 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Desplazar" => "Mueve la vista arrastrando (X).",
         "Extensión completa" => "Encuadra todo lo cargado.",
         "Zoom anterior" => "Vuelve al encuadre anterior.",
+        "Zoom a la selección" => {
+            "Encuadra los puntos seleccionados o los elementos seleccionados de la capa vectorial activa."
+        }
+        "Refrescar 3D" => {
+            "Vuelve a encuadrar la vista 3D en lo que se ve en la planta (útil con capas muy separadas)."
+        }
+        "Guardar proyecto" => {
+            "Guarda qué nubes y capas están abiertas y cómo se ve (archivo .elp)."
+        }
+        "Abrir proyecto" => "Abre un proyecto .elp: cierra lo abierto y carga sus nubes y capas.",
         "Limpiar marcas" => "Quita las mediciones, la consulta, la densidad y el perfil dibujados.",
         "Consultar" => "Muestra los atributos del punto sobre el que haces clic (Q).",
         "Densidad" => "Dibuja un rectángulo y da los puntos por metro cuadrado.",

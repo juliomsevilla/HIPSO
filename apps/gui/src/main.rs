@@ -10,6 +10,7 @@ mod basemap;
 mod change_ui;
 mod classtable;
 mod contents;
+mod copcdetail;
 mod corridor_ui;
 mod editing;
 mod histo;
@@ -21,6 +22,7 @@ mod numfield;
 mod obia_ui;
 mod prefs;
 mod profile_data;
+mod project;
 mod ribbon;
 mod rs;
 mod rstools;
@@ -30,6 +32,7 @@ mod theme;
 mod tips;
 mod tools;
 mod vecedit;
+mod vecraster;
 mod warp;
 
 use std::collections::HashSet;
@@ -48,6 +51,7 @@ use rustlidar_core::jobs;
 use rustlidar_core::markup::Aoi;
 use rustlidar_core::view::{self, ColorBy, Image, Orbit, Plan, PointStore, ProfileBox, Style};
 
+use copcdetail::contains;
 use theme::Tokens;
 use tools::{Launch, ToolId, Tools};
 
@@ -243,6 +247,17 @@ enum Side {
     Edit,
 }
 
+/// The background read of a window: what it will send, and the window.
+type DetailJob = (Receiver<Result<Option<PointStore>, String>>, [f64; 4]);
+
+/// A window of COPC clouds read at full detail, and the dot spacing that goes with it.
+struct Detail {
+    window: [f64; 4],
+    store: Arc<PointStore>,
+    spacing: f64,
+    id: u64,
+}
+
 /// A cloud load that finished: the points, the files they came from (converted copies replace
 /// the clouds that were in another coordinate system) and what the log should say.
 struct CloudLoad {
@@ -293,6 +308,10 @@ enum Action {
     SaveShot,
     ZoomFull,
     ZoomPrev,
+    ZoomSel,
+    SaveProject,
+    OpenProject,
+    Relink3d,
     Nav(Nav),
     Tool(ToolId),
     Shortcuts,
@@ -387,6 +406,8 @@ struct App {
     img_jobs: Vec<rs::ImageJob>,
     dig_draft: Vec<[f64; 2]>,
     new_layer: Option<layers::NewLayerDlg>,
+    /// A GeoPackage with several tables: which of them to open.
+    gpkg_pick: Option<(PathBuf, Vec<(String, bool)>)>,
     table_layer: Option<usize>,
     vedit: vecedit::VecEditState,
     /// Command line `--vsel-all`: select every feature of the active layer on start.
@@ -422,6 +443,14 @@ struct App {
     basemap: Option<basemap::Basemap>,
     /// Layers opened before any cloud: they are moved to the cloud's system once there is one.
     pending_conform: Vec<PathBuf>,
+    /// The system of the work while there is no cloud: that of the first layer opened.
+    work_crs: Option<u16>,
+    /// Every LAS/LAZ cloud is COPC: a window of it can be read at full detail.
+    copc_only: bool,
+    /// The points of the window being looked at, read from the COPC files.
+    detail: Option<Detail>,
+    detail_job: Option<DetailJob>,
+    detail_id: u64,
     show_about: bool,
     show_shortcuts: bool,
     /// When the log last said how far the running job is.
@@ -495,6 +524,7 @@ impl Default for App {
             img_jobs: Vec::new(),
             dig_draft: Vec::new(),
             new_layer: None,
+            gpkg_pick: None,
             table_layer: None,
             vedit: vecedit::VecEditState::default(),
             select_all_pending: false,
@@ -525,6 +555,11 @@ impl Default for App {
             crs_cache: std::collections::HashMap::new(),
             basemap: None,
             pending_conform: Vec::new(),
+            work_crs: None,
+            copc_only: false,
+            detail: None,
+            detail_job: None,
+            detail_id: 0,
             show_about: false,
             show_shortcuts: false,
             last_progress_log: Instant::now(),
@@ -609,8 +644,10 @@ impl App {
 
     /// The system of the work: that of the first cloud.
     fn project_crs(&mut self) -> Option<u16> {
-        let first = self.clouds.first()?.clone();
-        self.crs_of(&first)
+        match self.clouds.first().cloned() {
+            Some(first) => self.crs_of(&first),
+            None => self.work_crs,
+        }
     }
 
     fn log(&mut self, m: impl Into<String>) {
@@ -794,6 +831,7 @@ impl App {
             .map(|e| e.to_string_lossy().to_ascii_lowercase())
             .unwrap_or_default();
         match ext.as_str() {
+            project::EXT => self.open_project(ctx, &p),
             e if rustlidar_core::raster::is_raster_ext(e) => {
                 if !self.add_raster(ctx, &p) {
                     self.log(format!("No se pudo abrir {}", p.display()));
@@ -971,7 +1009,11 @@ impl App {
         prefs::opened(&files);
         let mut clouds = false;
         for f in files {
-            if is_cloud(&f) {
+            if f.extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case(project::EXT))
+            {
+                self.open_project(ctx, &f);
+            } else if is_cloud(&f) {
                 if !self.clouds.contains(&f) {
                     self.clouds.push(f);
                 }
@@ -1128,6 +1170,30 @@ impl App {
                         self.log(n);
                     }
                     self.clouds = files;
+                    self.copc_only = !self.clouds.is_empty()
+                        && self.clouds.iter().all(|p| {
+                            p.extension().is_some_and(|e| {
+                                e.eq_ignore_ascii_case("laz") || e.eq_ignore_ascii_case("las")
+                            }) && rustlidar_core::copc::Copc::open(p).ok().flatten().is_some()
+                        });
+                    self.detail = None;
+                    self.detail_job = None;
+                    // layers opened before it follow the system of the first layer: if the cloud is in
+                    // another, they are loaded again in the cloud's
+                    if let Some(w) = self.work_crs.take()
+                        && let Some(c) = self.project_crs()
+                        && rustlidar_core::crs::relation(c, w)
+                            == rustlidar_core::crs::Relation::Different
+                    {
+                        for q in self.refs.iter().map(|r| r.path.clone()).collect::<Vec<_>>() {
+                            let gpkg = q
+                                .extension()
+                                .is_some_and(|e| e.eq_ignore_ascii_case("gpkg"));
+                            if !gpkg && !self.pending_conform.contains(&q) {
+                                self.pending_conform.push(q);
+                            }
+                        }
+                    }
                     // layers that were opened before the cloud are moved to its system now
                     for q in std::mem::take(&mut self.pending_conform) {
                         if self.crs_move(&q).is_some() {
@@ -1286,6 +1352,39 @@ impl App {
         self.reload(ctx);
     }
 
+    /// Takes cloud `k` out of the loaded points without reading the others again. False when the
+    /// points do not map one to one to the clouds (then the caller reloads).
+    fn drop_cloud_in_memory(&mut self, ctx: &egui::Context, k: usize) -> bool {
+        if self.loading.is_some() {
+            return false;
+        }
+        let Some(s) = self
+            .store
+            .as_ref()
+            .filter(|s| s.files.len() == self.clouds.len())
+        else {
+            return false;
+        };
+        let Some(s) = s.without_file(k) else {
+            return false;
+        };
+        self.drop_cloud(k);
+        self.class_counts = [0; 256];
+        for c in &s.class {
+            self.class_counts[usize::from(*c)] += 1;
+        }
+        self.ed.draft.clear();
+        self.ed.pdraft.clear();
+        self.ed.session = Some(rustlidar_core::edit::Session::new(&s));
+        self.tin = None;
+        self.query = None;
+        self.profile = None;
+        self.store = Some(Arc::new(s));
+        self.rev += 1;
+        self.run_info(ctx);
+        true
+    }
+
     /// Removes the cloud at `k` from the list, keeping the visibility bits of the others.
     fn drop_cloud(&mut self, k: usize) {
         self.clouds.remove(k);
@@ -1366,7 +1465,7 @@ impl App {
             Action::Open => {
                 // one door for everything: point clouds, rasters, images and vector layers; what
                 // is opened is added to what is there (Cerrar todo starts again)
-                let mut every = vec!["las", "laz", "ply", "e57", "xyz", "txt"];
+                let mut every = vec!["las", "laz", "ply", "e57", "xyz", "txt", project::EXT];
                 every.extend(layer_extensions());
                 let files = crate::prefs::dialog()
                     .add_filter("Todo lo que se puede abrir", &every)
@@ -1381,6 +1480,7 @@ impl App {
             }
             Action::CloseAll => {
                 self.clouds.clear();
+                self.work_crs = None;
                 self.crs_cache.clear();
                 // a load still running would bring the cloud back when it finishes
                 self.loading = None;
@@ -1431,6 +1531,10 @@ impl App {
                     self.plan = p;
                 }
             }
+            Action::ZoomSel => self.zoom_selection(),
+            Action::SaveProject => self.save_project(),
+            Action::OpenProject => self.open_project_dialog(ctx),
+            Action::Relink3d => self.relink_3d(),
             Action::Nav(n) => {
                 if editing::is_select(n) {
                     self.side = Side::Edit;
@@ -1477,17 +1581,19 @@ impl App {
                 }
             }
             Action::LoadRaster => {
-                if let Some(p) = crate::prefs::dialog()
+                for p in crate::prefs::dialog()
                     .add_filter("Ráster", rustlidar_core::raster::EXTENSIONS)
-                    .pick_file()
+                    .pick_files()
+                    .unwrap_or_default()
                 {
                     self.add_raster(ctx, &p);
                 }
             }
             Action::LoadVector => {
-                if let Some(p) = crate::prefs::dialog()
+                for p in crate::prefs::dialog()
                     .add_filter("Capa vectorial", &["shp", "geojson", "json", "gpkg"])
-                    .pick_file()
+                    .pick_files()
+                    .unwrap_or_default()
                 {
                     self.add_vector(&p);
                 }
@@ -1576,6 +1682,13 @@ impl App {
             ("Guardar vista como PNG", Action::SaveShot),
             ("Zoom a la extensión completa", Action::ZoomFull),
             ("Zoom anterior", Action::ZoomPrev),
+            ("Zoom a la selección", Action::ZoomSel),
+            ("Guardar proyecto", Action::SaveProject),
+            ("Abrir proyecto", Action::OpenProject),
+            (
+                "Refrescar la vista 3D (vincular con la planta)",
+                Action::Relink3d,
+            ),
             ("Herramienta: Zoom", Action::Nav(Nav::Zoom)),
             ("Herramienta: Desplazar", Action::Nav(Nav::Pan)),
             ("Herramienta: Consultar punto", Action::Nav(Nav::Query)),
@@ -1779,8 +1892,21 @@ impl App {
                     .show(ui, |ui| {
                         ui.horizontal(|ui| match self.tab {
                             0 => {
+                                ribbon::group(ui, &t, "Proyecto", |ui| {
+                                    if ribbon::big_button(ui, &t, "@save", "Guardar\nproyecto", false)
+                                        .on_hover_text("Guarda qué nubes y capas están abiertas y cómo se ve (archivo .elp).")
+                                        .clicked()
+                                    {
+                                        self.act(ctx, Action::SaveProject);
+                                    }
+                                    if ribbon::big_button(ui, &t, "@open", "Abrir\nproyecto", false)
+                                        .clicked()
+                                    {
+                                        self.act(ctx, Action::OpenProject);
+                                    }
+                                });
                                 ribbon::group(ui, &t, "Archivo", |ui| {
-                                    if ribbon::big_button(ui, &t, "@open", "Abrir", false).clicked()
+                                    if ribbon::big_button(ui, &t, "@adddata", "Abrir", false).clicked()
                                     {
                                         self.act(ctx, Action::Open);
                                     }
@@ -1986,6 +2112,30 @@ impl App {
                                         .clicked()
                                         {
                                             self.act(ctx, Action::ZoomPrev);
+                                        }
+                                        if ribbon::small_button(
+                                            ui,
+                                            &t,
+                                            "@fit",
+                                            "Zoom a la selección",
+                                            false,
+                                        )
+                                        .on_hover_text("Encuadra los puntos seleccionados o los elementos seleccionados de la capa vectorial activa.")
+                                        .clicked()
+                                        {
+                                            self.act(ctx, Action::ZoomSel);
+                                        }
+                                        if ribbon::small_button(
+                                            ui,
+                                            &t,
+                                            "@full",
+                                            "Refrescar 3D",
+                                            false,
+                                        )
+                                        .on_hover_text("Vuelve a encuadrar la vista 3D en lo que se ve en la planta (útil con capas muy separadas).")
+                                        .clicked()
+                                        {
+                                            self.act(ctx, Action::Relink3d);
                                         }
                                         if ribbon::small_button(
                                             ui,
@@ -2662,6 +2812,7 @@ ui.menu_button("⚙", |ui| {
             && let Some(p) = self.forced_view.take()
         {
             self.plan = p;
+            self.relink_3d();
         }
         let origin = rect.min.to_vec2();
         let pointer = resp.hover_pos().or_else(|| resp.interact_pointer_pos());
@@ -2854,9 +3005,21 @@ ui.menu_button("⚙", |ui| {
         }
         // render points (thinned while the view moves)
         let interactive = Instant::now() < self.moving_until;
+        let (lo, hi) = (
+            self.plan.to_map(0.0, h as f64, w, h),
+            self.plan.to_map(w as f64, 0.0, w, h),
+        );
+        self.update_detail(ctx, [lo.0, lo.1, hi.0, hi.1], interactive);
         if let Some(store) = &store {
-            let thin = if interactive && store.len() > 1_500_000 {
-                store.len() / 1_500_000 + 1
+            // zoomed into COPC clouds the window is drawn from its own, denser points
+            let detail = self
+                .detail
+                .as_ref()
+                .filter(|d| contains(d.window, [lo.0, lo.1, hi.0, hi.1]))
+                .map(|d| (d.store.clone(), d.spacing, d.id));
+            let shown: &Arc<PointStore> = detail.as_ref().map_or(store, |d| &d.0);
+            let thin = if interactive && shown.len() > 1_500_000 {
+                shown.len() / 1_500_000 + 1
             } else {
                 1
             };
@@ -2869,9 +3032,14 @@ ui.menu_button("⚙", |ui| {
                 self.plan.cx.to_bits(),
                 self.plan.cy.to_bits(),
                 self.plan.scale.to_bits(),
+                detail.as_ref().map(|d| d.2),
             ));
             if self.tex_plan.as_ref().is_none_or(|t| t.1 != key) {
-                let img = view::render_plan(store, &self.plan, w, h, &self.style);
+                let mut st = self.style.clone();
+                if let Some(d) = &detail {
+                    st.spacing = d.1;
+                }
+                let img = view::render_plan(shown, &self.plan, w, h, &st);
                 match &mut self.tex_plan {
                     Some((tex, k)) => {
                         tex.set(
@@ -3869,6 +4037,7 @@ impl eframe::App for App {
         }
         self.palette_window(&ctx);
         self.new_layer_window(&ctx);
+        self.gpkg_window(&ctx);
         self.table_window(&ctx);
         self.rs_window(&ctx);
         self.raster_tools_window(&ctx);

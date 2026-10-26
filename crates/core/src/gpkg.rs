@@ -351,3 +351,18 @@ mod file_tests {
         Ok(())
     }
 }
+
+/// A feature table as the data the viewer draws; the first one when `table` is `None`.
+pub fn read_vector(path: &Path, table: Option<&str>) -> Result<crate::view::VectorData> {
+    read_layer(path, table).map(|l| crate::geojson::vector_of(l).0)
+}
+
+/// The EPSG code a feature table declares, when it is one.
+pub fn epsg_of_table(path: &Path, table: &str) -> Option<u16> {
+    let db = Db::open(path).ok()?;
+    let l = layers_in(&db)
+        .ok()?
+        .into_iter()
+        .find(|l| l.table.eq_ignore_ascii_case(table))?;
+    epsg_of_srs(&db, l.srs_id)
+}

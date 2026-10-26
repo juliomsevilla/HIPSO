@@ -160,6 +160,10 @@ impl Copc {
         }))
     }
 
+    pub fn reader(&self) -> &Reader {
+        &self.reader
+    }
+
     pub fn header(&self) -> &crate::las::Header {
         &self.reader.header
     }

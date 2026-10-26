@@ -201,13 +201,8 @@ impl App {
             let RefKind::Vector(v) = &r.kind else {
                 continue;
             };
-            for (i, b) in v.geom.bbox.iter().enumerate() {
-                if skip == Some((k, i))
-                    || m.0 < b[0] - tol
-                    || m.0 > b[2] + tol
-                    || m.1 < b[1] - tol
-                    || m.1 > b[3] + tol
-                {
+            for i in v.in_window([m.0 - tol, m.1 - tol, m.0 + tol, m.1 + tol]) {
+                if skip == Some((k, i)) {
                     continue;
                 }
                 for q in v.data.features[i].parts.iter().flatten() {
@@ -612,13 +607,13 @@ impl App {
             };
             for &i in v.selected.iter().filter(|i| **i < v.data.features.len()) {
                 if v.kind == view::GeomKind::Polygon {
-                    for t in &v.geom.tris[i] {
+                    for t in v.tris(i) {
                         let mut mesh = egui::Mesh::default();
                         for p in &t.verts {
                             mesh.colored_vertex(to_s(p), cyan.gamma_multiply(0.18));
                         }
                         for tri in t.idx.as_chunks::<3>().0 {
-                            mesh.add_triangle(tri[0] as u32, tri[1] as u32, tri[2] as u32);
+                            mesh.add_triangle(tri[0], tri[1], tri[2]);
                         }
                         clip.add(egui::Shape::mesh(mesh));
                     }

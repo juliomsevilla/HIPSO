@@ -51,3 +51,9 @@ No lances nada en GitHub Actions.
 - En el Mac, el paquete Intel necesita el destino `x86_64-apple-darwin`; ya está instalado.
 - El flujo de Linux necesita que `linux.yml` esté ya en `main` (lo está tras hacer push). Tarda unos minutos y sube el paquete a la misma release; si falla, revisa `gh run list --workflow linux.yml` o lánzalo a mano con `gh workflow run linux.yml -f tag=vX.Y.Z`.
 - Cuando la release tenga los cuatro paquetes (macOS arm64, macOS x64, Windows y Linux), está lista. Hasta entonces el enlace de descarga del sistema que falte apunta a la release anterior o falla.
+
+## Sin `gh`: que GitHub lo compile todo
+
+Si no hay `gh` a mano, basta con subir la versión y la etiqueta: `git tag vX.Y.Z && git push origin main vX.Y.Z`. El flujo `release.yml` arranca solo con la etiqueta, compila Windows, Linux, macOS Apple Silicon y macOS Intel, y publica la release con los cuatro paquetes (`generate_release_notes`). Las releases creadas así no disparan `linux.yml`, que solo sirve para el camino con `gh`. Seguimiento: pestaña Actions del repositorio.
+
+Si GitHub no compilara macOS (cuota o runners), usa el prompt de Mac de arriba en un Mac: `./scripts/package.sh --publish` sube los dos paquetes de macOS a la release `vX.Y.Z`.

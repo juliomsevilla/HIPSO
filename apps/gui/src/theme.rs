@@ -127,5 +127,22 @@ pub fn install_fonts(ctx: &egui::Context) {
             list.insert(0, "system".into());
         }
     }
+    // Segoe UI has no ▾ or ▶ (they drew as a square); the symbol fonts of the system do
+    let symbols = [
+        "C:/Windows/Fonts/seguisym.ttf",
+        "/System/Library/Fonts/Apple Symbols.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ];
+    if let Some(bytes) = symbols.iter().find_map(|p| std::fs::read(p).ok()) {
+        fonts.font_data.insert(
+            "symbols".into(),
+            std::sync::Arc::new(FontData::from_owned(bytes)),
+        );
+        for fam in [FontFamily::Proportional, FontFamily::Monospace] {
+            if let Some(list) = fonts.families.get_mut(&fam) {
+                list.push("symbols".into());
+            }
+        }
+    }
     ctx.set_fonts(fonts);
 }

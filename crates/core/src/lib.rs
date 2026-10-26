@@ -13,6 +13,7 @@ pub mod cloudtools;
 pub mod cog;
 pub mod colorize;
 pub mod copc;
+pub mod copc_detail;
 pub mod copc_write;
 pub mod corridor;
 pub mod crs;
@@ -26,6 +27,7 @@ pub mod footprint;
 pub mod forest;
 pub mod geojson;
 pub mod gpkg;
+pub mod gpkg_write;
 pub mod grid;
 pub mod ground;
 pub mod hag;
@@ -54,6 +56,7 @@ pub mod raster;
 pub mod rasterfmt;
 pub mod rastertools;
 pub mod reproject;
+pub mod rtree;
 pub mod rules;
 pub mod sheets;
 pub mod smrf;
@@ -119,6 +122,15 @@ fn in_spanish(m: &str) -> String {
         ),
         (
             "The system cannot find the path specified.",
+            "no existe la carpeta",
+        ),
+        // Windows in Spanish already says it in Spanish, but with its own words
+        (
+            "El sistema no puede encontrar el archivo especificado.",
+            "no existe el archivo",
+        ),
+        (
+            "El sistema no puede encontrar la ruta especificada.",
             "no existe la carpeta",
         ),
         ("Permission denied", "permiso denegado"),

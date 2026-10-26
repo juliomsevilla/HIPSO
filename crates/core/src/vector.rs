@@ -1637,6 +1637,30 @@ pub fn write_layer(
     use crate::view::GeomKind;
     if path
         .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("gpkg"))
+    {
+        let name: String = crate::paths::stem(path)
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        return crate::gpkg_write::write(
+            path,
+            &[crate::gpkg_write::Table {
+                name: &name,
+                data: d,
+                kind,
+                epsg: prj.and_then(epsg_from_prj),
+            }],
+        );
+    }
+    if path
+        .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("geojson") || e.eq_ignore_ascii_case("json"))
     {
         return crate::geojson::write_vector(path, d, kind, prj.and_then(epsg_from_prj));

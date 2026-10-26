@@ -358,6 +358,46 @@ impl Rag {
     }
 }
 
+/// Border cells kept before they are counted into the edges (a few hundred MB at most).
+const KEY_CHUNK: usize = 16_000_000;
+
+/// Counts the border keys (`a << 32 | b`, one per cell edge) into `edges`, which stays sorted
+/// by pair; `keys` is left empty.
+fn add_borders(edges: &mut Vec<Edge>, keys: &mut Vec<u64>) {
+    keys.par_sort_unstable();
+    let mut fresh: Vec<Edge> = Vec::new();
+    for &key in keys.iter() {
+        let (a, b) = ((key >> 32) as u32, key as u32);
+        match fresh.last_mut() {
+            Some(e) if e.a == a && e.b == b => e.len += 1,
+            _ => fresh.push(Edge { a, b, len: 1 }),
+        }
+    }
+    keys.clear();
+    keys.shrink_to(KEY_CHUNK + 1);
+    if edges.is_empty() {
+        *edges = fresh;
+        return;
+    }
+    let old = std::mem::take(edges);
+    edges.reserve(old.len() + fresh.len());
+    let (mut i, mut j) = (0, 0);
+    while i < old.len() || j < fresh.len() {
+        let take_old =
+            j == fresh.len() || (i < old.len() && (old[i].a, old[i].b) <= (fresh[j].a, fresh[j].b));
+        let e = if take_old { old[i] } else { fresh[j] };
+        if take_old {
+            i += 1
+        } else {
+            j += 1
+        }
+        match edges.last_mut() {
+            Some(l) if l.a == e.a && l.b == e.b => l.len += e.len,
+            _ => edges.push(e),
+        }
+    }
+}
+
 fn merge(stack: &LayerStack, m: &MergeParams, min_cells: u32) -> Result<(Vec<u32>, u32)> {
     let Lattice { cols, rows, .. } = stack.lat;
     if cols > u32::MAX as usize / 2 || rows > u32::MAX as usize / 2 {
@@ -453,6 +493,11 @@ fn merge(stack: &LayerStack, m: &MergeParams, min_cells: u32) -> Result<(Vec<u32
         if y % 1024 == 0 {
             check_cancel()?;
         }
+        // the borders are counted as they come: one key per border cell would take a gigabyte
+        // on a large mosaic
+        if keys.len() > KEY_CHUNK {
+            add_borders(&mut rag.edges, &mut keys);
+        }
         for x in 0..cols {
             let i = y * cols + x;
             let l = lab[i];
@@ -493,14 +538,8 @@ fn merge(stack: &LayerStack, m: &MergeParams, min_cells: u32) -> Result<(Vec<u32
             rag.per[r] += outline;
         }
     }
-    keys.par_sort_unstable();
-    for key in keys {
-        let (a, b) = ((key >> 32) as u32, key as u32);
-        match rag.edges.last_mut() {
-            Some(e) if e.a == a && e.b == b => e.len += 1,
-            _ => rag.edges.push(Edge { a, b, len: 1 }),
-        }
-    }
+    add_borders(&mut rag.edges, &mut keys);
+    drop(keys);
     // where each initial patch is now
     let mut cur: Vec<u32> = (0..r0 as u32).collect();
     let limit = m.scale * m.scale;
@@ -554,6 +593,16 @@ fn merge(stack: &LayerStack, m: &MergeParams, min_cells: u32) -> Result<(Vec<u32
 mod tests {
     use super::*;
     use crate::obia::Lattice;
+
+    #[test]
+    fn borders_counted_in_chunks_match_counting_at_once() {
+        let key = |a: u64, b: u64| (a << 32) | b;
+        let mut edges = Vec::new();
+        add_borders(&mut edges, &mut vec![key(0, 1), key(0, 1), key(2, 3)]);
+        add_borders(&mut edges, &mut vec![key(0, 1), key(1, 2), key(2, 3)]);
+        let got: Vec<(u32, u32, u32)> = edges.iter().map(|e| (e.a, e.b, e.len)).collect();
+        assert_eq!(got, [(0, 1, 3), (1, 2, 1), (2, 3, 2)]);
+    }
 
     fn stack(cols: usize, rows: usize, f: impl Fn(usize, usize) -> f32) -> LayerStack {
         let lat = Lattice {

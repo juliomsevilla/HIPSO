@@ -63,6 +63,72 @@ impl PointStore {
         ]
     }
 
+    /// The store without the points of file `k`, or `None` when it is the only one. The other
+    /// files keep their points as they were read, so nothing is read again from disk.
+    pub fn without_file(&self, k: usize) -> Option<PointStore> {
+        if self.files.len() < 2 || k >= self.files.len() {
+            return None;
+        }
+        let keep: Vec<usize> = (0..self.len())
+            .filter(|&i| usize::from(self.file[i]) != k)
+            .collect();
+        let pick = |v: &Vec<f32>| keep.iter().map(|&i| v[i]).collect::<Vec<_>>();
+        let mut s = PointStore {
+            origin: self.origin,
+            bounds: self.bounds,
+            x: pick(&self.x),
+            y: pick(&self.y),
+            z: pick(&self.z),
+            class: keep.iter().map(|&i| self.class[i]).collect(),
+            intensity: keep.iter().map(|&i| self.intensity[i]).collect(),
+            ret: keep.iter().map(|&i| self.ret[i]).collect(),
+            src: keep.iter().map(|&i| self.src[i]).collect(),
+            scan: keep.iter().map(|&i| self.scan[i]).collect(),
+            file: keep
+                .iter()
+                .map(|&i| self.file[i] - u8::from(usize::from(self.file[i]) > k))
+                .collect(),
+            rgb: if self.rgb.is_empty() {
+                Vec::new()
+            } else {
+                keep.iter().map(|&i| self.rgb[i]).collect()
+            },
+            files: self.files.clone(),
+            selected: Vec::new(),
+            deleted: Vec::new(),
+            area: self.area,
+            file_bounds: self.file_bounds.clone(),
+            total: self.total,
+            stride: self.stride,
+            prj: self.prj.clone(),
+        };
+        s.files.remove(k);
+        if k < s.file_bounds.len() {
+            let gone = s.file_bounds.remove(k);
+            let side = |b: &[f64; 6]| (b[3] - b[0]) * (b[4] - b[1]);
+            s.area = (s.area - side(&gone)).max(0.0);
+        }
+        // total counts the points of the files, so the share of the removed one goes
+        s.total = s.total * s.len() as u64 / self.len().max(1) as u64;
+        let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+        for i in 0..s.len() {
+            let p = [f64::from(s.x[i]), f64::from(s.y[i]), f64::from(s.z[i])];
+            for a in 0..3 {
+                lo[a] = lo[a].min(p[a]);
+                hi[a] = hi[a].max(p[a]);
+            }
+        }
+        s.bounds = [
+            lo[0] + s.origin[0],
+            lo[1] + s.origin[1],
+            lo[2] + s.origin[2],
+            hi[0] + s.origin[0],
+            hi[1] + s.origin[1],
+            hi[2] + s.origin[2],
+        ];
+        Some(s)
+    }
+
     pub fn intensity_max(&self) -> u16 {
         let mut v: Vec<u16> = self
             .intensity
@@ -684,25 +750,45 @@ impl Plan {
     }
 }
 
-/// One thread's share of a render: the nearest point per pixel and its colour.
+/// The nearest point per pixel and its colour, shared by all the threads of a render: each pixel
+/// is one atomic word holding the depth (in an order-preserving form) above the colour, so the
+/// nearest point wins with a single `fetch_min` and no thread keeps a canvas of its own.
 struct Layer {
     w: usize,
     h: usize,
-    depth: Vec<f32>,
-    rgb: Vec<[u8; 3]>,
+    cells: Vec<std::sync::atomic::AtomicU64>,
 }
+
+const EMPTY: u64 = u64::MAX;
 
 impl Layer {
     fn new(w: usize, h: usize) -> Self {
         Self {
             w,
             h,
-            depth: vec![f32::INFINITY; w * h],
-            rgb: vec![[0; 3]; w * h],
+            cells: (0..w * h)
+                .map(|_| std::sync::atomic::AtomicU64::new(EMPTY))
+                .collect(),
         }
     }
 
-    fn splat(&mut self, x: i64, y: i64, d: f32, size: i64, c: [u8; 3]) {
+    /// Depth as a number that sorts like the float does.
+    #[inline]
+    fn depth_key(d: f32) -> u64 {
+        let b = d.to_bits();
+        u64::from(if b & 0x8000_0000 != 0 {
+            !b
+        } else {
+            b | 0x8000_0000
+        })
+    }
+
+    fn splat(&self, x: i64, y: i64, d: f32, size: i64, c: [u8; 3]) {
+        use std::sync::atomic::Ordering::Relaxed;
+        let packed = Self::depth_key(d) << 24
+            | u64::from(c[0]) << 16
+            | u64::from(c[1]) << 8
+            | u64::from(c[2]);
         let r0 = (size - 1) / 2;
         // dots from 3 pixels up are round, not square
         let (mid, rad2) = ((size as f64 - 1.0) / 2.0, (size as f64 / 2.0).powi(2));
@@ -714,52 +800,43 @@ impl Layer {
                         continue;
                     }
                 }
-                let k = yy as usize * self.w + xx as usize;
-                if d < self.depth[k] {
-                    self.depth[k] = d;
-                    self.rgb[k] = c;
+                let cell = &self.cells[yy as usize * self.w + xx as usize];
+                if packed < cell.load(Relaxed) {
+                    cell.fetch_min(packed, Relaxed);
                 }
             }
         }
     }
 
-    fn merge(mut self, o: Layer) -> Layer {
-        for k in 0..self.depth.len() {
-            if o.depth[k] < self.depth[k] {
-                self.depth[k] = o.depth[k];
-                self.rgb[k] = o.rgb[k];
-            }
-        }
-        self
+    /// Paints the pixels that were reached over `img`.
+    fn paint_into(&self, img: &mut Image) {
+        use rayon::prelude::*;
+        img.rgba
+            .par_chunks_mut(4)
+            .zip(self.cells.par_iter())
+            .for_each(|(px, cell)| {
+                let v = cell.load(std::sync::atomic::Ordering::Relaxed);
+                if v != EMPTY {
+                    px[0] = (v >> 16) as u8;
+                    px[1] = (v >> 8) as u8;
+                    px[2] = v as u8;
+                    px[3] = 255;
+                }
+            });
     }
 }
 
 /// Runs `f(layer, point index)` over every `step`-th point on all cores and paints the nearest
 /// points over `img`.
-fn par_points(img: &mut Image, n: usize, step: usize, f: impl Fn(&mut Layer, usize) + Sync + Send) {
+fn par_points(img: &mut Image, n: usize, step: usize, f: impl Fn(&Layer, usize) + Sync + Send) {
     use rayon::prelude::*;
-    let (w, h) = (img.w, img.h);
-    let count = n / step.max(1);
-    let min = (count / (rayon::current_num_threads() * 2)).max(20_000);
-    let layer = (0..count)
+    let step = step.max(1);
+    let layer = Layer::new(img.w, img.h);
+    (0..n / step)
         .into_par_iter()
-        .with_min_len(min)
-        .fold(
-            || Layer::new(w, h),
-            |mut l, k| {
-                f(&mut l, k * step.max(1));
-                l
-            },
-        )
-        .reduce_with(Layer::merge);
-    if let Some(l) = layer {
-        for k in 0..w * h {
-            if l.depth[k].is_finite() {
-                img.rgba[k * 4..k * 4 + 3].copy_from_slice(&l.rgb[k]);
-                img.rgba[k * 4 + 3] = 255;
-            }
-        }
-    }
+        .with_min_len(8192)
+        .for_each(|k| f(&layer, k * step));
+    layer.paint_into(img);
 }
 
 fn canvas(w: usize, h: usize, st: &Style) -> Image {
@@ -1030,18 +1107,13 @@ pub fn render_profile(
         (h as f64 - (zhi - zlo) * k) / 2.0,
     );
     let size = (st.profile_size as i64).clamp(1, 24);
-    let mut layer = Layer::new(w, h);
+    let layer = Layer::new(w, h);
     for (i, u, z, t) in inside {
         let px = (ox + u * k).floor() as i64;
         let py = (h as f64 - oy - (z - zlo) * k).floor() as i64;
         layer.splat(px, py, t as f32, size, st.color(s, i));
     }
-    for q in 0..w * h {
-        if layer.depth[q].is_finite() {
-            img.rgba[q * 4..q * 4 + 3].copy_from_slice(&layer.rgb[q]);
-            img.rgba[q * 4 + 3] = 255;
-        }
-    }
+    layer.paint_into(&mut img);
     (img, zlo, zhi)
 }
 

@@ -771,11 +771,15 @@ impl App {
         if clouds_remove_all {
             self.act(ctx, Action::CloseAll);
         } else if let Some(k) = cloud_remove {
-            self.drop_cloud(k);
-            if self.clouds.is_empty() {
-                self.act(ctx, Action::CloseAll);
+            if self.clouds.len() > 1 && self.drop_cloud_in_memory(ctx, k) {
+                // the others stay as they are: nothing is read again
             } else {
-                self.reload(ctx);
+                self.drop_cloud(k);
+                if self.clouds.is_empty() {
+                    self.act(ctx, Action::CloseAll);
+                } else {
+                    self.reload(ctx);
+                }
             }
         }
     }

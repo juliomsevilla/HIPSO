@@ -1,7 +1,11 @@
 name: release
-# Solo manual: los paquetes se compilan en local (scripts/package.sh y package.ps1) y se
-# suben con --publish. Este flujo queda como alternativa de emergencia (Linux tiene el suyo: linux.yml).
+# Compila Windows, Linux y los dos macOS en GitHub y publica la release. Arranca solo al subir una
+# etiqueta vX.Y.Z (git tag vX.Y.Z && git push origin vX.Y.Z), o a mano desde la pestaña Actions.
+# Los paquetes también se pueden compilar en local (scripts/package.sh y package.ps1) y subir
+# con --publish.
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:

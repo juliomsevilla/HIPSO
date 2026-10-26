@@ -24,7 +24,7 @@ pub(crate) struct Layer {
     pub(crate) skipped: usize,
 }
 
-fn signed_area(r: &[[f64; 2]]) -> f64 {
+pub(crate) fn signed_area(r: &[[f64; 2]]) -> f64 {
     r.iter()
         .zip(r.iter().cycle().skip(1))
         .map(|(a, b)| a[0] * b[1] - b[0] * a[1])
