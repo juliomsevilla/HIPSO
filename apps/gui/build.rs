@@ -4,9 +4,8 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?)
-        .join("../../assets/icons")
-        .canonicalize()?;
+    // not canonicalized: on Windows that gives a `\\?\` path, which `include_str!` can fail on
+    let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?).join("../../assets/icons");
     println!("cargo:rerun-if-changed={}", dir.display());
     let mut names: Vec<String> = std::fs::read_dir(&dir)?
         .filter_map(|e| e.ok())
