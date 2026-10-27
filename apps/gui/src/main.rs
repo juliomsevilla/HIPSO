@@ -1214,7 +1214,7 @@ impl App {
                         self.class_counts[usize::from(*c)] += 1;
                     }
                     let mut st = Style::fit(&s);
-                    st.color_by = if s.rgb.is_empty() {
+                    st.color_by = if !s.rgb.iter().any(|c| *c != [0, 0, 0]) {
                         self.style.color_by
                     } else {
                         ColorBy::Rgb

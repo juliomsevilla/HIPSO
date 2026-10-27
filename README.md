@@ -10,10 +10,32 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/juliomsevilla/EasyLiDAR/releases/latest"><img alt="Descargar" src="https://img.shields.io/badge/descargar-v0.4.0-ff8a1f?style=for-the-badge"></a>
+  <a href="https://github.com/juliomsevilla/EasyLiDAR/releases/latest"><img alt="Descargar" src="https://img.shields.io/badge/descargar-v0.4.1-ff8a1f?style=for-the-badge"></a>
   <img alt="Plataformas" src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-555?style=for-the-badge">
   <img alt="Gratuito" src="https://img.shields.io/badge/uso-gratuito-2e7d32?style=for-the-badge">
 </p>
+
+<p align="center">
+  <img src="assets/social/01-tres-hojas-pnoa-planta-perfil-3d.jpg" alt="EasyLiDAR con tres hojas del PNOA: planta, perfil y 3D" width="100%">
+</p>
+
+<p align="center">
+  <img src="assets/social/03-clasificacion-de-puntos.jpg" alt="EasyLiDAR: herramienta de clasificación de puntos desplegada" width="100%">
+</p>
+
+<p align="center">
+  <img src="assets/social/04-obia-segmentacion-transparente.jpg" alt="EasyLiDAR: segmentación por objetos (OBIA) con transparencia sobre la nube" width="100%">
+</p>
+
+<p align="center">
+  <img src="assets/social/05-modelo-lineal-residuos.jpg" alt="EasyLiDAR: modelo lineal con los gráficos de diagnóstico de residuos" width="100%">
+</p>
+
+<p align="center">
+  <img src="assets/social/10-edicion-histograma.jpg" alt="EasyLiDAR: edición de puntos con histogramas de atributos, selección e historial" width="100%">
+</p>
+
+<sub>Datos del PNOA LiDAR 2024 (© Instituto Geográfico Nacional, CC BY 4.0) y parcelas de campo propias.</sub>
 
 ---
 
@@ -44,6 +66,8 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/EasyLiDAR/relea
 - Colorear por elevación, clase, intensidad, retorno, pasada, archivo o RGB.
 - **Edición por selecciones** (rectángulo, círculo, polígono, en planta o en perfil) con filtros por clase, altura, intensidad y retorno; eliminar o reclasificar; deshacer, rehacer e historial. El original nunca se modifica.
 - **Histogramas de atributos** (elevación, intensidad, retornos, clase, pasada, ángulo de barrido): se marcan barras para seleccionar los puntos, o se detectan los valores raros con un estadístico (Tukey, MAD, desviaciones típicas, percentiles).
+- **Proyectos (`.elp`):** guardan qué nubes y capas están abiertas, su orden, visibilidad, la vista y la orientación 3D, para retomar la sesión donde la dejaste.
+- **Capas grandes sin colgarse:** las capas vectoriales pesadas se dibujan como una imagen (un shapefile de 41 mil objetos pasa de 4,5 GB a 233 MB) y se consultan con un índice espacial R-tree. Las nubes COPC se leen a más detalle, en segundo plano, al acercar el zoom.
 - **Clases ASPRS 0–255:** la tabla vigente y clases nuevas propias (64–255) con nombre y color.
 
 ### Procesar
@@ -67,7 +91,7 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/EasyLiDAR/relea
 
 ### Capas y formatos
 
-LAS y LAZ (también **COPC**, leído solo en la parte que hace falta y escrito con *Guardar como COPC*), **PLY** y **E57** (se convierten a LAZ), ASCII, shapefile, **GeoJSON**, **GeoPackage** (lectura) y CSV. Rásteres: GeoTIFF (y **Cloud Optimized GeoTIFF**), **JPEG 2000** (las bandas de **Sentinel-2**, con lector propio en Rust que solo decodifica las teselas que se piden), PNG y JPEG con archivo de coordenadas, ENVI y SRTM `.hgt`. ECW y MrSID no se leen (ECW es propietario: se convierte antes con QGIS, GeoLibre o RustGis). Capas vectoriales con digitalización, tabla de atributos editable y simbología. **Mapa base** que se enciende y apaga desde el explorador de capas (OpenStreetMap, ortofoto PNOA, o un servidor propio de teselas).
+LAS y LAZ (también **COPC**, leído solo en la parte que hace falta y escrito con *Guardar como COPC*), **PLY** y **E57** (se convierten a LAZ), ASCII, shapefile, **GeoJSON**, **GeoPackage** (lectura de varias tablas, cada una reproyectada desde su sistema, y **escritura** con índice R-tree, con escritor propio en Rust puro validado con SQLite y GDAL) y CSV. Rásteres: GeoTIFF (y **Cloud Optimized GeoTIFF**), **JPEG 2000** (las bandas de **Sentinel-2**, con lector propio en Rust que solo decodifica las teselas que se piden), PNG y JPEG con archivo de coordenadas, ENVI y SRTM `.hgt`. ECW y MrSID no se leen (ECW es propietario: se convierte antes con QGIS, GeoLibre o RustGis). Capas vectoriales con digitalización, tabla de atributos editable y simbología. **Mapa base** que se enciende y apaga desde el explorador de capas (OpenStreetMap, ortofoto PNOA, o un servidor propio de teselas).
 
 ---
 
