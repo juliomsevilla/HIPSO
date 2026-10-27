@@ -29,3 +29,6 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
+# firma ad hoc de todo el paquete: sin ella la firma del ejecutable no cuadra con el Info.plist y macOS
+# dice que la app está dañada (sin opción de abrirla); con ella solo avisa de que no conoce al desarrollador
+codesign --force --deep -s - "$app"

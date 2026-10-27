@@ -24,7 +24,7 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/EasyLiDAR/relea
 **Primera vez que lo abres**
 
 - **Windows:** si aparece el aviso azul de SmartScreen: *Más información → Ejecutar de todas formas*.
-- **macOS:** abre `EasyLiDAR.app` (clic derecho → *Abrir* la primera vez; no abre ventana de Terminal). También puedes usar `easylidar-gui` desde la consola; si no arranca: `chmod +x easylidar-gui easylidar`.
+- **macOS:** abre `EasyLiDAR.app` (no abre ventana de Terminal). El programa no está firmado por un desarrollador que Apple conozca, así que la primera vez macOS lo bloquea: ábrelo una vez, ve a *Ajustes del Sistema → Privacidad y seguridad* y pulsa *Abrir igualmente*. Si descargas el paquete con el navegador, macOS marca también `easylidar` y `easylidar-gui` y los cierra al ejecutarlos desde la consola; se desbloquean con `xattr -dr com.apple.quarantine EasyLiDAR-macos-arm64` (o `-x64`) sobre la carpeta descomprimida, y si no arrancan: `chmod +x easylidar-gui easylidar`.
 - **Linux:** `chmod +x easylidar-gui easylidar` si el archivo perdió el permiso. Hace falta GTK 3 para los diálogos de archivo y OpenGL 2 o superior (Mesa sirve).
 
 ---

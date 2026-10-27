@@ -17,7 +17,7 @@ Funciona en Windows, macOS y Linux, y es gratuito (las condiciones están en el 
 
 El programa no necesita instalador, y por lo tanto basta con tres pasos. Primero se descomprime el ZIP del sistema en una carpeta con permisos de escritura. Después se ejecuta `easylidar-gui` (`easylidar-gui.exe` en Windows); en macOS y Linux, si no arranca, hay que darle permiso de ejecución con `chmod +x easylidar-gui easylidar`. Por último, `easylidar` es la versión de línea de comandos, descrita en el capítulo 14.
 
-La primera vez en macOS se abre con el botón derecho sobre el programa y la opción Abrir. En Windows, si aparece el aviso azul de SmartScreen, se pulsa Más información y después Ejecutar de todas formas. Ambos avisos tienen el mismo origen (el programa no está firmado por un editor reconocido por el sistema) y ninguno indica un problema del archivo.
+La primera vez en macOS se abre `EasyLiDAR.app`, el sistema lo bloquea y hay que ir a Ajustes del Sistema, Privacidad y seguridad, y pulsar Abrir igualmente. En Windows, si aparece el aviso azul de SmartScreen, se pulsa Más información y después Ejecutar de todas formas. Ambos avisos tienen el mismo origen (el programa no está firmado por un editor reconocido por el sistema) y ninguno indica un problema del archivo.
 
 Los requisitos son Windows 10/11, macOS 12 o superior, o un Linux con X11 o Wayland y OpenGL 2 o superior. En Linux hacen falta además las bibliotecas GTK 3, porque de ellas dependen los diálogos de archivo.
 
