@@ -56,4 +56,6 @@ No lances nada en GitHub Actions.
 
 Si no hay `gh` a mano, basta con subir la versión y la etiqueta: `git tag vX.Y.Z && git push origin main vX.Y.Z`. El flujo `release.yml` arranca solo con la etiqueta, compila Windows, Linux, macOS Apple Silicon y macOS Intel, y publica la release con los cuatro paquetes (`generate_release_notes`). Las releases creadas así no disparan `linux.yml`, que solo sirve para el camino con `gh`. Seguimiento: pestaña Actions del repositorio.
 
+Tanto `release.yml` como `scripts/package.sh` crean `EasyLiDAR.app` con el mismo script (`scripts/macos-app.sh`), de modo que los paquetes de macOS son equivalentes salgan de donde salgan. Una release creada con `gh` dispara `release.yml` (por la etiqueta) y `linux.yml` a la vez, y el primero sobrescribe los paquetes que haya subido el Mac.
+
 Si GitHub no compilara macOS (cuota o runners), usa el prompt de Mac de arriba en un Mac: `./scripts/package.sh --publish` sube los dos paquetes de macOS a la release `vX.Y.Z`.
