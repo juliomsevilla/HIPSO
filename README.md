@@ -15,28 +15,6 @@
   <img alt="Gratuito" src="https://img.shields.io/badge/uso-gratuito-2e7d32?style=for-the-badge">
 </p>
 
-<p align="center">
-  <img src="assets/social/01-tres-hojas-pnoa-planta-perfil-3d.jpg" alt="EasyLiDAR con tres hojas del PNOA: planta, perfil y 3D" width="100%">
-</p>
-
-<p align="center">
-  <img src="assets/social/03-clasificacion-de-puntos.jpg" alt="EasyLiDAR: herramienta de clasificación de puntos desplegada" width="100%">
-</p>
-
-<p align="center">
-  <img src="assets/social/04-obia-segmentacion-transparente.jpg" alt="EasyLiDAR: segmentación por objetos (OBIA) con transparencia sobre la nube" width="100%">
-</p>
-
-<p align="center">
-  <img src="assets/social/05-modelo-lineal-residuos.jpg" alt="EasyLiDAR: modelo lineal con los gráficos de diagnóstico de residuos" width="100%">
-</p>
-
-<p align="center">
-  <img src="assets/social/10-edicion-histograma.jpg" alt="EasyLiDAR: edición de puntos con histogramas de atributos, selección e historial" width="100%">
-</p>
-
-<sub>Datos del PNOA LiDAR 2024 (© Instituto Geográfico Nacional, CC BY 4.0) y parcelas de campo propias.</sub>
-
 ---
 
 ## Descargar
@@ -92,6 +70,23 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/EasyLiDAR/relea
 ### Capas y formatos
 
 LAS y LAZ (también **COPC**, leído solo en la parte que hace falta y escrito con *Guardar como COPC*), **PLY** y **E57** (se convierten a LAZ), ASCII, shapefile, **GeoJSON**, **GeoPackage** (lectura de varias tablas, cada una reproyectada desde su sistema, y **escritura** con índice R-tree, con escritor propio en Rust puro validado con SQLite y GDAL) y CSV. Rásteres: GeoTIFF (y **Cloud Optimized GeoTIFF**), **JPEG 2000** (las bandas de **Sentinel-2**, con lector propio en Rust que solo decodifica las teselas que se piden), PNG y JPEG con archivo de coordenadas, ENVI y SRTM `.hgt`. ECW y MrSID no se leen (ECW es propietario: se convierte antes con QGIS, GeoLibre o RustGis). Capas vectoriales con digitalización, tabla de atributos editable y simbología. **Mapa base** que se enciende y apaga desde el explorador de capas (OpenStreetMap, ortofoto PNOA, o un servidor propio de teselas).
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/social/01-tres-hojas-pnoa-planta-perfil-3d.jpg" alt="Planta, perfil y 3D de tres hojas del PNOA"></td>
+    <td width="50%"><img src="assets/social/03-clasificacion-de-puntos.jpg" alt="Clasificación de puntos"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/social/04-obia-segmentacion-transparente.jpg" alt="Segmentación por objetos (OBIA)"></td>
+    <td width="50%"><img src="assets/social/05-modelo-lineal-residuos.jpg" alt="Modelo lineal y diagnóstico de residuos"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/social/10-edicion-histograma.jpg" alt="Edición de puntos con histogramas"></td>
+    <td width="50%"><img src="assets/social/07-cubicado-tls.jpg" alt="Cubicado de árboles con escáner terrestre"></td>
+  </tr>
+</table>
+
+<sub>Datos del PNOA LiDAR 2024 (© Instituto Geográfico Nacional, CC BY 4.0) y parcelas de campo propias.</sub>
 
 ---
 
