@@ -424,6 +424,8 @@ struct App {
     cursor_map: Option<(f64, f64)>,
     info_text: String,
     info_run: Option<Receiver<Result<String, String>>>,
+    /// The job running extracts the selection: its result replaces the loaded clouds.
+    pub isolate: bool,
     tools: Tools,
     running: Option<Running>,
     log: Vec<String>,
@@ -539,6 +541,7 @@ impl Default for App {
             cursor_map: None,
             info_text: String::new(),
             info_run: None,
+            isolate: false,
             tools: Tools::default(),
             running: None,
             log: vec!["EasyLiDAR listo. Abre una nube LAS/LAZ (Inicio → Abrir).".into()],
@@ -701,6 +704,19 @@ impl App {
                         Some("clip") => Some(ToolId::Clip),
                         Some("export") => Some(ToolId::Export),
                         _ => None,
+                    }
+                }
+                "--orbit" => {
+                    // yaw and pitch of the 3D view, in degrees
+                    let v: Vec<f64> = it
+                        .next()
+                        .unwrap_or_default()
+                        .split(',')
+                        .filter_map(|t| t.parse().ok())
+                        .collect();
+                    if let [yaw, pitch] = v[..] {
+                        self.orbit.yaw = yaw.to_radians();
+                        self.orbit.pitch = pitch.to_radians();
                     }
                 }
                 "--hide-points" => self.show_points = false,
@@ -922,6 +938,7 @@ impl App {
                 caption: "Preparar",
                 icon: "@classify",
                 big: vec![tool("@classify", "Clasificar", ToolId::Classify)],
+                menus: vec![],
                 columns: vec![
                     vec![
                         other("ℹ", "Información", false, Action::Info),
@@ -944,6 +961,7 @@ impl App {
                 caption: "Calidad",
                 icon: "@compare",
                 big: vec![],
+                menus: vec![],
                 columns: vec![vec![
                     tool("@compare", "Comparar nubes", ToolId::Compare),
                     tool("@fit", "Ajustar nubes", ToolId::Fit),
@@ -957,6 +975,7 @@ impl App {
                     tool("@dtm", "MDT", ToolId::Dtm),
                     tool("@chm", "MDS / CHM", ToolId::Chm),
                 ],
+                menus: vec![],
                 columns: vec![vec![
                     other(
                         "@terrain",
@@ -968,26 +987,35 @@ impl App {
                 ]],
             },
             Group {
-                caption: "Inventario forestal",
+                caption: "ALS",
                 icon: "@metrics",
-                big: vec![tool("@metrics", "Métricas\nde rodal", ToolId::Metrics)],
-                columns: vec![
-                    vec![
+                big: vec![],
+                menus: vec![ribbon::Menu {
+                    icon: "@metrics",
+                    label: "Métodos\nde masa",
+                    items: vec![
+                        tool("@metrics", "Métricas de rodal", ToolId::Metrics),
                         tool("@clip", "Recortar parcelas", ToolId::Clip),
-                        tool("@segment", "Segmentar árboles", ToolId::Trees),
-                        tool("@tree", "Cubicar (TLS)", ToolId::Tls),
-                    ],
-                    vec![
                         other(
                             "@model",
                             "Modelos de transición",
                             self.mo.open,
                             Action::Model,
                         ),
-                        other("@change", "Cambio forestal", self.ct.open, Action::Change),
-                        other("@obia", "Análisis por objetos", self.ot.open, Action::Obia),
                     ],
-                ],
+                }],
+                columns: vec![vec![
+                    tool("@segment", "Segmentar árboles", ToolId::Trees),
+                    other("@change", "Cambio forestal", self.ct.open, Action::Change),
+                    other("@obia", "Análisis por objetos", self.ot.open, Action::Obia),
+                ]],
+            },
+            Group {
+                caption: "TLS",
+                icon: "@tree",
+                big: vec![tool("@tree", "Dendrometría", ToolId::Tls)],
+                menus: vec![],
+                columns: vec![],
             },
             Group {
                 caption: "Infraestructuras",
@@ -998,6 +1026,7 @@ impl App {
                     self.co.open,
                     Action::Corridor,
                 )],
+                menus: vec![],
                 columns: vec![],
             },
         ]
@@ -1265,10 +1294,17 @@ impl App {
             let secs = run.started.elapsed().as_secs_f64();
             let (label, show) = (run.label.clone(), run.show.clone());
             let (outputs, pre) = (run.outputs.clone(), run.pre.clone());
+            let isolate = std::mem::take(&mut self.isolate);
             self.running = None;
             match result {
                 Ok(summary) => {
                     self.log(format!("{label}: {summary}\nhecho en {secs:.2} s"));
+                    if isolate {
+                        while !self.clouds.is_empty() {
+                            self.drop_cloud(0);
+                        }
+                        self.style.files = u64::MAX;
+                    }
                     self.load_results(ctx, show, &outputs, &pre);
                 }
                 Err(e) => {
@@ -1318,8 +1354,13 @@ impl App {
             .chain(outputs.iter().filter(|o| !pre.contains(*o)))
         {
             let e = ext(f);
-            let loadable = rustlidar_core::raster::is_raster_ext(&e)
-                || matches!(e.as_str(), "shp" | "geojson" | "gpkg" | "las" | "laz");
+            // the stems and branches cloud of the TLS tool is big and made to be opened on demand
+            let on_demand = f
+                .file_stem()
+                .is_some_and(|n| n.to_string_lossy().ends_with("_fustes"));
+            let loadable = !on_demand
+                && (rustlidar_core::raster::is_raster_ext(&e)
+                    || matches!(e.as_str(), "shp" | "geojson" | "gpkg" | "las" | "laz"));
             if f.is_file() && loadable && !list.contains(f) {
                 list.push(f.clone());
             }
@@ -1747,7 +1788,7 @@ impl App {
             ("Clasificar puntos", Action::Tool(ToolId::Classify)),
             ("Asignar sistema de coordenadas", Action::Tool(ToolId::Crs)),
             ("Adelgazar nube (decimar)", Action::Tool(ToolId::Thin)),
-            ("Cubicar árboles (TLS)", Action::Tool(ToolId::Tls)),
+            ("Dendrometría de fustes (TLS)", Action::Tool(ToolId::Tls)),
             ("Volúmenes respecto al MDT", Action::Tool(ToolId::Volume)),
             ("Quitar puntos duplicados", Action::Tool(ToolId::Dups)),
             ("Alturas sobre el suelo", Action::Tool(ToolId::Hag)),
@@ -3077,7 +3118,7 @@ ui.menu_button("⚙", |ui| {
             && let Some(msg) = bm.paint(ctx, &painter, &plan_now, rect, w, h, project)
         {
             painter.text(
-                rect.left_top() + Vec2::new(10.0, 8.0),
+                rect.left_top() + Vec2::new(10.0, 26.0),
                 egui::Align2::LEFT_TOP,
                 msg,
                 egui::FontId::proportional(12.0),
@@ -3103,7 +3144,9 @@ ui.menu_button("⚙", |ui| {
         };
         self.paint_layers(&painter, rect, w, h, slot..self.refs.len());
         self.paint_draft(&painter, pointer, rect, w, h);
-        if let Some(bx) = &self.profile {
+        // the box marks what the profile window shows: with no such window it is not drawn
+        let profile_shown = matches!(self.layout, Layout::PlanProfile | Layout::All);
+        if let Some(bx) = self.profile.as_ref().filter(|_| profile_shown) {
             let l = bx.length().max(1e-9);
             let (nx, ny) = (
                 -(bx.b[1] - bx.a[1]) / l * bx.width / 2.0,
@@ -3210,7 +3253,7 @@ ui.menu_button("⚙", |ui| {
                 ),
             ];
             let box_rect = Rect::from_min_size(
-                rect.left_top() + Vec2::new(10.0, 28.0),
+                rect.left_top() + Vec2::new(10.0, 46.0),
                 Vec2::new(330.0, 62.0),
             );
             painter.rect_filled(box_rect, 4.0, Color32::from_black_alpha(190));
@@ -3518,13 +3561,16 @@ ui.menu_button("⚙", |ui| {
         let (mods, hovered) = (ui.input(|i| i.modifiers), resp.hovered());
         let d = resp.drag_delta();
         let o = &mut self.orbit;
-        let left = resp.dragged_by(egui::PointerButton::Primary);
+        // with a selection tool the left button draws; the middle one turns the scene
+        let selecting = editing::is_select(self.nav);
+        let left = resp.dragged_by(egui::PointerButton::Primary) && !selecting;
+        let turn = selecting && resp.dragged_by(egui::PointerButton::Middle);
         let pan = resp.dragged_by(egui::PointerButton::Secondary)
-            || resp.dragged_by(egui::PointerButton::Middle)
+            || (resp.dragged_by(egui::PointerButton::Middle) && !selecting)
             || (left && mods.shift);
-        if left && !pan {
-            if mods.ctrl {
-                o.dist = (o.dist * 1.006f64.powf(f64::from(d.y))).max(0.5);
+        if (left && !pan) || turn {
+            if mods.ctrl && !turn {
+                o.dist = (o.dist * 1.006f64.powf(f64::from(d.y))).max(0.02);
             } else {
                 o.yaw -= f64::from(d.x) * 0.008;
                 o.pitch = (o.pitch + f64::from(d.y) * 0.008).clamp(-1.5533, 1.5533);
@@ -3538,7 +3584,7 @@ ui.menu_button("⚙", |ui| {
         if hovered {
             let sc = ui.input(|i| i.smooth_scroll_delta.y);
             if sc.abs() > 0.5 {
-                o.dist = (o.dist * 0.9985f64.powf(f64::from(sc))).max(0.5);
+                o.dist = (o.dist * 0.9985f64.powf(f64::from(sc))).max(0.02);
                 moved = true;
             }
             let step = if mods.shift { 0.15 } else { 0.03 };
@@ -3553,11 +3599,11 @@ ui.menu_button("⚙", |ui| {
             if kx != 0 || ky != 0 || kz != 0 {
                 o.yaw -= f64::from(kx) * step;
                 o.pitch = (o.pitch - f64::from(ky) * step).clamp(-1.5533, 1.5533);
-                o.dist = (o.dist * (1.0 - f64::from(kz) * step)).max(0.5);
+                o.dist = (o.dist * (1.0 - f64::from(kz) * step)).max(0.02);
                 moved = true;
                 ui.ctx().request_repaint();
             }
-            if home || resp.double_clicked() {
+            if home || (resp.double_clicked() && !selecting) {
                 let keep = o.exaggeration;
                 *o = match &store {
                     Some(s) => Orbit::fit_scene(s),
@@ -3643,7 +3689,9 @@ ui.menu_button("⚙", |ui| {
             painter.text(
                 rect.right_top() + Vec2::new(-8.0, 6.0),
                 Align2::RIGHT_TOP,
-                if rect.width() > 900.0 {
+                if editing::is_select(self.nav) {
+                    "izq.: seleccionar · central: girar · der.: mover · rueda: zoom · flechas: girar".to_string()
+                } else if rect.width() > 900.0 {
                     format!(
                         "izq.: girar · der./central: mover · rueda: zoom · Ctrl+izq.: zoom · flechas: girar · doble clic/Inicio: encuadrar · exageración ×{:.1}",
                         self.orbit.exaggeration
@@ -3654,6 +3702,9 @@ ui.menu_button("⚙", |ui| {
                 FontId::proportional(11.0),
                 t.weak,
             );
+            if editing::is_select(self.nav) {
+                self.view3d_select(ctx, &painter, &resp, rect, w, h);
+            }
             // north arrow
             let c = rect.right_bottom() + Vec2::new(-34.0, -34.0);
             let (s, co) = self.orbit.yaw.sin_cos();

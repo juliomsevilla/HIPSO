@@ -1362,6 +1362,9 @@ enum Cmd {
         /// Also write one cloud per tree
         #[arg(long)]
         tree_clouds: bool,
+        /// Also write the cloud with the stems in class 64 and the branches in class 65
+        #[arg(long)]
+        stem_classes: bool,
         /// Distance (m) up to which a point goes to the nearest tree in the clouds by tree
         #[arg(long, default_value_t = 8.0)]
         assign_dist: f64,
@@ -1375,6 +1378,11 @@ enum Cmd {
         /// Longest stretch (m) of a stem that may go unmeasured before it is taken as lost
         #[arg(long, default_value_t = 2.0)]
         max_gap: f64,
+        /// Merchantable height as a share (0-1) of the tree height, to estimate it for the stems
+        /// lost while still thick and far below the top (for instance 0.65 for eucalyptus); 0: no
+        /// estimate
+        #[arg(long, default_value_t = 0.0)]
+        lost_top_share: f64,
     },
     /// Transition model (area-based): regression of a field variable (volume, basal area…) on the LiDAR
     /// metrics of the plots, with leave-one-out cross-validation that repeats the choice of
@@ -3426,10 +3434,12 @@ fn run(cmd: Cmd) -> Result<()> {
             stripe_high,
             max_diameter,
             tree_clouds,
+            stem_classes,
             assign_dist,
             stool_dist,
             fork_height,
             max_gap,
+            lost_top_share,
         } => {
             use rustlidar_core::tls::{TlsJob, TlsParams, run};
             let output = single_output(output, inputs.len())?;
@@ -3450,10 +3460,12 @@ fn run(cmd: Cmd) -> Result<()> {
                         stool_dist,
                         fork_height,
                         max_gap,
+                        lost_top_share,
                         ..TlsParams::default()
                     },
                     formats: paths::Formats { vector: true, csv },
                     tree_clouds,
+                    stem_classes,
                 };
                 lines.push(run(&job)?);
             }

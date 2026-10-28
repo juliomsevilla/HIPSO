@@ -93,6 +93,10 @@ pub const DEFINED: std::ops::RangeInclusive<u8> = 0..=22;
 /// First code left to the user.
 pub const USER_FIRST: u8 = 64;
 
+/// The classes the TLS tool gives to the points of the stems and to those of the branches.
+pub const STEM: u8 = 64;
+pub const BRANCH: u8 = 65;
+
 /// The colour a class is painted in unless the user changes it.
 pub fn default_color(class: u8) -> [u8; 3] {
     match class {
@@ -119,6 +123,8 @@ pub fn default_color(class: u8) -> [u8; 3] {
         20 => [120, 80, 40],
         21 => [235, 245, 255],
         22 => [200, 120, 120],
+        64 => [255, 140, 30],
+        65 => [90, 200, 90],
         c => hue(c),
     }
 }

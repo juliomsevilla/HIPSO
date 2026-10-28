@@ -943,6 +943,43 @@ impl Orbit {
     }
 }
 
+/// An [`Orbit`] ready to project points on a view: see [`Orbit::projector`].
+#[derive(Clone, Copy, Debug)]
+pub struct Projector {
+    target: [f64; 3],
+    ex: f64,
+    dist: f64,
+    sy: f64,
+    cy: f64,
+    sp: f64,
+    cp: f64,
+    f: f64,
+    hw: f64,
+    hh: f64,
+}
+
+impl Projector {
+    /// Pixel position and distance from the camera plane of a map point, or `None` behind it.
+    #[inline]
+    pub fn apply(&self, p: [f64; 3]) -> Option<(f64, f64, f64)> {
+        let (dx, dy, dz) = (
+            p[0] - self.target[0],
+            p[1] - self.target[1],
+            (p[2] - self.target[2]) * self.ex,
+        );
+        let (x1, y1) = (dx * self.cy - dy * self.sy, dx * self.sy + dy * self.cy);
+        let depth = y1 * self.cp - dz * self.sp + self.dist;
+        if depth < 1e-3 {
+            return None;
+        }
+        Some((
+            x1 * self.f / depth + self.hw,
+            -(y1 * self.sp + dz * self.cp) * self.f / depth + self.hh,
+            depth,
+        ))
+    }
+}
+
 impl Orbit {
     /// Focal length in pixels of a view `w`×`h`.
     fn focal(w: usize, h: usize) -> f64 {
@@ -951,23 +988,25 @@ impl Orbit {
 
     /// Where a map point lands on a view `w`×`h`, or `None` behind the camera.
     pub fn project(&self, p: [f64; 3], w: usize, h: usize) -> Option<(f64, f64)> {
+        self.projector(w, h).apply(p).map(|(x, y, _)| (x, y))
+    }
+
+    /// The camera with its trigonometry done once, to project many points.
+    pub fn projector(&self, w: usize, h: usize) -> Projector {
         let (sy, cy) = self.yaw.sin_cos();
         let (sp, cp) = self.pitch.sin_cos();
-        let (dx, dy, dz) = (
-            p[0] - self.target[0],
-            p[1] - self.target[1],
-            (p[2] - self.target[2]) * self.exaggeration,
-        );
-        let (x1, y1) = (dx * cy - dy * sy, dx * sy + dy * cy);
-        let depth = y1 * cp - dz * sp + self.dist;
-        if depth < 1e-3 {
-            return None;
+        Projector {
+            target: self.target,
+            ex: self.exaggeration,
+            dist: self.dist,
+            sy,
+            cy,
+            sp,
+            cp,
+            f: Self::focal(w, h),
+            hw: w as f64 / 2.0,
+            hh: h as f64 / 2.0,
         }
-        let f = Self::focal(w, h);
-        Some((
-            x1 * f / depth + w as f64 / 2.0,
-            -(y1 * sp + dz * cp) * f / depth + h as f64 / 2.0,
-        ))
     }
 
     /// Drags the scene by `(dx, dy)` pixels in the plane of the screen: what lies at the

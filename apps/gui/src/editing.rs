@@ -5,7 +5,7 @@
 //! are rules the engine applies to every point of the file when saving.
 
 use super::*;
-use rustlidar_core::edit::{self, Attr, Edit, Mode, Region, SelOp, Session};
+use rustlidar_core::edit::{self, Attr, Edit, Mode, Region, SelOp, Session, ViewCut};
 use rustlidar_core::vector::Polygon;
 
 pub enum Cmd {
@@ -30,6 +30,12 @@ pub struct Editing {
     pub draft: Vec<[f64; 2]>,
     pub pdraft: Vec<[f64; 2]>,
     pub pstart: Option<Pos2>,
+    /// Lasso trail and start of the drag on the 3D view, in pixels of the view.
+    pub d3draft: Vec<[f64; 2]>,
+    pub d3start: Option<Pos2>,
+    /// Selections in 3D reach only this many metres either side of the plane of the target.
+    pub slab: bool,
+    pub slab_half: f64,
     pub sel_rev: u64,
     pub sel_count: usize,
     pub class: u8,
@@ -58,6 +64,10 @@ impl Default for Editing {
             draft: Vec::new(),
             pdraft: Vec::new(),
             pstart: None,
+            d3draft: Vec::new(),
+            d3start: None,
+            slab: false,
+            slab_half: 1.0,
             sel_rev: 0,
             sel_count: 0,
             class: 7,
@@ -278,6 +288,53 @@ impl App {
         );
     }
 
+    /// Selection tools in the 3D view: the shapes are drawn on the screen and pick every point
+    /// that projects inside, in front or behind (limited to a slab when it is on).
+    pub fn view3d_select(
+        &mut self,
+        ctx: &egui::Context,
+        painter: &egui::Painter,
+        resp: &egui::Response,
+        rect: Rect,
+        w: usize,
+        h: usize,
+    ) {
+        if resp.drag_started_by(egui::PointerButton::Primary) {
+            self.ed.d3start = resp.interact_pointer_pos();
+        }
+        let start = self.ed.d3start;
+        let to = move |p: Pos2| [f64::from(p.x - rect.left()), f64::from(p.y - rect.top())];
+        if let Some(poly) = finished_shape(self.nav, resp, start, &mut self.ed.d3draft, &to, 1.0) {
+            let depth = self.ed.slab.then_some((
+                self.orbit.dist - self.ed.slab_half,
+                self.orbit.dist + self.ed.slab_half,
+            ));
+            let op = SelOp {
+                mode: self.mode_now(ctx),
+                region: Region::View(ViewCut::new(&self.orbit, w, h, poly, depth)),
+                attr: self.ed.attr.clone(),
+            };
+            self.queue(Cmd::AddOp(Box::new(op)));
+        }
+        if resp.drag_stopped_by(egui::PointerButton::Primary) {
+            self.ed.d3start = None;
+        }
+        let trail: Vec<Pos2> = self
+            .ed
+            .d3draft
+            .iter()
+            .map(|p| Pos2::new(p[0] as f32, p[1] as f32) + rect.min.to_vec2())
+            .collect();
+        paint_shape(
+            painter,
+            self.nav,
+            resp,
+            self.ed.d3start,
+            &trail,
+            Color32::from_rgb(0, 255, 255),
+        );
+    }
+
     /// Selection tools in the profile window: the shapes live in (distance, elevation).
     pub fn profile_select(
         &mut self,
@@ -376,6 +433,42 @@ impl App {
             pairs.push(((*c).clone(), out));
         }
         (!pairs.is_empty()).then(|| (paths, pairs, self.ed.sel_count, self.ed.ops.clone()))
+    }
+
+    /// Writes the selected points to `…_sel` files and shows only them, at the density of the
+    /// file: a tree cut out of a scan can be edited point by point instead of at the thinning of
+    /// the whole scene.
+    pub fn isolate_selection(&mut self, ctx: &egui::Context) {
+        if self
+            .ed
+            .session
+            .as_ref()
+            .is_some_and(|s| s.edits.len() > self.ed.saved || self.ed.toggled)
+        {
+            self.log
+                .push("Guarda o descarta los cambios antes de aislar la selección.".into());
+            return;
+        }
+        let Some((outputs, pairs, _, ops)) = self.selection_inputs() else {
+            self.log
+                .push("No hay puntos seleccionados que aislar.".into());
+            return;
+        };
+        self.isolate = true;
+        let launch = Launch {
+            outputs,
+            label: "Aislar selección".into(),
+            task: Box::new(move || {
+                let mut n = 0;
+                for (i, o) in &pairs {
+                    rustlidar_core::check_cancel()?;
+                    n += edit::extract_selected(i, &ops, o)?;
+                }
+                Ok(format!("{n} puntos aislados"))
+            }),
+            show: vec![],
+        };
+        self.start(ctx, launch);
     }
 
     pub fn edit_status(&self) -> Option<String> {
@@ -718,6 +811,24 @@ impl App {
                                 });
                             }
                         });
+                        ui.horizontal_wrapped(|ui| {
+                            ui.checkbox(&mut self.ed.slab, "Rebanada en 3D ±").on_hover_text(
+                                "En la vista 3D, la selección solo alcanza los puntos a esta distancia del plano del objetivo (el centro de giro): evita coger ramas del otro lado del tronco.",
+                            );
+                            ui.add_enabled(
+                                self.ed.slab,
+                                egui::DragValue::new(&mut self.ed.slab_half)
+                                    .range(0.01..=1000.0)
+                                    .speed(0.05)
+                                    .suffix(" m"),
+                            );
+                        });
+                        if ribbon::small_button(ui, &t, "@selrect", "Aislar selección", false)
+                            .on_hover_text("Saca los puntos seleccionados a un archivo «…_sel» y deja solo ese en pantalla, con toda su densidad: para editar un árbol punto a punto.")
+                            .clicked()
+                        {
+                            self.isolate_selection(ctx);
+                        }
                         if ribbon::small_button(
                             ui,
                             &t,

@@ -121,14 +121,32 @@ pub struct Item<A> {
     pub action: A,
 }
 
+/// A large button that opens a menu of commands.
+pub struct Menu<A> {
+    pub icon: &'static str,
+    pub label: &'static str,
+    pub items: Vec<Item<A>>,
+}
+
 /// A ribbon group described as data, so that it can be drawn whole or folded into one button.
 pub struct Group<A> {
     pub caption: &'static str,
     /// The icon of the group when it is folded.
     pub icon: &'static str,
-    /// Large buttons, then columns of up to three small ones.
+    /// Large buttons, then large menu buttons, then columns of up to three small ones.
     pub big: Vec<Item<A>>,
+    pub menus: Vec<Menu<A>>,
     pub columns: Vec<Vec<Item<A>>>,
+}
+
+impl<A> Group<A> {
+    /// Every command of the group, in the order they are drawn.
+    fn items(&self) -> impl Iterator<Item = &Item<A>> {
+        self.big
+            .iter()
+            .chain(self.menus.iter().flat_map(|m| m.items.iter()))
+            .chain(self.columns.iter().flatten())
+    }
 }
 
 /// The width of a text in the ribbon's font.
@@ -154,7 +172,16 @@ fn small_width(ui: &Ui, label: &str) -> f32 {
 impl<A> Group<A> {
     /// The width the group takes when drawn whole.
     fn width(&self, ui: &Ui) -> f32 {
-        let big: f32 = self.big.iter().map(|i| big_width(ui, i.label) + 2.0).sum();
+        let big: f32 = self
+            .big
+            .iter()
+            .map(|i| big_width(ui, i.label) + 2.0)
+            .sum::<f32>()
+            + self
+                .menus
+                .iter()
+                .map(|m| big_width(ui, &format!("{} ▾", m.label)) + 2.0)
+                .sum::<f32>();
         let cols: f32 = self
             .columns
             .iter()
@@ -199,11 +226,11 @@ pub fn adaptive_groups<A: Copy>(
     for (g, fold) in groups.iter().zip(folded) {
         if fold {
             group(ui, t, g.caption, |ui| {
-                let any_on = g.big.iter().chain(g.columns.iter().flatten()).any(|i| i.on);
+                let any_on = g.items().any(|i| i.on);
                 let label = format!("{} ▾", g.caption);
                 let r = big_button_body(ui, t, g.icon, &label, any_on);
                 egui::Popup::menu(&r).show(|ui| {
-                    for i in g.big.iter().chain(g.columns.iter().flatten()) {
+                    for i in g.items() {
                         if small_button(ui, t, i.icon, &i.label.replace('\n', " "), i.on).clicked()
                         {
                             act(i.action);
@@ -218,6 +245,18 @@ pub fn adaptive_groups<A: Copy>(
                 if big_button(ui, t, i.icon, i.label, i.on).clicked() {
                     act(i.action);
                 }
+            }
+            for m in &g.menus {
+                let on = m.items.iter().any(|i| i.on);
+                let r = big_button_body(ui, t, m.icon, &format!("{} ▾", m.label), on);
+                egui::Popup::menu(&r).show(|ui| {
+                    for i in &m.items {
+                        if small_button(ui, t, i.icon, &i.label.replace('\n', " "), i.on).clicked()
+                        {
+                            act(i.action);
+                        }
+                    }
+                });
             }
             for col in &g.columns {
                 ui.vertical(|ui| {

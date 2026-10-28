@@ -94,8 +94,14 @@ pub fn tip(label: &str) -> Option<&'static str> {
             "Conductores, apoyos y vegetación en riesgo de las líneas eléctricas."
         }
         "Recortar parcelas" => "Corta las nubes por parcelas y calcula sus métricas.",
-        "Cubicar árboles" => {
-            "Mide los troncos de nubes terrestres y cubica los árboles con Smalian."
+        "Métodos de masa" => {
+            "Inventario por área con nubes aéreas (ALS): métricas de rodal, recorte de parcelas y modelos de transición."
+        }
+        "Dendrometría" => {
+            "Inventario con nubes de escáner terrestre (TLS): mide los fustes, los cubica y clasifica fustes y ramas."
+        }
+        "Dendrometría TLS" => {
+            "Mide los fustes en nubes de escáner terrestre (diámetros a lo largo del tronco, altura y volumen con Smalian) y clasifica fustes y ramas."
         }
         // Ayuda
         "Manual" => "Abre el manual de uso (F1).",
@@ -107,6 +113,9 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Invertir" => "Invierte la selección (Ctrl+I).",
         "Quitar" => "Quita la selección (Esc).",
         "Exportar puntos…" => "Exporta la nube, o solo la selección, a LAZ, ASCII o shapefile.",
+        "Aislar selección" => {
+            "Saca los puntos seleccionados a un archivo «…_sel» y deja solo ese en pantalla, con toda su densidad."
+        }
         "Eliminar" => "Elimina los puntos seleccionados (Supr).",
         "Cambiar clase" => "Asigna la clase elegida a los puntos seleccionados.",
         "Quitar duplicados" => "Elimina los puntos repetidos y escribe una nube nueva.",

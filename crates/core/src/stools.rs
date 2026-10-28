@@ -184,6 +184,7 @@ fn merge_fork(mut members: Vec<TreeResult>, fork_h: f64, p: &TlsParams) -> TreeR
         volume,
         top_h,
         truncated,
+        estimated: false,
     };
     tree.sections = sections;
     tree.points = points;

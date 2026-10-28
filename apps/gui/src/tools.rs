@@ -78,7 +78,7 @@ impl ToolId {
             ToolId::Export => "Exportar puntos (LAZ / ASCII / shapefile)",
             ToolId::Crs => "Asignar sistema de coordenadas",
             ToolId::Thin => "Adelgazar nube (decimar)",
-            ToolId::Tls => "Cubicar árboles (TLS)",
+            ToolId::Tls => "Dendrometría de fustes (TLS)",
             ToolId::Dups => "Quitar puntos duplicados",
             ToolId::Compare => "Comparar nubes (cambios)",
             ToolId::Fit => "Ajustar una nube a otra",

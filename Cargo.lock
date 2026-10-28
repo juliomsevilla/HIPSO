@@ -3023,7 +3023,7 @@ dependencies = [
 
 [[package]]
 name = "rustlidar"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "clap",
  "rustlidar-core",
@@ -3031,7 +3031,7 @@ dependencies = [
 
 [[package]]
 name = "rustlidar-core"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "delaunator",
  "e57",
@@ -3048,7 +3048,7 @@ dependencies = [
 
 [[package]]
 name = "rustlidar-crs"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "geographiclib-rs",
  "rayon",
@@ -3062,7 +3062,7 @@ dependencies = [
 
 [[package]]
 name = "rustlidar-gui"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "earcutr",
  "eframe",

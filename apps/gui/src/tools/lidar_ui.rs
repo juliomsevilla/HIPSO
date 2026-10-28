@@ -23,6 +23,7 @@ pub struct State {
     pub thin_seed: f64,
     pub tls: TlsParams,
     pub tls_clouds: bool,
+    pub tls_stems: bool,
     pub dup: DupFields,
     pub dup_all: bool,
     pub hag: HagParams,
@@ -75,6 +76,7 @@ impl Default for State {
             thin_seed: 1.0,
             tls: TlsParams::default(),
             tls_clouds: false,
+            tls_stems: false,
             dup: DupFields::default(),
             dup_all: false,
             hag: HagParams::default(),
@@ -278,6 +280,15 @@ impl Tools {
                 0.25..=5.0,
                 0.25,
             );
+            let mut share = s.lost_top_share * 100.0;
+            num(
+                ui,
+                "Altura comercial esperada (% de la total) de los fustes perdidos estando gruesos; 0: no estimar",
+                &mut share,
+                0.0..=95.0,
+                1.0,
+            );
+            s.lost_top_share = share / 100.0;
             let mut v = s.voxel * 100.0;
             num(
                 ui,
@@ -368,10 +379,15 @@ impl Tools {
         });
         ui.separator();
         ui.checkbox(
+            &mut self.lx.tls_stems,
+            "Guardar la nube con fustes (clase 64) y ramas (clase 65)",
+        )
+        .on_hover_text("Para editar: los puntos dentro del círculo medido del tronco pasan a la clase 64 y el resto de los que están junto a un tronco a la 65. Se usa la distancia máxima al eje de abajo.");
+        ui.checkbox(
             &mut self.lx.tls_clouds,
             "Guardar también la nube de puntos de cada árbol",
         );
-        if self.lx.tls_clouds {
+        if self.lx.tls_clouds || self.lx.tls_stems {
             num(
                 ui,
                 "Distancia máxima al eje (m)",
@@ -1091,6 +1107,7 @@ impl Tools {
                 let formats = self.formats();
                 let params = self.lx.tls.clone();
                 let clouds = self.lx.tls_clouds;
+                let stems = self.lx.tls_stems;
                 let outs = names_ext("cubicado", "shp");
                 let mut outputs: Vec<PathBuf> = Vec::new();
                 let mut show = Vec::new();
@@ -1099,6 +1116,23 @@ impl Tools {
                     outputs.push(o.with_file_name(format!("{}_trozas.csv", paths::stem(o))));
                     if clouds {
                         outputs.push(o.with_file_name(format!("{}_arboles", paths::stem(o))));
+                    }
+                    if stems {
+                        for i in &inputs_v {
+                            if outs.get(i) == Some(o) {
+                                outputs.push(
+                                    TlsJob {
+                                        input: i.clone(),
+                                        output: o.clone(),
+                                        params: params.clone(),
+                                        formats,
+                                        tree_clouds: false,
+                                        stem_classes: true,
+                                    }
+                                    .stems_path(),
+                                );
+                            }
+                        }
                     }
                     if formats.vector {
                         show.push(o.clone());
@@ -1114,6 +1148,7 @@ impl Tools {
                             params: params.clone(),
                             formats,
                             tree_clouds: clouds,
+                            stem_classes: stems,
                         };
                         lines.push(tls::run(&job)?);
                     }

@@ -83,6 +83,10 @@ pub struct TlsParams {
     /// Longest stretch (m) of a stem that may go unmeasured (an occlusion, foliage, a sparse
     /// part) before it is taken as lost. The search widens with the stretch.
     pub max_gap: f64,
+    /// Share (0–1) of the height of the tree that its merchantable height is expected to be, used
+    /// to estimate it for a stem that was lost while still thick and far below the top of the
+    /// tree. 0: no estimate (the stem stays truncated).
+    pub lost_top_share: f64,
 }
 
 impl Default for TlsParams {
@@ -111,6 +115,7 @@ impl Default for TlsParams {
             stool_dist: 0.6,
             fork_height: 1.3,
             max_gap: 2.0,
+            lost_top_share: 0.0,
         }
     }
 }
@@ -1375,6 +1380,8 @@ pub struct Cubing {
     pub top_h: f64,
     /// The stem was lost before it reached the top diameter.
     pub truncated: bool,
+    /// The stem was lost, and the stretch from there to the top diameter is an estimate.
+    pub estimated: bool,
 }
 
 fn area(d: f64) -> f64 {
@@ -1618,6 +1625,9 @@ pub fn analyse(input: &Path, p: &TlsParams) -> Result<TlsResult> {
         .collect();
     crate::check_cancel()?;
     let mut trees = crate::stools::resolve(measured.into_iter().flatten().collect(), p);
+    if p.lost_top_share > 0.0 {
+        estimate_lost_tops(&mut trees, p);
+    }
     trees.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
     // numbers: the trees in order, and the stools in the order their first tree comes
     let mut stools: HashMap<u32, u32> = HashMap::new();
@@ -1634,6 +1644,51 @@ pub fn analyse(input: &Path, p: &TlsParams) -> Result<TlsResult> {
         voxels: c.xyz.len(),
         origin: c.origin,
     })
+}
+
+/// A stem that was lost while still thicker than the top diameter, well below the top of the
+/// tree, was not measured to its end: something (foliage, a branch whorl, an occlusion) hid it,
+/// because a stem does not stop being cubable at 8 cm and 20 m of height. Its merchantable
+/// height is then estimated as `p.lost_top_share` of the height of the tree (what the user
+/// expects of the species, for instance 0.65 for eucalyptus), and the diameter goes down linearly
+/// from the last section to the top diameter there. Forked trees are left as they are. The trees
+/// get the flag `ESTIMADO` instead of `TRUNCADO`.
+fn estimate_lost_tops(trees: &mut [TreeResult], p: &TlsParams) {
+    let profile_of = |t: &TreeResult| -> Vec<(f64, f64)> {
+        t.sections
+            .iter()
+            .filter(|s| s.ok || s.d.is_finite())
+            .map(|s| (s.h, s.d))
+            .collect()
+    };
+    let ratio = p.lost_top_share.clamp(0.1, 0.95);
+    for t in trees.iter_mut() {
+        if !t.cubing.truncated || t.fork_h.is_some() {
+            continue;
+        }
+        let mut profile = profile_of(t);
+        let Some(&(last_h, last_d)) = profile.last() else {
+            continue;
+        };
+        let h_com = ratio * t.height;
+        // lost near the top of the tree it really is the end; lost short of the estimate, keep it
+        if t.height - last_h <= 1.0 || h_com <= last_h + p.log_len || last_d < p.top_diam {
+            continue;
+        }
+        profile.push((h_com, p.top_diam));
+        profile.push((h_com + 0.05, p.top_diam * 0.9));
+        let mut cubing = smalian(&profile, p.base_height, p.log_len, p.top_diam);
+        cubing.estimated = true;
+        cubing.truncated = false;
+        t.cubing = cubing;
+        let flags: Vec<&str> = t
+            .flags
+            .split(' ')
+            .filter(|f| !f.is_empty() && *f != "TRUNCADO")
+            .chain(std::iter::once("ESTIMADO"))
+            .collect();
+        t.flags = flags.join(" ");
+    }
 }
 
 fn build_tree(
@@ -1906,6 +1961,9 @@ pub fn write_results(
     Ok(files)
 }
 
+/// Clouds by tree written in one read of the input.
+const OPEN_CLOUDS: usize = 150;
+
 /// Gives every point of the cloud to its nearest stem axis (within `assign_dist`, above the
 /// ground) and writes one cloud per tree into `dir`; returns how many clouds and points.
 pub fn write_tree_clouds(
@@ -1935,65 +1993,291 @@ pub fn write_tree_clouds(
         .push(k);
     }
     let rec_len = usize::from(template.header.record_len);
-    let mut writers: HashMap<usize, Writer> = HashMap::new();
     let mut total = 0u64;
-    template.scan_raw(|bytes| {
-        for rec in bytes.chunks_exact(rec_len) {
-            let Some(pt) = template.decode(rec) else {
-                continue;
-            };
-            if pt.is_noise() {
-                continue;
-            }
-            let (x, y, z) = (pt.x - o[0], pt.y - o[1], pt.z);
-            let (cx, cy) = ((x / cell).floor() as i64, (y / cell).floor() as i64);
-            let mut best: Option<(f64, usize)> = None;
-            for dx in -1..=1 {
-                for dy in -1..=1 {
-                    let Some(list) = grid.get(&pack(cx + dx, cy + dy, 0)) else {
-                        continue;
-                    };
-                    for &k in list {
-                        let t = &r.trees[k];
-                        let gz = t.ground_z + o[2];
-                        let h = z - gz;
-                        if h < 0.2 {
+    let mut n = 0;
+    // a file per tree is open while the cloud is read; the system limits how many files a
+    // program has open (256 on macOS), so the trees go in batches, one read of the cloud each
+    for lo in (0..r.trees.len()).step_by(OPEN_CLOUDS) {
+        let hi = (lo + OPEN_CLOUDS).min(r.trees.len());
+        let mut writers: HashMap<usize, Writer> = HashMap::new();
+        template.scan_raw(|bytes| {
+            for rec in bytes.chunks_exact(rec_len) {
+                let Some(pt) = template.decode(rec) else {
+                    continue;
+                };
+                if pt.is_noise() {
+                    continue;
+                }
+                let (x, y, z) = (pt.x - o[0], pt.y - o[1], pt.z);
+                let (cx, cy) = ((x / cell).floor() as i64, (y / cell).floor() as i64);
+                let mut best: Option<(f64, usize)> = None;
+                for dx in -1..=1 {
+                    for dy in -1..=1 {
+                        let Some(list) = grid.get(&pack(cx + dx, cy + dy, 0)) else {
                             continue;
-                        }
-                        // distance to the axis at this height
-                        let (ax, ay) = (
-                            t.x + t.slope[0] * (h - p.base_height),
-                            t.y + t.slope[1] * (h - p.base_height),
-                        );
-                        let d = (x - ax).hypot(y - ay);
-                        if d <= p.assign_dist && best.is_none_or(|b| d < b.0) {
-                            best = Some((d, k));
+                        };
+                        for &k in list {
+                            let t = &r.trees[k];
+                            let gz = t.ground_z + o[2];
+                            let h = z - gz;
+                            if h < 0.2 {
+                                continue;
+                            }
+                            // distance to the axis at this height
+                            let (ax, ay) = (
+                                t.x + t.slope[0] * (h - p.base_height),
+                                t.y + t.slope[1] * (h - p.base_height),
+                            );
+                            let d = (x - ax).hypot(y - ay);
+                            if d <= p.assign_dist && best.is_none_or(|b| d < b.0) {
+                                best = Some((d, k));
+                            }
                         }
                     }
                 }
+                if let Some((_, k)) = best
+                    && (lo..hi).contains(&k)
+                {
+                    if let std::collections::hash_map::Entry::Vacant(v) = writers.entry(k) {
+                        let path = dir.join(format!("arbol_{:04}.{ext}", r.trees[k].id));
+                        v.insert(Writer::create_with(
+                            &path,
+                            &template,
+                            &WriterOptions::small(),
+                        )?);
+                    }
+                    if let Some(w) = writers.get_mut(&k) {
+                        w.write(rec)?;
+                        total += 1;
+                    }
+                }
             }
-            if let Some((_, k)) = best {
-                if let std::collections::hash_map::Entry::Vacant(v) = writers.entry(k) {
-                    let path = dir.join(format!("arbol_{:04}.{ext}", r.trees[k].id));
-                    v.insert(Writer::create_with(
-                        &path,
-                        &template,
-                        &WriterOptions::small(),
-                    )?);
+            Ok(())
+        })?;
+        n += writers.len();
+        for (_, w) in writers {
+            w.finish()?;
+        }
+    }
+    Ok((n, total))
+}
+
+/// How many points `classify_stems` gave to the stems, to the branches and left as they were.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StemReport {
+    pub stem: u64,
+    pub branch: u64,
+    pub other: u64,
+}
+
+/// The measured stem of one tree as a function of height: the centre and radius of its sections.
+struct StemProfile {
+    /// Height above ground, centre (relative coordinates) and radius of each good section.
+    h: Vec<f64>,
+    c: Vec<[f64; 2]>,
+    r: Vec<f64>,
+    /// Height of the tree: the stem is taken to go on up to it above the last section.
+    top: f64,
+    /// Horizontal drift and radius change per metre above the last section.
+    drift: [f64; 2],
+    taper: f64,
+}
+
+impl StemProfile {
+    fn of(t: &TreeResult) -> Option<Self> {
+        let mut ok: Vec<&Section> = t.sections.iter().filter(|s| s.ok && s.d > 0.0).collect();
+        ok.sort_by(|a, b| a.h.total_cmp(&b.h));
+        let last = *ok.last()?;
+        // taper over the last metre of sections, never growing
+        let near: Vec<&&Section> = ok.iter().filter(|s| last.h - s.h <= 1.0).collect();
+        let taper = match (near.first(), near.last()) {
+            (Some(a), Some(b)) if b.h - a.h > 0.2 => {
+                ((b.d - a.d) / 2.0 / (b.h - a.h)).clamp(-0.02, -0.005)
+            }
+            _ => -0.01,
+        };
+        Some(Self {
+            h: ok.iter().map(|s| s.h).collect(),
+            c: ok.iter().map(|s| [s.x, s.y]).collect(),
+            r: ok.iter().map(|s| s.d / 2.0).collect(),
+            top: t.height.max(last.h),
+            drift: t.slope,
+            taper,
+        })
+    }
+
+    /// Centre and radius at height `h`, or `None` above the stem.
+    fn at(&self, h: f64) -> Option<([f64; 2], f64)> {
+        let n = self.h.len();
+        let last = self.h[n - 1];
+        if h > self.top {
+            return None;
+        }
+        if h >= last {
+            let dh = h - last;
+            let r = (self.r[n - 1] + self.taper * dh).max(0.03);
+            return Some((
+                [
+                    self.c[n - 1][0] + self.drift[0] * dh,
+                    self.c[n - 1][1] + self.drift[1] * dh,
+                ],
+                r,
+            ));
+        }
+        let k = self.h.partition_point(|v| *v <= h);
+        if k == 0 {
+            // below the first section: its circle, moved along the lean
+            let dh = h - self.h[0];
+            return Some((
+                [
+                    self.c[0][0] + self.drift[0] * dh,
+                    self.c[0][1] + self.drift[1] * dh,
+                ],
+                self.r[0],
+            ));
+        }
+        let (a, b) = (k - 1, k);
+        let u = (h - self.h[a]) / (self.h[b] - self.h[a]).max(1e-9);
+        let l = |x: f64, y: f64| x + (y - x) * u;
+        Some((
+            [l(self.c[a][0], self.c[b][0]), l(self.c[a][1], self.c[b][1])],
+            l(self.r[a], self.r[b]),
+        ))
+    }
+}
+
+/// Writes the cloud with the points of the stems in class [`crate::classes::STEM`] and the other
+/// points near a stem (up to `assign_dist` from its axis, above 0.2 m) in
+/// [`crate::classes::BRANCH`]; the rest keep their class. A point belongs to the stem when it
+/// lies within the measured circle of its tree at that height, plus a margin of a voxel. Heights
+/// where the stem was not measured take the circle between the sections around them, and above
+/// the last one the stem goes on to the top of the tree along its lean, thinning 0.5–2 cm per
+/// metre of radius.
+pub fn classify_stems(
+    input: &Path,
+    r: &TlsResult,
+    p: &TlsParams,
+    output: &Path,
+) -> Result<StemReport> {
+    use rayon::prelude::*;
+    if input == output {
+        return Err(Error::Param(
+            "la nube clasificada debe ir a un archivo nuevo, no sobre el original".into(),
+        ));
+    }
+    crate::paths::ensure_parent(output)?;
+    let reader = Reader::open(input)?;
+    let (old_format, rec_len) = (reader.header.format, usize::from(reader.header.record_len));
+    // classes above 31 need a full class byte: legacy files are written as LAS 1.4
+    let upgrade = if old_format < 6 {
+        Some(crate::las::upgraded_format(old_format).ok_or_else(|| {
+            Error::Unsupported(format!(
+                "el formato de punto {old_format} no admite clases por encima de 31: convierte antes la nube"
+            ))
+        })?)
+    } else {
+        None
+    };
+    let template = match upgrade {
+        Some(n) => Reader::open(input)?.upgraded(n),
+        None => Reader::open(input)?,
+    };
+    let format = template.header.format;
+    let mut w = Writer::create(output, &template)?;
+    let o = r.origin;
+    let cell = p.assign_dist.max(1.0);
+    let margin = p.voxel.max(0.02);
+    let profiles: Vec<Option<StemProfile>> = r.trees.iter().map(StemProfile::of).collect();
+    let mut grid: FxMap<u64, Vec<usize>> = FxMap::default();
+    for (k, t) in r.trees.iter().enumerate() {
+        grid.entry(pack(
+            (t.x / cell).floor() as i64,
+            (t.y / cell).floor() as i64,
+            0,
+        ))
+        .or_default()
+        .push(k);
+    }
+    // 0: not touched, 1: stem, 2: branch
+    let kind = |rec: &[u8]| -> u8 {
+        let Some(pt) = reader.decode(rec) else {
+            return 0;
+        };
+        if pt.is_noise() {
+            return 0;
+        }
+        let (x, y, z) = (pt.x - o[0], pt.y - o[1], pt.z);
+        let (cx, cy) = ((x / cell).floor() as i64, (y / cell).floor() as i64);
+        let mut near = false;
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                let Some(list) = grid.get(&pack(cx + dx, cy + dy, 0)) else {
+                    continue;
+                };
+                for &k in list {
+                    let t = &r.trees[k];
+                    let h = z - (t.ground_z + o[2]);
+                    if h < 0.2 {
+                        continue;
+                    }
+                    let (ax, ay) = (
+                        t.x + t.slope[0] * (h - p.base_height),
+                        t.y + t.slope[1] * (h - p.base_height),
+                    );
+                    if (x - ax).hypot(y - ay) > p.assign_dist {
+                        continue;
+                    }
+                    near = true;
+                    if let Some(prof) = &profiles[k]
+                        && let Some((c, rad)) = prof.at(h)
+                        && (x - c[0]).hypot(y - c[1]) <= rad + margin
+                    {
+                        return 1;
+                    }
                 }
-                if let Some(w) = writers.get_mut(&k) {
-                    w.write(rec)?;
-                    total += 1;
+            }
+        }
+        if near { 2 } else { 0 }
+    };
+    let mut rep = StemReport::default();
+    let mut conv = Vec::new();
+    reader.scan_raw(|bytes| {
+        let recs: Vec<&[u8]> = bytes.chunks_exact(rec_len).collect();
+        let kinds: Vec<u8> = recs.par_iter().map(|rec| kind(rec)).collect();
+        for (rec, k) in recs.iter().zip(kinds) {
+            let class = match k {
+                1 => {
+                    rep.stem += 1;
+                    Some(crate::classes::STEM)
                 }
+                2 => {
+                    rep.branch += 1;
+                    Some(crate::classes::BRANCH)
+                }
+                _ => {
+                    rep.other += 1;
+                    None
+                }
+            };
+            if let Some(new) = upgrade {
+                crate::las::upgrade_record(old_format, new, rec, &mut conv);
+                if let Some(c) = class {
+                    crate::las::set_class(format, &mut conv, c);
+                }
+                w.write(&conv)?;
+            } else if let Some(c) = class {
+                conv.clear();
+                conv.extend_from_slice(rec);
+                crate::las::set_class(format, &mut conv, c);
+                w.write(&conv)?;
+            } else {
+                w.write(rec)?;
             }
         }
         Ok(())
     })?;
-    let n = writers.len();
-    for (_, w) in writers {
-        w.finish()?;
-    }
-    Ok((n, total))
+    w.finish()?;
+    Ok(rep)
 }
 
 /// Everything one run does: measure, cube, write the results and, if asked, the clouds by tree.
@@ -2005,6 +2289,8 @@ pub struct TlsJob {
     pub params: TlsParams,
     pub formats: crate::paths::Formats,
     pub tree_clouds: bool,
+    /// Also write the cloud with the points of the stems and of the branches classified.
+    pub stem_classes: bool,
 }
 
 impl TlsJob {
@@ -2012,6 +2298,18 @@ impl TlsJob {
     pub fn clouds_dir(&self) -> PathBuf {
         self.output
             .with_file_name(format!("{}_arboles", crate::paths::stem(&self.output)))
+    }
+}
+
+impl TlsJob {
+    /// The cloud with stems and branches classified: `<output name>_fustes` with the input's format.
+    pub fn stems_path(&self) -> PathBuf {
+        let ext = self
+            .input
+            .extension()
+            .map_or("las".to_string(), |e| e.to_string_lossy().into_owned());
+        self.output
+            .with_file_name(format!("{}_fustes.{ext}", crate::paths::stem(&self.output)))
     }
 }
 
@@ -2030,6 +2328,18 @@ pub fn run(job: &TlsJob) -> Result<String> {
             "
 {n} nubes por árbol ({pts} puntos): {}",
             job.clouds_dir().display()
+        ));
+    }
+    if job.stem_classes && !r.trees.is_empty() {
+        let rep = classify_stems(&job.input, &r, &job.params, &job.stems_path())?;
+        text.push_str(&format!(
+            "
+Fustes (clase {}): {} puntos; ramas (clase {}): {} puntos: {}",
+            crate::classes::STEM,
+            rep.stem,
+            crate::classes::BRANCH,
+            rep.branch,
+            job.stems_path().display()
         ));
     }
     let _ = files;
@@ -2063,6 +2373,15 @@ pub fn summary(r: &TlsResult, out: &Path) -> String {
         r.voxels,
         out.display()
     );
+    let estimated: Vec<&TreeResult> = r.trees.iter().filter(|t| t.cubing.estimated).collect();
+    if !estimated.is_empty() {
+        let part: f64 = estimated.iter().map(|t| t.cubing.volume).sum();
+        text.push_str(&format!(
+            "\n  Aviso: en {} de {} árboles (ESTIMADO) el fuste se perdió estando aún grueso y lejos de la copa; su altura comercial se estima con la proporción de la altura total que se ha indicado, y su volumen ({part:.3} m³) incluye ese tramo estimado",
+            estimated.len(),
+            r.trees.len()
+        ));
+    }
     if !truncated.is_empty() {
         let part: f64 = truncated.iter().map(|t| t.cubing.volume).sum();
         text.push_str(&format!(
@@ -2255,5 +2574,80 @@ mod tests {
     fn principal_axis_of_a_line() {
         let v = principal([[0.01, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 5.0]]);
         assert!(v[2].abs() > 0.999);
+    }
+
+    #[test]
+    fn stem_profile_interpolates_between_sections_and_goes_on_above() {
+        let prof = StemProfile {
+            h: vec![1.0, 3.0],
+            c: vec![[0.0, 0.0], [0.2, 0.0]],
+            r: vec![0.10, 0.08],
+            top: 6.0,
+            drift: [0.1, 0.0],
+            taper: -0.01,
+        };
+        // halfway between the sections
+        let (c, r) = prof.at(2.0).unwrap_or_default();
+        assert!((c[0] - 0.1).abs() < 1e-9 && (r - 0.09).abs() < 1e-9);
+        // two metres above the last one: drifts along the lean and thins
+        let (c, r) = prof.at(5.0).unwrap_or_default();
+        assert!((c[0] - 0.4).abs() < 1e-9 && (r - 0.06).abs() < 1e-9);
+        // above the tree: no stem
+        assert!(prof.at(6.5).is_none());
+    }
+
+    fn stem_lost_at(last_h: f64, height: f64, p: &TlsParams) -> TreeResult {
+        let sections: Vec<Section> = (0..)
+            .map(|k| 0.1 + 0.25 * f64::from(k))
+            .take_while(|h| *h <= last_h)
+            .map(|h| Section {
+                h,
+                x: 0.0,
+                y: 0.0,
+                d: 0.20 - 0.004 * h,
+                ok: true,
+                points: 30,
+                sectors: 12,
+            })
+            .collect();
+        let profile: Vec<(f64, f64)> = sections.iter().map(|s| (s.h, s.d)).collect();
+        TreeResult {
+            id: 1,
+            x: 0.0,
+            y: 0.0,
+            ground_z: 0.0,
+            dbh: Some(0.19),
+            height,
+            tilt: 0.0,
+            cubing: smalian(&profile, p.base_height, p.log_len, p.top_diam),
+            sections,
+            points: 0,
+            quality: 100.0,
+            d_base: 0.2,
+            flags: "TRUNCADO".into(),
+            slope: [0.0, 0.0],
+            stool: 1,
+            sprouts: 1,
+            fork_h: None,
+        }
+    }
+
+    #[test]
+    fn a_stem_lost_thick_and_far_below_the_top_gets_the_expected_merchantable_height() {
+        let p = TlsParams {
+            lost_top_share: 0.65,
+            ..TlsParams::default()
+        };
+        // lost at 4 m with 18 cm in a tree of 20 m: its merchantable height is 13 m
+        let mut trees = vec![stem_lost_at(4.0, 20.0, &p), stem_lost_at(19.5, 20.0, &p)];
+        assert!(trees[0].cubing.truncated);
+        let before = trees[0].cubing.volume;
+        estimate_lost_tops(&mut trees, &p);
+        assert!(trees[0].cubing.estimated && !trees[0].cubing.truncated);
+        assert!((trees[0].cubing.top_h - 13.0).abs() < 0.1);
+        assert!(trees[0].cubing.volume > before);
+        assert!(trees[0].flags.contains("ESTIMADO") && !trees[0].flags.contains("TRUNCADO"));
+        // lost within a metre of the top of the tree: that is where the stem ends
+        assert!(trees[1].cubing.truncated && !trees[1].cubing.estimated);
     }
 }

@@ -13,7 +13,7 @@ use rayon::prelude::*;
 use crate::classes::ClassSet;
 use crate::las::{self, Reader, Writer};
 use crate::vector::Polygon;
-use crate::view::{PointStore, ProfileBox, return_bit};
+use crate::view::{Orbit, PointStore, ProfileBox, Projector, return_bit};
 use crate::{Error, Result};
 
 /// Where a selection operation looks.
@@ -26,6 +26,37 @@ pub enum Region {
     /// A polygon in a profile: x is the distance along the box, y the elevation; only points
     /// inside the box count.
     Profile { bx: ProfileBox, poly: Polygon },
+    /// A shape drawn on the 3D view, whatever lies in front of or behind the points.
+    View(ViewCut),
+}
+
+/// A polygon drawn in pixels on a 3D view, with the camera that showed it and, optionally, the
+/// range of distances from the camera plane that count (a slab through the scene). It is
+/// geometric, so it picks the same points in the decimated viewer and in the whole file.
+#[derive(Clone, Debug)]
+pub struct ViewCut {
+    cam: Projector,
+    poly: Polygon,
+    depth: Option<(f64, f64)>,
+}
+
+impl ViewCut {
+    pub fn new(cam: &Orbit, w: usize, h: usize, poly: Polygon, depth: Option<(f64, f64)>) -> Self {
+        Self {
+            cam: cam.projector(w, h),
+            poly,
+            depth,
+        }
+    }
+
+    fn contains(&self, p: &Sample) -> bool {
+        match self.cam.apply([p.x, p.y, p.z]) {
+            Some((x, y, d)) => {
+                self.depth.is_none_or(|(lo, hi)| d >= lo && d <= hi) && self.poly.contains(x, y)
+            }
+            None => false,
+        }
+    }
 }
 
 /// The attributes of a point a selection can be made on (the histograms of the editor).
@@ -198,6 +229,7 @@ impl SelOp {
                 let (u, t) = bx.local(p.x, p.y);
                 u >= 0.0 && u <= bx.length() && t.abs() <= bx.width / 2.0 && poly.contains(u, p.z)
             }
+            Region::View(cut) => cut.contains(p),
         }
     }
 }
@@ -864,5 +896,38 @@ mod tests {
             },
         )];
         assert_eq!(selection(&s, &both), [true, false, false, false, true]);
+    }
+
+    #[test]
+    fn view_cuts_pick_by_screen_shape_and_depth_slab() {
+        let s = store();
+        let cam = Orbit {
+            target: [0.0; 3],
+            yaw: 0.0,
+            pitch: 0.0,
+            dist: 20.0,
+            exaggeration: 1.0,
+        };
+        let cut = |poly, depth| {
+            vec![op(
+                Mode::New,
+                Region::View(ViewCut::new(&cam, 100, 100, poly, depth)),
+                Attr::default(),
+            )]
+        };
+        // a rectangle of a few pixels around where the first point lands picks only it
+        let (px, py) = cam.project(s.xyz(0), 100, 100).unwrap_or_default();
+        let small = rectangle([px - 1.0, py - 1.0], [px + 1.0, py + 1.0]);
+        assert_eq!(
+            selection(&s, &cut(small, None)),
+            [true, false, false, false, false]
+        );
+        // looking north the depth is 20 + y: a slab keeps the far points (y 2 and 8)
+        let all = rectangle([-1e4, -1e4], [1e4, 1e4]);
+        assert_eq!(
+            selection(&s, &cut(all.clone(), Some((21.5, 30.0)))),
+            [false, true, true, false, false]
+        );
+        assert_eq!(selection(&s, &cut(all, None)), [true; 5]);
     }
 }

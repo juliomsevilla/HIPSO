@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/juliomsevilla/EasyLiDAR/releases/latest"><img alt="Descargar" src="https://img.shields.io/badge/descargar-v0.4.1-ff8a1f?style=for-the-badge"></a>
+  <a href="https://github.com/juliomsevilla/EasyLiDAR/releases/latest"><img alt="Descargar" src="https://img.shields.io/badge/descargar-v0.5.0-ff8a1f?style=for-the-badge"></a>
   <img alt="Plataformas" src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-555?style=for-the-badge">
   <img alt="Gratuito" src="https://img.shields.io/badge/uso-gratuito-2e7d32?style=for-the-badge">
 </p>
@@ -42,7 +42,7 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/EasyLiDAR/relea
 - Ventanas **2D**, **2D + perfil**, **3D** y **2D + perfil + 3D**.
 - Navegación 3D libre: giro sin tope, desplazamiento en el plano de la pantalla, zoom con la rueda, encuadre con doble clic.
 - Colorear por elevación, clase, intensidad, retorno, pasada, archivo o RGB.
-- **Edición por selecciones** (rectángulo, círculo, polígono, en planta o en perfil) con filtros por clase, altura, intensidad y retorno; eliminar o reclasificar; deshacer, rehacer e historial. El original nunca se modifica.
+- **Edición por selecciones** (rectángulo, círculo, polígono, lazo, en planta, en perfil o **en la vista 3D**, con rebanada de profundidad y *Aislar selección* para editar un árbol a toda su densidad) con filtros por clase, altura, intensidad y retorno; eliminar o reclasificar; deshacer, rehacer e historial. El original nunca se modifica.
 - **Histogramas de atributos** (elevación, intensidad, retornos, clase, pasada, ángulo de barrido): se marcan barras para seleccionar los puntos, o se detectan los valores raros con un estadístico (Tukey, MAD, desviaciones típicas, percentiles).
 - **Proyectos (`.elp`):** guardan qué nubes y capas están abiertas, su orden, visibilidad, la vista y la orientación 3D, para retomar la sesión donde la dejaste.
 - **Capas grandes sin colgarse:** las capas vectoriales pesadas se dibujan como una imagen (un shapefile de 41 mil objetos pasa de 4,5 GB a 233 MB) y se consultan con un índice espacial R-tree. Las nubes COPC se leen a más detalle, en segundo plano, al acercar el zoom.
@@ -55,7 +55,7 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/EasyLiDAR/relea
 | **Preparar** | **Clasificar**: ruido, suelo (Kraus y Pfeifer, MCC, CSF, PMF, SMRF, Axelsson), edificios, vegetación por estratos, cables y postes, reglas por eco y ángulo de barrido · Información de los datos · Asignar proyección · Exportar puntos · Adelgazar nube (densidad objetivo, celdas, percentil, 3D, uno de cada n) · Alturas sobre el suelo (atributo o nube normalizada) · Quitar duplicados · **Colorear con una imagen (RGB)** · **Normalizar la intensidad por distancia** · **Guardar como COPC** |
 | **Calidad** | Comparar nubes (cambios) · Ajustar una nube a otra (ICP) · Separación entre pasadas |
 | **Superficies** | MDT (triangulación por defecto, ponderado por distancia o media por celda, con **líneas de rotura**) · MDS / CHM (MDS por triangulación, ponderado por distancia o máximo por celda; CHM con *pit-free* y suavizado) · **Análisis de terreno** sobre el MDT: pendiente, orientación, sombreado, curvaturas, rugosidad, TRI, TPI, depresiones, acumulación de flujo, TWI, red de drenaje, subcuencas y cuenca visual · Volumen sobre (y bajo) el MDT, desde el CHM o el MDS, por ráster completo, AOI o polígonos |
-| **Inventario forestal** | Métricas de rodal · Recortar parcelas (de archivo, muestreo o dibujadas) · Segmentar árboles (Dalponte, Silva, cuencas, ventana variable) con evaluación frente a campo · Cubicar (TLS): mide diámetros a lo largo del tronco y cubica con Smalian · **Modelos de transición**: regresión de volumen, área basimétrica… sobre las métricas LiDAR, validada dejando una parcela fuera cada vez, y su mapa · Cambio forestal · Análisis por objetos (OBIA) |
+| **Inventario forestal** | Métricas de rodal · Recortar parcelas (de archivo, muestreo o dibujadas) · Segmentar árboles (Dalponte, Silva, cuencas, ventana variable) con evaluación frente a campo · **Dendrometría TLS**: mide diámetros a lo largo del tronco, cubica con Smalian, estima la altura comercial de los fustes perdidos y guarda la nube con **fustes (clase 64) y ramas (clase 65)** para editarla · **Modelos de transición**: regresión de volumen, área basimétrica… sobre las métricas LiDAR, validada dejando una parcela fuera cada vez, y su mapa · Cambio forestal · Análisis por objetos (OBIA) |
 | **Infraestructuras** | Corredores eléctricos |
 
 ### Ráster
@@ -84,6 +84,10 @@ LAS y LAZ (también **COPC**, leído solo en la parte que hace falta y escrito c
     <td width="50%"><img src="assets/social/10-edicion-histograma.jpg" alt="Edición de puntos con histogramas"></td>
     <td width="50%"><img src="assets/social/07-cubicado-tls.jpg" alt="Cubicado de árboles con escáner terrestre"></td>
   </tr>
+  <tr>
+    <td width="50%"><img src="assets/social/06-edicion-vectorial.jpg" alt="Edición de vectores: vértices de polígonos y tabla de atributos"></td>
+    <td width="50%"><img src="assets/social/13-TLS-clasificado.png" alt="Nube TLS con fustes y ramas clasificados, en 3D"></td>
+  </tr>
 </table>
 
 <sub>Datos del PNOA LiDAR 2024 (© Instituto Geográfico Nacional, CC BY 4.0) y parcelas de campo propias.</sub>
@@ -104,7 +108,7 @@ easylidar thin nube.laz --method density --density 1
 easylidar classify nube.laz --ground csf --noise isolated --buildings --vegetation
 easylidar dtm nube.laz --cell 1
 easylidar chm nube.laz --cell 0.5 --method pitfree
-easylidar cubicar parcela_tls.laz --csv --tree-clouds
+easylidar cubicar parcela_tls.laz --csv --tree-clouds --stem-classes
 easylidar mosaic a.tif b.tif -o mosaico.tif --overlap mean
 easylidar colorize nube.laz --image ortofoto.tif
 easylidar copc nube.laz
