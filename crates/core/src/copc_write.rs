@@ -26,6 +26,8 @@ const GRID: u32 = 128;
 const LEAF: usize = 100_000;
 /// Deepest level of the tree.
 const MAX_LEVEL: i32 = 20;
+/// Points of the nodes compressed together.
+const BATCH_POINTS: usize = 4_000_000;
 /// Most points written to one COPC (the cloud is held in memory).
 const MAX_POINTS: u64 = 400_000_000;
 
@@ -313,20 +315,31 @@ pub fn write(input: &Path, output: &Path) -> Result<CopcReport> {
     f.write_all(&head)?;
     f.write_all(&vlrs)?;
     let mut comp = laz::ParLasZipCompressor::new(f, vlr.clone()).map_err(bad)?;
-    let chunks: Vec<Vec<u8>> = nodes
-        .par_iter()
-        .map(|nd| {
-            let mut c = Vec::with_capacity(nd.points.len() * new_len);
-            for &i in &nd.points {
-                let at = i as usize * new_len;
-                c.extend_from_slice(&recs[at..at + new_len]);
-            }
-            c
-        })
-        .collect();
+    // in batches, so that the chunks never exist all at once next to the records
+    let mut from = 0;
+    while from < nodes.len() {
+        let mut to = from;
+        let mut pts = 0usize;
+        while to < nodes.len() && (to == from || pts + nodes[to].points.len() <= BATCH_POINTS) {
+            pts += nodes[to].points.len();
+            to += 1;
+        }
+        let chunks: Vec<Vec<u8>> = nodes[from..to]
+            .par_iter()
+            .map(|nd| {
+                let mut c = Vec::with_capacity(nd.points.len() * new_len);
+                for &i in &nd.points {
+                    let at = i as usize * new_len;
+                    c.extend_from_slice(&recs[at..at + new_len]);
+                }
+                c
+            })
+            .collect();
+        crate::check_cancel()?;
+        comp.compress_chunks(chunks).map_err(bad)?;
+        from = to;
+    }
     drop(recs);
-    crate::check_cancel()?;
-    comp.compress_chunks(chunks).map_err(bad)?;
     comp.done().map_err(bad)?;
     let mut f = comp.into_inner();
     f.flush()?;

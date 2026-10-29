@@ -1,7 +1,7 @@
 //! The detail of a window of COPC clouds: when the viewer zooms in, the points of the whole
 //! cloud it holds (an even sample) are too few for the window, but the COPC files keep every
 //! point in an octree whose levels are denser and denser. This reads the levels of the nodes
-//! that touch the window, down to the deepest one that fits a budget of points.
+//! that touch the window, down to the deepest one that fits a budget of points, and no deeper than one point per `px` map units (a pixel).
 
 use rayon::prelude::*;
 
@@ -27,6 +27,7 @@ pub fn load_detail(
     paths: &[std::path::PathBuf],
     window: [f64; 4],
     budget: usize,
+    px: f64,
     origin: [f64; 3],
     files: &[String],
 ) -> Result<Option<PointStore>> {
@@ -43,6 +44,16 @@ pub fn load_detail(
         .collect::<Result<_>>()?;
     // the deepest level whose nodes (all of them, a node reaches past the window) fit
     let max_level = nodes.iter().flatten().map(|n| n.level).max().unwrap_or(0);
+    // the level whose spacing is about a pixel (`px` map units): finer would only overdraw
+    let spacing = clouds
+        .iter()
+        .map(|c| c.spacing())
+        .fold(f64::INFINITY, f64::min);
+    let wanted = if px > 0.0 && spacing.is_finite() {
+        (spacing / px).log2().ceil().max(0.0) as i32
+    } else {
+        max_level
+    };
     let mut level = 0;
     for l in 0..=max_level {
         let pts: u64 = nodes
@@ -51,7 +62,7 @@ pub fn load_detail(
             .filter(|n| n.level <= l)
             .map(|n| u64::from(n.points))
             .sum();
-        if pts > budget as u64 * 2 && l > 0 {
+        if (pts > budget as u64 * 2 || l > wanted) && l > 0 {
             break;
         }
         level = l;

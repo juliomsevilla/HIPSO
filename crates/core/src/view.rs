@@ -553,8 +553,14 @@ pub struct Style {
     /// Typical distance between displayed points, in map units: points are drawn as big as
     /// this when zoomed in, so the surface never turns into scattered specks.
     pub spacing: f64,
+    /// Plan view: fill the gaps between points (a few pixels wide, as many as the spacing of the
+    /// points says) with the nearest point, so scan lines and sparse ground read as a surface.
+    pub fill: bool,
     /// Draw only points inside this rectangle `[xmin, ymin, xmax, ymax]` (3D view).
     pub window: Option<[f64; 4]>,
+    /// Skip points inside this rectangle `[xmin, ymin, xmax, ymax]` (3D view: what a denser
+    /// store drawn over it replaces).
+    pub hole: Option<[f64; 4]>,
 }
 
 impl Default for Style {
@@ -574,7 +580,9 @@ impl Default for Style {
             thin: 1,
             transparent: false,
             window: None,
+            hole: None,
             spacing: 0.0,
+            fill: true,
         }
     }
 }
@@ -808,6 +816,62 @@ impl Layer {
         }
     }
 
+    /// Gives each empty cell the nearest reached one within `r` pixels along its row, then along
+    /// its column, so gaps up to about `2r` wide close. Linear in the pixels.
+    fn fill_gaps(&mut self, r: usize) {
+        use rayon::prelude::*;
+        use std::sync::atomic::Ordering::Relaxed;
+        fn rows(buf: &mut [u64], w: usize, r: usize) {
+            buf.par_chunks_mut(w).for_each(|row| {
+                let src = row.to_vec();
+                let mut left = vec![usize::MAX; w];
+                let mut last = usize::MAX;
+                for (x, v) in src.iter().enumerate() {
+                    if *v != EMPTY {
+                        last = x;
+                    }
+                    left[x] = last;
+                }
+                let mut right = usize::MAX;
+                for x in (0..w).rev() {
+                    if src[x] != EMPTY {
+                        right = x;
+                        continue;
+                    }
+                    let dl = if left[x] == usize::MAX {
+                        usize::MAX
+                    } else {
+                        x - left[x]
+                    };
+                    let dr = if right == usize::MAX {
+                        usize::MAX
+                    } else {
+                        right - x
+                    };
+                    let d = dl.min(dr);
+                    if d <= r {
+                        row[x] = if dl <= dr { src[left[x]] } else { src[right] };
+                    }
+                }
+            });
+        }
+        let (w, h) = (self.w, self.h);
+        let mut buf: Vec<u64> = self.cells.iter().map(|c| c.load(Relaxed)).collect();
+        rows(&mut buf, w, r);
+        let mut t = vec![EMPTY; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                t[x * h + y] = buf[y * w + x];
+            }
+        }
+        rows(&mut t, h, r);
+        for y in 0..h {
+            for x in 0..w {
+                self.cells[y * w + x].store(t[x * h + y], Relaxed);
+            }
+        }
+    }
+
     /// Paints the pixels that were reached over `img`.
     fn paint_into(&self, img: &mut Image) {
         use rayon::prelude::*;
@@ -828,14 +892,23 @@ impl Layer {
 
 /// Runs `f(layer, point index)` over every `step`-th point on all cores and paints the nearest
 /// points over `img`.
-fn par_points(img: &mut Image, n: usize, step: usize, f: impl Fn(&Layer, usize) + Sync + Send) {
+fn par_points(
+    img: &mut Image,
+    n: usize,
+    step: usize,
+    fill: usize,
+    f: impl Fn(&Layer, usize) + Sync + Send,
+) {
     use rayon::prelude::*;
     let step = step.max(1);
-    let layer = Layer::new(img.w, img.h);
+    let mut layer = Layer::new(img.w, img.h);
     (0..n / step)
         .into_par_iter()
         .with_min_len(8192)
         .for_each(|k| f(&layer, k * step));
+    if fill > 0 {
+        layer.fill_gaps(fill);
+    }
     layer.paint_into(img);
 }
 
@@ -861,7 +934,16 @@ fn dot(st: &Style, px_per_unit: f64) -> i64 {
 pub fn render_plan(s: &PointStore, v: &Plan, w: usize, h: usize, st: &Style) -> Image {
     let mut img = canvas(w, h, st);
     let size = dot(st, v.scale);
-    par_points(&mut img, s.len(), st.thin.max(1), |l, i| {
+    // the gaps are closed up to twice the spacing of the points on screen (at least 2 pixels: the
+    // average spacing hides scan lines and overlaps, where the points are far apart in one
+    // direction), unless the points are far denser than the pixels
+    let gap_px = st.spacing * v.scale;
+    let fill = if st.fill && st.thin <= 1 && gap_px >= 0.3 {
+        (gap_px * 2.0).ceil().clamp(2.0, 8.0) as usize
+    } else {
+        0
+    };
+    par_points(&mut img, s.len(), st.thin.max(1), fill, |l, i| {
         let px = ((f64::from(s.x[i]) + s.origin[0] - v.cx) * v.scale + w as f64 / 2.0).floor();
         let py = ((v.cy - (f64::from(s.y[i]) + s.origin[1])) * v.scale + h as f64 / 2.0).floor();
         if px < -size as f64
@@ -982,7 +1064,7 @@ impl Projector {
 
 impl Orbit {
     /// Focal length in pixels of a view `w`×`h`.
-    fn focal(w: usize, h: usize) -> f64 {
+    pub fn focal(w: usize, h: usize) -> f64 {
         h.min(w) as f64 * 1.1
     }
 
@@ -1024,46 +1106,84 @@ impl Orbit {
 }
 
 pub fn render_3d(s: &PointStore, o: &Orbit, w: usize, h: usize, st: &Style) -> Image {
+    render_3d_with(s, st, None, o, w, h)
+}
+
+/// The 3D view of `s`, and of `over` (a denser store of a part of the same cloud, with its own
+/// style) in the same depth buffer.
+pub fn render_3d_with(
+    s: &PointStore,
+    st: &Style,
+    over: Option<(&PointStore, &Style)>,
+    o: &Orbit,
+    w: usize,
+    h: usize,
+) -> Image {
+    use rayon::prelude::*;
     let mut img = canvas(w, h, st);
     let (sy, cy) = o.yaw.sin_cos();
     let (sp, cp) = o.pitch.sin_cos();
     let f = Orbit::focal(w, h);
-    par_points(&mut img, s.len(), st.thin.max(1), |l, i| {
-        if !st.visible(s, i) {
-            return;
-        }
-        let p = s.xyz(i);
-        if let Some(w3) = st.window
-            && (p[0] < w3[0] || p[0] > w3[2] || p[1] < w3[1] || p[1] > w3[3])
-        {
-            return;
-        }
-        let (dx, dy, dz) = (
-            p[0] - o.target[0],
-            p[1] - o.target[1],
-            (p[2] - o.target[2]) * o.exaggeration,
-        );
-        // yaw about z, then pitch about x; the camera sits o.dist away behind +y rotated
-        let (x1, y1) = (dx * cy - dy * sy, dx * sy + dy * cy);
-        let depth_axis = y1 * cp - dz * sp + o.dist;
-        let up = y1 * sp + dz * cp;
-        if depth_axis < 1e-3 {
-            return;
-        }
-        let px = (x1 * f / depth_axis + w as f64 / 2.0).floor();
-        let py = (-up * f / depth_axis + h as f64 / 2.0).floor();
-        if px < 0.0 || py < 0.0 || px >= w as f64 || py >= h as f64 {
-            return;
-        }
-        // nearer points look bigger: the size follows the perspective
-        l.splat(
-            px as i64,
-            py as i64,
-            depth_axis as f32,
-            dot(st, f / depth_axis),
-            st.color(s, i),
-        );
-    });
+    let mut layer = Layer::new(w, h);
+    let (mut gap_px, mut thin) = (0.0f64, 1);
+    for (s, st) in std::iter::once((s, st)).chain(over) {
+        gap_px = gap_px.max(st.spacing * f / o.dist.max(1e-9));
+        thin = thin.max(st.thin);
+        let step = st.thin.max(1);
+        (0..s.len() / step)
+            .into_par_iter()
+            .with_min_len(8192)
+            .for_each(|k| {
+                let i = k * step;
+                if !st.visible(s, i) {
+                    return;
+                }
+                let p = s.xyz(i);
+                if let Some(w3) = st.window
+                    && (p[0] < w3[0] || p[0] > w3[2] || p[1] < w3[1] || p[1] > w3[3])
+                {
+                    return;
+                }
+                if let Some(hl) = st.hole
+                    && p[0] >= hl[0]
+                    && p[0] <= hl[2]
+                    && p[1] >= hl[1]
+                    && p[1] <= hl[3]
+                {
+                    return;
+                }
+                let (dx, dy, dz) = (
+                    p[0] - o.target[0],
+                    p[1] - o.target[1],
+                    (p[2] - o.target[2]) * o.exaggeration,
+                );
+                // yaw about z, then pitch about x; the camera sits o.dist away behind +y rotated
+                let (x1, y1) = (dx * cy - dy * sy, dx * sy + dy * cy);
+                let depth_axis = y1 * cp - dz * sp + o.dist;
+                let up = y1 * sp + dz * cp;
+                if depth_axis < 1e-3 {
+                    return;
+                }
+                let px = (x1 * f / depth_axis + w as f64 / 2.0).floor();
+                let py = (-up * f / depth_axis + h as f64 / 2.0).floor();
+                if px < 0.0 || py < 0.0 || px >= w as f64 || py >= h as f64 {
+                    return;
+                }
+                // nearer points look bigger: the size follows the perspective
+                layer.splat(
+                    px as i64,
+                    py as i64,
+                    depth_axis as f32,
+                    dot(st, f / depth_axis),
+                    st.color(s, i),
+                );
+            });
+    }
+    // as in the plan view: the gaps between points close up to twice their spacing on screen
+    if st.fill && thin <= 1 && gap_px >= 0.3 {
+        layer.fill_gaps((gap_px * 2.0).ceil().clamp(2.0, 8.0) as usize);
+    }
+    layer.paint_into(&mut img);
     img
 }
 

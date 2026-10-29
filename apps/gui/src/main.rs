@@ -248,11 +248,13 @@ enum Side {
 }
 
 /// The background read of a window: what it will send, and the window.
-type DetailJob = (Receiver<Result<Option<PointStore>, String>>, [f64; 4]);
+type DetailJob = (Receiver<Result<Option<PointStore>, String>>, [f64; 4], f64);
 
 /// A window of COPC clouds read at full detail, and the dot spacing that goes with it.
 struct Detail {
     window: [f64; 4],
+    /// Map units per pixel it was read for.
+    px: f64,
     store: Arc<PointStore>,
     spacing: f64,
     id: u64,
@@ -447,11 +449,17 @@ struct App {
     pending_conform: Vec<PathBuf>,
     /// The system of the work while there is no cloud: that of the first layer opened.
     work_crs: Option<u16>,
-    /// Every LAS/LAZ cloud is COPC: a window of it can be read at full detail.
-    copc_only: bool,
+    /// The COPC file to read a window from for each cloud (the cloud itself, or its copy in the
+    /// cache); empty until every cloud has one, and then a window can be read at full detail.
+    detail_src: Vec<PathBuf>,
+    /// The background making of the COPC copies.
+    cache_job: Option<Receiver<Result<Vec<PathBuf>, String>>>,
     /// The points of the window being looked at, read from the COPC files.
     detail: Option<Detail>,
     detail_job: Option<DetailJob>,
+    /// The same for the 3D view.
+    detail3: Option<Detail>,
+    detail3_job: Option<DetailJob>,
     detail_id: u64,
     show_about: bool,
     show_shortcuts: bool,
@@ -559,9 +567,12 @@ impl Default for App {
             basemap: None,
             pending_conform: Vec::new(),
             work_crs: None,
-            copc_only: false,
+            detail_src: Vec::new(),
+            cache_job: None,
             detail: None,
             detail_job: None,
+            detail3: None,
+            detail3_job: None,
             detail_id: 0,
             show_about: false,
             show_shortcuts: false,
@@ -1199,14 +1210,13 @@ impl App {
                         self.log(n);
                     }
                     self.clouds = files;
-                    self.copc_only = !self.clouds.is_empty()
-                        && self.clouds.iter().all(|p| {
-                            p.extension().is_some_and(|e| {
-                                e.eq_ignore_ascii_case("laz") || e.eq_ignore_ascii_case("las")
-                            }) && rustlidar_core::copc::Copc::open(p).ok().flatten().is_some()
-                        });
+                    self.detail_src.clear();
+                    self.cache_job = None;
+                    self.start_cache(ctx, s.stride > 1);
                     self.detail = None;
                     self.detail_job = None;
+                    self.detail3 = None;
+                    self.detail3_job = None;
                     // layers opened before it follow the system of the first layer: if the cloud is in
                     // another, they are loaded again in the cloud's
                     if let Some(w) = self.work_crs.take()
@@ -1492,8 +1502,7 @@ impl App {
                 s.point_size,
                 s.classes,
                 s.returns,
-                s.thin,
-                s.transparent,
+                (s.thin, s.transparent, s.fill),
                 self.colors_rev,
                 self.rev,
                 self.ed.sel_rev,
@@ -3640,6 +3649,25 @@ ui.menu_button("⚙", |ui| {
             if !self.follow_plan {
                 st.window = None;
             }
+            // close to the cloud the ground the camera takes in is read again at full detail
+            let f = Orbit::focal(w, h);
+            let px3 = self.orbit.dist / f;
+            let half = w.max(h) as f64 * px3 * 0.6;
+            let (tx, ty) = (self.orbit.target[0], self.orbit.target[1]);
+            self.update_detail3(
+                ctx,
+                [tx - half, ty - half, tx + half, ty + half],
+                px3,
+                interactive,
+            );
+            let over = self
+                .detail3
+                .as_ref()
+                .filter(|d| contains(d.window, [tx - half, ty - half, tx + half, ty + half]))
+                .map(|d| (d.store.clone(), d.spacing, d.id, d.window));
+            if let Some(d) = &over {
+                st.hole = Some(d.3);
+            }
             let o = &self.orbit;
             let key = hash_of((
                 self.style_key(),
@@ -3653,10 +3681,26 @@ ui.menu_button("⚙", |ui| {
                 o.target[0].to_bits(),
                 o.target[1].to_bits(),
                 o.target[2].to_bits(),
-                st.window.map(|w| w.map(f64::to_bits)),
+                (
+                    st.window.map(|w| w.map(f64::to_bits)),
+                    over.as_ref().map(|d| d.2),
+                ),
             ));
             if self.tex_3d.as_ref().is_none_or(|t| t.1 != key) {
-                let img = view::render_3d(&store, &self.orbit, w, h, &st);
+                let img = match &over {
+                    Some((ds, spacing, _, _)) => {
+                        let mut dst = st.clone();
+                        dst.hole = None;
+                        dst.spacing = *spacing;
+                        dst.thin = if interactive && ds.len() > 1_000_000 {
+                            ds.len() / 1_000_000 + 1
+                        } else {
+                            1
+                        };
+                        view::render_3d_with(&store, &st, Some((ds, &dst)), &self.orbit, w, h)
+                    }
+                    None => view::render_3d(&store, &self.orbit, w, h, &st),
+                };
                 match &mut self.tex_3d {
                     Some((tex, k)) => {
                         tex.set(
