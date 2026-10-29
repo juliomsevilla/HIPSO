@@ -641,6 +641,9 @@ pub struct Style {
     /// Plan view: fill the gaps between points (a few pixels wide, as many as the spacing of the
     /// points says) with the nearest point, so scan lines and sparse ground read as a surface.
     pub fill: bool,
+    /// Eye-dome lighting: darkens the pixels that lie behind their neighbours, which gives depth
+    /// and edges to a flat colouring. 0 is off; 1 is a usual strength.
+    pub edl: f32,
     /// Draw only points inside this rectangle `[xmin, ymin, xmax, ymax]` (3D view).
     pub window: Option<[f64; 4]>,
     /// Skip points inside this rectangle `[xmin, ymin, xmax, ymax]` (3D view: what a denser
@@ -668,6 +671,7 @@ impl Default for Style {
             hole: None,
             spacing: 0.0,
             fill: true,
+            edl: 0.0,
         }
     }
 }
@@ -957,6 +961,71 @@ impl Layer {
         }
     }
 
+    /// Eye-dome lighting: each pixel is darkened by how much its neighbours (one and two pixels
+    /// away) lie in front of it, as a share of the depth range of the image.
+    fn shade_edl(&mut self, strength: f32) {
+        use rayon::prelude::*;
+        use std::sync::atomic::Ordering::Relaxed;
+        let (w, h) = (self.w, self.h);
+        let src: Vec<u64> = self.cells.iter().map(|c| c.load(Relaxed)).collect();
+        let depth = |v: u64| {
+            let k = (v >> 24) as u32;
+            f32::from_bits(if k & 0x8000_0000 != 0 {
+                k & 0x7fff_ffff
+            } else {
+                !k
+            })
+        };
+        let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+        for &v in src.iter().filter(|v| **v != EMPTY) {
+            let d = depth(v);
+            lo = lo.min(d);
+            hi = hi.max(d);
+        }
+        if !(hi > lo) {
+            return;
+        }
+        let range = hi - lo;
+        let out: Vec<u64> = (0..w * h)
+            .into_par_iter()
+            .map(|i| {
+                let v = src[i];
+                if v == EMPTY {
+                    return v;
+                }
+                let (x, y) = ((i % w) as i64, (i / w) as i64);
+                let d = depth(v);
+                let mut obscure = 0.0f32;
+                for (dx, dy) in [
+                    (-1i64, 0i64),
+                    (1, 0),
+                    (0, -1),
+                    (0, 1),
+                    (-2, 0),
+                    (2, 0),
+                    (0, -2),
+                    (0, 2),
+                ] {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if nx < 0 || ny < 0 || nx >= w as i64 || ny >= h as i64 {
+                        continue;
+                    }
+                    let n = src[ny as usize * w + nx as usize];
+                    if n != EMPTY {
+                        // a nearer neighbour (smaller depth) shades this one
+                        obscure += ((d - depth(n)) / range).max(0.0);
+                    }
+                }
+                let f = (-strength * obscure * 60.0).exp();
+                let c = |sh: u32| (((v >> sh) & 0xff) as f32 * f) as u64;
+                (v & !0xff_ffff) | c(16) << 16 | c(8) << 8 | c(0)
+            })
+            .collect();
+        for (c, v) in self.cells.iter().zip(out) {
+            c.store(v, Relaxed);
+        }
+    }
+
     /// Paints the pixels that were reached over `img`.
     fn paint_into(&self, img: &mut Image) {
         use rayon::prelude::*;
@@ -982,6 +1051,7 @@ fn par_points(
     n: usize,
     step: usize,
     fill: usize,
+    edl: f32,
     f: impl Fn(&Layer, usize) + Sync + Send,
 ) {
     use rayon::prelude::*;
@@ -993,6 +1063,9 @@ fn par_points(
         .for_each(|k| f(&layer, k * step));
     if fill > 0 {
         layer.fill_gaps(fill);
+    }
+    if edl > 0.0 {
+        layer.shade_edl(edl);
     }
     layer.paint_into(img);
 }
@@ -1007,6 +1080,11 @@ fn canvas(w: usize, h: usize, st: &Style) -> Image {
     } else {
         Image::filled(w, h, st.background)
     }
+}
+
+/// The eye-dome strength of a style, off while the view moves (thinned).
+fn edl_of(st: &Style) -> f32 {
+    if st.thin <= 1 { st.edl.max(0.0) } else { 0.0 }
 }
 
 /// Dot size in pixels: at least the chosen one, and as big as the spacing between points
@@ -1028,19 +1106,27 @@ pub fn render_plan(s: &PointStore, v: &Plan, w: usize, h: usize, st: &Style) -> 
     } else {
         0
     };
-    par_points(&mut img, s.len(), st.thin.max(1), fill, |l, i| {
-        let px = ((f64::from(s.x[i]) + s.origin[0] - v.cx) * v.scale + w as f64 / 2.0).floor();
-        let py = ((v.cy - (f64::from(s.y[i]) + s.origin[1])) * v.scale + h as f64 / 2.0).floor();
-        if px < -size as f64
-            || py < -size as f64
-            || px >= (w as i64 + size) as f64
-            || py >= (h as i64 + size) as f64
-            || !st.visible(s, i)
-        {
-            return;
-        }
-        l.splat(px as i64, py as i64, -s.z[i], size, st.color(s, i));
-    });
+    par_points(
+        &mut img,
+        s.len(),
+        st.thin.max(1),
+        fill,
+        edl_of(st),
+        |l, i| {
+            let px = ((f64::from(s.x[i]) + s.origin[0] - v.cx) * v.scale + w as f64 / 2.0).floor();
+            let py =
+                ((v.cy - (f64::from(s.y[i]) + s.origin[1])) * v.scale + h as f64 / 2.0).floor();
+            if px < -size as f64
+                || py < -size as f64
+                || px >= (w as i64 + size) as f64
+                || py >= (h as i64 + size) as f64
+                || !st.visible(s, i)
+            {
+                return;
+            }
+            l.splat(px as i64, py as i64, -s.z[i], size, st.color(s, i));
+        },
+    );
     img
 }
 
@@ -1267,6 +1353,9 @@ pub fn render_3d_with(
     // as in the plan view: the gaps between points close up to twice their spacing on screen
     if st.fill && thin <= 1 && gap_px >= 0.3 {
         layer.fill_gaps((gap_px * 2.0).ceil().clamp(2.0, 8.0) as usize);
+    }
+    if edl_of(st) > 0.0 && thin <= 1 {
+        layer.shade_edl(st.edl);
     }
     layer.paint_into(&mut img);
     img

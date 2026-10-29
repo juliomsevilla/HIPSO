@@ -1509,7 +1509,7 @@ impl App {
                 s.point_size,
                 s.classes,
                 s.returns,
-                (s.thin, s.transparent, s.fill),
+                (s.thin, s.transparent, s.fill, s.edl.to_bits()),
                 self.colors_rev,
                 self.rev,
                 self.ed.sel_rev,

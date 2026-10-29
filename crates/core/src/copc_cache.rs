@@ -9,8 +9,11 @@ use std::path::{Path, PathBuf};
 
 use crate::Result;
 
-/// The folder of the copies.
+/// The folder of the copies (`EASYLIDAR_CACHE_DIR` when set, else the cache folder of the system).
 fn cache_dir() -> PathBuf {
+    if let Some(d) = std::env::var_os("EASYLIDAR_CACHE_DIR") {
+        return PathBuf::from(d);
+    }
     let home = |sub: &str| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(sub));
     let dir = if cfg!(target_os = "macos") {
         home("Library/Caches")
@@ -67,7 +70,11 @@ pub const MAX_BYTES: u64 = 20 << 30;
 /// Removes the copies used least recently until the cache holds at most `max_bytes`, never those
 /// in `keep`, and the half-written ones left by an interrupted writing. Returns the bytes freed.
 pub fn prune(max_bytes: u64, keep: &[PathBuf]) -> u64 {
-    let Ok(dir) = std::fs::read_dir(cache_dir()) else {
+    prune_in(&cache_dir(), max_bytes, keep)
+}
+
+fn prune_in(folder: &Path, max_bytes: u64, keep: &[PathBuf]) -> u64 {
+    let Ok(dir) = std::fs::read_dir(folder) else {
         return 0;
     };
     let now = std::time::SystemTime::now();
@@ -165,5 +172,41 @@ pub fn ensure(src: &Path) -> Result<PathBuf> {
             let _ = std::fs::remove_file(&part);
             Err(e)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pruning_removes_the_least_recently_used_and_spares_the_kept() {
+        let dir = std::env::temp_dir().join(format!("el_cache_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let now = std::time::SystemTime::now();
+        let ago = |s: u64| now - std::time::Duration::from_secs(s);
+        let make = |name: &str, bytes: usize, age: u64| {
+            let p = dir.join(name);
+            std::fs::write(&p, vec![0u8; bytes]).unwrap();
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&p)
+                .unwrap()
+                .set_modified(ago(age))
+                .unwrap();
+            p
+        };
+        let old = make("a.copc.laz", 100, 3000);
+        let kept = make("b.copc.laz", 100, 2000);
+        let mid = make("c.copc.laz", 100, 1000);
+        let new = make("d.copc.laz", 100, 10);
+        let stale = make("e.part", 50, 90_000);
+        let young = make("f.part", 50, 10);
+        let freed = prune_in(&dir, 250, std::slice::from_ref(&kept));
+        // the oldest goes; the kept one is spared although it is the next oldest; then the middle
+        assert!(!old.exists() && kept.exists() && !mid.exists() && new.exists());
+        assert!(!stale.exists() && young.exists());
+        assert_eq!(freed, 100 + 100 + 50);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
