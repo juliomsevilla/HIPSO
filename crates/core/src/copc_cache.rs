@@ -180,33 +180,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pruning_removes_the_least_recently_used_and_spares_the_kept() {
+    fn pruning_removes_the_least_recently_used_and_spares_the_kept() -> std::io::Result<()> {
         let dir = std::env::temp_dir().join(format!("el_cache_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(&dir)?;
         let now = std::time::SystemTime::now();
         let ago = |s: u64| now - std::time::Duration::from_secs(s);
-        let make = |name: &str, bytes: usize, age: u64| {
+        let make = |name: &str, bytes: usize, age: u64| -> std::io::Result<PathBuf> {
             let p = dir.join(name);
-            std::fs::write(&p, vec![0u8; bytes]).unwrap();
+            std::fs::write(&p, vec![0u8; bytes])?;
             std::fs::OpenOptions::new()
                 .write(true)
-                .open(&p)
-                .unwrap()
-                .set_modified(ago(age))
-                .unwrap();
-            p
+                .open(&p)?
+                .set_modified(ago(age))?;
+            Ok(p)
         };
-        let old = make("a.copc.laz", 100, 3000);
-        let kept = make("b.copc.laz", 100, 2000);
-        let mid = make("c.copc.laz", 100, 1000);
-        let new = make("d.copc.laz", 100, 10);
-        let stale = make("e.part", 50, 90_000);
-        let young = make("f.part", 50, 10);
+        let old = make("a.copc.laz", 100, 3000)?;
+        let kept = make("b.copc.laz", 100, 2000)?;
+        let mid = make("c.copc.laz", 100, 1000)?;
+        let new = make("d.copc.laz", 100, 10)?;
+        let stale = make("e.part", 50, 90_000)?;
+        let young = make("f.part", 50, 10)?;
         let freed = prune_in(&dir, 250, std::slice::from_ref(&kept));
         // the oldest goes; the kept one is spared although it is the next oldest; then the middle
         assert!(!old.exists() && kept.exists() && !mid.exists() && new.exists());
         assert!(!stale.exists() && young.exists());
         assert_eq!(freed, 100 + 100 + 50);
         let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
     }
 }
