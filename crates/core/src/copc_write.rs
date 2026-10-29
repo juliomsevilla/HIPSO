@@ -26,8 +26,12 @@ const GRID: u32 = 128;
 const LEAF: usize = 100_000;
 /// Deepest level of the tree.
 const MAX_LEVEL: i32 = 20;
+/// Fewest points of the nodes read together when the records are read again for each batch.
+const STREAM_BATCH: usize = 12_000_000;
 /// Points of the nodes compressed together.
 const BATCH_POINTS: usize = 4_000_000;
+/// Clouds up to this many points are held whole in memory while they are written.
+const HOLD_MAX: u64 = 30_000_000;
 /// Most points written to one COPC (the cloud is held in memory).
 const MAX_POINTS: u64 = 400_000_000;
 
@@ -132,6 +136,11 @@ fn vlr_header(user: &str, record: u16, len: usize, description: &str) -> Result<
 
 /// Writes `input` as a COPC file at `output`.
 pub fn write(input: &Path, output: &Path) -> Result<CopcReport> {
+    write_with(input, output, HOLD_MAX)
+}
+
+/// [`write`] holding the records in memory only for clouds of up to `hold_max` points.
+pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcReport> {
     let r = Reader::open(input)?;
     let h = r.header.clone();
     if h.count == 0 {
@@ -151,7 +160,12 @@ pub fn write(input: &Path, output: &Path) -> Result<CopcReport> {
     let new_len = usize::from(las::core_len(new).unwrap_or(30) + extra);
     // the records in the new format, and positions relative to the corner of the cloud
     let n = usize::try_from(h.count).map_err(|_| bad("demasiados puntos"))?;
-    let mut recs: Vec<u8> = Vec::with_capacity(n * new_len);
+    // A cloud that fits is held whole as records; a big one is read once for the positions that
+    // build the tree and again, a batch of nodes at a time, for the records of each chunk: about
+    // 20 bytes a point in memory instead of 70.
+    let hold = h.count <= hold_max;
+    let mut skipped = false;
+    let mut recs: Vec<u8> = Vec::with_capacity(if hold { n * new_len } else { 0 });
     let mut pos: Vec<[f32; 3]> = Vec::with_capacity(n);
     let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
     let (mut t0, mut t1) = (f64::INFINITY, f64::NEG_INFINITY);
@@ -163,16 +177,21 @@ pub fn write(input: &Path, output: &Path) -> Result<CopcReport> {
     let origin = [b[0], b[1], b[2]];
     r.scan_raw(|bytes| {
         for rec in bytes.chunks_exact(rec_len) {
-            let Some(p) = r.decode(rec) else { continue };
-            if old == new {
-                buf.clear();
-                buf.extend_from_slice(rec);
-            } else {
-                las::upgrade_record(old, new, rec, &mut buf);
-            }
-            recs.extend_from_slice(&buf[..new_len.min(buf.len())]);
-            if buf.len() < new_len {
-                recs.extend(std::iter::repeat_n(0u8, new_len - buf.len()));
+            let Some(p) = r.decode(rec) else {
+                skipped = true;
+                continue;
+            };
+            if hold {
+                if old == new {
+                    buf.clear();
+                    buf.extend_from_slice(rec);
+                } else {
+                    las::upgrade_record(old, new, rec, &mut buf);
+                }
+                recs.extend_from_slice(&buf[..new_len.min(buf.len())]);
+                if buf.len() < new_len {
+                    recs.extend(std::iter::repeat_n(0u8, new_len - buf.len()));
+                }
             }
             pos.push([
                 (p.x - origin[0]) as f32,
@@ -196,6 +215,11 @@ pub fn write(input: &Path, output: &Path) -> Result<CopcReport> {
     let count = pos.len();
     if count == 0 {
         return Err(bad("ningún punto se ha podido leer"));
+    }
+    if !hold && skipped {
+        return Err(bad(
+            "la nube tiene registros que no se pueden leer y es demasiado grande para convertirla así",
+        ));
     }
     // the cube: centred on the cloud, as wide as its widest side
     let center = [
@@ -224,6 +248,18 @@ pub fn write(input: &Path, output: &Path) -> Result<CopcReport> {
     drop(pos);
     // level by level, the root first
     nodes.sort_by_key(|n| n.key);
+    let counts: Vec<usize> = nodes.iter().map(|n| n.points.len()).collect();
+    // a big cloud keeps, for each point, the node it goes to; the lists of points are let go
+    let mut owner: Vec<u32> = Vec::new();
+    if !hold {
+        owner = vec![u32::MAX; count];
+        for (ni, nd) in nodes.iter_mut().enumerate() {
+            for &i in &nd.points {
+                owner[i as usize] = ni as u32;
+            }
+            nd.points = Vec::new();
+        }
+    }
     let levels = nodes.iter().map(|n| n.key[0]).max().unwrap_or(0) + 1;
 
     // the headers
@@ -316,25 +352,62 @@ pub fn write(input: &Path, output: &Path) -> Result<CopcReport> {
     f.write_all(&vlrs)?;
     let mut comp = laz::ParLasZipCompressor::new(f, vlr.clone()).map_err(bad)?;
     // in batches, so that the chunks never exist all at once next to the records
+    // (the records of a batch are held while it is read: a tenth of the memory of the machine)
+    let batch = if hold {
+        BATCH_POINTS
+    } else {
+        let mem = crate::copc_cache::total_memory().unwrap_or(8 << 30);
+        ((mem / 10 / new_len as u64) as usize).clamp(STREAM_BATCH, 60_000_000)
+    };
     let mut from = 0;
     while from < nodes.len() {
         let mut to = from;
         let mut pts = 0usize;
-        while to < nodes.len() && (to == from || pts + nodes[to].points.len() <= BATCH_POINTS) {
-            pts += nodes[to].points.len();
+        while to < nodes.len() && (to == from || pts + counts[to] <= batch) {
+            pts += counts[to];
             to += 1;
         }
-        let chunks: Vec<Vec<u8>> = nodes[from..to]
-            .par_iter()
-            .map(|nd| {
-                let mut c = Vec::with_capacity(nd.points.len() * new_len);
-                for &i in &nd.points {
-                    let at = i as usize * new_len;
-                    c.extend_from_slice(&recs[at..at + new_len]);
+        let chunks: Vec<Vec<u8>> = if hold {
+            nodes[from..to]
+                .par_iter()
+                .map(|nd| {
+                    let mut c = Vec::with_capacity(nd.points.len() * new_len);
+                    for &i in &nd.points {
+                        let at = i as usize * new_len;
+                        c.extend_from_slice(&recs[at..at + new_len]);
+                    }
+                    c
+                })
+                .collect()
+        } else {
+            // the records of this batch of nodes, in the order of the points of the file (which
+            // is the order of the points of each node)
+            let mut bufs: Vec<Vec<u8>> = (from..to)
+                .map(|ni| Vec::with_capacity(counts[ni] * new_len))
+                .collect();
+            let mut i = 0usize;
+            r.scan_raw(|bytes| {
+                for rec in bytes.chunks_exact(rec_len) {
+                    let o = owner.get(i).copied().unwrap_or(u32::MAX) as usize;
+                    i += 1;
+                    if o < from || o >= to {
+                        continue;
+                    }
+                    let b = &mut bufs[o - from];
+                    if old == new {
+                        b.extend_from_slice(&rec[..new_len.min(rec.len())]);
+                    } else {
+                        buf.clear();
+                        las::upgrade_record(old, new, rec, &mut buf);
+                        b.extend_from_slice(&buf[..new_len.min(buf.len())]);
+                    }
+                    let want = b.len().div_ceil(new_len) * new_len;
+                    b.resize(want, 0);
                 }
-                c
-            })
-            .collect();
+                Ok(())
+            })?;
+            bufs
+        };
         crate::check_cancel()?;
         comp.compress_chunks(chunks).map_err(bad)?;
         from = to;
@@ -354,14 +427,14 @@ pub fn write(input: &Path, output: &Path) -> Result<CopcReport> {
     // the hierarchy: one page, the root first
     let mut page = Vec::with_capacity(nodes.len() * 32);
     let mut at = point_offset as u64 + 8;
-    for (nd, e) in nodes.iter().zip(table.as_ref()) {
+    for (ni, (nd, e)) in nodes.iter().zip(table.as_ref()).enumerate() {
         for v in nd.key {
             page.extend(v.to_le_bytes());
         }
         page.extend(at.to_le_bytes());
         let bytes = i32::try_from(e.byte_count).map_err(|_| bad("un nodo es demasiado grande"))?;
         page.extend(bytes.to_le_bytes());
-        page.extend((nd.points.len() as i32).to_le_bytes());
+        page.extend((counts[ni] as i32).to_le_bytes());
         at += e.byte_count;
     }
     let mut evlr = vec![0u8; 60];
@@ -476,6 +549,12 @@ mod tests {
         let part = copc.nodes(Some([0.0, 0.0, 20.0, 20.0]), None)?;
         let read: u64 = part.iter().map(|n| u64::from(n.points)).sum();
         assert!(read < 300_000, "{read}");
+        // a cloud too big to hold (here: any) is written by reading the records again, and the
+        // file is the same as the one made from the records in memory
+        let streamed = dir.join("s.copc.laz");
+        let rep2 = write_with(&cloud, &streamed, 0)?;
+        assert_eq!((rep2.points, rep2.nodes), (rep.points, rep.nodes));
+        assert_eq!(std::fs::read(&out)?, std::fs::read(&streamed)?);
         std::fs::remove_dir_all(&dir)?;
         Ok(())
     }

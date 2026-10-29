@@ -63,6 +63,27 @@ impl PointStore {
         ]
     }
 
+    /// Keeps the points at even positions (the 1st, 3rd, ...): half of them, evenly.
+    fn keep_every_other(&mut self) {
+        fn half<T: Copy>(v: &mut Vec<T>) {
+            let mut k = 0;
+            v.retain(|_| {
+                k += 1;
+                k % 2 == 1
+            });
+        }
+        half(&mut self.x);
+        half(&mut self.y);
+        half(&mut self.z);
+        half(&mut self.intensity);
+        half(&mut self.ret);
+        half(&mut self.class);
+        half(&mut self.src);
+        half(&mut self.scan);
+        half(&mut self.file);
+        half(&mut self.rgb);
+    }
+
     /// The store without the points of file `k`, or `None` when it is the only one. The other
     /// files keep their points as they were read, so nothing is read again from disk.
     pub fn without_file(&self, k: usize) -> Option<PointStore> {
@@ -419,7 +440,13 @@ pub fn load_slab(
         .iter()
         .map(|r| r.header.count as f64 * overlap(&r.header.bounds) * slab_share)
         .sum();
-    let stride = ((expected / cap.max(1) as f64).ceil() as u64).max(1);
+    // a strip is read whole and thinned only if it outgrows `cap` (the estimate by area is for
+    // regions, and a cloud is never even)
+    let mut stride = if slab.is_some() {
+        1
+    } else {
+        ((expected / cap.max(1) as f64).ceil() as u64).max(1)
+    };
     let mut s = PointStore {
         origin: like.origin,
         files: like.files.clone(),
@@ -505,6 +532,10 @@ pub fn load_slab(
                     lo[k] = lo[k].min(v);
                     hi[k] = hi[k].max(v);
                 }
+                if slab.is_some() && s.len() > cap {
+                    s.keep_every_other();
+                    stride *= 2;
+                }
             }
             Ok(())
         };
@@ -519,6 +550,7 @@ pub fn load_slab(
             }
         }
     }
+    s.stride = stride;
     if s.is_empty() {
         s.bounds = [0.0; 6];
     } else {
@@ -1880,6 +1912,22 @@ mod tests {
         // a cap thins what comes
         let capped = load_region(&files, region, 50, &thinned)?;
         assert!(capped.len() <= 60 && capped.len() >= 25, "{}", capped.len());
+        // a strip comes whole, and is thinned by halves only when it outgrows the cap
+        let strip = ProfileBox {
+            a: [10.0, 15.0],
+            b: [19.0, 15.0],
+            width: 10.0,
+        };
+        let whole = load_slab(&files, region, Some(&strip), 100_000, &thinned)?;
+        assert_eq!((whole.len(), whole.stride), (100, 1));
+        let halved = load_slab(&files, region, Some(&strip), 40, &thinned)?;
+        assert!(
+            halved.stride > 1 && halved.len() <= 40 && halved.len() >= 20,
+            "{} {}",
+            halved.len(),
+            halved.stride
+        );
+        assert_eq!(halved.x.len(), halved.rgb.len().max(halved.x.len()));
         // a region off the cloud is empty, not an error
         let none = load_region(&files, [500.0, 500.0, 600.0, 600.0], 100, &thinned)?;
         assert!(none.is_empty());

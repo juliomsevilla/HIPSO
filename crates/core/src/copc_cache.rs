@@ -106,7 +106,7 @@ pub fn prune(max_bytes: u64, keep: &[PathBuf]) -> u64 {
 }
 
 /// The memory of the machine in bytes, when it can be told.
-fn total_memory() -> Option<u64> {
+pub fn total_memory() -> Option<u64> {
     if cfg!(target_os = "macos") {
         let out = std::process::Command::new("sysctl")
             .args(["-n", "hw.memsize"])
@@ -127,8 +127,16 @@ fn total_memory() -> Option<u64> {
     }
 }
 
-/// Bytes of memory the writing of a COPC holds per point (measured: 70 on a 51 M point cloud).
-const BYTES_PER_POINT: u64 = 75;
+/// Bytes of memory the writing of a COPC holds per point: a cloud that fits is held whole
+/// (measured: 70 on 30 M points); a bigger one only positions and the node of each point
+/// (measured: 35 to 50 on 50 to 94 M points, batch of records included).
+fn bytes_needed(points: u64, mem: u64) -> u64 {
+    if points <= 30_000_000 {
+        points * 75
+    } else {
+        points * 30 + mem / 10
+    }
+}
 
 /// Makes the copy of `src` in the cache unless there is one; returns its path. It is written
 /// under another name and renamed when done, so a copy that exists is a whole one.
@@ -138,7 +146,7 @@ pub fn ensure(src: &Path) -> Result<PathBuf> {
     }
     // the copy is built in memory: a cloud that would take over half of it is left alone
     if let (Some(mem), Ok(r)) = (total_memory(), crate::las::Reader::open(src))
-        && r.header.count * BYTES_PER_POINT > mem / 2
+        && bytes_needed(r.header.count, mem) > mem / 2
     {
         return Err(crate::Error::Param(format!(
             "{} puntos son demasiados para la memoria de este equipo; conviértela antes a COPC por teselas",

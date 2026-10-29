@@ -7,9 +7,16 @@ use super::*;
 use rustlidar_core::edit;
 use std::sync::mpsc::TryRecvError;
 
-/// Most points the profile region keeps in memory (about 350 MB). Past it the region is thinned,
-/// which only happens when the box itself holds more.
-const CAP: usize = 16_000_000;
+/// Bytes a point takes in the store.
+const POINT_BYTES: u64 = 24;
+
+/// Most points the profile keeps in memory: an eighth of the memory of the machine (at least
+/// 16 million, about 350 MB). Past it the strip is thinned, which only happens when the box
+/// itself holds more than that.
+fn cap() -> usize {
+    let mem = rustlidar_core::copc_cache::total_memory().unwrap_or(8 << 30);
+    ((mem / 8 / POINT_BYTES) as usize).clamp(16_000_000, 200_000_000)
+}
 
 type Loaded = Result<(u64, [f64; 4], ProfileBox, PointStore), String>;
 
@@ -106,6 +113,12 @@ impl App {
                     self.prof_job = None;
                     match r {
                         Ok((k, region, slab, store)) if k == key => {
+                            if store.stride > 1 {
+                                self.log(format!(
+                                    "Perfil: la caja tiene más puntos de los que caben en memoria; se dibuja 1 de cada {}.",
+                                    store.stride
+                                ));
+                            }
                             self.prof_data = Some(ProfData {
                                 clouds_key: k,
                                 region,
@@ -138,11 +151,12 @@ impl App {
             ((base.bounds[3] - base.bounds[0]) * (base.bounds[4] - base.bounds[1])).max(1.0)
         };
         let density = base.total as f64 / area.max(1.0);
-        let pad = [3.0, 2.0, 1.0, 0.5]
+        let cap = cap();
+        let pad = [3.0, 2.0, 1.0, 0.5, 0.0]
             .into_iter()
             .map(|k| k * bx.width)
-            .find(|pad| density * (bx.length() + 2.0 * pad) * (bx.width + 2.0 * pad) <= CAP as f64)
-            .unwrap_or(bx.width * 0.5);
+            .find(|pad| density * (bx.length() + 2.0 * pad) * (bx.width + 2.0 * pad) <= cap as f64)
+            .unwrap_or(0.0);
         let slab = slab_of(bx, pad);
         let wanted = bbox(&slab);
         let (covered, thinned) = region_state(
@@ -174,7 +188,7 @@ impl App {
             let c = ctx.clone();
             std::thread::spawn(move || {
                 let r = std::panic::catch_unwind(|| {
-                    view::load_slab(&files, region, Some(&slab), CAP, &like)
+                    view::load_slab(&files, region, Some(&slab), cap, &like)
                 })
                 .map_err(|_| "error interno al leer".to_string())
                 .and_then(|r| r.map_err(|e| e.to_string()))
