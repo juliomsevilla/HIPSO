@@ -7,10 +7,11 @@ use super::*;
 use rustlidar_core::edit;
 use std::sync::mpsc::TryRecvError;
 
-/// Most points the profile region keeps in memory (about 130 MB).
-const CAP: usize = 6_000_000;
+/// Most points the profile region keeps in memory (about 350 MB). Past it the region is thinned,
+/// which only happens when the box itself holds more.
+const CAP: usize = 16_000_000;
 
-type Loaded = Result<(u64, [f64; 4], PointStore), String>;
+type Loaded = Result<(u64, [f64; 4], ProfileBox, PointStore), String>;
 
 pub struct ProfJob {
     rx: Receiver<Loaded>,
@@ -19,6 +20,8 @@ pub struct ProfJob {
 pub struct ProfData {
     clouds_key: u64,
     region: [f64; 4],
+    /// The strip the points were read from; those outside it are not in memory.
+    slab: ProfileBox,
     raw: Arc<PointStore>,
     /// `raw` with the edits and the selection of the session, and what they were made for.
     view: Option<((u64, u64), Arc<PointStore>)>,
@@ -34,6 +37,36 @@ fn region_state(held: Option<([f64; 4], u64)>, need: [f64; 4], wanted: [f64; 4])
     };
     let covered = r[0] <= need[0] && r[1] <= need[1] && r[2] >= need[2] && r[3] >= need[3];
     (covered, stride > 1 && area(&r) > 1.5 * area(&wanted))
+}
+
+/// The box widened by `pad` on every side: the strip of the cloud the profile keeps in memory.
+fn slab_of(bx: &ProfileBox, pad: f64) -> ProfileBox {
+    let l = bx.length().max(1e-9);
+    let (ux, uy) = ((bx.b[0] - bx.a[0]) / l, (bx.b[1] - bx.a[1]) / l);
+    ProfileBox {
+        a: [bx.a[0] - ux * pad, bx.a[1] - uy * pad],
+        b: [bx.b[0] + ux * pad, bx.b[1] + uy * pad],
+        width: bx.width + 2.0 * pad,
+    }
+}
+
+/// Whether the strip `held` holds the whole box `bx`.
+fn slab_holds(held: &ProfileBox, bx: &ProfileBox) -> bool {
+    let l = bx.length().max(1e-9);
+    let h = bx.width / 2.0;
+    let (nx, ny) = (-(bx.b[1] - bx.a[1]) / l * h, (bx.b[0] - bx.a[0]) / l * h);
+    let len = held.length();
+    [
+        [bx.a[0] + nx, bx.a[1] + ny],
+        [bx.a[0] - nx, bx.a[1] - ny],
+        [bx.b[0] + nx, bx.b[1] + ny],
+        [bx.b[0] - nx, bx.b[1] - ny],
+    ]
+    .iter()
+    .all(|c| {
+        let (u, t) = held.local(c[0], c[1]);
+        u >= -1e-6 && u <= len + 1e-6 && t.abs() <= held.width / 2.0 + 1e-6
+    })
 }
 
 /// The map rectangle that holds the box.
@@ -72,10 +105,11 @@ impl App {
                 Ok(r) => {
                     self.prof_job = None;
                     match r {
-                        Ok((k, region, store)) if k == key => {
+                        Ok((k, region, slab, store)) if k == key => {
                             self.prof_data = Some(ProfData {
                                 clouds_key: k,
                                 region,
+                                slab,
                                 raw: Arc::new(store),
                                 view: None,
                             });
@@ -96,16 +130,39 @@ impl App {
         }
         let need = bbox(bx);
         // a margin, so moving the box a few widths does not read again
-        let pad = bx.width * 3.0;
-        let wanted = [need[0] - pad, need[1] - pad, need[2] + pad, need[3] + pad];
+        // a margin of three widths, so that moving the box a few steps does not read again; less
+        // when the cloud is so dense that the margin alone would not fit in memory
+        let area = if base.area > 0.0 {
+            base.area
+        } else {
+            ((base.bounds[3] - base.bounds[0]) * (base.bounds[4] - base.bounds[1])).max(1.0)
+        };
+        let density = base.total as f64 / area.max(1.0);
+        let pad = [3.0, 2.0, 1.0, 0.5]
+            .into_iter()
+            .map(|k| k * bx.width)
+            .find(|pad| density * (bx.length() + 2.0 * pad) * (bx.width + 2.0 * pad) <= CAP as f64)
+            .unwrap_or(bx.width * 0.5);
+        let slab = slab_of(bx, pad);
+        let wanted = bbox(&slab);
         let (covered, thinned) = region_state(
             self.prof_data.as_ref().map(|d| (d.region, d.raw.stride)),
             need,
             wanted,
         );
+        let covered = covered
+            && self
+                .prof_data
+                .as_ref()
+                .is_some_and(|d| slab_holds(&d.slab, bx));
         if (!covered || thinned) && self.prof_job.is_none() && self.prof_failed.is_none() {
             let region = wanted;
-            let files = self.clouds.clone();
+            // the COPC copies give the nodes the region touches; a plain LAZ is scanned whole
+            let files = if self.detail_src.is_empty() {
+                self.clouds.clone()
+            } else {
+                self.detail_src.clone()
+            };
             let like = PointStore {
                 origin: base.origin,
                 files: base.files.clone(),
@@ -116,10 +173,12 @@ impl App {
             let (tx, rx) = channel();
             let c = ctx.clone();
             std::thread::spawn(move || {
-                let r = std::panic::catch_unwind(|| view::load_region(&files, region, CAP, &like))
-                    .map_err(|_| "error interno al leer".to_string())
-                    .and_then(|r| r.map_err(|e| e.to_string()))
-                    .map(|s| (key, region, s));
+                let r = std::panic::catch_unwind(|| {
+                    view::load_slab(&files, region, Some(&slab), CAP, &like)
+                })
+                .map_err(|_| "error interno al leer".to_string())
+                .and_then(|r| r.map_err(|e| e.to_string()))
+                .map(|s| (key, region, slab, s));
                 let _ = tx.send(r);
                 c.request_repaint();
             });
@@ -160,6 +219,21 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_strip_holds_the_box_and_a_few_shifts_of_it() {
+        let bx = ProfileBox {
+            a: [0.0, 0.0],
+            b: [100.0, 100.0],
+            width: 10.0,
+        };
+        let held = slab_of(&bx, 30.0);
+        assert!(slab_holds(&held, &bx));
+        assert!(slab_holds(&held, &bx.shifted(10.0)));
+        assert!(slab_holds(&held, &bx.shifted(-20.0)));
+        // four widths away is outside the pad of three
+        assert!(!slab_holds(&held, &bx.shifted(40.0)));
+    }
 
     #[test]
     fn a_thinned_region_is_read_again_when_the_box_gets_small() {

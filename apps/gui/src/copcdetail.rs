@@ -30,10 +30,14 @@ impl App {
         let c = ctx.clone();
         std::thread::spawn(move || {
             let r = std::panic::catch_unwind(|| {
-                clouds
+                let copies = clouds
                     .iter()
                     .map(|p| rustlidar_core::copc_cache::ensure(p))
-                    .collect::<Result<Vec<_>, _>>()
+                    .collect::<Result<Vec<_>, _>>();
+                if let Ok(c) = &copies {
+                    rustlidar_core::copc_cache::prune(rustlidar_core::copc_cache::MAX_BYTES, c);
+                }
+                copies
             })
             .map_err(|_| "error interno".to_string())
             .and_then(|r| r.map_err(|e| e.to_string()));

@@ -1082,7 +1082,14 @@ impl App {
                 if moved.files.is_empty() {
                     return Err(rustlidar_core::Error::Param(moved.notes.join("\n")));
                 }
-                view::load(&moved.files, max).map(|store| CloudLoad {
+                // a cloud that has its COPC copy in the cache is read from it: the sample comes from
+                // the first levels of the octree, without decompressing the whole file
+                let read: Vec<PathBuf> = moved
+                    .files
+                    .iter()
+                    .map(|p| rustlidar_core::copc_cache::find(p).unwrap_or_else(|| p.clone()))
+                    .collect();
+                view::load_from(&moved.files, &read, max).map(|store| CloudLoad {
                     store,
                     files: moved.files,
                     notes: moved.notes,

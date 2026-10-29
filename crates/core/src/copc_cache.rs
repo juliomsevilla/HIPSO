@@ -51,7 +51,58 @@ pub fn find(src: &Path) -> Option<PathBuf> {
         return Some(src.to_path_buf());
     }
     let p = path_for(src);
-    (p.is_file() && crate::copc::Copc::open(&p).ok().flatten().is_some()).then_some(p)
+    if p.is_file() && crate::copc::Copc::open(&p).ok().flatten().is_some() {
+        // used now: the last to be removed when the cache is pruned
+        if let Ok(f) = std::fs::OpenOptions::new().write(true).open(&p) {
+            let _ = f.set_modified(std::time::SystemTime::now());
+        }
+        return Some(p);
+    }
+    None
+}
+
+/// Most bytes the cache keeps before [`prune`] removes the copies not used for longest.
+pub const MAX_BYTES: u64 = 20 << 30;
+
+/// Removes the copies used least recently until the cache holds at most `max_bytes`, never those
+/// in `keep`, and the half-written ones left by an interrupted writing. Returns the bytes freed.
+pub fn prune(max_bytes: u64, keep: &[PathBuf]) -> u64 {
+    let Ok(dir) = std::fs::read_dir(cache_dir()) else {
+        return 0;
+    };
+    let now = std::time::SystemTime::now();
+    let mut files = Vec::new();
+    let mut freed = 0u64;
+    for e in dir.flatten() {
+        let Ok(m) = e.metadata() else { continue };
+        let path = e.path();
+        let used = m.modified().unwrap_or(now);
+        if path.extension().is_some_and(|x| x == "part") {
+            // a writing in progress is young; an old one was interrupted
+            if now.duration_since(used).is_ok_and(|d| d.as_secs() > 86_400)
+                && std::fs::remove_file(&path).is_ok()
+            {
+                freed += m.len();
+            }
+        } else if path.to_string_lossy().ends_with(".copc.laz") {
+            files.push((used, m.len(), path));
+        }
+    }
+    let mut total: u64 = files.iter().map(|f| f.1).sum();
+    files.sort();
+    for (_, len, path) in files {
+        if total <= max_bytes {
+            break;
+        }
+        if keep.contains(&path) {
+            continue;
+        }
+        if std::fs::remove_file(&path).is_ok() {
+            total -= len;
+            freed += len;
+        }
+    }
+    freed
 }
 
 /// The memory of the machine in bytes, when it can be told.

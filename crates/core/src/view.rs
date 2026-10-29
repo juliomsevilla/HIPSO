@@ -152,18 +152,26 @@ type Staged = (f64, f64, f64, u16, u8, u8, u16, u8, Option<[u8; 3]>, i16);
 /// Reads LAS/LAZ (and ASCII `x y z [intensity [class]]`) files keeping about `max_points` of
 /// them: one point in every `stride`, so large clouds fit in memory.
 pub fn load(paths: &[PathBuf], max_points: usize) -> Result<PointStore> {
+    load_from(paths, paths, max_points)
+}
+
+/// Like [`load`], reading each cloud from `read[i]` (a COPC copy of it, which gives the sample
+/// without decompressing the rest) while the store keeps the names of `paths[i]`.
+pub fn load_from(paths: &[PathBuf], read: &[PathBuf], max_points: usize) -> Result<PointStore> {
     let mut readers = Vec::new();
+    let mut names = Vec::new();
     let mut ascii = Vec::new();
     let mut total = 0u64;
-    for p in paths {
+    for (p, rp) in paths.iter().zip(read) {
         let ext = p
             .extension()
             .map(|e| e.to_string_lossy().to_ascii_lowercase())
             .unwrap_or_default();
         if ext == "las" || ext == "laz" {
-            let r = Reader::open(p)?;
+            let r = Reader::open(rp)?;
             total += r.header.count;
             readers.push(r);
+            names.push(p.clone());
         } else {
             let size = std::fs::metadata(p)?.len();
             total += size / 28;
@@ -254,7 +262,7 @@ pub fn load(paths: &[PathBuf], max_points: usize) -> Result<PointStore> {
             },
         );
         s.files.push(
-            r.path()
+            names[fi]
                 .file_name()
                 .map_or(String::new(), |n| n.to_string_lossy().into_owned()),
         );
@@ -369,6 +377,20 @@ pub fn load_region(
     cap: usize,
     like: &PointStore,
 ) -> Result<PointStore> {
+    load_slab(paths, region, None, cap, like)
+}
+
+/// Like [`load_region`], keeping only the points inside `slab` (an oriented box inside `region`):
+/// a profile reads the strip around its box, not the rectangle that holds it, so far fewer
+/// points have to be thinned to fit `cap`. The files are read by all cores.
+pub fn load_slab(
+    paths: &[PathBuf],
+    region: [f64; 4],
+    slab: Option<&ProfileBox>,
+    cap: usize,
+    like: &PointStore,
+) -> Result<PointStore> {
+    use rayon::prelude::*;
     let mut readers = Vec::new();
     for p in paths {
         let ext = p
@@ -389,9 +411,13 @@ pub fn load_region(
         (w * h / area).min(1.0)
     };
     // the points expected inside, if each file were even: sets how much to thin
+    let slab_share = slab.map_or(1.0, |b| {
+        let area = (region[2] - region[0]).max(1e-9) * (region[3] - region[1]).max(1e-9);
+        (b.length() * b.width / area).min(1.0)
+    });
     let expected: f64 = readers
         .iter()
-        .map(|r| r.header.count as f64 * overlap(&r.header.bounds))
+        .map(|r| r.header.count as f64 * overlap(&r.header.bounds) * slab_share)
         .sum();
     let stride = ((expected / cap.max(1) as f64).ceil() as u64).max(1);
     let mut s = PointStore {
@@ -425,11 +451,36 @@ pub fn load_region(
         );
         let file_id = fi.min(255) as u8;
         let mut body = |bytes: &[u8]| -> Result<()> {
-            for rec in bytes.chunks_exact(rec_len) {
-                let Some(p) = r.decode(rec) else { continue };
-                if p.x < region[0] || p.x > region[2] || p.y < region[1] || p.y > region[3] {
-                    continue;
-                }
+            // decoding is the slow part: every core takes a share of the records
+            let rows: Vec<Vec<(crate::las::Point, usize)>> = bytes
+                .par_chunks(rec_len * 16_384)
+                .enumerate()
+                .map(|(c, block)| {
+                    block
+                        .chunks_exact(rec_len)
+                        .enumerate()
+                        .filter_map(|(k, rec)| {
+                            let p = r.decode(rec)?;
+                            if p.x < region[0]
+                                || p.x > region[2]
+                                || p.y < region[1]
+                                || p.y > region[3]
+                            {
+                                return None;
+                            }
+                            if let Some(b) = slab {
+                                let (u, t) = b.local(p.x, p.y);
+                                if u < 0.0 || u > b.length() || t.abs() > b.width / 2.0 {
+                                    return None;
+                                }
+                            }
+                            Some((p, c * 16_384 + k))
+                        })
+                        .collect()
+                })
+                .collect();
+            for (p, at) in rows.into_iter().flatten() {
+                let rec = &bytes[at * rec_len..(at + 1) * rec_len];
                 n += 1;
                 if !(n - 1).is_multiple_of(stride) {
                     continue;
@@ -459,7 +510,9 @@ pub fn load_region(
         };
         match crate::copc::Copc::open(r.path())? {
             Some(c) => {
-                c.scan_raw_in(region, None, &mut body)?;
+                // every level of the nodes that touch the region: all its points
+                let nodes = c.nodes(Some(region), None)?;
+                c.read_raw(&nodes, &mut body)?;
             }
             None => {
                 r.scan_raw(&mut body)?;
@@ -1253,10 +1306,15 @@ pub fn render_profile(
         return (img, 0.0, 1.0);
     }
     let (zlo, zhi) = inside
-        .iter()
-        .fold((f64::INFINITY, f64::NEG_INFINITY), |a, p| {
-            (a.0.min(p.2), a.1.max(p.2))
-        });
+        .par_iter()
+        .fold(
+            || (f64::INFINITY, f64::NEG_INFINITY),
+            |a, p| (a.0.min(p.2), a.1.max(p.2)),
+        )
+        .reduce(
+            || (f64::INFINITY, f64::NEG_INFINITY),
+            |a, b| (a.0.min(b.0), a.1.max(b.1)),
+        );
     let pad = (zhi - zlo).max(1.0) * 0.05;
     let (zlo, zhi) = (zlo - pad, zhi + pad);
     // equal scale on both axes, centred
@@ -1267,11 +1325,11 @@ pub fn render_profile(
     );
     let size = (st.profile_size as i64).clamp(1, 24);
     let layer = Layer::new(w, h);
-    for (i, u, z, t) in inside {
+    inside.into_par_iter().for_each(|(i, u, z, t)| {
         let px = (ox + u * k).floor() as i64;
         let py = (h as f64 - oy - (z - zlo) * k).floor() as i64;
         layer.splat(px, py, t as f32, size, st.color(s, i));
-    }
+    });
     layer.paint_into(&mut img);
     (img, zlo, zhi)
 }
