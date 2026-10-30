@@ -84,7 +84,10 @@ fn prune_in(folder: &Path, max_bytes: u64, keep: &[PathBuf]) -> u64 {
         let Ok(m) = e.metadata() else { continue };
         let path = e.path();
         let used = m.modified().unwrap_or(now);
-        if path.extension().is_some_and(|x| x == "part") {
+        if path
+            .extension()
+            .is_some_and(|x| x == "part" || x == "spool")
+        {
             // a writing in progress is young; an old one was interrupted
             if now.duration_since(used).is_ok_and(|d| d.as_secs() > 86_400)
                 && std::fs::remove_file(&path).is_ok()
@@ -134,14 +137,17 @@ pub fn total_memory() -> Option<u64> {
     }
 }
 
-/// Bytes of memory the writing of a COPC holds per point: a cloud that fits is held whole
-/// (measured: 70 on 30 M points); a bigger one only positions and the node of each point
-/// (measured: 35 to 50 on 50 to 94 M points, batch of records included).
+/// Bytes of memory the writing of a COPC holds: a cloud that fits is held whole (70 a point,
+/// measured on 30 M points), a bigger one keeps only positions and the node of each point (35 to
+/// 50 a point, measured on 50 to 94 M), and one of more than 100 M points is written by cells,
+/// which take a tenth of the memory of the machine whatever its size.
 fn bytes_needed(points: u64, mem: u64) -> u64 {
     if points <= 30_000_000 {
         points * 75
-    } else {
+    } else if points <= 100_000_000 {
         points * 30 + mem / 10
+    } else {
+        mem / 10 * 2
     }
 }
 

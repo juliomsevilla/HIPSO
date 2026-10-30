@@ -15,6 +15,7 @@ pub mod colorize;
 pub mod copc;
 pub mod copc_cache;
 pub mod copc_detail;
+pub mod copc_tiled;
 pub mod copc_write;
 pub mod corridor;
 pub mod crs;

@@ -21,7 +21,7 @@ use crate::las::{self, Reader};
 use crate::{Error, Result};
 
 /// Cells per side of a node's sampling grid.
-const GRID: u32 = 128;
+pub(crate) const GRID: u32 = 128;
 /// A node with at most this many points keeps them all.
 const LEAF: usize = 100_000;
 /// Deepest level of the tree.
@@ -32,13 +32,13 @@ const STREAM_BATCH: usize = 12_000_000;
 const BATCH_POINTS: usize = 4_000_000;
 /// Clouds up to this many points are held whole in memory while they are written.
 const HOLD_MAX: u64 = 30_000_000;
-/// Most points written to one COPC (the cloud is held in memory).
-const MAX_POINTS: u64 = 400_000_000;
+/// Clouds with more points than this are written by cells (`copc_tiled`).
+const TILED_FROM: u64 = 100_000_000;
 
 /// A node of the tree and the points it keeps (indices into the cloud).
-struct Node {
-    key: [i32; 4],
-    points: Vec<u32>,
+pub(crate) struct Node {
+    pub key: [i32; 4],
+    pub points: Vec<u32>,
 }
 
 /// What a writing did.
@@ -51,12 +51,12 @@ pub struct CopcReport {
     pub wkt: bool,
 }
 
-fn bad(what: impl std::fmt::Display) -> Error {
+pub(crate) fn bad(what: impl std::fmt::Display) -> Error {
     Error::Format(format!("COPC: {what}"))
 }
 
 /// The point format a cloud is written in: COPC admits only 6, 7 and 8.
-fn copc_format(format: u8) -> Result<u8> {
+pub(crate) fn copc_format(format: u8) -> Result<u8> {
     match format {
         6..=8 => Ok(format),
         0 | 1 => Ok(6),
@@ -69,7 +69,7 @@ fn copc_format(format: u8) -> Result<u8> {
 
 /// Splits `idx` (points inside the cube of `key`) into the points the node keeps and the
 /// nodes below it. Positions are relative to the corner of the root cube, of side `size`.
-fn build(key: [i32; 4], idx: Vec<u32>, pos: &[[f32; 3]], size: f64) -> Vec<Node> {
+pub(crate) fn build(key: [i32; 4], idx: Vec<u32>, pos: &[[f32; 3]], size: f64) -> Vec<Node> {
     let [level, kx, ky, kz] = key;
     if idx.len() <= LEAF || level >= MAX_LEVEL {
         return vec![Node { key, points: idx }];
@@ -146,12 +146,10 @@ pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcRepo
     if h.count == 0 {
         return Err(bad("la nube no tiene puntos"));
     }
-    if h.count > MAX_POINTS {
-        return Err(Error::Param(format!(
-            "{} tiene {} puntos: para COPC la nube se guarda entera en memoria; divídela antes en teselas (easylidar tile)",
-            input.display(),
-            h.count
-        )));
+    if h.count > TILED_FROM {
+        // too big to hold the positions: by cells, with a cell as big as a tenth of the memory
+        let mem = crate::copc_cache::total_memory().unwrap_or(8 << 30);
+        return crate::copc_tiled::write(input, output, (mem / 20 / 54) as usize);
     }
     let old = h.format;
     let new = copc_format(old)?;
@@ -262,7 +260,144 @@ pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcRepo
     }
     let levels = nodes.iter().map(|n| n.key[0]).max().unwrap_or(0) + 1;
 
-    // the headers
+    let prep = prepare(&r, new, extra, new_len, count as u64, lo, hi, &returns)?;
+    let (head, vlrs, vlr) = (&prep.head, &prep.vlrs, &prep.vlr);
+    let point_offset = prep.point_offset;
+
+    // the chunks, one per node, compressed in parallel
+    crate::paths::ensure_parent(output)?;
+    // read back as well: the chunk table the compressor writes says where each node went
+    let out_file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(output)?;
+    let mut f = BufWriter::with_capacity(1 << 20, out_file);
+    f.write_all(head)?;
+    f.write_all(vlrs)?;
+    let mut comp = laz::ParLasZipCompressor::new(f, vlr.clone()).map_err(bad)?;
+    // in batches, so that the chunks never exist all at once next to the records
+    // (the records of a batch are held while it is read: a tenth of the memory of the machine)
+    let batch = if hold {
+        BATCH_POINTS
+    } else {
+        let mem = crate::copc_cache::total_memory().unwrap_or(8 << 30);
+        ((mem / 10 / new_len as u64) as usize).clamp(STREAM_BATCH, 60_000_000)
+    };
+    let mut from = 0;
+    while from < nodes.len() {
+        let mut to = from;
+        let mut pts = 0usize;
+        while to < nodes.len() && (to == from || pts + counts[to] <= batch) {
+            pts += counts[to];
+            to += 1;
+        }
+        let chunks: Vec<Vec<u8>> = if hold {
+            nodes[from..to]
+                .par_iter()
+                .map(|nd| {
+                    let mut c = Vec::with_capacity(nd.points.len() * new_len);
+                    for &i in &nd.points {
+                        let at = i as usize * new_len;
+                        c.extend_from_slice(&recs[at..at + new_len]);
+                    }
+                    c
+                })
+                .collect()
+        } else {
+            // the records of this batch of nodes, in the order of the points of the file (which
+            // is the order of the points of each node)
+            let mut bufs: Vec<Vec<u8>> = (from..to)
+                .map(|ni| Vec::with_capacity(counts[ni] * new_len))
+                .collect();
+            let mut i = 0usize;
+            r.scan_raw(|bytes| {
+                for rec in bytes.chunks_exact(rec_len) {
+                    let o = owner.get(i).copied().unwrap_or(u32::MAX) as usize;
+                    i += 1;
+                    if o < from || o >= to {
+                        continue;
+                    }
+                    let b = &mut bufs[o - from];
+                    if old == new {
+                        b.extend_from_slice(&rec[..new_len.min(rec.len())]);
+                    } else {
+                        buf.clear();
+                        las::upgrade_record(old, new, rec, &mut buf);
+                        b.extend_from_slice(&buf[..new_len.min(buf.len())]);
+                    }
+                    let want = b.len().div_ceil(new_len) * new_len;
+                    b.resize(want, 0);
+                }
+                Ok(())
+            })?;
+            bufs
+        };
+        crate::check_cancel()?;
+        comp.compress_chunks(chunks).map_err(bad)?;
+        from = to;
+    }
+    drop(recs);
+    comp.done().map_err(bad)?;
+    let mut f = comp.into_inner();
+    f.flush()?;
+    let mut file = f.into_inner().map_err(|e| bad(e.error()))?;
+    // where each chunk went, from the table the compressor wrote
+    file.seek(SeekFrom::Start(point_offset as u64))?;
+    let table = laz::laszip::ChunkTable::read_from(&mut file, vlr).map_err(bad)?;
+    if table.len() != nodes.len() {
+        return Err(bad("la tabla de trozos no coincide con los nodos"));
+    }
+    let entries: Vec<([i32; 4], u64, i32)> = nodes
+        .iter()
+        .zip(table.as_ref())
+        .enumerate()
+        .map(|(ni, (nd, e))| (nd.key, e.byte_count, counts[ni] as i32))
+        .collect();
+    let cube = CubeInfo {
+        center,
+        half,
+        spacing,
+        t0,
+        t1,
+    };
+    finish(&mut file, &prep, &entries, &cube)?;
+    Ok(CopcReport {
+        points: count as u64,
+        nodes: nodes.len(),
+        levels,
+        format: new,
+        wkt: prep.has_wkt,
+    })
+}
+
+/// What comes before the points of a COPC file: the header, the records, and where they end.
+pub(crate) struct Prep {
+    pub head: Vec<u8>,
+    pub vlrs: Vec<u8>,
+    /// Where the 160 bytes of the `copc` record start.
+    pub info_at: usize,
+    /// Where the points start.
+    pub point_offset: usize,
+    pub vlr: laz::LazVlr,
+    pub has_wkt: bool,
+}
+
+/// The header and records of the COPC file of `r`, for `count` points of format `new` (`extra`
+/// bytes more per record, `new_len` in all) between `lo` and `hi`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare(
+    r: &Reader,
+    new: u8,
+    extra: u16,
+    new_len: usize,
+    count: u64,
+    lo: [f64; 3],
+    hi: [f64; 3],
+    returns: &[u64; 15],
+) -> Result<Prep> {
+    let h = &r.header;
     let items = laz::LazItemRecordBuilder::default_for_point_format_id(new, extra)
         .map_err(|e| Error::Unsupported(format!("LAZ: {e}")))?;
     let vlr = laz::LazVlrBuilder::default()
@@ -333,109 +468,56 @@ pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcRepo
     ] {
         head[at..at + 8].copy_from_slice(&v.to_le_bytes());
     }
-    head[247..255].copy_from_slice(&(count as u64).to_le_bytes());
+    head[247..255].copy_from_slice(&count.to_le_bytes());
     for (k, c) in returns.iter().enumerate() {
         head[255 + 8 * k..263 + 8 * k].copy_from_slice(&c.to_le_bytes());
     }
+    Ok(Prep {
+        head,
+        vlrs,
+        info_at,
+        point_offset,
+        vlr,
+        has_wkt: wkt.is_some(),
+    })
+}
 
-    // the chunks, one per node, compressed in parallel
-    crate::paths::ensure_parent(output)?;
-    // read back as well: the chunk table the compressor writes says where each node went
-    let out_file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(output)?;
-    let mut f = BufWriter::with_capacity(1 << 20, out_file);
-    f.write_all(&head)?;
-    f.write_all(&vlrs)?;
-    let mut comp = laz::ParLasZipCompressor::new(f, vlr.clone()).map_err(bad)?;
-    // in batches, so that the chunks never exist all at once next to the records
-    // (the records of a batch are held while it is read: a tenth of the memory of the machine)
-    let batch = if hold {
-        BATCH_POINTS
-    } else {
-        let mem = crate::copc_cache::total_memory().unwrap_or(8 << 30);
-        ((mem / 10 / new_len as u64) as usize).clamp(STREAM_BATCH, 60_000_000)
-    };
-    let mut from = 0;
-    while from < nodes.len() {
-        let mut to = from;
-        let mut pts = 0usize;
-        while to < nodes.len() && (to == from || pts + counts[to] <= batch) {
-            pts += counts[to];
-            to += 1;
-        }
-        let chunks: Vec<Vec<u8>> = if hold {
-            nodes[from..to]
-                .par_iter()
-                .map(|nd| {
-                    let mut c = Vec::with_capacity(nd.points.len() * new_len);
-                    for &i in &nd.points {
-                        let at = i as usize * new_len;
-                        c.extend_from_slice(&recs[at..at + new_len]);
-                    }
-                    c
-                })
-                .collect()
-        } else {
-            // the records of this batch of nodes, in the order of the points of the file (which
-            // is the order of the points of each node)
-            let mut bufs: Vec<Vec<u8>> = (from..to)
-                .map(|ni| Vec::with_capacity(counts[ni] * new_len))
-                .collect();
-            let mut i = 0usize;
-            r.scan_raw(|bytes| {
-                for rec in bytes.chunks_exact(rec_len) {
-                    let o = owner.get(i).copied().unwrap_or(u32::MAX) as usize;
-                    i += 1;
-                    if o < from || o >= to {
-                        continue;
-                    }
-                    let b = &mut bufs[o - from];
-                    if old == new {
-                        b.extend_from_slice(&rec[..new_len.min(rec.len())]);
-                    } else {
-                        buf.clear();
-                        las::upgrade_record(old, new, rec, &mut buf);
-                        b.extend_from_slice(&buf[..new_len.min(buf.len())]);
-                    }
-                    let want = b.len().div_ceil(new_len) * new_len;
-                    b.resize(want, 0);
-                }
-                Ok(())
-            })?;
-            bufs
-        };
-        crate::check_cancel()?;
-        comp.compress_chunks(chunks).map_err(bad)?;
-        from = to;
-    }
-    drop(recs);
-    comp.done().map_err(bad)?;
-    let mut f = comp.into_inner();
-    f.flush()?;
-    let mut file = f.into_inner().map_err(|e| bad(e.error()))?;
+/// The cube of the tree and the GPS times of the cloud, for the `copc` record.
+pub(crate) struct CubeInfo {
+    pub center: [f64; 3],
+    pub half: f64,
+    pub spacing: f64,
+    pub t0: f64,
+    pub t1: f64,
+}
+
+/// Ends a COPC file whose points and chunk table are written: the hierarchy (one page, the root
+/// first; `entries` are each chunk's key, bytes and points, in the order of the file), the `copc`
+/// record and the pointer to the extended record.
+pub(crate) fn finish(
+    file: &mut std::fs::File,
+    prep: &Prep,
+    entries: &[([i32; 4], u64, i32)],
+    cube: &CubeInfo,
+) -> Result<()> {
     let evlr_at = file.seek(SeekFrom::End(0))?;
-    // where each chunk went, from the table the compressor wrote
-    file.seek(SeekFrom::Start(point_offset as u64))?;
-    let table = laz::laszip::ChunkTable::read_from(&mut file, &vlr).map_err(bad)?;
-    if table.len() != nodes.len() {
-        return Err(bad("la tabla de trozos no coincide con los nodos"));
+    // the offset of each chunk follows from the sizes, in the order of the file
+    let mut at = prep.point_offset as u64 + 8;
+    let mut rows: Vec<([i32; 4], u64, u32, i32)> = Vec::with_capacity(entries.len());
+    for (key, bytes, count) in entries {
+        let b = u32::try_from(*bytes).map_err(|_| bad("un nodo es demasiado grande"))?;
+        rows.push((*key, at, b, *count));
+        at += bytes;
     }
-    // the hierarchy: one page, the root first
-    let mut page = Vec::with_capacity(nodes.len() * 32);
-    let mut at = point_offset as u64 + 8;
-    for (ni, (nd, e)) in nodes.iter().zip(table.as_ref()).enumerate() {
-        for v in nd.key {
+    rows.sort_by_key(|r| r.0);
+    let mut page = Vec::with_capacity(rows.len() * 32);
+    for (key, off, bytes, count) in &rows {
+        for v in key {
             page.extend(v.to_le_bytes());
         }
-        page.extend(at.to_le_bytes());
-        let bytes = i32::try_from(e.byte_count).map_err(|_| bad("un nodo es demasiado grande"))?;
-        page.extend(bytes.to_le_bytes());
-        page.extend((counts[ni] as i32).to_le_bytes());
-        at += e.byte_count;
+        page.extend(off.to_le_bytes());
+        page.extend((*bytes as i32).to_le_bytes());
+        page.extend(count.to_le_bytes());
     }
     let mut evlr = vec![0u8; 60];
     evlr[2..6].copy_from_slice(b"copc");
@@ -447,30 +529,34 @@ pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcRepo
     file.write_all(&page)?;
     // the COPC record and the pointer to the extended record
     let mut info = vec![0u8; 160];
-    for (k, v) in [center[0], center[1], center[2], half, spacing]
-        .iter()
-        .enumerate()
+    for (k, v) in [
+        cube.center[0],
+        cube.center[1],
+        cube.center[2],
+        cube.half,
+        cube.spacing,
+    ]
+    .iter()
+    .enumerate()
     {
         info[8 * k..8 * k + 8].copy_from_slice(&v.to_le_bytes());
     }
     info[40..48].copy_from_slice(&(evlr_at + 60).to_le_bytes());
     info[48..56].copy_from_slice(&(page.len() as u64).to_le_bytes());
-    let (g0, g1) = if t0 <= t1 { (t0, t1) } else { (0.0, 0.0) };
+    let (g0, g1) = if cube.t0 <= cube.t1 {
+        (cube.t0, cube.t1)
+    } else {
+        (0.0, 0.0)
+    };
     info[56..64].copy_from_slice(&g0.to_le_bytes());
     info[64..72].copy_from_slice(&g1.to_le_bytes());
-    file.seek(SeekFrom::Start(info_at as u64))?;
+    file.seek(SeekFrom::Start(prep.info_at as u64))?;
     file.write_all(&info)?;
     file.seek(SeekFrom::Start(235))?;
     file.write_all(&evlr_at.to_le_bytes())?;
     file.write_all(&1u32.to_le_bytes())?;
     file.flush()?;
-    Ok(CopcReport {
-        points: count as u64,
-        nodes: nodes.len(),
-        levels,
-        format: new,
-        wkt: wkt.is_some(),
-    })
+    Ok(())
 }
 
 /// A short text for the report of a writing.
