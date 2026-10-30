@@ -63,6 +63,14 @@ impl PointStore {
         ]
     }
 
+    /// Whether the points come from an aircraft or drone: some have a scan angle. The gaps of a
+    /// flight line (points close along the line and far between lines) are what filling closes;
+    /// a terrestrial scan has none, and filling its sparse points only makes blocks.
+    pub fn airborne(&self) -> bool {
+        let step = (self.scan.len() / 4096).max(1);
+        self.scan.iter().step_by(step).any(|a| *a != 0)
+    }
+
     /// Keeps the points at even positions (the 1st, 3rd, ...): half of them, evenly.
     fn keep_every_other(&mut self) {
         fn half<T: Copy>(v: &mut Vec<T>) {
@@ -905,12 +913,23 @@ impl Layer {
         }
     }
 
-    /// Gives each empty cell the nearest reached one within `r` pixels along its row, then along
-    /// its column, so gaps up to about `2r` wide close. Linear in the pixels.
+    /// Closes the gaps between reached cells: an empty cell takes the nearer of the reached cells
+    /// on both sides of it within `r` pixels along its row, then along its column, but only when
+    /// the two are at about the same depth (within 4 % of the depth range of the image). So the
+    /// gap between two scan lines closes, while the space between a trunk and the canopy behind
+    /// it, or the edge of a cloud, is left as it is. Linear in the pixels.
     fn fill_gaps(&mut self, r: usize) {
         use rayon::prelude::*;
         use std::sync::atomic::Ordering::Relaxed;
-        fn rows(buf: &mut [u64], w: usize, r: usize) {
+        fn depth(v: u64) -> f32 {
+            let k = (v >> 24) as u32;
+            f32::from_bits(if k & 0x8000_0000 != 0 {
+                k & 0x7fff_ffff
+            } else {
+                !k
+            })
+        }
+        fn rows(buf: &mut [u64], w: usize, r: usize, tol: f32) {
             buf.par_chunks_mut(w).for_each(|row| {
                 let src = row.to_vec();
                 let mut left = vec![usize::MAX; w];
@@ -927,18 +946,12 @@ impl Layer {
                         right = x;
                         continue;
                     }
-                    let dl = if left[x] == usize::MAX {
-                        usize::MAX
-                    } else {
-                        x - left[x]
-                    };
-                    let dr = if right == usize::MAX {
-                        usize::MAX
-                    } else {
-                        right - x
-                    };
-                    let d = dl.min(dr);
-                    if d <= r {
+                    if left[x] == usize::MAX || right == usize::MAX {
+                        continue;
+                    }
+                    let (dl, dr) = (x - left[x], right - x);
+                    if dl <= r && dr <= r && (depth(src[left[x]]) - depth(src[right])).abs() <= tol
+                    {
                         row[x] = if dl <= dr { src[left[x]] } else { src[right] };
                     }
                 }
@@ -946,14 +959,24 @@ impl Layer {
         }
         let (w, h) = (self.w, self.h);
         let mut buf: Vec<u64> = self.cells.iter().map(|c| c.load(Relaxed)).collect();
-        rows(&mut buf, w, r);
+        let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+        for &v in buf.iter().filter(|v| **v != EMPTY) {
+            let d = depth(v);
+            lo = lo.min(d);
+            hi = hi.max(d);
+        }
+        if !(hi > lo) {
+            return;
+        }
+        let tol = (hi - lo) * 0.04;
+        rows(&mut buf, w, r, tol);
         let mut t = vec![EMPTY; w * h];
         for y in 0..h {
             for x in 0..w {
                 t[x * h + y] = buf[y * w + x];
             }
         }
-        rows(&mut t, h, r);
+        rows(&mut t, h, r, tol);
         for y in 0..h {
             for x in 0..w {
                 self.cells[y * w + x].store(t[x * h + y], Relaxed);
@@ -1101,7 +1124,7 @@ pub fn render_plan(s: &PointStore, v: &Plan, w: usize, h: usize, st: &Style) -> 
     // average spacing hides scan lines and overlaps, where the points are far apart in one
     // direction), unless the points are far denser than the pixels
     let gap_px = st.spacing * v.scale;
-    let fill = if st.fill && st.thin <= 1 && gap_px >= 0.3 {
+    let fill = if st.fill && st.thin <= 1 && gap_px >= 0.3 && s.airborne() {
         (gap_px * 2.0).ceil().clamp(2.0, 8.0) as usize
     } else {
         0
@@ -1297,6 +1320,7 @@ pub fn render_3d_with(
     let f = Orbit::focal(w, h);
     let mut layer = Layer::new(w, h);
     let (mut gap_px, mut thin) = (0.0f64, 1);
+    let airborne = s.airborne() || over.is_some_and(|(d, _)| d.airborne());
     for (s, st) in std::iter::once((s, st)).chain(over) {
         gap_px = gap_px.max(st.spacing * f / o.dist.max(1e-9));
         thin = thin.max(st.thin);
@@ -1351,7 +1375,7 @@ pub fn render_3d_with(
             });
     }
     // as in the plan view: the gaps between points close up to twice their spacing on screen
-    if st.fill && thin <= 1 && gap_px >= 0.3 {
+    if st.fill && thin <= 1 && gap_px >= 0.3 && airborne {
         layer.fill_gaps((gap_px * 2.0).ceil().clamp(2.0, 8.0) as usize);
     }
     if edl_of(st) > 0.0 && thin <= 1 {
