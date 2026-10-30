@@ -78,7 +78,7 @@ impl App {
             let (win, px) = (*win, *px);
             self.detail_job = None;
             match r {
-                Ok(Some(s)) if !s.is_empty() => {
+                Ok(Some((s, level_spacing))) if !s.is_empty() => {
                     let spacing = Style::fit(&s).spacing;
                     self.detail_id += 1;
                     self.detail = Some(Detail {
@@ -86,6 +86,7 @@ impl App {
                         px,
                         store: Arc::new(s),
                         spacing,
+                        level_spacing,
                         id: self.detail_id,
                     });
                 }

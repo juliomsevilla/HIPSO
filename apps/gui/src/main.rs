@@ -248,7 +248,7 @@ enum Side {
 }
 
 /// The background read of a window: what it will send, and the window.
-type DetailJob = (Receiver<Result<Option<PointStore>, String>>, [f64; 4], f64);
+type DetailJob = (Receiver<Result<Option<(PointStore, f64)>, String>>, [f64; 4], f64);
 
 /// A window of COPC clouds read at full detail, and the dot spacing that goes with it.
 struct Detail {
@@ -257,6 +257,8 @@ struct Detail {
     px: f64,
     store: Arc<PointStore>,
     spacing: f64,
+    /// Spacing of the octree level that was read: the dots of the 3D view follow it.
+    level_spacing: f64,
     id: u64,
 }
 
@@ -3671,7 +3673,7 @@ ui.menu_button("⚙", |ui| {
                 .detail3
                 .as_ref()
                 .filter(|d| contains(d.window, [tx - half, ty - half, tx + half, ty + half]))
-                .map(|d| (d.store.clone(), d.spacing, d.id, d.window));
+                .map(|d| (d.store.clone(), d.level_spacing.max(d.spacing), d.id, d.window));
             if let Some(d) = &over {
                 st.hole = Some(d.3);
             }

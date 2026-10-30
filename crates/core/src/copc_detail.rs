@@ -30,7 +30,7 @@ pub fn load_detail(
     px: f64,
     origin: [f64; 3],
     files: &[String],
-) -> Result<Option<PointStore>> {
+) -> Result<Option<(PointStore, f64)>> {
     let mut clouds = Vec::new();
     for p in paths {
         match Copc::open(p)? {
@@ -154,5 +154,5 @@ pub fn load_detail(
         [lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]]
     };
     s.total = s.x.len() as u64;
-    Ok(Some(s))
+    Ok(Some((s, spacing / f64::from(1u32 << level.min(30) as u32))))
 }
