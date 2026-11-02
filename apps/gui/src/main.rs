@@ -349,6 +349,10 @@ struct App {
     layout: Layout,
     side: Side,
     show_log: bool,
+    /// A field to colour the next vector layer by, once (for screenshots).
+    auto_categorize: Option<String>,
+    /// The log stays closed (for screenshots).
+    hide_log: bool,
     /// A message that stays on screen until the user closes it.
     notice: Option<String>,
     clouds: Vec<PathBuf>,
@@ -470,6 +474,8 @@ impl Default for App {
             nav: Nav::Zoom,
             layout: Layout::Plan,
             side: Side::Layers,
+            auto_categorize: None,
+            hide_log: false,
             show_log: false,
             notice: None,
             clouds: Vec::new(),
@@ -815,6 +821,28 @@ impl App {
                     Some("shortcuts") => Action::Shortcuts,
                     _ => continue,
                 }),
+                "--obia" => {
+                    // the CHM to segment: runs at once
+                    self.ot.open = true;
+                    self.ot.chm = it.next().map(PathBuf::from);
+                    self.ot.autorun = true;
+                    self.ot.classify = 3;
+                    self.ot.k = 5;
+                    self.ot.strata = true;
+                    if let Some(p) = &self.ot.chm {
+                        self.ot.out = p.with_file_name("objetos").display().to_string();
+                    }
+                }
+                "--model" => {
+                    // plots table, field table and variable, separated by commas
+                    let v = it.next().unwrap_or_default();
+                    let v: Vec<&str> = v.split(',').collect();
+                    if let [plots, field, response] = v[..] {
+                        self.mo.preset(plots, field, response);
+                    }
+                }
+                "--hide-log" => self.hide_log = true,
+                "--categorize" => self.auto_categorize = it.next(),
                 "--dark" => {
                     self.dark = true;
                     self.theme_pending = false;
@@ -4053,6 +4081,20 @@ impl eframe::App for App {
             self.set_theme(&ctx, theme != egui::Theme::Light);
         }
         self.poll(&ctx);
+        if self.hide_log {
+            self.show_log = false;
+        }
+        if let Some(field) = self.auto_categorize.clone()
+            && let Some(r) = self.refs.last_mut()
+            && let RefKind::Vector(v) = &mut r.kind
+            && let Some(c) = v.data.fields.iter().position(|f| *f == field)
+        {
+            self.auto_categorize = None;
+            v.sym.kind = symbology::SymKind::Unique;
+            v.sym.field = Some(c);
+            v.sym.classify(&v.data);
+            v.fill_alpha = 0.45;
+        }
         self.process_edit_cmds();
         if self.ed.want_save && self.ed.session.is_some() && self.ed.cmds.is_empty() {
             self.ed.want_save = false;
