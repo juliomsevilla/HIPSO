@@ -24,6 +24,7 @@ pub struct TerrainTool {
     pub max_distance: f64,
     pub out: String,
     pub out_manual: bool,
+    pub edges: terrain::Edges,
 }
 
 impl Default for TerrainTool {
@@ -45,6 +46,7 @@ impl Default for TerrainTool {
             max_distance: 1000.0,
             out: String::new(),
             out_manual: false,
+            edges: terrain::Edges::NoData,
         }
     }
 }
@@ -206,6 +208,33 @@ impl App {
                     }
                     _ => {}
                 }
+                if matches!(
+                    t.product,
+                    Product::Slope
+                        | Product::Aspect
+                        | Product::Hillshade
+                        | Product::PlanCurvature
+                        | Product::ProfileCurvature
+                        | Product::Curvature
+                        | Product::Roughness
+                        | Product::Ruggedness
+                ) {
+                    ui.horizontal(|ui| {
+                        ui.label("Bordes y huecos");
+                        egui::ComboBox::from_id_salt("terrain_edges")
+                            .selected_text(match t.edges {
+                                terrain::Edges::NoData => "Sin dato",
+                                terrain::Edges::Center => "Rellenar con la celda central",
+                                terrain::Edges::RepeatEdge => "Repetir el borde",
+                            })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut t.edges, terrain::Edges::NoData, "Sin dato");
+                                ui.selectable_value(&mut t.edges, terrain::Edges::Center, "Rellenar con la celda central");
+                                ui.selectable_value(&mut t.edges, terrain::Edges::RepeatEdge, "Repetir el borde");
+                            });
+                    });
+                    ui.label(egui::RichText::new("Las celdas del borde y las vecinas a un hueco no tienen ventana completa: por defecto quedan sin dato. «Repetir el borde» da valor a las del borde; «Rellenar con la celda central» también a las vecinas de un hueco (aplana la superficie ahí).").color(weak).size(11.0));
+                }
                 ui.horizontal(|ui| {
                     ui.label("Factor Z");
                     ui.add(NumField::new(&mut t.z_factor).range(0.0001..=100000.0));
@@ -256,6 +285,7 @@ impl App {
                 };
                 let mut job = TerrainJob::new(input, out.clone(), t.product);
                 job.percent = t.percent;
+                job.edges = t.edges;
                 job.z_factor = t.z_factor;
                 (job.azimuth, job.altitude) = (t.azimuth, t.altitude);
                 job.radius = t.radius;

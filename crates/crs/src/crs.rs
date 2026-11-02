@@ -46,6 +46,7 @@ mod epsg;
 mod grid;
 mod math;
 mod params;
+pub mod policy;
 mod projections;
 mod rotation;
 mod route;
@@ -949,6 +950,10 @@ pub struct TransformOptions {
     /// The coordinate epoch of the target coordinates, for a dynamic target CRS (GDAL's
     /// `-t_coord_epoch`).
     pub target_coordinate_epoch: Option<f64>,
+    /// The source coordinates carry an ellipsoidal height (for a CRS without a vertical part).
+    pub source_ellipsoidal_height: bool,
+    /// The target coordinates are to carry an ellipsoidal height.
+    pub target_ellipsoidal_height: bool,
 }
 
 /// Transforms coordinates from one CRS to another, as GDAL does: linear and angular units, axis
@@ -1106,7 +1111,13 @@ impl Transformer {
         opts: &TransformOptions,
     ) -> Result<Self> {
         crate::spain::init();
-        let (s, d) = (Def::new(src)?, Def::new(dst)?);
+        let (mut s, mut d) = (Def::new(src)?, Def::new(dst)?);
+        if opts.source_ellipsoidal_height && s.vertical().is_none() {
+            s = s.with_ellipsoidal_height();
+        }
+        if opts.target_ellipsoidal_height && d.vertical().is_none() {
+            d = d.with_ellipsoidal_height();
+        }
         let time = match (
             s.is_dynamic(),
             d.is_dynamic(),
@@ -1232,6 +1243,29 @@ impl Transformer {
         self.transform_at(x, y, z, self.time)
     }
 
+    /// Transforms a point with a height under a policy: the result, and the approximations it
+    /// went through (empty when it came from the best operation). A point whose approximations the
+    /// policy refuses is an error, never a value.
+    pub fn transform_checked(
+        &self,
+        x: f64,
+        y: f64,
+        z: f64,
+        policy: policy::Policy,
+    ) -> Result<((f64, f64, f64), policy::Approximations)> {
+        let _ = policy::take();
+        let r = self.transform_3d(x, y, z);
+        let notes = policy::take();
+        let v = r?;
+        if let Some(a) = notes.refused_by(policy) {
+            return Err(Error::Policy(format!(
+                "({x}, {y}): {}; la política estricta lo rechaza (HIPSO_ALLOW_BALLPARK, HIPSO_ONLY_BEST)",
+                a.describe()
+            )));
+        }
+        Ok((v, notes))
+    }
+
     /// Transforms a point with a height at a time (a decimal year), for time-dependent
     /// transformations; the time replaces the coordinate epoch of the options.
     pub fn transform_4d(&self, x: f64, y: f64, z: f64, t: f64) -> Result<(f64, f64, f64)> {
@@ -1282,7 +1316,10 @@ impl Transformer {
                 match self.vertical_height(x, y, p) {
                     Some(h) => h / b.to_meter,
                     // None applies: heights are kept, as by PROJ's ballpark.
-                    None => b.height_of(a.to_metres(z)),
+                    None => {
+                        policy::note(policy::Approximation::HeightKept);
+                        b.height_of(a.to_metres(z))
+                    }
                 },
             ));
         }
@@ -1307,6 +1344,9 @@ impl Transformer {
             }
         }
         // No geoid model: heights are kept (PROJ's ballpark vertical transformation).
+        if start.is_none() && self.src.vertical().is_some() {
+            policy::note(policy::Approximation::HeightKept);
+        }
         if start.is_none() && self.src.vertical().is_some_and(|v| !v.ballpark) {
             return Err(fail());
         }
@@ -1342,6 +1382,9 @@ impl Transformer {
                 ty,
                 self.dst.vertical().map_or(r.h, |v| v.height_of(r.h)),
             ));
+        }
+        if self.dst.vertical().is_some() {
+            policy::note(policy::Approximation::HeightKept);
         }
         if self.dst.vertical().is_some_and(|v| !v.ballpark) {
             return Err(fail());

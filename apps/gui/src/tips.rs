@@ -35,6 +35,15 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Igualar rásteres" => {
             "Pone varios rásteres con la misma rejilla, proyección y tamaño de celda."
         }
+        "Reproyectar" => {
+            "Pasa nubes y rásteres a otro sistema de coordenadas y cambia la referencia vertical de las alturas."
+        }
+        "Vector" => {
+            "Estadística zonal de un ráster por polígono, y validar, reparar, ampliar, disolver o unir capas de polígonos."
+        }
+        "Carreteras\ny vías" | "Carreteras y vías" => {
+            "Extrae los ejes de carreteras y pistas, con su anchura, del suelo clasificado."
+        }
         "Tema" => "Cambia entre el tema claro y el oscuro.",
         "Registro" => "Muestra lo que se ha hecho, los errores y el avance de los procesos largos.",
         // Vista

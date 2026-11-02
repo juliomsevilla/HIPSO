@@ -38,6 +38,8 @@ pub struct Header {
     pub bounds: [f64; 6],
     /// The projected (else geographic) EPSG code of the GeoTIFF keys, when given.
     pub epsg: Option<u16>,
+    /// The EPSG code of the vertical reference (heights), when the file declares one.
+    pub vertical_epsg: Option<u16>,
 }
 
 /// One point: what the forestry tools need from a record.
@@ -276,6 +278,7 @@ fn parse_header(b: &[u8]) -> Result<Header> {
         offset,
         bounds,
         epsg: None,
+        vertical_epsg: None,
     })
 }
 
@@ -370,8 +373,46 @@ fn parse_meta(b: &[u8]) -> Meta {
     }
 }
 
-/// The EPSG code a WKT ends with (the outermost authority), either WKT1 or WKT2 style.
+/// The text of the first bracketed block of a WKT that starts with `key` (`VERT_CS[` ...).
+fn wkt_block<'a>(wkt: &'a str, keys: &[&str]) -> Option<&'a str> {
+    let start = keys.iter().filter_map(|k| wkt.find(k)).min()?;
+    let mut depth = 0i32;
+    let mut quoted = false;
+    for (i, c) in wkt[start..].char_indices() {
+        match c {
+            '"' => quoted = !quoted,
+            '[' | '(' if !quoted => depth += 1,
+            ']' | ')' if !quoted => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&wkt[start..start + i + 1]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+const VERTICAL_KEYS: [&str; 3] = ["VERT_CS[", "VERTCRS[", "VERTICALCRS["];
+
+/// The EPSG code of the vertical CRS of a compound WKT.
+pub fn vertical_epsg_from_wkt(wkt: &str) -> Option<u16> {
+    epsg_from_wkt_plain(wkt_block(wkt, &VERTICAL_KEYS)?)
+}
+
+/// The EPSG code of a WKT: for a compound one, that of its horizontal part.
 pub fn epsg_from_wkt(wkt: &str) -> Option<u16> {
+    if wkt_block(wkt, &VERTICAL_KEYS).is_some() {
+        let h = wkt_block(wkt, &["PROJCS[", "PROJCRS[", "PROJECTEDCRS["])
+            .or_else(|| wkt_block(wkt, &["GEOGCS[", "GEOGCRS[", "GEODCRS[", "GEOGRAPHICCRS["]))?;
+        return epsg_from_wkt_plain(h);
+    }
+    epsg_from_wkt_plain(wkt)
+}
+
+/// The EPSG code a WKT ends with (the outermost authority), either WKT1 or WKT2 style.
+fn epsg_from_wkt_plain(wkt: &str) -> Option<u16> {
     let mut best = None;
     for pat in ["AUTHORITY[\"EPSG\",\"", "ID[\"EPSG\","] {
         let mut from = 0;
@@ -400,6 +441,28 @@ pub fn wkt_name(wkt: &str) -> Option<String> {
     let start = wkt.find('"')? + 1;
     let len = wkt.get(start..)?.find('"')?;
     wkt.get(start..start + len).map(str::to_string)
+}
+
+/// VerticalCSTypeGeoKey (4096) of the key directory.
+fn vertical_epsg_of(vlrs: &[Vlr]) -> Option<u16> {
+    let keys = vlrs
+        .iter()
+        .find(|v| v.user == "LASF_Projection" && v.record == 34735)?;
+    let n = usize::from(u16_at(&keys.data, 6)?).min(256);
+    for k in 0..n {
+        let at = 8 + k * 8;
+        let (Some(id), Some(loc), Some(val)) = (
+            u16_at(&keys.data, at),
+            u16_at(&keys.data, at + 2),
+            u16_at(&keys.data, at + 6),
+        ) else {
+            break;
+        };
+        if id == 4096 && loc == 0 && val != 32767 && val != 0 {
+            return Some(val);
+        }
+    }
+    None
 }
 
 /// ProjectedCSTypeGeoKey, else GeographicTypeGeoKey; 32767 means "user defined".
@@ -673,6 +736,8 @@ impl Reader {
             })
             .filter(|w| !w.is_empty());
         header.epsg = epsg_of(&vlrs).or_else(|| meta.wkt.as_deref().and_then(epsg_from_wkt));
+        header.vertical_epsg = vertical_epsg_of(&vlrs)
+            .or_else(|| meta.wkt.as_deref().and_then(vertical_epsg_from_wkt));
         let laz_vlr = vlrs
             .into_iter()
             .find(|v| v.user == "laszip encoded" && v.record == 22204)
@@ -1275,14 +1340,22 @@ fn split_projection(raw: &[u8], want: bool) -> (Vec<u8>, u32) {
 /// The GeoTIFF key directory record that declares EPSG code `epsg` (projected, or geographic
 /// for codes in the 4000s), as raw bytes.
 pub fn epsg_record(epsg: u16) -> Vec<u8> {
+    epsg_record_with_vertical(epsg, None)
+}
+
+/// As [`epsg_record`], also declaring the vertical reference (key 4096) when there is one.
+pub fn epsg_record_with_vertical(epsg: u16, vertical: Option<u16>) -> Vec<u8> {
     let geographic = (4000..5000).contains(&epsg);
-    let keys: [[u16; 4]; 3] = [
+    let mut keys: Vec<[u16; 4]> = vec![
         [1024, 0, 1, if geographic { 2 } else { 1 }],
         [1025, 0, 1, 1],
         [if geographic { 2048 } else { 3072 }, 0, 1, epsg],
     ];
+    if let Some(v) = vertical {
+        keys.push([4096, 0, 1, v]);
+    }
     let mut data: Vec<u8> = Vec::new();
-    for v in [1u16, 1, 0, 3] {
+    for v in [1u16, 1, 0, keys.len() as u16] {
         data.extend_from_slice(&v.to_le_bytes());
     }
     for k in keys {

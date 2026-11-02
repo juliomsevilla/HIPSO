@@ -75,6 +75,12 @@ pub enum Resample {
     Bilinear,
     /// The mean of the source pixels under the output pixel (for reducing a fine image).
     Average,
+    /// Cubic convolution over the 4x4 nearest pixels (Keys, a = -0.5); bilinear where one of
+    /// them is empty. Smooth, may overshoot slightly: not for classes.
+    Cubic,
+    /// The most frequent value under the output pixel (ties: the smallest): for classes when
+    /// reducing a fine image.
+    Mode,
 }
 
 /// The area the output covers.
@@ -267,6 +273,67 @@ fn sample(img: &Image, b: usize, x: f64, y: f64, cell: f64, how: Resample) -> f3
                 }
             }
             if wsum > 0.0 { acc / wsum } else { f32::NAN }
+        }
+        Resample::Cubic => {
+            let (gx, gy) = (fx - 0.5, fy - 0.5);
+            let (c0, r0) = (gx.floor() as i64, gy.floor() as i64);
+            let (tx, ty) = (gx - gx.floor(), gy - gy.floor());
+            let kernel = |t: f64| -> [f64; 4] {
+                // Keys' cubic convolution weights for the pixels at -1, 0, 1, 2
+                let w = |x: f64| {
+                    let x = x.abs();
+                    if x <= 1.0 {
+                        1.5 * x.powi(3) - 2.5 * x * x + 1.0
+                    } else if x < 2.0 {
+                        -0.5 * x.powi(3) + 2.5 * x * x - 4.0 * x + 2.0
+                    } else {
+                        0.0
+                    }
+                };
+                [w(1.0 + t), w(t), w(1.0 - t), w(2.0 - t)]
+            };
+            let (wx, wy) = (kernel(tx), kernel(ty));
+            let mut acc = 0.0f64;
+            for (j, wj) in wy.iter().enumerate() {
+                for (i, wi) in wx.iter().enumerate() {
+                    let v = at(c0 - 1 + i as i64, r0 - 1 + j as i64);
+                    if !v.is_finite() {
+                        return sample(img, b, x, y, cell, Resample::Bilinear);
+                    }
+                    acc += f64::from(v) * wi * wj;
+                }
+            }
+            acc as f32
+        }
+        Resample::Mode => {
+            let half = cell / img.cell / 2.0;
+            if half <= 0.5 {
+                return at(fx.floor() as i64, fy.floor() as i64);
+            }
+            let (c0, c1) = ((fx - half).round() as i64, (fx + half).round() as i64);
+            let (r0, r1) = ((fy - half).round() as i64, (fy + half).round() as i64);
+            let mut vals: Vec<f32> = Vec::new();
+            for r in r0..r1.max(r0 + 1) {
+                for c in c0..c1.max(c0 + 1) {
+                    let v = at(c, r);
+                    if v.is_finite() {
+                        vals.push(v);
+                    }
+                }
+            }
+            vals.sort_by(f32::total_cmp);
+            let (mut best, mut best_n, mut i) = (f32::NAN, 0usize, 0usize);
+            while i < vals.len() {
+                let mut j = i;
+                while j < vals.len() && vals[j] == vals[i] {
+                    j += 1;
+                }
+                if j - i > best_n {
+                    (best, best_n) = (vals[i], j - i);
+                }
+                i = j;
+            }
+            best
         }
         Resample::Average => {
             let half = cell / img.cell / 2.0;
@@ -539,6 +606,8 @@ pub fn align(job: &AlignJob) -> Result<String> {
             Resample::Nearest => "vecino más cercano",
             Resample::Bilinear => "bilineal",
             Resample::Average => "media",
+            Resample::Cubic => "cúbico",
+            Resample::Mode => "moda",
         };
         let epsg_note = if reference.epsg.is_none() || o.pyr.epsg.is_none() {
             " (no se pudo comprobar el sistema de coordenadas: falta en uno de los archivos)"
@@ -672,6 +741,38 @@ pub fn mosaic(job: &RasterJob) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    fn ramp(cols: usize, rows: usize, f: impl Fn(f64, f64) -> f32) -> Image {
+        let mut d = Vec::new();
+        for r in 0..rows {
+            for c in 0..cols {
+                d.push(f(c as f64 + 0.5, (rows - r) as f64 - 0.5));
+            }
+        }
+        Image { x0: 0.0, y0: 0.0, cell: 1.0, cols, rows, bands: vec![d] }
+    }
+
+    #[test]
+    fn cubic_reproduces_a_plane_and_mode_picks_the_majority() {
+        let img = ramp(10, 10, |x, y| (2.0 * x + 3.0 * y) as f32);
+        let v = sample(&img, 0, 4.3, 5.8, 1.0, Resample::Cubic);
+        assert!((f64::from(v) - (2.0 * 4.3 + 3.0 * 5.8)).abs() < 1e-4, "{v}");
+        // a pixel of 4x4 source cells: 10 cells of class 7, 6 of class 3
+        let mut img = ramp(8, 8, |_, _| 3.0);
+        for r in 0..2 {
+            for c in 0..4 {
+                img.bands[0][r * 8 + c] = 7.0;
+            }
+        }
+        for c in 0..2 {
+            img.bands[0][2 * 8 + c] = 7.0;
+        }
+        assert_eq!(sample(&img, 0, 2.0, 6.0, 4.0, Resample::Mode), 7.0);
+        // a hole among the 16 cubic neighbours falls back to bilinear, not NaN
+        let mut img = ramp(10, 10, |x, _| x as f32);
+        img.bands[0][4 * 10 + 4] = f32::NAN;
+        assert!(sample(&img, 0, 4.6, 5.4, 1.0, Resample::Cubic).is_finite());
+    }
+
     use super::*;
     use crate::grid::Grid;
 

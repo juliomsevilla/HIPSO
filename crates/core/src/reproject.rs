@@ -1,13 +1,16 @@
 //! Moves clouds, rasters and regions from one coordinate system to another, with the
 //! transformations of `hipso-crs` (the datum shift grids of Spain are built in).
 //!
-//! Only the horizontal position changes; heights are kept (a datum shift changes them by
-//! centimetres at most, and a geoid change is not a coordinate-system change).
+//! Heights change only when a vertical reference is asked for (see [`Vertical`]): then they go
+//! through the geoid model of the pair, as the transformation of `hipso-crs` picks it. Without it
+//! they are kept as they are. Approximations (no datum shift, no geoid for the point, a lesser
+//! operation because a grid is missing) are refused by default; see [`Policy`].
 
 use std::path::{Path, PathBuf};
 
 use hipso_crs::SpatialRef;
 pub use hipso_crs::Transformer;
+pub use hipso_crs::policy::{Approximation, Policy};
 use rayon::prelude::*;
 
 use crate::grid::Grid;
@@ -25,6 +28,82 @@ pub fn transformer(from: u16, to: u16) -> Result<Transformer> {
         .map_err(|e| Error::Param(format!("no se puede pasar de EPSG:{from} a EPSG:{to}: {e}")))
 }
 
+/// A vertical reference of heights.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerticalRef {
+    /// Height above the ellipsoid of the horizontal datum (what GNSS gives).
+    Ellipsoidal,
+    /// A vertical CRS by EPSG code (5782: REDNAP orthometric heights; 3855: EGM2008 height).
+    Epsg(u16),
+}
+
+impl VerticalRef {
+    /// `ellipsoidal` (or `ell`), or an EPSG code (`5782`, `EPSG:5782`).
+    pub fn parse(s: &str) -> Result<Self> {
+        let t = s.trim();
+        if t.eq_ignore_ascii_case("ellipsoidal") || t.eq_ignore_ascii_case("ell") {
+            return Ok(Self::Ellipsoidal);
+        }
+        t.trim_start_matches(|c: char| c.is_ascii_alphabetic() || c == ':')
+            .parse::<u16>()
+            .map(Self::Epsg)
+            .map_err(|_| {
+                Error::Param(format!(
+                    "referencia vertical «{s}» no válida: usa «ellipsoidal» o un código EPSG"
+                ))
+            })
+    }
+}
+
+/// The vertical references of a height change: the one the data is in and the one to give them.
+/// With `output` unset heights are left as they are.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Vertical {
+    pub input: Option<VerticalRef>,
+    pub output: Option<VerticalRef>,
+}
+
+/// A transformer with heights: the horizontal codes, plus the vertical ones when given.
+pub fn transformer_3d(from: u16, to: u16, v: Vertical) -> Result<Transformer> {
+    let parse = |h: u16, v: Option<VerticalRef>| {
+        let spec = spec_of(h, v);
+        SpatialRef::parse(&spec)
+            .map_err(|e| Error::Param(format!("el sistema {spec} no se reconoce: {e}")))
+    };
+    let (a, b) = (parse(from, v.input)?, parse(to, v.output)?);
+    let opts = hipso_crs::TransformOptions {
+        source_ellipsoidal_height: v.input == Some(VerticalRef::Ellipsoidal),
+        target_ellipsoidal_height: v.output == Some(VerticalRef::Ellipsoidal),
+        ..Default::default()
+    };
+    Transformer::with_options(&a, &b, &opts).map_err(|e| {
+        Error::Param(format!(
+            "no se puede pasar de {} a {}: {e}",
+            spec_of(from, v.input),
+            spec_of(to, v.output)
+        ))
+    })
+}
+
+fn spec_of(h: u16, v: Option<VerticalRef>) -> String {
+    match v {
+        Some(VerticalRef::Epsg(v)) => format!("EPSG:{h}+{v}"),
+        _ => format!("EPSG:{h}"),
+    }
+}
+
+/// What a cloud reprojection did.
+#[derive(Debug, Clone, Default)]
+pub struct CloudReport {
+    pub read: u64,
+    /// Points outside the domain of the target projection.
+    pub dropped: u64,
+    /// How many points went through each approximation the policy accepted.
+    pub approximated: Vec<(Approximation, u64)>,
+    /// Sentences for the report.
+    pub notes: Vec<String>,
+}
+
 fn geographic(code: u16) -> bool {
     (4000..5000).contains(&code)
 }
@@ -32,15 +111,49 @@ fn geographic(code: u16) -> bool {
 /// Writes `src` in the system `to`, with the points' order, attributes and records unchanged.
 /// Points that cannot be transformed are dropped; how many were read and dropped is returned.
 pub fn cloud(src: &Path, dst: &Path, from: u16, to: u16) -> Result<(u64, u64)> {
+    let r = cloud_with(src, dst, from, to, Vertical::default(), Policy::from_env())?;
+    Ok((r.read, r.dropped))
+}
+
+/// [`cloud`] with a height change and a policy. A point the policy refuses stops the whole
+/// operation with an error (a refusal is never a silently dropped point).
+pub fn cloud_with(
+    src: &Path,
+    dst: &Path,
+    from: u16,
+    to: u16,
+    vertical: Vertical,
+    policy: Policy,
+) -> Result<CloudReport> {
     if geographic(from) || geographic(to) {
         return Err(Error::Unsupported(
             "las nubes no se reproyectan desde o hacia coordenadas geográficas (grados): usa un sistema proyectado".into(),
         ));
     }
-    let t = transformer(from, to)?;
     let r = Reader::open(src)?;
+    let mut vertical = vertical;
+    let mut notes = Vec::new();
+    if vertical.input.is_none() {
+        vertical.input = r.header.vertical_epsg.map(VerticalRef::Epsg);
+    }
+    if vertical.output.is_some() && vertical.input.is_none() {
+        return Err(Error::Param(
+            "la nube no declara su referencia vertical: indica la de origen (--vertical-in) para cambiar las alturas".into(),
+        ));
+    }
+    if vertical.output.is_none() {
+        if let Some(v) = vertical.input {
+            notes.push(format!("alturas sin cambios (referencia vertical {v:?}); indica la de destino para cambiarlas"));
+        } else {
+            notes.push("la nube no declara referencia vertical: las alturas no se tocan".into());
+        }
+        // heights stay: no vertical CRS on either side
+        vertical.input = None;
+    }
+    let t = transformer_3d(from, to, vertical)?;
+    let flat = transformer(from, to)?;
     let b = r.header.bounds;
-    let (x0, y0, x1, y1) = t
+    let (x0, y0, x1, y1) = flat
         .transform_bounds((b[0], b[1], b[3], b[4]))
         .map_err(|e| Error::Param(format!("la nube cae fuera del sistema EPSG:{to}: {e}")))?;
     // stored relative to a round value near the middle, as the new coordinates are far from the old
@@ -51,12 +164,30 @@ pub fn cloud(src: &Path, dst: &Path, from: u16, to: u16) -> Result<(u64, u64)> {
         r.header.offset[2],
     ];
     let out = Reader::open(src)?
-        .with_projection(&las::epsg_record(to), 1, Some(to), None)
+        .with_projection(
+            &las::epsg_record_with_vertical(
+                to,
+                match vertical.output {
+                    Some(VerticalRef::Epsg(v)) => Some(v),
+                    _ => None,
+                },
+            ),
+            1,
+            Some(to),
+            None,
+        )
         .with_offset(offset);
+    let mut out = out;
+    out.header.vertical_epsg = match vertical.output {
+        Some(VerticalRef::Epsg(v)) => Some(v),
+        _ => None,
+    };
     let (hin, hout) = (r.header.clone(), out.header.clone());
     let rec_len = usize::from(hin.record_len);
     let mut w = Writer::create(dst, &out)?;
     let dropped = std::sync::atomic::AtomicU64::new(0);
+    let counts: [std::sync::atomic::AtomicU64; 3] = Default::default();
+    let refused: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
     let read = r.scan_raw(|bytes| {
         let mut buf = bytes.to_vec();
         let keep: Vec<bool> = buf
@@ -73,8 +204,21 @@ pub fn cloud(src: &Path, dst: &Path, from: u16, to: u16) -> Result<(u64, u64)> {
                 let x = f64::from(xi) * hin.scale[0] + hin.offset[0];
                 let y = f64::from(yi) * hin.scale[1] + hin.offset[1];
                 let z = f64::from(zi) * hin.scale[2] + hin.offset[2];
-                match t.transform(x, y) {
-                    Ok((nx, ny)) => las::set_xyz(&hout, rec, nx, ny, z),
+                match t.transform_checked(x, y, z, policy) {
+                    Ok(((nx, ny, nz), approx)) => {
+                        for (k, a) in Approximation::ALL.iter().enumerate() {
+                            if approx.contains(*a) {
+                                counts[k].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        }
+                        las::set_xyz(&hout, rec, nx, ny, nz)
+                    }
+                    Err(hipso_crs::Error::Policy(m)) => {
+                        if let Ok(mut r) = refused.lock() {
+                            r.get_or_insert(m);
+                        }
+                        false
+                    }
                     Err(_) => false,
                 }
             })
@@ -88,8 +232,27 @@ pub fn cloud(src: &Path, dst: &Path, from: u16, to: u16) -> Result<(u64, u64)> {
         }
         Ok(())
     })?;
+    if let Some(m) = refused.into_inner().ok().flatten() {
+        drop(w);
+        let _ = std::fs::remove_file(dst);
+        return Err(Error::Param(format!("transformación rechazada: {m}")));
+    }
     w.finish()?;
-    Ok((read, dropped.into_inner()))
+    let approximated: Vec<(Approximation, u64)> = Approximation::ALL
+        .iter()
+        .zip(&counts)
+        .map(|(a, c)| (*a, c.load(std::sync::atomic::Ordering::Relaxed)))
+        .filter(|(_, n)| *n > 0)
+        .collect();
+    for (a, n) in &approximated {
+        notes.push(format!("{n} puntos: {}", a.describe()));
+    }
+    Ok(CloudReport {
+        read,
+        dropped: dropped.into_inner(),
+        approximated,
+        notes,
+    })
 }
 
 /// The clouds of a work, all in the system of the first one that declares it.
@@ -275,6 +438,83 @@ pub fn grid(g: &Grid, from: u16, to: u16) -> Result<Grid> {
     grid_onto(g, from, to, Grid::covering([x0, y0, x1, y1], cell)?)
 }
 
+/// The raster in the system `to` with its values (heights) in another vertical reference. Without
+/// a height change this is [`grid`]. `from` and `to` may be the same: then only the heights change.
+///
+/// The policy is applied to the horizontal operation at the corners and the centre of the raster,
+/// and to the height of every cell. A refusal stops the operation with an error.
+pub fn grid_with(
+    g: &Grid,
+    from: u16,
+    to: u16,
+    vertical: Vertical,
+    policy: Policy,
+) -> Result<Grid> {
+    let mut out = if from == to {
+        g.clone()
+    } else {
+        let w = g.cols as f64 * g.cell;
+        let h = g.rows as f64 * g.cell;
+        let t = transformer_3d(from, to, Vertical::default())?;
+        for (x, y) in [
+            (g.x0, g.y0),
+            (g.x0 + w, g.y0),
+            (g.x0, g.y0 + h),
+            (g.x0 + w, g.y0 + h),
+            (g.x0 + w / 2.0, g.y0 + h / 2.0),
+        ] {
+            match t.transform_checked(x, y, 0.0, policy) {
+                Err(hipso_crs::Error::Policy(m)) => {
+                    return Err(Error::Param(format!("transformación rechazada: {m}")));
+                }
+                _ => {}
+            }
+        }
+        grid(g, from, to)?
+    };
+    let Some(vo) = vertical.output else {
+        return Ok(out);
+    };
+    let Some(vi) = vertical.input else {
+        return Err(Error::Param(
+            "el ráster no declara su referencia vertical: indica la de origen (--vertical-in)"
+                .into(),
+        ));
+    };
+    if vi == vo {
+        return Ok(out);
+    }
+    let t = transformer_3d(to, to, Vertical { input: Some(vi), output: Some(vo) })?;
+    let (cols, x0, y0, cell, rows) = (out.cols, out.x0, out.y0, out.cell, out.rows);
+    let refused: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+    out.data
+        .par_chunks_mut(cols)
+        .enumerate()
+        .for_each(|(row, line)| {
+            let y = y0 + (rows - row) as f64 * cell - cell / 2.0;
+            for (col, v) in line.iter_mut().enumerate() {
+                if v.is_nan() {
+                    continue;
+                }
+                let x = x0 + (col as f64 + 0.5) * cell;
+                *v = match t.transform_checked(x, y, f64::from(*v), policy) {
+                    Ok(((_, _, z), _)) => z as f32,
+                    Err(hipso_crs::Error::Policy(m)) => {
+                        if let Ok(mut r) = refused.lock() {
+                            r.get_or_insert(m);
+                        }
+                        f32::NAN
+                    }
+                    Err(_) => f32::NAN,
+                };
+            }
+        });
+    if let Some(m) = refused.into_inner().ok().flatten() {
+        return Err(Error::Param(format!("transformación rechazada: {m}")));
+    }
+    Ok(out)
+}
+
 /// The raster on the cells of `onto` (an empty grid, in the system `to`): what a model must be
 /// to be combined cell by cell with another one.
 pub fn grid_onto(g: &Grid, from: u16, to: u16, mut out: Grid) -> Result<Grid> {
@@ -309,6 +549,18 @@ pub fn grid_onto(g: &Grid, from: u16, to: u16, mut out: Grid) -> Result<Grid> {
 /// Writes `input` (a cloud or a raster) in the system `to`. `from` says what the file is in when
 /// it does not declare it. Returns a line for the report.
 pub fn file(input: &Path, output: &Path, to: u16, from: Option<u16>) -> Result<String> {
+    file_with(input, output, to, from, Vertical::default(), Policy::from_env())
+}
+
+/// [`file`] with a height change and a policy (see [`Vertical`] and [`Policy`]).
+pub fn file_with(
+    input: &Path,
+    output: &Path,
+    to: u16,
+    from: Option<u16>,
+    vertical: Vertical,
+    policy: Policy,
+) -> Result<String> {
     let name = input.file_name().map_or_else(
         || input.display().to_string(),
         |n| n.to_string_lossy().into_owned(),
@@ -326,18 +578,31 @@ pub fn file(input: &Path, output: &Path, to: u16, from: Option<u16>) -> Result<S
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
     let (what, tail) = if ext == "las" || ext == "laz" {
-        let (read, dropped) = cloud(input, output, from, to)?;
-        let tail = if dropped > 0 {
-            format!("; {dropped} puntos fuera del sistema de destino, descartados")
-        } else {
-            String::new()
-        };
-        (format!("{read} puntos"), tail)
+        let r = cloud_with(input, output, from, to, vertical, policy)?;
+        let mut tail = String::new();
+        if r.dropped > 0 {
+            tail.push_str(&format!(
+                "; {} puntos fuera del sistema de destino, descartados",
+                r.dropped
+            ));
+        }
+        for n in &r.notes {
+            tail.push_str(&format!("\n  aviso: {n}"));
+        }
+        (format!("{} puntos", r.read), tail)
     } else if crate::raster::is_raster_ext(&ext) {
         let g = Grid::read(input)?;
-        let moved = grid(&g, from, to)?;
+        let mut vertical = vertical;
+        if vertical.input.is_none() {
+            vertical.input = Grid::read_vertical_epsg(input).map(VerticalRef::Epsg);
+        }
+        let moved = grid_with(&g, from, to, vertical, policy)?;
         let out = output.with_extension("tif");
-        moved.write_tiff(&out, Some(to))?;
+        let vcode = match vertical.output {
+            Some(VerticalRef::Epsg(v)) => Some(v),
+            _ => None,
+        };
+        moved.write_tiff_vertical(&out, Some(to), vcode)?;
         (
             format!("ráster de {} x {} celdas", moved.cols, moved.rows),
             String::new(),
@@ -376,6 +641,22 @@ pub fn regions(list: &[Region], from: u16, to: u16) -> Result<Vec<Region>> {
                         })
                         .collect::<Result<Vec<_>>>()?;
                     Shape2::Polygon(Polygon::new(rings))
+                }
+                Shape2::Buffered(b) => {
+                    let rings = b
+                        .poly
+                        .rings
+                        .iter()
+                        .map(|ring| {
+                            ring.iter()
+                                .map(|v| t.transform(v[0], v[1]).map(|(x, y)| [x, y]).map_err(bad))
+                                .collect::<Result<Vec<_>>>()
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    Shape2::Buffered(Box::new(crate::vector::Buffered::new(
+                        Polygon::new(rings),
+                        b.dist,
+                    )))
                 }
                 Shape2::Circle { cx, cy, r } => {
                     let (x, y) = t.transform(*cx, *cy).map_err(bad)?;
@@ -489,6 +770,61 @@ mod tests {
     }
 
     #[test]
+    fn heights_change_with_the_geoid_when_asked() -> Result<()> {
+        let d = dir("heights")?;
+        let pts = vec![[440_295.0, 4_474_235.0, 700.0], [440_395.0, 4_474_335.0, 710.0]];
+        let (src, dst) = (d.join("e.las"), d.join("o.las"));
+        write_las(&src, &pts, 25830)?;
+        let v = Vertical {
+            input: Some(VerticalRef::Ellipsoidal),
+            output: Some(VerticalRef::Epsg(5782)),
+        };
+        let r = cloud_with(&src, &dst, 25830, 25830, v, Policy::STRICT)?;
+        assert_eq!((r.read, r.dropped), (2, 0));
+        let out = read_xyz(&dst)?;
+        // Madrid geoid undulation is about +51 m
+        assert!((out[0][2] - 648.89).abs() < 0.05, "{}", out[0][2]);
+        assert!((out[0][0] - 440_295.0).abs() < 0.01);
+        assert_eq!(Reader::open(&dst)?.header.vertical_epsg, Some(5782));
+        // the output declares its vertical reference: going back needs no `input`
+        let back = d.join("b.las");
+        let v2 = Vertical {
+            input: None,
+            output: Some(VerticalRef::Ellipsoidal),
+        };
+        cloud_with(&dst, &back, 25830, 25830, v2, Policy::STRICT)?;
+        let z = read_xyz(&back)?;
+        assert!((z[1][2] - 710.0).abs() < 0.01, "{}", z[1][2]);
+        Ok(())
+    }
+
+    #[test]
+    fn a_height_change_without_a_declared_source_is_asked_for() -> Result<()> {
+        let d = dir("novert")?;
+        let (src, dst) = (d.join("a.las"), d.join("b.las"));
+        write_las(&src, &[[440_295.0, 4_474_235.0, 700.0]], 25830)?;
+        let v = Vertical {
+            input: None,
+            output: Some(VerticalRef::Epsg(5782)),
+        };
+        let e = cloud_with(&src, &dst, 25830, 25830, v, Policy::STRICT).unwrap_err();
+        assert!(e.to_string().contains("--vertical-in"), "{e}");
+        // outside the geoid's coverage the strict policy refuses instead of keeping the height
+        let paris = d.join("p.las");
+        write_las(&paris, &[[452_000.0, 5_411_000.0, 100.0]], 25831)?;
+        let v = Vertical {
+            input: Some(VerticalRef::Ellipsoidal),
+            output: Some(VerticalRef::Epsg(5782)),
+        };
+        let e = cloud_with(&paris, &d.join("q.las"), 25831, 25831, v, Policy::STRICT).unwrap_err();
+        assert!(e.to_string().contains("rechazada"), "{e}");
+        assert!(!d.join("q.las").exists());
+        let r = cloud_with(&paris, &d.join("q.las"), 25831, 25831, v, Policy::LENIENT)?;
+        assert_eq!(r.approximated.len(), 1);
+        Ok(())
+    }
+
+    #[test]
     fn a_cloud_moves_between_utm_zones_and_datums() -> Result<()> {
         let d = dir("cloud")?;
         // around Madrid, in ED50 UTM 30N
@@ -520,6 +856,30 @@ mod tests {
         assert!((out[0][0] - pts[0][0] + 109.4).abs() < 1.0, "{:?}", out[0]);
         assert!((out[0][1] - pts[0][1] + 207.5).abs() < 1.0, "{:?}", out[0]);
         std::fs::remove_dir_all(d)?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_raster_changes_vertical_reference_cell_by_cell() -> Result<()> {
+        let mut g = Grid::new(440_000.0, 4_474_000.0, 10.0, 20, 20)?;
+        for v in g.data.iter_mut() {
+            *v = 700.0;
+        }
+        g.data[0] = f32::NAN;
+        let v = Vertical {
+            input: Some(VerticalRef::Ellipsoidal),
+            output: Some(VerticalRef::Epsg(5782)),
+        };
+        let m = grid_with(&g, 25830, 25830, v, Policy::STRICT)?;
+        assert!(m.data[0].is_nan());
+        assert!((m.data[100] - 648.9).abs() < 0.3, "{}", m.data[100]);
+        let none = Vertical { input: None, output: v.output };
+        assert!(grid_with(&g, 25830, 25830, none, Policy::STRICT).is_err());
+        let d = dir("rvert")?;
+        let (src, dst) = (d.join("r.tif"), d.join("o.tif"));
+        g.write_tiff(&src, Some(25830))?;
+        file_with(&src, &dst, 25830, None, v, Policy::STRICT)?;
+        assert_eq!(Grid::read_vertical_epsg(&dst), Some(5782));
         Ok(())
     }
 

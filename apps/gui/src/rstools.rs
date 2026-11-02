@@ -69,6 +69,8 @@ impl App {
             .open(&mut open)
             .default_width(560.0)
             .show(ctx, |ui| {
+                crate::tools::output_row(ui, &mut self.tools.out_dir);
+                ui.separator();
                 let rt = &mut self.rt;
                 ui.label(
                     egui::RichText::new(if mode == 0 {
@@ -184,11 +186,15 @@ impl App {
                         Resample::Nearest => "Vecino más cercano",
                         Resample::Bilinear => "Bilineal",
                         Resample::Average => "Media (para reducir)",
+                        Resample::Cubic => "Cúbico",
+                        Resample::Mode => "Moda (clases, para reducir)",
                     })
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut rt.resample, Resample::Nearest, "Vecino más cercano");
                         ui.selectable_value(&mut rt.resample, Resample::Bilinear, "Bilineal");
                         ui.selectable_value(&mut rt.resample, Resample::Average, "Media (para reducir)");
+                        ui.selectable_value(&mut rt.resample, Resample::Cubic, "Cúbico");
+                        ui.selectable_value(&mut rt.resample, Resample::Mode, "Moda (clases, para reducir)");
                     });
                 });
                 ui.horizontal(|ui| {

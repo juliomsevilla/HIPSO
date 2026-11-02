@@ -101,6 +101,52 @@ pub fn isolated(pts: &[Point], p: &NoiseParams) -> Vec<bool> {
         .collect()
 }
 
+/// Extended local minimum for low noise: the points are binned in square cells of `cell`
+/// metres; in each cell a point is low noise when its height is below the cell's mean by more
+/// than `threshold` standard deviations. The mean and deviation are worked out again without the
+/// points flagged so far, until none is added (at most 10 rounds), so a few deep outliers do not
+/// hide themselves by inflating the deviation. Cells with fewer than 4 valid points are left
+/// alone. A variant of the extended local minimum that takes the cell's own distribution of
+/// heights as the reference, which needs no neighbours.
+pub fn elm(pts: &[Point], cell: f64, threshold: f64) -> Vec<bool> {
+    let mut out = vec![false; pts.len()];
+    if !(cell > 0.0) || !(threshold > 0.0) {
+        return out;
+    }
+    let mut cells: CellMap<Vec<u32>> = CellMap::default();
+    for (i, p) in pts.iter().enumerate() {
+        if p.is_noise() {
+            continue;
+        }
+        let (cx, cy) = ((p.x / cell).floor() as i64, (p.y / cell).floor() as i64);
+        cells.entry(key(cx, cy, 0)).or_default().push(i as u32);
+    }
+    for members in cells.values() {
+        let mut live: Vec<u32> = members.clone();
+        for _ in 0..10 {
+            if live.len() < 4 {
+                break;
+            }
+            let n = live.len() as f64;
+            let mean = live.iter().map(|&i| pts[i as usize].z).sum::<f64>() / n;
+            let var = live.iter().map(|&i| (pts[i as usize].z - mean).powi(2)).sum::<f64>() / n;
+            let limit = mean - threshold * var.sqrt();
+            let before = live.len();
+            live.retain(|&i| {
+                let low = pts[i as usize].z < limit;
+                if low {
+                    out[i as usize] = true;
+                }
+                !low
+            });
+            if live.len() == before {
+                break;
+            }
+        }
+    }
+    out
+}
+
 /// Statistical outlier removal (Rusu et al. 2008): a point is noise when its mean distance to
 /// its `k` nearest neighbours exceeds the mean of that distance over all points by more than
 /// `m` standard deviations. Neighbours are found in a hash grid of cubes, so the cost grows
@@ -223,6 +269,26 @@ mod tests {
             class: 1,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn elm_flags_deep_low_points_and_leaves_flat_ground_and_slopes() {
+        // gently noisy ground over two 20 m cells, three deep low points in the first
+        let mut pts: Vec<Point> = (0..800)
+            .map(|i| {
+                let (x, y) = (f64::from(i % 40) * 1.0, f64::from(i / 40) * 1.0);
+                pt(x, y, 100.0 + 0.1 * f64::from((i * 7919) % 11) / 11.0)
+            })
+            .collect();
+        for k in 0..3 {
+            pts.push(pt(5.0 + f64::from(k), 5.0, 80.0));
+        }
+        let low = elm(&pts, 20.0, 2.0);
+        assert!(low[800] && low[801] && low[802]);
+        assert!(low[..800].iter().all(|n| !n));
+        // a plain slope inside one cell is not noise at a generous threshold
+        let slope: Vec<Point> = (0..400).map(|i| pt(f64::from(i % 20) * 0.9, f64::from(i / 20), f64::from(i % 20) * 0.1)).collect();
+        assert!(elm(&slope, 20.0, 2.0).iter().all(|n| !n));
     }
 
     #[test]

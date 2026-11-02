@@ -946,11 +946,16 @@ pub(crate) fn transform_with<T: AsRef<Op>>(
             break;
         };
         if let Some(p) = apply(i) {
+            if ops[i].as_ref().ballpark {
+                super::policy::note(super::policy::Approximation::NoDatumShift);
+            }
             return Some(p);
         }
+        super::policy::note(super::policy::Approximation::NextBestOperation);
         excluded.push(i);
     }
     let first = ops.iter().position(|o| !o.as_ref().needs_grids())?;
+    super::policy::note(super::policy::Approximation::NextBestOperation);
     apply(first)
 }
 

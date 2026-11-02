@@ -259,6 +259,8 @@ impl App {
             .open(&mut open)
             .default_width(620.0)
             .show(ctx, |ui| {
+                crate::tools::output_row(ui, &mut self.tools.out_dir);
+                ui.separator();
                 let t = &mut self.mo;
                 // the button stays on top, whatever the form below is like
                 let missing = if t.plots.trim().is_empty() {

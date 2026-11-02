@@ -672,6 +672,13 @@ impl Def {
         self.datum == Some(6326)
     }
 
+    /// This CRS with its coordinates carrying an ellipsoidal height (a projected CRS with the
+    /// height above its ellipsoid, as GNSS and point clouds from them give).
+    pub fn with_ellipsoidal_height(mut self) -> Self {
+        self.three_d = true;
+        self
+    }
+
     /// Whether coordinates have a height: a geographic 3D or a compound CRS.
     pub fn has_height(&self) -> bool {
         self.three_d || self.vertical.is_some()

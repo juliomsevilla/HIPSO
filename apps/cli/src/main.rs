@@ -58,6 +58,8 @@ enum NoiseMethod {
     Isolated,
     /// Statistical outlier removal on k nearest neighbours
     Sor,
+    /// Low noise: points far below the heights of their cell (extended local minimum)
+    Elm,
 }
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
@@ -265,6 +267,10 @@ enum AlignResample {
     Nearest,
     Bilinear,
     Average,
+    /// Cubic convolution (smooth surfaces)
+    Cubic,
+    /// Most frequent value (classes, when reducing)
+    Mode,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -442,6 +448,12 @@ struct StepArgs {
     /// Noise: cell size in z
     #[arg(long, default_value_t = 4.0)]
     noise_step_z: f64,
+    /// Noise (elm): cell side in metres
+    #[arg(long, default_value_t = 20.0)]
+    elm_cell: f64,
+    /// Noise (elm): standard deviations below the cell's mean that make a low point
+    #[arg(long, default_value_t = 1.0)]
+    elm_threshold: f64,
     /// Noise: most other points around a point still called isolated
     #[arg(long, default_value_t = 5)]
     isolated: u32,
@@ -502,6 +514,7 @@ impl StepArgs {
             None => "",
             Some(NoiseMethod::Isolated) => "_aislados",
             Some(NoiseMethod::Sor) => "_sor",
+            Some(NoiseMethod::Elm) => "_elm",
         };
         format!(
             "{g}{n}{}{}",
@@ -535,6 +548,10 @@ impl StepArgs {
                 NoiseMethod::Sor => Noise::Sor {
                     k: self.sor_k,
                     m: self.sor_m,
+                },
+                NoiseMethod::Elm => Noise::Elm {
+                    cell: self.elm_cell,
+                    threshold: self.elm_threshold,
                 },
             }),
             ground: match g.ground.unwrap_or(default) {
@@ -1102,6 +1119,13 @@ enum Cmd {
         /// The attribute that names each region: a field name or its 1-based position
         #[arg(long)]
         name_field: Option<String>,
+        /// Grow every region by this distance in map units (metres in a projected system);
+        /// negative shrinks it. Corners are rounded
+        #[arg(long, allow_hyphen_values = true)]
+        buffer: Option<f64>,
+        /// Split multipart features into one region per part (named <name>_p1, <name>_p2…)
+        #[arg(long)]
+        split_parts: bool,
         /// Radius of plots given as points
         #[arg(long)]
         radius: Option<f64>,
@@ -1487,7 +1511,8 @@ enum Cmd {
         replace_z: bool,
     },
     /// Move a cloud (LAS/LAZ) or a raster to another coordinate system, e.g. ED50 to ETRS89 with
-    /// the Spanish IGN grid. Heights are kept
+    /// the Spanish IGN grid. Heights are kept unless --vertical-out asks for another vertical
+    /// reference (e.g. ellipsoidal to orthometric with the geoid model)
     Reproject {
         input: PathBuf,
         /// Output file (LAS/LAZ, or GeoTIFF for rasters)
@@ -1499,6 +1524,22 @@ enum Cmd {
         /// EPSG code the input is in, when it does not declare it
         #[arg(long)]
         from: Option<u16>,
+        /// Vertical reference of the input heights: `ellipsoidal` or an EPSG code (e.g. 5782),
+        /// when the file does not declare it. Needed to change heights with --vertical-out
+        #[arg(long)]
+        vertical_in: Option<String>,
+        /// Vertical reference to give the heights (`ellipsoidal` or an EPSG code). Without it,
+        /// heights are not touched
+        #[arg(long)]
+        vertical_out: Option<String>,
+        /// Accept approximations: no datum shift, heights kept where no geoid covers the point
+        /// (default: refuse them; also HIPSO_ALLOW_BALLPARK=YES)
+        #[arg(long)]
+        allow_ballpark: bool,
+        /// Accept a lesser operation when the best one cannot run, e.g. a missing grid (default:
+        /// refuse it; also HIPSO_ONLY_BEST=NO)
+        #[arg(long)]
+        allow_fallback: bool,
     },
     /// Put rasters on the cells of a reference raster (same origin, cell and size), so that they
     /// coincide cell for cell. Writes <results>/<name>_alineado.tif for each one
@@ -1553,6 +1594,11 @@ enum Cmd {
         /// Slope in percent instead of degrees
         #[arg(long)]
         percent: bool,
+        /// Windows over the raster's edge or an empty cell (3x3 products): `nodata` (default, no
+        /// value), `repeat` (repeat the border cells; no value around holes) or `center` (missing
+        /// neighbours take the centre's height)
+        #[arg(long, default_value = "nodata")]
+        edges: String,
         /// Multiplies the heights when they are not in the units of the cell
         #[arg(long, default_value_t = 1.0)]
         z_factor: f64,
@@ -1580,6 +1626,157 @@ enum Cmd {
         /// Viewshed: how far the observer looks (map units)
         #[arg(long, default_value_t = 1000.0)]
         max_distance: f64,
+    },
+    /// Statistics of a raster (a CHM, an index, a DTM) inside each polygon. The result is a
+    /// polygon layer (shapefile) with the polygons' own attributes plus one new field per
+    /// statistic: count, min, max, mean, sum, stddev, median. A cell counts when its centre is in
+    /// the polygon
+    Zonal {
+        /// The raster (GeoTIFF)
+        raster: PathBuf,
+        /// The polygons (.shp, .geojson, .gpkg), in the raster's system
+        #[arg(long)]
+        regions: PathBuf,
+        /// Prefix of the new fields (a shapefile field has at most 10 characters: `chm_` leaves
+        /// 6 for the statistic, so `stddev` and `median` fit)
+        #[arg(long, default_value = "")]
+        prefix: String,
+        /// Split multipart features into one polygon per part
+        #[arg(long)]
+        split_parts: bool,
+        /// Shapefile; default: <results>/<raster>_zonal.shp
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Check that the polygons of a layer are valid (closed rings, no self-crossings, holes
+    /// inside, no overlaps between parts) and list the ones that are not
+    IsValid {
+        /// Polygon layer (.shp, .geojson, .gpkg)
+        input: PathBuf,
+    },
+    /// Repair invalid polygons (even-odd rule: a bow-tie becomes two parts, doubled edges
+    /// cancel). Valid ones are not touched; attributes are kept
+    MakeValid {
+        input: PathBuf,
+        /// Shapefile; default: <results>/<input>_valido.shp
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Grow (or, negative, shrink) each polygon by a distance in map units, with rounded corners
+    Buffer {
+        input: PathBuf,
+        /// Distance in the layer's units (metres in a projected system; degrees if geographic)
+        #[arg(long, allow_hyphen_values = true)]
+        distance: f64,
+        /// Repair invalid polygons first
+        #[arg(long)]
+        make_valid: bool,
+        /// Shapefile; default: <results>/<input>_buffer.shp
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Merge polygons: those sharing the value of a field become one feature (with the number
+    /// merged in `n`); without a field the whole layer becomes one
+    Dissolve {
+        input: PathBuf,
+        /// Field to dissolve by
+        #[arg(long)]
+        field: Option<String>,
+        /// Repair invalid polygons first
+        #[arg(long)]
+        make_valid: bool,
+        /// Shapefile; default: <results>/<input>_disuelto.shp
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Union of two polygon layers as an overlay: the pieces in both (attributes of both, the
+    /// second layer's prefixed `b_`), in the first only and in the second only
+    Union {
+        first: PathBuf,
+        second: PathBuf,
+        /// Repair invalid polygons first
+        #[arg(long)]
+        make_valid: bool,
+        /// Shapefile; default: <results>/<first>_union.shp
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Remove small patches of a class raster: connected cells of one value with fewer cells than
+    /// --threshold take the value of their largest neighbouring patch
+    Sieve {
+        /// Class raster (GeoTIFF)
+        input: PathBuf,
+        /// Patches with fewer cells than this are merged
+        #[arg(long, default_value_t = 2)]
+        threshold: usize,
+        /// Cells touch along edges and corners (8) instead of edges only (4)
+        #[arg(long)]
+        eight: bool,
+        /// GeoTIFF; default: <results>/<input>_sieve.tif
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Distance from each cell to the nearest cell of some classes (Euclidean, exact)
+    Proximity {
+        /// Raster (GeoTIFF)
+        input: PathBuf,
+        /// Values that count as targets (default: every non-zero cell)
+        #[arg(long, num_args = 1..)]
+        values: Vec<f32>,
+        /// Distances beyond this are left empty
+        #[arg(long)]
+        max_distance: Option<f64>,
+        /// Distances in cells instead of map units
+        #[arg(long)]
+        cells: bool,
+        /// GeoTIFF; default: <results>/<input>_proximity.tif
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Fill empty cells from the valued cells around them (inverse distance weights along eight
+    /// directions)
+    FillNodata {
+        /// Raster (GeoTIFF)
+        input: PathBuf,
+        /// How far to look for valued cells, in cells
+        #[arg(long, default_value_t = 100)]
+        max_distance: usize,
+        /// Passes of a 3x3 mean over the filled cells
+        #[arg(long, default_value_t = 0)]
+        smoothing: usize,
+        /// GeoTIFF; default: <results>/<input>_relleno.tif
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Road network from a cloud with classified ground: passable ground (ground share, slope,
+    /// intensity) thinned to centre lines with the width of the road, as a polyline shapefile
+    Roads {
+        /// Cloud (LAS/LAZ) with the ground classified (class 2)
+        input: PathBuf,
+        /// Cell of the road mask, metres
+        #[arg(long, default_value_t = 1.0)]
+        cell: f64,
+        /// Smallest share of ground returns in a road cell (0-1)
+        #[arg(long, default_value_t = 0.5)]
+        ground_share: f64,
+        /// Steepest slope of a road, percent
+        #[arg(long, default_value_t = 15.0)]
+        max_slope: f64,
+        /// Range of the mean intensity of the ground in a road cell
+        #[arg(long, num_args = 2, value_names = ["MIN", "MAX"])]
+        intensity: Option<Vec<f64>>,
+        /// Narrowest road (m)
+        #[arg(long, default_value_t = 2.0)]
+        min_width: f64,
+        /// Shortest road (m)
+        #[arg(long, default_value_t = 20.0)]
+        min_length: f64,
+        /// Remove branches ending in a tip shorter than this (m)
+        #[arg(long, default_value_t = 6.0)]
+        spur: f64,
+        /// Shapefile of lines; default: <results>/<input>_viales.shp
+        #[arg(short, long)]
+        output: Option<PathBuf>,
     },
     /// Remove duplicate points (same x, y, z and the attributes asked for)
     Dedup {
@@ -2542,6 +2739,8 @@ fn run(cmd: Cmd) -> Result<()> {
             rect,
             circle,
             name_field,
+            buffer,
+            split_parts,
             radius,
             radius_field,
             square,
@@ -2587,7 +2786,20 @@ fn run(cmd: Cmd) -> Result<()> {
                     side_x_field,
                     side_y_field,
                 };
-                list.extend(vector::read_regions(path, &opts)?);
+                let mut read = vector::read_regions(path, &opts)?;
+                if split_parts {
+                    read = read.iter().flat_map(|r| r.split_parts()).collect();
+                }
+                if let Some(d) = buffer.filter(|d| *d != 0.0) {
+                    let geographic = hipso_core::crs::epsg_of(path)
+                        .or_else(|| inputs.first().and_then(|p| hipso_core::crs::epsg_of(p)))
+                        .is_some_and(|e| (4000..5000).contains(&e));
+                    if geographic {
+                        eprintln!("aviso: el sistema es geográfico: el buffer de {d} está en grados, no en metros");
+                    }
+                    read = read.iter().map(|r| r.buffered(d)).collect();
+                }
+                list.extend(read);
             }
             let first = inputs.first().cloned().unwrap_or_default();
             let mut layout_note = None;
@@ -3167,6 +3379,8 @@ fn run(cmd: Cmd) -> Result<()> {
                     AlignResample::Nearest => Some(Resample::Nearest),
                     AlignResample::Bilinear => Some(Resample::Bilinear),
                     AlignResample::Average => Some(Resample::Average),
+                    AlignResample::Cubic => Some(Resample::Cubic),
+                    AlignResample::Mode => Some(Resample::Mode),
                 },
                 dtype: None,
                 nodata,
@@ -3212,7 +3426,22 @@ fn run(cmd: Cmd) -> Result<()> {
             output,
             to,
             from,
-        } => hipso_core::reproject::file(&input, &output, to, from)?,
+            vertical_in,
+            vertical_out,
+            allow_ballpark,
+            allow_fallback,
+        } => {
+            use hipso_core::reproject::{Policy, Vertical, VerticalRef};
+            let mut policy = Policy::from_env();
+            policy.allow_ballpark |= allow_ballpark;
+            policy.only_best &= !allow_fallback;
+            let parse = |v: Option<String>| v.map(|v| VerticalRef::parse(&v)).transpose();
+            let vertical = Vertical {
+                input: parse(vertical_in)?,
+                output: parse(vertical_out)?,
+            };
+            hipso_core::reproject::file_with(&input, &output, to, from, vertical, policy)?
+        }
         Cmd::Mosaic {
             inputs,
             output,
@@ -3260,6 +3489,7 @@ fn run(cmd: Cmd) -> Result<()> {
             product,
             output,
             percent,
+            edges,
             z_factor,
             azimuth,
             altitude,
@@ -3291,6 +3521,12 @@ fn run(cmd: Cmd) -> Result<()> {
             let out = out_path(output, &input, product.tag(), "tif");
             let mut job = TerrainJob::new(input, out, product);
             job.percent = percent;
+            job.edges = match edges.as_str() {
+                "nodata" => hipso_core::terrain::Edges::NoData,
+                "repeat" => hipso_core::terrain::Edges::RepeatEdge,
+                "center" => hipso_core::terrain::Edges::Center,
+                o => return Err(hipso_core::Error::Param(format!("--edges: «{o}» no válido (nodata, repeat, center)")).into()),
+            };
             job.z_factor = z_factor;
             (job.azimuth, job.altitude) = (azimuth, altitude);
             (job.radius, job.threshold) = (radius, threshold);
@@ -3298,6 +3534,225 @@ fn run(cmd: Cmd) -> Result<()> {
             (job.observer_height, job.target_height) = (eye, target);
             job.max_distance = max_distance;
             terrain(&job)?
+        }
+        Cmd::Zonal {
+            raster,
+            regions,
+            prefix,
+            split_parts,
+            output,
+        } => {
+            use hipso_core::{geomops, grid::Grid, vector, zonal};
+            let g = Grid::read(&raster)?;
+            let mut list = vector::read_regions(&regions, &vector::ReadOptions::default())?;
+            if split_parts {
+                list = list.iter().flat_map(|r| r.split_parts()).collect();
+            }
+            let (a, b) = (hipso_core::crs::epsg_of(&raster), hipso_core::crs::epsg_of(&regions));
+            let mut warn = String::new();
+            if let (Some(a), Some(b)) = (a, b)
+                && a != b
+            {
+                warn = format!("\naviso: el ráster es EPSG:{a} y los polígonos EPSG:{b}: los resultados no tendrán sentido; reproyecta antes");
+            }
+            let mut layer = zonal::zonal_layer(&g, &list, &prefix)?;
+            layer.prj = std::fs::read_to_string(regions.with_extension("prj"))
+                .ok()
+                .or_else(|| b.or(a).and_then(vector::prj_for_epsg));
+            let out = out_path(output, &raster, "zonal", "shp");
+            geomops::write_polygons(&layer, &out)?;
+            let with = layer
+                .features
+                .iter()
+                .filter(|f| f.attrs.iter().any(|(k, v)| k.ends_with("count") && v != "0"))
+                .count();
+            format!(
+                "{} polígonos, {with} con celdas; campos nuevos: {} -> {}{warn}",
+                layer.features.len(),
+                zonal::FIELDS.iter().map(|f| format!("{prefix}{f}")).collect::<Vec<_>>().join(", "),
+                out.display()
+            )
+        }
+        Cmd::IsValid { input } => {
+            let layer = hipso_core::geomops::read_polygons(&input)?;
+            let bad = hipso_core::geomops::invalid(&layer);
+            if bad.is_empty() {
+                format!("{} polígonos, todos válidos", layer.features.len())
+            } else {
+                let mut lines: Vec<String> = bad
+                    .iter()
+                    .take(20)
+                    .map(|(i, why)| format!("  polígono {}: {why}", i + 1))
+                    .collect();
+                if bad.len() > 20 {
+                    lines.push(format!("  … y {} más", bad.len() - 20));
+                }
+                format!(
+                    "{} de {} polígonos no son válidos (se pueden reparar con make-valid):\n{}",
+                    bad.len(),
+                    layer.features.len(),
+                    lines.join("\n")
+                )
+            }
+        }
+        Cmd::MakeValid { input, output } => {
+            let layer = hipso_core::geomops::read_polygons(&input)?;
+            let (fixed, n) = hipso_core::geomops::make_valid(&layer)?;
+            let out = out_path(output, &input, "valido", "shp");
+            hipso_core::geomops::write_polygons(&fixed, &out)?;
+            format!("{n} de {} polígonos reparados -> {}", fixed.features.len(), out.display())
+        }
+        Cmd::Buffer {
+            input,
+            distance,
+            make_valid,
+            output,
+        } => {
+            use hipso_core::geomops;
+            let mut layer = geomops::read_polygons(&input)?;
+            if make_valid {
+                layer = geomops::make_valid(&layer)?.0;
+            }
+            if hipso_core::crs::epsg_of(&input).is_some_and(|e| (4000..5000).contains(&e)) {
+                eprintln!("aviso: el sistema es geográfico: la distancia de {distance} está en grados, no en metros");
+            }
+            let r = geomops::buffer(&layer, distance)?;
+            let out = out_path(output, &input, "buffer", "shp");
+            geomops::write_polygons(&r, &out)?;
+            let empty = r.features.iter().filter(|f| f.geom.0.is_empty()).count();
+            format!(
+                "{} polígonos con buffer de {distance}{} -> {}",
+                r.features.len() - empty,
+                if empty > 0 { format!("; {empty} desaparecen y no se escriben") } else { String::new() },
+                out.display()
+            )
+        }
+        Cmd::Dissolve {
+            input,
+            field,
+            make_valid,
+            output,
+        } => {
+            use hipso_core::geomops;
+            let mut layer = geomops::read_polygons(&input)?;
+            if make_valid {
+                layer = geomops::make_valid(&layer)?.0;
+            }
+            let n = layer.features.len();
+            let r = geomops::dissolve(&layer, field.as_deref())?;
+            let out = out_path(output, &input, "disuelto", "shp");
+            geomops::write_polygons(&r, &out)?;
+            format!("{n} polígonos disueltos en {} -> {}", r.features.len(), out.display())
+        }
+        Cmd::Union {
+            first,
+            second,
+            make_valid,
+            output,
+        } => {
+            use hipso_core::geomops;
+            let (mut a, mut b) = (geomops::read_polygons(&first)?, geomops::read_polygons(&second)?);
+            if make_valid {
+                a = geomops::make_valid(&a)?.0;
+                b = geomops::make_valid(&b)?.0;
+            }
+            let (ea, eb) = (hipso_core::crs::epsg_of(&first), hipso_core::crs::epsg_of(&second));
+            let warn = match (ea, eb) {
+                (Some(x), Some(y)) if x != y => format!("\naviso: las capas están en EPSG:{x} y EPSG:{y}: reproyecta antes"),
+                _ => String::new(),
+            };
+            let r = geomops::union(&a, &b)?;
+            let out = out_path(output, &first, "union", "shp");
+            geomops::write_polygons(&r, &out)?;
+            format!("{} piezas -> {}{warn}", r.features.len(), out.display())
+        }
+        Cmd::Sieve {
+            input,
+            threshold,
+            eight,
+            output,
+        } => {
+            use hipso_core::{grid::Grid, rasterops};
+            let g = Grid::read(&input)?;
+            let conn = if eight {
+                rasterops::Connectivity::Eight
+            } else {
+                rasterops::Connectivity::Four
+            };
+            let r = rasterops::sieve(&g, threshold, conn);
+            let changed = g.data.iter().zip(&r.data).filter(|(a, b)| a.to_bits() != b.to_bits()).count();
+            let out = out_path(output, &input, "sieve", "tif");
+            paths::ensure_parent(&out)?;
+            r.write_tiff(&out, Grid::read_epsg(&input))?;
+            format!("{changed} celdas cambiadas -> {}", out.display())
+        }
+        Cmd::Proximity {
+            input,
+            values,
+            max_distance,
+            cells,
+            output,
+        } => {
+            use hipso_core::{grid::Grid, rasterops};
+            let g = Grid::read(&input)?;
+            let targets = if values.is_empty() {
+                rasterops::Targets::NonZero
+            } else {
+                rasterops::Targets::Values(values)
+            };
+            let r = rasterops::proximity(&g, &targets, max_distance, cells)?;
+            let out = out_path(output, &input, "proximity", "tif");
+            paths::ensure_parent(&out)?;
+            r.write_tiff(&out, Grid::read_epsg(&input))?;
+            format!("distancias -> {}", out.display())
+        }
+        Cmd::FillNodata {
+            input,
+            max_distance,
+            smoothing,
+            output,
+        } => {
+            use hipso_core::{grid::Grid, rasterops};
+            let g = Grid::read(&input)?;
+            let r = rasterops::fill_nodata(&g, max_distance, smoothing);
+            let empty = |g: &Grid| g.data.iter().filter(|v| v.is_nan()).count();
+            let (before, after) = (empty(&g), empty(&r));
+            let out = out_path(output, &input, "relleno", "tif");
+            paths::ensure_parent(&out)?;
+            r.write_tiff(&out, Grid::read_epsg(&input))?;
+            format!(
+                "{} celdas rellenadas, {after} siguen vacías -> {}",
+                before - after,
+                out.display()
+            )
+        }
+        Cmd::Roads {
+            input,
+            cell,
+            ground_share,
+            max_slope,
+            intensity,
+            min_width,
+            min_length,
+            spur,
+            output,
+        } => {
+            use hipso_core::roads::{self, RoadParams};
+            let p = RoadParams {
+                cell,
+                min_ground_share: ground_share,
+                max_slope,
+                intensity: intensity.and_then(|v| Some((*v.first()?, *v.get(1)?))),
+                min_width,
+                min_length,
+                spur_length: spur,
+                ..Default::default()
+            };
+            let lines = roads::extract_file(&input, &p)?;
+            let out = out_path(output, &input, "viales", "shp");
+            roads::write_lines(&lines, &out, hipso_core::crs::epsg_of(&input))?;
+            let km: f64 = lines.iter().map(|l| l.length).sum::<f64>() / 1000.0;
+            format!("{} tramos, {km:.2} km -> {}", lines.len(), out.display())
         }
         Cmd::Dedup {
             inputs,

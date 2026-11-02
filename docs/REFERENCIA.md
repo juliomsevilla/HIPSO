@@ -47,6 +47,12 @@ hipso export nube.laz -o puntos.csv --items x,y,z,class --header
 | `change` | Cambio de la cubierta vegetal entre dos CHM: diferencia, clases (crece, baja, pierde/gana cubierta), manchas de perturbación, resumen por unidad de gestión y crecimiento por individuo | detección de cambios con LiDAR multitemporal |
 | `model` | Modelos de transición: regresión de una variable de campo (CSV o Excel) sobre las métricas de las unidades de muestreo, con validación cruzada que repite la elección de métricas, diagnósticos y, con las métricas de las celdas, el mapa de la variable (y su intervalo de predicción) | enfoque por área (ABA) |
 | `corridor` | Conductores, postes y vegetación en riesgo (invasión y caída) de líneas eléctricas, con informe por vano | análisis de corredores eléctricos con LiDAR |
+| `roads` | Ejes y anchura de carreteras y pistas a partir del suelo clasificado (máscara, esqueleto y trazado), como capa de líneas | extracción de viales con LiDAR |
+| `reproject` | Nube o ráster a otro sistema de coordenadas, con cambio opcional de la referencia vertical (`--vertical-in`, `--vertical-out`) y política estricta ante aproximaciones | PROJ, `gdalwarp` |
+| `zonal` | Estadística de un ráster por polígono (recuento, mínimo, máximo, media, suma, desviación y mediana) como capa de polígonos con campos nuevos | estadística zonal de QGIS |
+| `is-valid`, `make-valid` | Comprobar y reparar la validez de los polígonos de una capa | `ST_IsValid`, `ST_MakeValid` |
+| `buffer`, `dissolve`, `union` | Búfer, disolución por campo y unión (superposición) de capas de polígonos | geoprocesos de QGIS |
+| `sieve`, `proximity`, `fill-nodata` | Quitar manchas pequeñas de un ráster de clases, distancia a unas clases y relleno de huecos por distancia inversa | `gdal_sieve`, `gdal_proximity`, `gdal_fillnodata` |
 | `import`, `geojson`, `cog` | PLY a LAZ; shapefile ↔ GeoJSON; ráster a Cloud Optimized GeoTIFF | conversión de formatos |
 | `clip` | Recorte con polígonos, unidades de muestreo circulares o rectángulos; una nube, el exterior o un archivo por región; métricas por región | ClipData, PolyClipData |
 | `edit` | Elimina o reclasifica los puntos que están dentro (o fuera) de polígonos y cumplen unas condiciones; escribe un archivo nuevo | herramientas de edición de QGIS |

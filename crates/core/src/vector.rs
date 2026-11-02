@@ -211,6 +211,110 @@ pub enum Shape2 {
     },
     /// min x, min y, max x, max y.
     Rect([f64; 4]),
+    /// A polygon grown (distance > 0) or shrunk (< 0) by a distance in map units: the points
+    /// whose distance to the polygon is within it, with round corners.
+    Buffered(Box<Buffered>),
+}
+
+/// A polygon with a buffer distance, and the index its distance test uses.
+#[derive(Clone, Debug)]
+pub struct Buffered {
+    pub poly: Polygon,
+    pub dist: f64,
+    bbox: [f64; 4],
+    seg_cell: f64,
+    seg_cols: usize,
+    seg_rows: usize,
+    /// Per cell, the segments (ring, index) within `|dist|` of it.
+    cells: Vec<Vec<(u32, u32)>>,
+}
+
+impl Buffered {
+    pub fn new(poly: Polygon, dist: f64) -> Self {
+        let d = dist.abs();
+        let b = poly.bbox;
+        let bbox = if dist > 0.0 {
+            [b[0] - d, b[1] - d, b[2] + d, b[3] + d]
+        } else {
+            b
+        };
+        let diag = (b[2] - b[0]).hypot(b[3] - b[1]).max(1e-9);
+        let seg_cell = d.max(diag / 256.0).max(1e-9);
+        let cols = (((b[2] - b[0] + 2.0 * d) / seg_cell).ceil() as usize + 1).max(1);
+        let rows = (((b[3] - b[1] + 2.0 * d) / seg_cell).ceil() as usize + 1).max(1);
+        let mut cells = vec![Vec::new(); cols * rows];
+        for (ri, ring) in poly.rings.iter().enumerate() {
+            let n = ring.len();
+            for i in 0..n {
+                let (a, e) = (ring[i], ring[(i + 1) % n]);
+                let (x0, x1) = (a[0].min(e[0]) - d, a[0].max(e[0]) + d);
+                let (y0, y1) = (a[1].min(e[1]) - d, a[1].max(e[1]) + d);
+                let cx = |x: f64| (((x - (b[0] - d)) / seg_cell).floor().max(0.0) as usize).min(cols - 1);
+                let cy = |y: f64| (((y - (b[1] - d)) / seg_cell).floor().max(0.0) as usize).min(rows - 1);
+                for r in cy(y0)..=cy(y1) {
+                    for c in cx(x0)..=cx(x1) {
+                        cells[r * cols + c].push((ri as u32, i as u32));
+                    }
+                }
+            }
+        }
+        Self {
+            poly,
+            dist,
+            bbox,
+            seg_cell,
+            seg_cols: cols,
+            seg_rows: rows,
+            cells,
+        }
+    }
+
+    pub fn bbox(&self) -> [f64; 4] {
+        self.bbox
+    }
+
+    /// Whether some boundary segment is within `|dist|` of the point.
+    fn near_boundary(&self, x: f64, y: f64) -> bool {
+        let d = self.dist.abs();
+        let b = self.poly.bbox;
+        let c = ((x - (b[0] - d)) / self.seg_cell).floor();
+        let r = ((y - (b[1] - d)) / self.seg_cell).floor();
+        if c < 0.0 || r < 0.0 || c as usize >= self.seg_cols || r as usize >= self.seg_rows {
+            return false;
+        }
+        self.cells[r as usize * self.seg_cols + c as usize]
+            .iter()
+            .any(|&(ri, i)| {
+                let ring = &self.poly.rings[ri as usize];
+                let (a, e) = (ring[i as usize], ring[(i as usize + 1) % ring.len()]);
+                dist2_to_segment(x, y, a, e) <= d * d
+            })
+    }
+
+    #[inline]
+    pub fn contains(&self, x: f64, y: f64) -> bool {
+        if x < self.bbox[0] || x > self.bbox[2] || y < self.bbox[1] || y > self.bbox[3] {
+            return false;
+        }
+        let inside = self.poly.contains(x, y);
+        if self.dist >= 0.0 {
+            inside || self.near_boundary(x, y)
+        } else {
+            inside && !self.near_boundary(x, y)
+        }
+    }
+}
+
+fn dist2_to_segment(x: f64, y: f64, a: [f64; 2], b: [f64; 2]) -> f64 {
+    let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+    let len2 = dx * dx + dy * dy;
+    let t = if len2 > 0.0 {
+        (((x - a[0]) * dx + (y - a[1]) * dy) / len2).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let (px, py) = (a[0] + t * dx, a[1] + t * dy);
+    (x - px).powi(2) + (y - py).powi(2)
 }
 
 /// A region to clip with: a stand, an inventory plot, an area of interest.
@@ -228,6 +332,7 @@ impl Region {
             Shape2::Polygon(p) => p.bbox,
             Shape2::Circle { cx, cy, r } => [cx - r, cy - r, cx + r, cy + r],
             Shape2::Rect(b) => *b,
+            Shape2::Buffered(b) => b.bbox(),
         }
     }
 
@@ -237,6 +342,7 @@ impl Region {
             Shape2::Polygon(p) => p.contains(x, y),
             Shape2::Circle { cx, cy, r } => (x - cx).powi(2) + (y - cy).powi(2) <= r * r,
             Shape2::Rect(b) => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3],
+            Shape2::Buffered(b) => b.contains(x, y),
         }
     }
 
@@ -245,7 +351,95 @@ impl Region {
             Shape2::Polygon(p) => p.area(),
             Shape2::Circle { r, .. } => std::f64::consts::PI * r * r,
             Shape2::Rect(b) => (b[2] - b[0]) * (b[3] - b[1]),
+            // the polygon's plus the strip around its boundary, to first order (round corners
+            // add pi d^2 per turn of 360 degrees)
+            Shape2::Buffered(b) => {
+                let perimeter: f64 = b
+                    .poly
+                    .rings
+                    .iter()
+                    .map(|r| {
+                        let n = r.len();
+                        (0..n)
+                            .map(|i| (r[(i + 1) % n][0] - r[i][0]).hypot(r[(i + 1) % n][1] - r[i][1]))
+                            .sum::<f64>()
+                    })
+                    .sum();
+                (b.poly.area() + b.dist * perimeter + std::f64::consts::PI * b.dist * b.dist.abs())
+                    .max(0.0)
+            }
         }
+    }
+
+    /// This region grown by `dist` map units (shrunk when negative). Circles and rectangles
+    /// stay what they are; a polygon becomes a buffered polygon. The distance is in the units of
+    /// the region's coordinate system: degrees if it is geographic.
+    pub fn buffered(&self, dist: f64) -> Region {
+        if dist == 0.0 {
+            return self.clone();
+        }
+        let shape = match &self.shape {
+            Shape2::Polygon(p) => Shape2::Buffered(Box::new(Buffered::new(p.clone(), dist))),
+            Shape2::Buffered(b) => {
+                Shape2::Buffered(Box::new(Buffered::new(b.poly.clone(), b.dist + dist)))
+            }
+            Shape2::Circle { cx, cy, r } => Shape2::Circle {
+                cx: *cx,
+                cy: *cy,
+                r: (r + dist).max(0.0),
+            },
+            // a rectangle grown is a rounded rectangle: as a polygon
+            Shape2::Rect(b) => {
+                let ring = vec![[b[0], b[1]], [b[0], b[3]], [b[2], b[3]], [b[2], b[1]]];
+                Shape2::Buffered(Box::new(Buffered::new(Polygon::new(vec![ring]), dist)))
+            }
+        };
+        Region {
+            name: self.name.clone(),
+            shape,
+            attrs: self.attrs.clone(),
+        }
+    }
+
+    /// The separate parts of a multipart polygon (each outer ring with the holes inside it) as
+    /// regions named `<name>_p1`, `<name>_p2`… A region of one part, or not a polygon, is
+    /// returned as it is.
+    pub fn split_parts(&self) -> Vec<Region> {
+        let Shape2::Polygon(p) = &self.shape else {
+            return vec![self.clone()];
+        };
+        let rings = &p.rings;
+        // depth of a ring: how many other rings hold its first vertex
+        let holds = |outer: usize, inner: usize| {
+            rings[inner].first().is_some_and(|v| {
+                Polygon::new(vec![rings[outer].clone()]).contains_exact(v[0], v[1])
+            })
+        };
+        let depth: Vec<usize> = (0..rings.len())
+            .map(|i| (0..rings.len()).filter(|&j| j != i && holds(j, i)).count())
+            .collect();
+        let outers: Vec<usize> = (0..rings.len()).filter(|&i| depth[i] % 2 == 0).collect();
+        if outers.len() <= 1 {
+            return vec![self.clone()];
+        }
+        outers
+            .iter()
+            .enumerate()
+            .map(|(k, &o)| {
+                let mut parts = vec![rings[o].clone()];
+                for h in 0..rings.len() {
+                    // a hole belongs to the innermost outer ring that holds it
+                    if depth[h] % 2 == 1 && holds(o, h) && depth[o] + 1 == depth[h] {
+                        parts.push(rings[h].clone());
+                    }
+                }
+                Region {
+                    name: format!("{}_p{}", self.name, k + 1),
+                    shape: Shape2::Polygon(Polygon::new(parts)),
+                    attrs: self.attrs.clone(),
+                }
+            })
+            .collect()
     }
 }
 
@@ -801,6 +995,41 @@ pub fn write_polygons(
     write_prj(path, prj)
 }
 
+/// Writes polygons with holes as a shapefile: feature `k` is a list of rings, each flagged as a
+/// hole or not; row `k` of `table` describes it. Features with no ring are left out. Rings are closed and oriented as the format
+/// asks. `prj` is the text of the `.prj` file.
+pub fn write_polygon_layer(
+    path: &Path,
+    features: &[Vec<(Vec<[f64; 2]>, bool)>],
+    table: &Table,
+    prj: Option<&str>,
+) -> Result<()> {
+    let mut w = shapefile::Writer::from_path(path, table.builder()?).map_err(shp_open_err(path))?;
+    for (k, rings) in features.iter().enumerate() {
+        let rings: Vec<PolygonRing<ShpPoint>> = rings
+            .iter()
+            .filter(|(r, _)| r.len() >= 3)
+            .map(|(r, hole)| {
+                let pts: Vec<ShpPoint> = r.iter().map(|p| ShpPoint::new(p[0], p[1])).collect();
+                if *hole {
+                    PolygonRing::Inner(pts)
+                } else {
+                    PolygonRing::Outer(pts)
+                }
+            })
+            .collect();
+        if rings.is_empty() {
+            // the format's writer here has no empty shape: a feature with no geometry is left out
+            continue;
+        }
+        let shape = shapefile::Polygon::with_rings(rings);
+        w.write_shape_and_record(&shape, &table.record(k))
+            .map_err(shp_err)?;
+    }
+    drop(w);
+    write_prj(path, prj)
+}
+
 /// Writes polylines (contours, profiles) as a shapefile.
 pub fn write_polylines(
     path: &Path,
@@ -979,6 +1208,68 @@ pub fn prj_for_epsg(code: u16) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    fn sq(x: f64, y: f64, side: f64) -> Vec<[f64; 2]> {
+        vec![[x, y], [x, y + side], [x + side, y + side], [x + side, y]]
+    }
+
+    #[test]
+    fn a_buffer_grows_a_polygon_by_exactly_the_distance() {
+        let r = Region {
+            name: "a".into(),
+            shape: Shape2::Polygon(Polygon::new(vec![sq(0.0, 0.0, 100.0)])),
+            attrs: vec![],
+        };
+        let b = r.buffered(10.0);
+        // along a side: 10 m out is in, 10.1 m is out
+        assert!(b.contains(50.0, -9.9) && !b.contains(50.0, -10.1));
+        assert!(b.contains(109.9, 50.0) && !b.contains(110.1, 50.0));
+        // round corner: the diagonal reach is 10 m, not 10 * sqrt(2)
+        assert!(b.contains(-7.0, -7.0) && !b.contains(-7.2, -7.2));
+        let bb = b.bbox();
+        assert_eq!(bb, [-10.0, -10.0, 110.0, 110.0]);
+        // shrinking
+        let s = r.buffered(-10.0);
+        assert!(s.contains(50.0, 50.0) && !s.contains(5.0, 50.0) && s.contains(10.5, 50.0));
+        // a hole's wall grows too, into the hole
+        let holed = Region {
+            name: "h".into(),
+            shape: Shape2::Polygon(Polygon::new(vec![
+                sq(0.0, 0.0, 100.0),
+                sq(40.0, 40.0, 20.0),
+            ])),
+            attrs: vec![],
+        };
+        let hb = holed.buffered(5.0);
+        assert!(hb.contains(37.0, 50.0) && !hb.contains(50.0, 50.0));
+    }
+
+    #[test]
+    fn a_multipart_feature_splits_into_its_parts_with_their_holes() {
+        let r = Region {
+            name: "stand".into(),
+            shape: Shape2::Polygon(Polygon::new(vec![
+                sq(0.0, 0.0, 100.0),
+                sq(40.0, 40.0, 20.0).into_iter().rev().collect(),
+                sq(200.0, 0.0, 50.0),
+            ])),
+            attrs: vec![("id".into(), "7".into())],
+        };
+        let parts = r.split_parts();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0].name, "stand_p1");
+        assert!((parts[0].area() - (10_000.0 - 400.0)).abs() < 1e-6);
+        assert!((parts[1].area() - 2_500.0).abs() < 1e-6);
+        assert_eq!(parts[1].attrs[0].1, "7");
+        // one part stays one
+        let one = Region {
+            name: "x".into(),
+            shape: Shape2::Polygon(Polygon::new(vec![sq(0.0, 0.0, 5.0)])),
+            attrs: vec![],
+        };
+        assert_eq!(one.split_parts().len(), 1);
+        assert_eq!(one.split_parts()[0].name, "x");
+    }
+
     #[test]
     fn a_saved_layer_keeps_its_holes() {
         use crate::view::{Feature, GeomKind, VectorData};

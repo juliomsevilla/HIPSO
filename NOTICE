@@ -44,7 +44,9 @@ published methods or documented behaviour, or because its structure builds on a 
   al. (2007), Weiss (2001), O'Callaghan and Mark (1984), Beven and Kirkby (1979) and Barnes,
   Lehman and Mulla (2014).
 - GDAL / gdaldem (MIT): the conventions of its slope, aspect, hillshade, roughness, TRI and TPI
-  (windows over missing neighbours, units), checked against an independent implementation.
+  (units; by default, windows over the edge or an empty cell give no value) are followed so that
+  results can be compared with `gdaldem`. The options that fill those cells (`--edges repeat`
+  as `-compute_edges`, `--edges center`) are HIPSO's own.
 - WhiteboxTools, John Lindsay (MIT): inspiration for the choice of utilities (thinning, point
   statistics, tiling, contours).
 - Map tiles of the base map are not part of HIPSO: they are fetched while the base map is on

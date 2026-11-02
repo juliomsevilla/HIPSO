@@ -294,6 +294,39 @@ impl App {
                 }
             });
         });
+        ribbon::group(ui, t, "Geoprocesos", |ui| {
+            use crate::vector_ui::Op;
+            let path = self.refs.get(k).map(|r| r.path.clone());
+            let mut pick = None;
+            ui.vertical(|ui| {
+                for (icon, label, op) in [
+                    ("@zonal", "Estadística zonal", Op::Zonal),
+                    ("@validate", "Validar polígonos", Op::Validate),
+                    ("@repair", "Reparar polígonos", Op::Repair),
+                ] {
+                    if ribbon::small_button(ui, t, icon, label, self.vt.open && self.vt.op == op).clicked() {
+                        pick = Some(op);
+                    }
+                }
+            });
+            ui.vertical(|ui| {
+                for (icon, label, op) in [
+                    ("@buffer", "Búfer", Op::Buffer),
+                    ("@dissolve", "Disolver", Op::Dissolve),
+                    ("@union", "Unión de capas", Op::Union),
+                ] {
+                    if ribbon::small_button(ui, t, icon, label, self.vt.open && self.vt.op == op).clicked() {
+                        pick = Some(op);
+                    }
+                }
+            });
+            if let Some(op) = pick {
+                self.vt.op = op;
+                self.vt.layer = path;
+                self.vt.report.clear();
+                self.vt.open = true;
+            }
+        });
         ribbon::group(ui, t, "Herramientas", |ui| {
             for (icon, name, n) in [
                 ("@pencil", "Digitalizar", Nav::Digitize),

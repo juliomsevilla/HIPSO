@@ -59,6 +59,18 @@ pub(crate) struct Route {
     hub_boxes: OnceLock<(Boxes, Boxes)>,
     /// The target's transformations to WGS 84, for `Hub`.
     dst_ops: Vec<Arc<Op>>,
+    /// The two datums are official realizations of one another (no shift exists or is needed).
+    coincident: bool,
+}
+
+/// Datums the authorities define as coinciding: ETRS89 and REGCAN95 (Canary Islands).
+fn coincident(a: &Def, b: &Def) -> bool {
+    const ETRS89: u32 = 6258;
+    const REGCAN95: u32 = 1035;
+    matches!(
+        (a.datum_code(), b.datum_code()),
+        (Some(ETRS89), Some(REGCAN95)) | (Some(REGCAN95), Some(ETRS89))
+    )
 }
 
 fn legs(ops: &[Arc<Op>], reverse: bool) -> Vec<Leg> {
@@ -274,6 +286,7 @@ impl Route {
             boxes: OnceLock::new(),
             hub_boxes: OnceLock::new(),
             dst_ops: dst.ops().to_vec(),
+            coincident: coincident(src, dst),
         }
     }
 
@@ -340,6 +353,17 @@ impl Route {
     /// Heights go through the transformation when `three_d` (between 3D CRSs). `None` when no
     /// transformation succeeds.
     pub fn apply(&self, src: &Def, x: f64, y: f64, p: Point, three_d: bool) -> Option<Point> {
+        if !self.coincident {
+            return self.apply_raw(src, x, y, p, three_d);
+        }
+        // Datums that coincide need no shift: the engine's "no shift" is exact, not a ballpark.
+        let before = super::policy::peek();
+        let r = self.apply_raw(src, x, y, p, three_d);
+        super::policy::restore_ballpark(before);
+        r
+    }
+
+    fn apply_raw(&self, src: &Def, x: f64, y: f64, p: Point, three_d: bool) -> Option<Point> {
         // PROJ compares the source coordinates with the areas: for a geographic source, its
         // longitude and latitude as given, in degrees.
         let (dlon, dlat) = src
@@ -361,7 +385,10 @@ impl Route {
             Kind::Same => Some(p),
             // No transformation at all (a CRS of an unknown datum, defined by its ellipsoid alone):
             // no shift, PROJ's ballpark transformation.
-            Kind::List(list) if list.is_empty() => Some(p),
+            Kind::List(list) if list.is_empty() => {
+                super::policy::note(super::policy::Approximation::NoDatumShift);
+                Some(p)
+            }
             Kind::List(list) => {
                 let boxes = self
                     .boxes
@@ -374,7 +401,10 @@ impl Route {
                 )
             }
             // PROJ's ballpark alone: no shift.
-            Kind::Chains { chains, .. } if chains.is_empty() => Some(p),
+            Kind::Chains { chains, .. } if chains.is_empty() => {
+                super::policy::note(super::policy::Approximation::NoDatumShift);
+                Some(p)
+            }
             Kind::Chains { chains, ballpark } => {
                 // Heights go through both transformations, as in PROJ's pipeline for the chain (the
                 // conversion to geodetic coordinates and back between them cancelling out), and
@@ -411,15 +441,18 @@ impl Route {
                     // The ballpark (more accurate than the chains between CRSs that differ by
                     // their prime meridians alone): no shift.
                     let Some(chain) = chains.get(i) else {
+                        super::policy::note(super::policy::Approximation::NoDatumShift);
                         return Some(p);
                     };
                     if let Some(r) = run(chain) {
                         return Some(r);
                     }
+                    super::policy::note(super::policy::Approximation::NextBestOperation);
                     excluded.push(i);
                 }
                 if ballpark.is_some() {
                     // The ballpark holds every point: no shift.
+                    super::policy::note(super::policy::Approximation::NoDatumShift);
                     return Some(p);
                 }
                 // No transformation for the point: the first that needs no grid, as PROJ's
@@ -448,7 +481,10 @@ impl Route {
                         })
                     }
                     // No transformation (or an unknown datum): no shift, as PROJ's ballpark.
-                    _ => Some(p),
+                    _ => {
+                        super::policy::note(super::policy::Approximation::NoDatumShift);
+                        Some(p)
+                    }
                 }
             }
         }

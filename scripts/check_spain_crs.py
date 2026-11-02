@@ -44,6 +44,7 @@ PAIRS = [  # src, dst, areas
 HEIGHT_PAIRS = [  # orthometric (REDNAP EPSG:5782 / Canarias EPSG:9397?) <-> ellipsoidal
     ("EPSG:25830+5782", "EPSG:4979", ["peninsula_c"]), ("EPSG:4979", "EPSG:25830+5782", ["peninsula_c"]),
     ("EPSG:25829+5782", "EPSG:25830+5782", ["peninsula_w"]),
+    ("EPSG:4979", "EPSG:25828+9398", ["canarias"]), ("EPSG:25828+9398", "EPSG:4979", ["canarias"]),
 ]
 random.seed(7)
 def pts_for(src, areas, n=60):

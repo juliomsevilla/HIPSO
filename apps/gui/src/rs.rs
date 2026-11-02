@@ -776,6 +776,8 @@ impl App {
             .open(&mut open)
             .default_width(430.0)
             .show(ctx, |ui| {
+                crate::tools::output_row(ui, &mut self.tools.out_dir);
+                ui.separator();
                 if images.is_empty() {
                     ui.label("Carga una imagen multibanda (GeoTIFF) con «Abrir».");
                     return;

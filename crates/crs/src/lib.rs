@@ -19,6 +19,9 @@ pub enum Error {
     Crs(String),
     #[error("{0}")]
     Param(String),
+    /// A point's transformation was refused by the [`Policy`] (a ballpark or a lesser operation).
+    #[error("{0}")]
+    Policy(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
