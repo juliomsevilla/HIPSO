@@ -2936,7 +2936,7 @@ mod tests {
 
     #[test]
     fn join_matches_names_and_reports_the_rest() -> Result<()> {
-        let dir = std::env::temp_dir().join("easylidar_aba_join");
+        let dir = std::env::temp_dir().join("hipso_aba_join");
         let _ = std::fs::create_dir_all(&dir);
         let (p, f) = (dir.join("p.csv"), dir.join("f.csv"));
         let mut metrics = String::from("Parcela,Area,Elev P95,Elev mean,Total return count\n");
@@ -2978,7 +2978,7 @@ mod tests {
 
     #[test]
     fn map_follows_the_model_and_masks_extrapolation() -> Result<()> {
-        let dir = std::env::temp_dir().join("easylidar_aba_map");
+        let dir = std::env::temp_dir().join("hipso_aba_map");
         let _ = std::fs::create_dir_all(&dir);
         let cells = dir.join("c.csv");
         let mut t = String::from("row,col,center X,center Y,Elev P95\n");

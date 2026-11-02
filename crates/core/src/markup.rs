@@ -208,12 +208,12 @@ mod tests {
         Ok(())
     }
 
-    /// Writes sample files to the folder named by `RUSTLIDAR_MARKUP_OUT`, for opening them in
+    /// Writes sample files to the folder named by `HIPSO_MARKUP_OUT`, for opening them in
     /// other software (`cargo test -- --ignored`).
     #[test]
     #[ignore]
     fn write_samples() -> Result<()> {
-        let Some(dir) = std::env::var_os("RUSTLIDAR_MARKUP_OUT") else {
+        let Some(dir) = std::env::var_os("HIPSO_MARKUP_OUT") else {
             return Ok(());
         };
         let dir = std::path::PathBuf::from(dir);

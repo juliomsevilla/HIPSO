@@ -1025,13 +1025,13 @@ mod tests {
         }
     }
 
-    /// Writes one layer of each kind to the folder named by `RUSTLIDAR_MARKUP_OUT`, to open them in
+    /// Writes one layer of each kind to the folder named by `HIPSO_MARKUP_OUT`, to open them in
     /// other software (`cargo test -- --ignored`).
     #[test]
     #[ignore]
     fn write_layer_samples() -> Result<()> {
         use crate::view::{Feature, GeomKind, VectorData};
-        let Some(dir) = std::env::var_os("RUSTLIDAR_MARKUP_OUT") else {
+        let Some(dir) = std::env::var_os("HIPSO_MARKUP_OUT") else {
             return Ok(());
         };
         let dir = std::path::PathBuf::from(dir);
@@ -1778,7 +1778,7 @@ mod capture_tests {
 
     /// The capture-date column of a one-row table written with `cols`/`row`.
     fn captura_of(name: &str, cols: &[&str], row: &[&str]) -> Result<(Vec<String>, String)> {
-        let dir = std::env::temp_dir().join(format!("easylidar_capture_{name}"));
+        let dir = std::env::temp_dir().join(format!("hipso_capture_{name}"));
         std::fs::create_dir_all(&dir)?;
         let path = dir.join("t.shp");
         let cols: Vec<String> = cols.iter().map(|s| s.to_string()).collect();
@@ -1826,7 +1826,7 @@ mod restored_names_tests {
 
     #[test]
     fn a_plots_layer_without_its_campos_file_gets_its_long_names_back() -> Result<()> {
-        let dir = std::env::temp_dir().join("easylidar_restore_names");
+        let dir = std::env::temp_dir().join("hipso_restore_names");
         std::fs::create_dir_all(&dir)?;
         let path = dir.join("p.shp");
         let mut cols = vec!["Parcela".to_string(), "Area".to_string()];

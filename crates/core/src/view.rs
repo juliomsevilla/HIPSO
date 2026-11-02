@@ -1,6 +1,6 @@
 //! What a point-cloud viewer needs, with no window in it: a compact in-memory store of
 //! (decimated) points, colouring and filters, and CPU renderers for the plan, 3D and profile
-//! views. The GUI paints the images these make; `easylidar render` writes them as PNG.
+//! views. The GUI paints the images these make; `hipso render` writes them as PNG.
 
 use std::path::{Path, PathBuf};
 

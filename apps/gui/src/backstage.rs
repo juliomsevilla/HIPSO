@@ -23,11 +23,6 @@ enum Pick {
     Page(Page),
 }
 
-fn is_project(p: &Path) -> bool {
-    p.extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case(project::EXT))
-}
-
 /// A command of the left column: a full-width row that lights up under the pointer.
 fn command(ui: &mut egui::Ui, t: &theme::Tokens, glyph: &str, label: &str) -> bool {
     let (rect, r) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 34.0), Sense::click());
@@ -142,8 +137,10 @@ impl App {
                     return;
                 }
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    let projects: Vec<&PathBuf> = recent.iter().filter(|p| is_project(p)).collect();
-                    let files: Vec<&PathBuf> = recent.iter().filter(|p| !is_project(p)).collect();
+                    let projects: Vec<&PathBuf> =
+                        recent.iter().filter(|p| project::is_project(p)).collect();
+                    let files: Vec<&PathBuf> =
+                        recent.iter().filter(|p| !project::is_project(p)).collect();
                     for (title, list) in [("Proyectos recientes", projects), ("Recientes", files)] {
                         if list.is_empty() {
                             continue;

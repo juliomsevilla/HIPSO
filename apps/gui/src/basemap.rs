@@ -51,9 +51,9 @@ pub const PROVIDERS: &[Provider] = &[
 pub const CUSTOM: usize = PROVIDERS.len();
 
 const USER_AGENT: &str = concat!(
-    "EasyLiDAR/",
+    "HIPSO/",
     env!("CARGO_PKG_VERSION"),
-    " (+https://github.com/juliomsevilla/EasyLiDAR)"
+    " (+https://github.com/juliomsevilla/HIPSO)"
 );
 
 /// How long a tile on disk is used without asking the server again.
@@ -336,7 +336,7 @@ fn cache_file(provider: u64, key: Key) -> Option<PathBuf> {
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))?
     };
     Some(
-        base.join("EasyLiDAR")
+        base.join("HIPSO")
             .join("tiles")
             .join(format!("{provider:016x}"))
             .join(key.1.to_string())

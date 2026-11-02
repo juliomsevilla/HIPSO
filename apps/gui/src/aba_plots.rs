@@ -442,7 +442,7 @@ mod tests {
 
     #[test]
     fn the_table_of_a_model_is_read_and_flags_are_kept() {
-        let p = std::env::temp_dir().join("easylidar_diag_table.csv");
+        let p = std::env::temp_dir().join("hipso_diag_table.csv");
         assert!(std::fs::write(&p, TABLE).is_ok());
         let d = Diag::read(&p, "VOL");
         assert!(d.is_some());
@@ -456,7 +456,7 @@ mod tests {
 
     #[test]
     fn the_four_graphics_draw_without_trouble() {
-        let p = std::env::temp_dir().join("easylidar_diag_draw.csv");
+        let p = std::env::temp_dir().join("hipso_diag_draw.csv");
         assert!(std::fs::write(&p, TABLE).is_ok());
         let ctx = egui::Context::default();
         let raw = egui::RawInput {

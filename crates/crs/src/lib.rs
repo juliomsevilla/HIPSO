@@ -1,4 +1,4 @@
-//! Coordinate reference systems and reprojection for EasyLiDAR.
+//! Coordinate reference systems and reprojection for HIPSO.
 //!
 //! The transformation engine (projections, EPSG/ESRI tables, WKT and PROJ strings, datum shift
 //! grids) is adapted from the `terrio` project (MIT, Qiusheng Wu), itself ported from PROJ (MIT).

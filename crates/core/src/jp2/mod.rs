@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn other_files_are_refused_cleanly() {
-        let p = std::env::temp_dir().join(format!("easylidar-notjp2-{}", std::process::id()));
+        let p = std::env::temp_dir().join(format!("hipso-notjp2-{}", std::process::id()));
         let _ = std::fs::write(&p, b"this is not a jpeg 2000 file at all");
         assert!(Jp2::open(&p).is_err());
         let _ = std::fs::remove_file(p);
@@ -502,7 +502,7 @@ mod tests {
         let Ok(orig) = std::fs::read(&src) else {
             return;
         };
-        let p = std::env::temp_dir().join(format!("easylidar-fuzz-{}.jp2", std::process::id()));
+        let p = std::env::temp_dir().join(format!("hipso-fuzz-{}.jp2", std::process::id()));
         let mut seed = 0x2545_F491_4F6C_DD1Du64;
         let mut next = move || {
             seed ^= seed << 13;

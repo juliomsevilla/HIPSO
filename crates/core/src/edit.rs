@@ -805,8 +805,8 @@ mod tests {
         let dir = std::env::temp_dir();
         let id = std::process::id();
         let (input, out) = (
-            dir.join(format!("rustlidar_edit_in_{id}.las")),
-            dir.join(format!("rustlidar_edit_out_{id}.las")),
+            dir.join(format!("hipso_edit_in_{id}.las")),
+            dir.join(format!("hipso_edit_out_{id}.las")),
         );
         std::fs::write(&input, &bytes)?;
         let rule = |kind, bins: Vec<(f64, f64)>| {

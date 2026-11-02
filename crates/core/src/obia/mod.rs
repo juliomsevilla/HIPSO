@@ -150,7 +150,7 @@ impl LayerStack {
     pub fn push_grid(&mut self, name: &str, g: &Grid) -> Result<()> {
         if !self.lat.same(&Lattice::of(g)) {
             return Err(Error::Param(format!(
-                "la capa '{name}' no coincide celda a celda con las demás (mismo origen, tamaño de celda y dimensiones): iguálala antes con Ráster → Igualar rásteres (`easylidar align`)"
+                "la capa '{name}' no coincide celda a celda con las demás (mismo origen, tamaño de celda y dimensiones): iguálala antes con Ráster → Igualar rásteres (`hipso align`)"
             )));
         }
         self.push(name, g.data.clone())
@@ -168,7 +168,7 @@ impl LayerStack {
         };
         if !self.lat.same(&lat) {
             return Err(Error::Param(format!(
-                "la imagen '{name}' no coincide celda a celda con las demás capas (mismo origen, tamaño de celda y dimensiones): iguálala antes con Ráster → Igualar rásteres (`easylidar align`)"
+                "la imagen '{name}' no coincide celda a celda con las demás capas (mismo origen, tamaño de celda y dimensiones): iguálala antes con Ráster → Igualar rásteres (`hipso align`)"
             )));
         }
         for (b, data) in img.bands.iter().enumerate() {

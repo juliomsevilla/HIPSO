@@ -1356,12 +1356,7 @@ impl Tools {
             "Normalizar: alturas sobre el suelo (cada nube menos su MDT)",
         );
         if self.ex_norm {
-            Self::raster_row(
-                ui,
-                "MDT",
-                &mut self.ex_dtm,
-                hipso_core::raster::EXTENSIONS,
-            );
+            Self::raster_row(ui, "MDT", &mut self.ex_dtm, hipso_core::raster::EXTENSIONS);
             ui.label(
                 egui::RichText::new(
                     "Vacío: se usa el último MDT calculado de cada nube. Los puntos fuera del MDT no se exportan.",

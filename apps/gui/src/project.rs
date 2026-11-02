@@ -1,11 +1,20 @@
-//! Projects: a `.elp` file (JSON) that remembers which clouds and layers are open, in what order,
+//! Projects: a `.hipso` file (JSON) that remembers which clouds and layers are open, in what order,
 //! how they are shown and where the views look, so that a session starts again from there. It
 //! holds paths, not data: the files stay where they are.
 
 use super::*;
 use hipso_core::json::{Json, quote};
 
-pub const EXT: &str = "elp";
+pub const EXT: &str = "hipso";
+/// The extension projects had before the program was called HIPSO: they are still read, never
+/// written.
+pub const LEGACY_EXT: &str = "elp";
+
+/// Whether the file is a project, in the current or the former format.
+pub fn is_project(p: &Path) -> bool {
+    p.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case(EXT) || e.eq_ignore_ascii_case(LEGACY_EXT))
+}
 const LAYOUTS: [Layout; 4] = [
     Layout::Plan,
     Layout::PlanProfile,
@@ -68,7 +77,10 @@ impl App {
 
     pub fn open_project_dialog(&mut self, ctx: &egui::Context) {
         if let Some(f) = crate::prefs::dialog()
-            .add_filter(format!("Proyecto de {}", crate::brand::NAME), &[EXT])
+            .add_filter(
+                format!("Proyecto de {}", crate::brand::NAME),
+                &[EXT, LEGACY_EXT],
+            )
             .pick_file()
         {
             self.open_project(ctx, &f);
@@ -151,5 +163,18 @@ impl App {
             self.log(format!("No está el archivo del proyecto: {}", m.display()));
         }
         self.log(format!("Proyecto abierto: {}", file.display()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn both_extensions_are_projects_but_saving_uses_the_new_one() {
+        assert!(is_project(Path::new("a/obra.hipso")));
+        assert!(is_project(Path::new("a/obra.ELP")));
+        assert!(!is_project(Path::new("a/nube.laz")));
+        assert_eq!(EXT, "hipso");
     }
 }

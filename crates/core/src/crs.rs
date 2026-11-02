@@ -279,7 +279,7 @@ pub fn unify_like<P: AsRef<Path>>(
                     Some(d) => d.clone(),
                     None => {
                         let d = std::env::temp_dir().join(format!(
-                            "easylidar_crs_{}_{}",
+                            "hipso_crs_{}_{}",
                             std::process::id(),
                             nonce()
                         ));

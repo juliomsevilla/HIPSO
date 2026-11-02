@@ -787,9 +787,8 @@ impl Tools {
             }
         };
         let dtm_for = |p: &Path| {
-            paths::find_dtm(p).ok_or_else(|| {
-                hipso_core::Error::Param(format!("no hay MDT de {}", p.display()))
-            })
+            paths::find_dtm(p)
+                .ok_or_else(|| hipso_core::Error::Param(format!("no hay MDT de {}", p.display())))
         };
         let inputs_v = inputs.to_vec();
         let (task, show, outputs): (Task, Vec<PathBuf>, Vec<PathBuf>) = match tool {
@@ -1144,8 +1143,7 @@ impl Tools {
                         }
                     }
                 };
-                match hipso_core::plots::generate(b, limit.as_deref(), shape, sampling, s.seed)
-                {
+                match hipso_core::plots::generate(b, limit.as_deref(), shape, sampling, s.seed) {
                     Ok(plots) => {
                         let layout = paths::unique(&paths::product(&first, "parcelas", "shp"));
                         let prj = Reader::open(&first)

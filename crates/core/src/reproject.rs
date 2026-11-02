@@ -1,14 +1,14 @@
 //! Moves clouds, rasters and regions from one coordinate system to another, with the
-//! transformations of `rustlidar-crs` (the datum shift grids of Spain are built in).
+//! transformations of `hipso-crs` (the datum shift grids of Spain are built in).
 //!
 //! Only the horizontal position changes; heights are kept (a datum shift changes them by
 //! centimetres at most, and a geoid change is not a coordinate-system change).
 
 use std::path::{Path, PathBuf};
 
-use rayon::prelude::*;
 use hipso_crs::SpatialRef;
 pub use hipso_crs::Transformer;
+use rayon::prelude::*;
 
 use crate::grid::Grid;
 use crate::las::{self, Reader, Writer};

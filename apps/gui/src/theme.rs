@@ -1,4 +1,4 @@
-//! Colours, spacing and fonts: dark and light looks of EasyLiDAR.
+//! Colours, spacing and fonts: dark and light looks of HIPSO.
 
 use eframe::egui::{
     self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, Stroke, Vec2,

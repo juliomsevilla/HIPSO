@@ -49,9 +49,11 @@ pub fn tip(label: &str) -> Option<&'static str> {
             "Vuelve a encuadrar la vista 3D en lo que se ve en la planta (útil con capas muy separadas)."
         }
         "Guardar proyecto" => {
-            "Guarda qué nubes y capas están abiertas y cómo se ve (archivo .elp)."
+            "Guarda qué nubes y capas están abiertas y cómo se ve (archivo .hipso)."
         }
-        "Abrir proyecto" => "Abre un proyecto .elp: cierra lo abierto y carga sus nubes y capas.",
+        "Abrir proyecto" => {
+            "Abre un proyecto .hipso (o .elp, el formato anterior): cierra lo abierto y carga sus nubes y capas."
+        }
         "Limpiar marcas" => "Quita las mediciones, la consulta, la densidad y el perfil dibujados.",
         "Consultar" => "Muestra los atributos del punto sobre el que haces clic (Q).",
         "Densidad" => "Dibuja un rectángulo y da los puntos por metro cuadrado.",

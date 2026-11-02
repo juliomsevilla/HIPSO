@@ -798,7 +798,7 @@ impl Reader {
         // shortcut: the spool goes to the system temp folder, which must hold every record
         // uncompressed; add a --temp-dir option when that runs out.
         let path = std::env::temp_dir().join(format!(
-            "rustlidar-{}-{}.rec",
+            "hipso-{}-{}.rec",
             std::process::id(),
             self.header.count
         ));
@@ -1400,7 +1400,7 @@ mod tests {
             (50, 25, 1000, 2 | (3 << 3), 5),
             (100, 100, 0, 1 | (1 << 3), 7 | 0x80),
         ]);
-        let p = std::env::temp_dir().join(format!("rustlidar_las_test_{}.las", std::process::id()));
+        let p = std::env::temp_dir().join(format!("hipso_las_test_{}.las", std::process::id()));
         std::fs::write(&p, &bytes)?;
         let r = Reader::open(&p)?;
         assert_eq!(

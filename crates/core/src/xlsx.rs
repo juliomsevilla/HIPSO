@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn rejects_other_files() {
-        let p = std::env::temp_dir().join("easylidar_not_xlsx.xlsx");
+        let p = std::env::temp_dir().join("hipso_not_xlsx.xlsx");
         assert!(std::fs::write(&p, b"hello").is_ok());
         assert!(read(&p).is_err());
         let _ = std::fs::remove_file(&p);

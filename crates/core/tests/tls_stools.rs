@@ -60,7 +60,7 @@ fn write_las(name: &str, pts: &[[f64; 3]]) -> Result<std::path::PathBuf> {
         rec[15] = 1;
         h.extend_from_slice(&rec);
     }
-    let path = std::env::temp_dir().join(format!("rustlidar_{name}_{}.las", std::process::id()));
+    let path = std::env::temp_dir().join(format!("hipso_{name}_{}.las", std::process::id()));
     std::fs::write(&path, h)?;
     Ok(path)
 }

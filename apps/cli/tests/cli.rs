@@ -77,7 +77,7 @@ fn synthetic_cloud(path: &Path) -> Result<()> {
     h[..4].copy_from_slice(b"LASF");
     h[24] = 1;
     h[25] = 2;
-    h[26..35].copy_from_slice(b"EasyLiDAR");
+    h[26..31].copy_from_slice(b"HIPSO");
     h[94..96].copy_from_slice(&227u16.to_le_bytes());
     h[96..100].copy_from_slice(&227u32.to_le_bytes());
     h[104] = 1;
