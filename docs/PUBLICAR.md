@@ -1,10 +1,10 @@
-# Publicar una versión de EasyLiDAR
+# Publicar una versión de HIPSO
 
 Compilamos en local (Mac y Windows); Linux lo compila GitHub Actions. Cada sistema sube su paquete a la misma release `vX.Y.Z`:
 
-- **Mac:** `EasyLiDAR-macos-arm64.tar.gz` y `EasyLiDAR-macos-x64.tar.gz`
-- **Windows:** `EasyLiDAR-windows-x64.zip`
-- **Linux:** `EasyLiDAR-linux-x64.tar.gz` — lo compila GitHub Actions (`.github/workflows/linux.yml`) solo, en cuanto el Mac crea la release. No hay que hacer nada a mano.
+- **Mac:** `HIPSO-macos-arm64.tar.gz` y `HIPSO-macos-x64.tar.gz`
+- **Windows:** `HIPSO-windows-x64.zip`
+- **Linux:** `HIPSO-linux-x64.tar.gz` — lo compila GitHub Actions (`.github/workflows/linux.yml`) solo, en cuanto el Mac crea la release. No hay que hacer nada a mano.
 
 Da igual el orden entre Mac y Windows. El primero que publica sube la versión y crea la release; el segundo hace `git pull` y añade su paquete a esa release sin tocar la versión. Si Windows publica primero, es su `gh release create` el que dispara la compilación de Linux, igual que haría el Mac.
 
@@ -15,11 +15,11 @@ Cada prompt se pega en Claude Code abierto en la carpeta del proyecto. Cambia so
 ## Prompt para Mac
 
 ```text
-Publica EasyLiDAR desde este Mac. VERSIÓN: <X.Y.Z, o vacío si el otro equipo ya publicó>
+Publica HIPSO desde este Mac. VERSIÓN: <X.Y.Z, o vacío si el otro equipo ya publicó>
 
 1. Haz `git pull` y comprueba que el árbol está limpio. Carga Rust con `. ~/.cargo/env`.
 2. Mira la versión de Cargo.toml y si existe la release `v<esa versión>` en GitHub (`gh release view`):
-   - Si existe y NO tiene aún los paquetes de macOS (`EasyLiDAR-macos-arm64.tar.gz` y `EasyLiDAR-macos-x64.tar.gz`): el otro equipo ya abrió esta versión. NO cambies la versión; ve al paso 4.
+   - Si existe y NO tiene aún los paquetes de macOS (`HIPSO-macos-arm64.tar.gz` y `HIPSO-macos-x64.tar.gz`): el otro equipo ya abrió esta versión. NO cambies la versión; ve al paso 4.
    - Si no existe, o ya tiene todos los paquetes de macOS: es una versión nueva. Usa la VERSIÓN que te indico arriba (si falta, pregúntamela).
 3. Versión nueva: súbela en Cargo.toml (workspace) y deja Cargo.lock actualizado, ejecuta `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` y `cargo test`, y si todo pasa haz commit "Versión X.Y.Z" y push a main. Si algo falla, párate y dímelo.
 4. Ejecuta `./scripts/package.sh --publish`. Comprueba con `gh release view v<versión>` que están subidos los dos paquetes de macOS y dime qué paquetes tiene ya la release y cuáles faltan (Windows).
@@ -32,14 +32,14 @@ No lances ningún otro flujo de Actions (`release.yml` es solo de emergencia).
 ## Prompt para Windows
 
 ```text
-Publica EasyLiDAR desde este PC con Windows. VERSIÓN: <X.Y.Z, o vacío si el otro equipo ya publicó>
+Publica HIPSO desde este PC con Windows. VERSIÓN: <X.Y.Z, o vacío si el otro equipo ya publicó>
 
 1. Haz `git pull` y comprueba que el árbol está limpio. Rust está en `%USERPROFILE%\.cargo\bin`.
 2. Mira la versión de Cargo.toml y si existe la release `v<esa versión>` en GitHub (`gh release view`):
-   - Si existe y NO tiene aún `EasyLiDAR-windows-x64.zip`: el otro equipo ya abrió esta versión. NO cambies la versión; ve al paso 4.
+   - Si existe y NO tiene aún `HIPSO-windows-x64.zip`: el otro equipo ya abrió esta versión. NO cambies la versión; ve al paso 4.
    - Si no existe, o ya tiene el zip de Windows: es una versión nueva. Usa la VERSIÓN que te indico arriba (si falta, pregúntamela).
 3. Versión nueva: súbela en Cargo.toml (workspace) y deja Cargo.lock actualizado, ejecuta `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` y `cargo test`, y si todo pasa haz commit "Versión X.Y.Z" y push a main. Si algo falla, párate y dímelo.
-4. Ejecuta `.\scripts\package.ps1 -Publish`. Comprueba con `gh release view v<versión>` que está subido `EasyLiDAR-windows-x64.zip` y dime qué paquetes tiene ya la release y cuáles faltan (macOS y Linux; Linux lo sube GitHub Actions solo y puede tardar unos minutos: mira `gh run list --workflow linux.yml --limit 1`).
+4. Ejecuta `.\scripts\package.ps1 -Publish`. Comprueba con `gh release view v<versión>` que está subido `HIPSO-windows-x64.zip` y dime qué paquetes tiene ya la release y cuáles faltan (macOS y Linux; Linux lo sube GitHub Actions solo y puede tardar unos minutos: mira `gh run list --workflow linux.yml --limit 1`).
 No lances nada en GitHub Actions.
 ```
 
@@ -56,6 +56,6 @@ No lances nada en GitHub Actions.
 
 Si no hay `gh` a mano, basta con subir la versión y la etiqueta: `git tag vX.Y.Z && git push origin main vX.Y.Z`. El flujo `release.yml` arranca solo con la etiqueta, compila Windows, Linux, macOS Apple Silicon y macOS Intel, y publica la release con los cuatro paquetes (`generate_release_notes`). Las releases creadas así no disparan `linux.yml`, que solo sirve para el camino con `gh`. Seguimiento: pestaña Actions del repositorio.
 
-Tanto `release.yml` como `scripts/package.sh` crean `EasyLiDAR.app` con el mismo script (`scripts/macos-app.sh`), de modo que los paquetes de macOS son equivalentes salgan de donde salgan. Una release creada con `gh` dispara `release.yml` (por la etiqueta) y `linux.yml` a la vez, y el primero sobrescribe los paquetes que haya subido el Mac.
+Tanto `release.yml` como `scripts/package.sh` crean `HIPSO.app` con el mismo script (`scripts/macos-app.sh`), de modo que los paquetes de macOS son equivalentes salgan de donde salgan. Una release creada con `gh` dispara `release.yml` (por la etiqueta) y `linux.yml` a la vez, y el primero sobrescribe los paquetes que haya subido el Mac.
 
 Si GitHub no compilara macOS (cuota o runners), usa el prompt de Mac de arriba en un Mac: `./scripts/package.sh --publish` sube los dos paquetes de macOS a la release `vX.Y.Z`.

@@ -1,6 +1,6 @@
 name: linux
 # El paquete de Linux lo compila GitHub: arranca solo cuando se crea la release vX.Y.Z (la crea
-# scripts/package.sh --publish desde el Mac) y sube EasyLiDAR-linux-x64.tar.gz a esa misma
+# scripts/package.sh --publish desde el Mac) y sube HIPSO-linux-x64.tar.gz a esa misma
 # release. También se puede lanzar a mano indicando la etiqueta (por ejemplo v0.1.4).
 on:
   release:
@@ -30,11 +30,11 @@ jobs:
       - run: cargo build --release --locked
       - name: Package
         run: |
-          d=EasyLiDAR-linux-x64
+          d=HIPSO-linux-x64
           mkdir "$d"
-          cp target/release/easylidar target/release/easylidar-gui README.md LICENSE NOTICE THIRD_PARTY_LICENSES.md docs/MANUAL.md "$d"/
+          cp target/release/hipso target/release/hipso-gui README.md LICENSE NOTICE THIRD_PARTY_LICENSES.md docs/MANUAL.md "$d"/
           cp -r licenses "$d"/
-          chmod +x "$d"/easylidar "$d"/easylidar-gui
+          chmod +x "$d"/hipso "$d"/hipso-gui
           tar czf "$d.tar.gz" "$d"
       - name: Upload to the release
-        run: gh release upload "$TAG" EasyLiDAR-linux-x64.tar.gz --clobber
+        run: gh release upload "$TAG" HIPSO-linux-x64.tar.gz --clobber
