@@ -142,10 +142,6 @@ hipso compare nube2.laz --reference nube1.laz --distance 0.5
 - Fuera de España los geoides y las mallas de datum se buscan en `HIPSO_GRID_DIR`, `PROJ_DATA` o `PROJ_LIB`, o se descargan con `HIPSO_NETWORK=ON`.
 - Las imágenes de varias bandas y las herramientas de imágenes grandes (*Apilar*, *Mosaico* de imágenes, *Igualar rásteres*) exigen el mismo sistema, y las nubes no se pasan desde o hacia grados.
 
-**Carreteras y vías.** El método no distingue una vía de otro suelo desnudo (cortafuegos, canteras, cauces secos) salvo que se acote por intensidad, y su validación es sobre escenas sintéticas (`benchmarks/roads`).
-
-**Análisis de terreno.** Las celdas del borde y las vecinas a un hueco quedan sin dato por defecto, como en `gdaldem`; `--edges` permite darles valor.
-
 ---
 
 ## Licencia
