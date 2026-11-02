@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="assets/icon-256.png" alt="HIPSO" width="128">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/hipso-logo-completo-blanco.svg">
+    <img src="assets/brand/hipso-logo-completo.svg" alt="HIPSO: procesamiento y edición de nubes de puntos" width="560">
+  </picture>
 </p>
 
-<h1 align="center">HIPSO</h1>
-
 <p align="center">
-  <strong>Procesamiento y edición de nubes LiDAR para forestales</strong><br>
   Rápido, ligero con nubes enormes y cómodo de editar. Windows, macOS y Linux.
 </p>
 
@@ -55,7 +55,7 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/HIPSO/releases/
 | **Preparar** | **Clasificar**: ruido, suelo (Kraus y Pfeifer, MCC, CSF, PMF, SMRF, Axelsson), edificios, vegetación por estratos, cables y postes, reglas por eco y ángulo de barrido · Información de los datos · Asignar proyección · Exportar puntos · Adelgazar nube (densidad objetivo, celdas, percentil, 3D, uno de cada n) · Alturas sobre el suelo (atributo o nube normalizada) · Quitar duplicados · **Colorear con una imagen (RGB)** · **Normalizar la intensidad por distancia** · **Guardar como COPC** |
 | **Calidad** | Comparar nubes (cambios) · Ajustar una nube a otra (ICP) · Separación entre pasadas |
 | **Superficies** | MDT (triangulación por defecto, ponderado por distancia o media por celda, con **líneas de rotura**) · MDS / CHM (MDS por triangulación, ponderado por distancia o máximo por celda; CHM con *pit-free* y suavizado) · **Análisis de terreno** sobre el MDT: pendiente, orientación, sombreado, curvaturas, rugosidad, TRI, TPI, depresiones, acumulación de flujo, TWI, red de drenaje, subcuencas y cuenca visual · Volumen sobre (y bajo) el MDT, desde el CHM o el MDS, por ráster completo, AOI o polígonos |
-| **Inventario forestal** | Métricas de rodal · Recortar parcelas (de archivo, muestreo o dibujadas) · Segmentar árboles (Dalponte, Silva, cuencas, ventana variable) con evaluación frente a campo · **Dendrometría TLS**: mide diámetros a lo largo del tronco, cubica con Smalian, estima la altura comercial de los fustes perdidos y guarda la nube con **fustes (clase 64) y ramas (clase 65)** para editarla · **Modelos de transición**: regresión de volumen, área basimétrica… sobre las métricas LiDAR, validada dejando una parcela fuera cada vez, y su mapa · Cambio forestal · Análisis por objetos (OBIA) |
+| **Inventario de la vegetación** | Métricas por celda · Extraer muestras (de archivo, muestreo o dibujadas) · Segmentar individuos (Dalponte, Silva, cuencas, ventana variable) con evaluación frente a campo · **Medición de troncos (TLS)**: mide diámetros a lo largo del tronco, estima el volumen con Smalian, estima la altura libre de ramas de los troncos perdidos y guarda la nube con **troncos (clase 64) y ramas (clase 65)** para editarla · **Modelos de transición**: regresión de volumen, área basimétrica… sobre las métricas LiDAR, validada dejando una unidad de muestreo fuera cada vez, y su mapa · Cambio de la cubierta vegetal · Análisis por objetos (OBIA) |
 | **Infraestructuras** | Corredores eléctricos |
 
 ### Ráster
@@ -82,15 +82,15 @@ LAS y LAZ (también **COPC**, leído solo en la parte que hace falta y escrito c
   </tr>
   <tr>
     <td width="50%"><img src="assets/social/10-edicion-histograma.jpg" alt="Edición de puntos con histogramas"></td>
-    <td width="50%"><img src="assets/social/07-cubicado-tls.jpg" alt="Cubicado de árboles con escáner terrestre"></td>
+    <td width="50%"><img src="assets/social/07-cubicado-tls.jpg" alt="Estimación de volumen de individuos con escáner terrestre"></td>
   </tr>
   <tr>
     <td width="50%"><img src="assets/social/06-edicion-vectorial.jpg" alt="Edición de vectores: vértices de polígonos y tabla de atributos"></td>
-    <td width="50%"><img src="assets/social/13-TLS-clasificado.png" alt="Nube TLS con fustes y ramas clasificados, en 3D"></td>
+    <td width="50%"><img src="assets/social/13-TLS-clasificado.png" alt="Nube TLS con troncos y ramas clasificados, en 3D"></td>
   </tr>
 </table>
 
-<sub>Datos del PNOA LiDAR 2024 (© Instituto Geográfico Nacional, CC BY 4.0) y parcelas de campo propias.</sub>
+<sub>Datos del PNOA LiDAR 2024 (© Instituto Geográfico Nacional, CC BY 4.0) y unidades de muestreo de campo propias.</sub>
 
 ---
 
@@ -108,7 +108,7 @@ hipso thin nube.laz --method density --density 1
 hipso classify nube.laz --ground csf --noise isolated --buildings --vegetation
 hipso dtm nube.laz --cell 1
 hipso chm nube.laz --cell 0.5 --method pitfree
-hipso cubicar parcela_tls.laz --csv --tree-clouds --stem-classes
+hipso stem-volume muestra_tls.laz --csv --tree-clouds --stem-classes
 hipso mosaic a.tif b.tif -o mosaico.tif --overlap mean
 hipso colorize nube.laz --image ortofoto.tif
 hipso copc nube.laz
@@ -121,10 +121,10 @@ hipso compare nube2.laz --reference nube1.laz --distance 0.5
 
 ## Limitaciones conocidas
 
-**Las coordenadas se transforman solas entre distintos sistemas pero solo en horizontal.** Cuando una herramienta combina archivos en sistemas distintos (por ejemplo una nube en ETRS89 UTM 30N con un MDT en 29N, o unas parcelas en ED50), HIPSO **los transforma al sistema de la primera nube** y te lo dice en el informe. Las transformaciones coinciden con las de PROJ en todos los casos probados en España e incluyen las mallas oficiales del IGN y del ICGC para pasar de ED50 a ETRS89, que van dentro del programa.
+**Las coordenadas se transforman solas entre distintos sistemas pero solo en horizontal.** Cuando una herramienta combina archivos en sistemas distintos (por ejemplo una nube en ETRS89 UTM 30N con un MDT en 29N, o unas unidades de muestreo en ED50), HIPSO **los transforma al sistema de la primera nube** y te lo dice en el informe. Las transformaciones coinciden con las de PROJ en todos los casos probados en España e incluyen las mallas oficiales del IGN y del ICGC para pasar de ED50 a ETRS89, que van dentro del programa.
 
 - En el visor, las capas en otro sistema se pasan al de la primera nube al cargarlas (el registro avisa de que tardará más solo cuando hay capas en sistemas distintos).
-- Qué se convierte: nubes LAS/LAZ y rásteres (copias temporales que se borran al terminar) y parcelas o muestras en shapefile o GeoJSON (en memoria, casi sin coste). Si todo está ya en el mismo sistema no se hace nada y no se pierde tiempo. El comando `hipso reproject` convierte una nube o un ráster y guarda el resultado.
+- Qué se convierte: nubes LAS/LAZ y rásteres (copias temporales que se borran al terminar) y unidades de muestreo o muestras en shapefile o GeoJSON (en memoria, casi sin coste). Si todo está ya en el mismo sistema no se hace nada y no se pierde tiempo. El comando `hipso reproject` convierte una nube o un ráster y guarda el resultado.
 - **Solo cambian X e Y.** Las alturas se conservan tal cual: pasar de alturas elipsoidales a ortométricas (geoide) es otra operación y no se hace sola. Al reproyectar un ráster entre husos la celda se mantiene (por ejemplo 1 m) y los valores se interpolan; los rásteres de números enteros (clases) usan el vecino más cercano.
 - Lo que no se convierte y sigue pidiendo que se haga antes: imágenes de varias bandas (ortofotos, satélite) y las herramientas de imágenes grandes (*Apilar*, *Mosaico* de imágenes e *Igualar rásteres*), que exigen el mismo sistema. Tampoco se pasan nubes desde o hacia coordenadas geográficas (grados).
 - Si un archivo no declara su sistema no se puede comprobar, y el resultado lleva un aviso. ETRS89 y WGS 84 del mismo huso se consideran equivalentes y solo avisan, porque difieren en torno a un metro.

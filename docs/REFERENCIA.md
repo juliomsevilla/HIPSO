@@ -2,9 +2,9 @@
 
 Texto de referencia con todos los comandos de `hipso`, las rutas de resultados y los formatos de salida. La guía de uso de la interfaz es `MANUAL.md`.
 
-Herramientas forestales LiDAR (LAS/LAZ) en Rust puro para Windows, Linux y macOS. Línea de comandos e interfaz gráfica.
+Herramientas LiDAR (LAS/LAZ) para vegetación, terreno y cubierta en Rust puro para Windows, Linux y macOS. Línea de comandos e interfaz gráfica.
 
-Ofrece un flujo de trabajo forestal con salidas compatibles con el formato de FUSION y métodos publicados (Kraus y Pfeifer, MCC, CSF, PMF, Dalponte, Silva…), implementados desde sus artículos. La premisa es procesar nubes muy grandes con poca memoria y en poco tiempo.
+Ofrece un flujo de trabajo para el análisis de la vegetación con salidas compatibles con el formato de FUSION y métodos publicados (Kraus y Pfeifer, MCC, CSF, PMF, Dalponte, Silva…), implementados desde sus artículos. La premisa es procesar nubes muy grandes con poca memoria y en poco tiempo.
 
 - **Streaming:** los pasos globales (MDT FUSION, CHM, métricas) leen la nube como flujo. La memoria depende del área, no del número de puntos.
 - **Teselas en paralelo:** los pasos locales (ruido, suelo MCC/CSF/PMF/SMRF, edificios, TIN, CHM sin huecos) trabajan por teselas con búfer, una por núcleo. La memoria es núcleos × tesela.
@@ -21,7 +21,7 @@ hipso dtm clasif.laz -o mdt.tif --ground classes --surface tin   # TIN de la cla
 hipso chm nube.laz --dtm mdt.tif -o chm.tif --method pitfree --cell 0.5
 hipso metrics nube.laz --dtm mdt.tif -o metricas.csv --intensity --strata
 hipso trees chm.tif --method silva --crowns --crowns-shp --field inventario.txt
-hipso clip nube.laz --regions parcelas.shp --mode each          # PolyClipData
+hipso clip nube.laz --regions muestras.shp --mode each          # PolyClipData
 hipso render nube.laz --view 3d -o vista.png --color class      # imagen del visor
 hipso export nube.laz -o puntos.csv --items x,y,z,class --header
 ```
@@ -30,9 +30,9 @@ hipso export nube.laz -o puntos.csv --items x,y,z,class --header
 
 **Hojas.** Cada nube es una hoja: `classify`, `dtm`, `chm` y `metrics` procesan las que les des una a una y escriben un resultado por hoja (nunca las unen); `--mosaic` añade además un mosaico del MDT o del CHM. El MDT parte de la clase 2 que trae la nube (`--ground` prueba otro método) y MDT y CHM aceptan `--smooth` (media, mediana o gauss). Un trabajo se puede parar y se borra lo parcial.
 
-**Parcelas.** `clip` lee las parcelas de un archivo (campo con el número, forma circular o cuadrada, radio o lados en metros) o las genera con `--sample random|systematic`; `--mode metrics` da solo la capa vectorial de parcelas con sus métricas, `--mode each` una nube por parcela. `crs` asigna a una nube sin proyección la de otra (`--from`) o un EPSG.
+**Unidades de muestreo.** `clip` lee las unidades de muestreo de un archivo (campo con el número, forma circular o cuadrada, radio o lados en metros) o las genera con `--sample random|systematic`; `--mode metrics` da solo la capa vectorial de unidades de muestreo con sus métricas, `--mode each` una nube por unidad de muestreo. `crs` asigna a una nube sin proyección la de otra (`--from`) o un EPSG.
 
-**Formatos de las tablas.** Las métricas por celda, las métricas por parcela y los árboles se guardan por defecto como capa vectorial (shapefile: un polígono por celda o parcela, un punto por árbol, con el sistema de coordenadas de la nube). Con `--format csv` (o `-o resultado.csv`) se escribe solo la tabla de texto, que es lo más ligero en procesos enormes, y con `--format both` las dos. En `clip` el mismo ajuste es `--metrics-format`. Los nombres de campo del DBF tienen 10 caracteres como máximo: `<nombre>_campos.txt` dice qué significa cada uno. Todos los rásteres y shapefiles que se crean se pueden cargar como capas en la interfaz (*Abrir*, o arrastrándolos), colorear por un campo y consultar con la herramienta Consultar.
+**Formatos de las tablas.** Las métricas por celda, las métricas por unidad de muestreo y los árboles se guardan por defecto como capa vectorial (shapefile: un polígono por celda o unidad de muestreo, un punto por árbol, con el sistema de coordenadas de la nube). Con `--format csv` (o `-o resultado.csv`) se escribe solo la tabla de texto, que es lo más ligero en procesos enormes, y con `--format both` las dos. En `clip` el mismo ajuste es `--metrics-format`. Los nombres de campo del DBF tienen 10 caracteres como máximo: `<nombre>_campos.txt` dice qué significa cada uno. Todos los rásteres y shapefiles que se crean se pueden cargar como capas en la interfaz (*Abrir*, o arrastrándolos), colorear por un campo y consultar con la herramienta Consultar.
 
 **Rutas de resultados.** Si no das `-o`, cada resultado se nombra a partir de la entrada y de los ajustes (`datos_1_mdt_1m_tin.tif`, `datos_1_chm_0.5m_pitfree.tif`…) y se guarda en la misma carpeta que la entrada (no se crea ninguna carpeta `resultados`), salvo que indiques otra con `--results-dir`. Una ejecución nunca hereda la ruta de otra ni pisa un resultado anterior: si el nombre existe se usa `_2`, `_3`… Solo se sobrescribe con un `-o` explícito. `chm` y `metrics` usan, si no pasas `--dtm`, el MDT más reciente **de esa misma nube**; si no existe, avisan en vez de coger el de otra.
 
@@ -40,15 +40,15 @@ hipso export nube.laz -o puntos.csv --items x,y,z,class --header
 |---|---|---|
 | `classify` | Ruido (7), suelo (2), edificios (6) y vegetación alta (5). Escribe LAS o LAZ. | MCC-LIDAR, lidR `classify_*` |
 | `dtm` | MDT en GeoTIFF por media por celda o TIN | GroundFilter + GridSurfaceCreate, lidR `rasterize_terrain` |
-| `chm` | Modelo de copas: punto más alto por celda, o sin huecos | CanopyModel, lidR `pitfree` |
+| `chm` | Modelo de alturas de la vegetación: punto más alto por celda, o sin huecos | CanopyModel, lidR `pitfree` |
 | `metrics` | CSV de elevación, intensidad (`--intensity`) y estratos (`--strata`) | GridMetrics |
-| `trees` | Segmentación de árboles: suavizado, cimas, copas, polígonos, `treeID` por punto y comprobación con inventario | lidR `smooth_height`, `locate_trees`, `dalponte2016`, `silva2016`, `watershed`; CanopyMaxima |
+| `trees` | Segmentación de individuos: suavizado, cimas, copas, polígonos, `treeID` por punto y comprobación con inventario | lidR `smooth_height`, `locate_trees`, `dalponte2016`, `silva2016`, `watershed`; CanopyMaxima |
 | `obia` | Análisis por objetos: capas (CHM, rásteres, intensidad, retornos, suelo, densidad, rugosidad) → objetos (fusión de regiones o rango de valores) → atributos → clase (reglas o bosque aleatorio con muestras) → polígonos con huecos, ráster de objetos y de clases, tabla | análisis de imagen orientado a objetos (OBIA) |
-| `change` | Cambio forestal entre dos CHM: diferencia, clases (crece, baja, pierde/gana copa), manchas de perturbación, resumen por rodal y crecimiento por árbol | detección de cambios con LiDAR multitemporal |
-| `model` | Modelos de transición: regresión de una variable de campo (CSV o Excel) sobre las métricas de las parcelas, con validación cruzada que repite la elección de métricas, diagnósticos y, con las métricas de las celdas, el mapa de la variable (y su intervalo de predicción) | enfoque por área (ABA) |
+| `change` | Cambio de la cubierta vegetal entre dos CHM: diferencia, clases (crece, baja, pierde/gana cubierta), manchas de perturbación, resumen por unidad de gestión y crecimiento por individuo | detección de cambios con LiDAR multitemporal |
+| `model` | Modelos de transición: regresión de una variable de campo (CSV o Excel) sobre las métricas de las unidades de muestreo, con validación cruzada que repite la elección de métricas, diagnósticos y, con las métricas de las celdas, el mapa de la variable (y su intervalo de predicción) | enfoque por área (ABA) |
 | `corridor` | Conductores, postes y vegetación en riesgo (invasión y caída) de líneas eléctricas, con informe por vano | análisis de corredores eléctricos con LiDAR |
 | `import`, `geojson`, `cog` | PLY a LAZ; shapefile ↔ GeoJSON; ráster a Cloud Optimized GeoTIFF | conversión de formatos |
-| `clip` | Recorte con polígonos, parcelas circulares o rectángulos; una nube, el exterior o un archivo por región; métricas por región | ClipData, PolyClipData |
+| `clip` | Recorte con polígonos, unidades de muestreo circulares o rectángulos; una nube, el exterior o un archivo por región; métricas por región | ClipData, PolyClipData |
 | `edit` | Elimina o reclasifica los puntos que están dentro (o fuera) de polígonos y cumplen unas condiciones; escribe un archivo nuevo | herramientas de edición de QGIS |
 | `filter` | Une, filtra por clase/retorno/elevación, normaliza con un MDT y convierte LAS↔LAZ en una pasada | WhiteboxTools `lidar_join`, `filter_lidar_classes`, `normalize_lidar` |
 | `thin` | Un punto por celda (el más bajo, el más alto, el más cercano al centro o el primero) | `lidar_thin`, `lidar_block_minimum/maximum` |
@@ -73,7 +73,7 @@ Métodos disponibles:
 
 - **Estructura (`metrics --structure`):** fracción de huecos, LAI (Beer–Lambert), FHD (Shannon), VCI y CBH a partir de las alturas de los retornos de cada celda, en un archivo `_estructura`; `--structure-layer`, `--structure-top`, `--gap-height`, `--extinction`, `--cbh-floor`, `--cbh-share`.
 - **Cambio (`change`):** `--min-change`, `--cover-height`, `--min-patch`, `--years`, `--stands`, `--trees` (cimas de las dos fechas, emparejadas por distancia, `--match-dist`); el informe da el acuerdo vertical de los dos modelos.
-- **Modelo (`model`):** `--plots` (capa `.shp` o tabla de texto de `clip --metrics`), `--field` (.csv, .txt o .xlsx, una fila por parcela), `--response`, `--plot-key` y `--field-key`; `--analyze` solo hace el análisis previo (normalidad de la variable y cribado de candidatas); `--candidates a,b` restringe las candidatas y `--max-corr` (0,8) quita las que repiten a otra; `--predictors a,b` fija las métricas, por su nombre largo (`"Elev P90"`) o por el corto del shapefile (`EP90`) (si no, se eligen solas con `--criterion bic|aicc`, `--max-vars`, `--max-vif`; la intensidad solo con `--with-intensity`); `--transform none|log-response|log-both`; `--cells` (tablas de texto de `metrics`, una por hoja) escribe el mapa en `-o`, `--interval` añade el intervalo de predicción del 95 %, `--extrapolate` estima también fuera del rango de las parcelas. Escribe `<salida>_modelo.txt` y `<salida>_parcelas.csv`.
+- **Modelo (`model`):** `--plots` (capa `.shp` o tabla de texto de `clip --metrics`), `--field` (.csv, .txt o .xlsx, una fila por unidad de muestreo), `--response`, `--plot-key` y `--field-key`; `--analyze` solo hace el análisis previo (normalidad de la variable y cribado de candidatas); `--candidates a,b` restringe las candidatas y `--max-corr` (0,8) quita las que repiten a otra; `--predictors a,b` fija las métricas, por su nombre largo (`"Elev P90"`) o por el corto del shapefile (`EP90`) (si no, se eligen solas con `--criterion bic|aicc`, `--max-vars`, `--max-vif`; la intensidad solo con `--with-intensity`); `--transform none|log-response|log-both`; `--cells` (tablas de texto de `metrics`, una por hoja) escribe el mapa en `-o`, `--interval` añade el intervalo de predicción del 95 %, `--extrapolate` estima también fuera del rango de las unidades de muestreo. Escribe `<salida>_modelo.txt` y `<salida>_parcelas.csv`.
 - **Corredores (`corridor`):** conductores por proximidad de puntos de cable (`--link`), mediana por tramos y parábola en los huecos (`--gap-max`), postes (`--min-pole-height`), distancia de seguridad (`--min-distance`), margen de caída (`--fall-margin`), longitud mínima de conductor (`--min-length`).
 - **COPC:** el recorte (`clip`) y la vista leen solo los nodos que hacen falta; los demás procesos lo leen como LAZ. `copc` escribe una nube como COPC 1.0 (octree de 128³ celdas por nodo, nodos de hasta 100 000 puntos, formatos 0–3 pasados a 6/7, WKT obligatorio); `<nombre>.copc.laz`.
 - **Color (`colorize`):** `--image` (ortofoto en el sistema de la nube), `--bands 1,2,3`, `--nir` (formatos 8 y 10), `--keep-outside`. Los formatos 0, 1 y 6 se escriben como 7; 4 y 9 no se admiten. `_rgb`.
@@ -85,7 +85,7 @@ Métodos disponibles:
   - Fusión de regiones (`--method merge`): manchas iniciales por intervalos de valor (`--init`), grafo de vecindad y fusión de parejas mutuamente mejores mientras el coste (valor y forma, Baatz y Schäpe 2000) sea menor que `--scale` al cuadrado; capas estandarizadas con peso (`--weight capa=peso`); `--min-cells` fusiona el objeto mínimo con su vecino más parecido.
   - Rango de valores (`--method mask`): componentes conexas de una capa entre `--min` y `--max`.
   - Capas de nube (`--cloud`, `--cloud-layers`): intensidad, retornos, suelo y densidad en una sola lectura; `--roughness` añade la desviación típica local del CHM.
-  - Estratos homogéneos (`--kmeans N` agrupa por parecido; `--strata` une los objetos vecinos de una clase; `--strata-min-cells`, `--plots` reparte parcelas con asignación de Neyman; `--cover-height` fija la altura de la cobertura): polígonos, ráster y tabla resumen con superficie, media, desviación y coeficiente de variación.
+  - Estratos homogéneos (`--kmeans N` agrupa por parecido; `--strata` une los objetos vecinos de una clase; `--strata-min-cells`, `--plots` reparte unidades de muestreo con asignación de Neyman; `--cover-height` fija la altura de la cobertura): polígonos, ráster y tabla resumen con superficie, media, desviación y coeficiente de variación.
   - Clasificación: reglas de texto (`--rules`) o bosque aleatorio (`--samples`, `--class-field`, `--trees`, `--seed`) con exactitud sobre los objetos fuera de bolsa, kappa y precisión por clase.
   - Resultados: polígonos con huecos y atributos, ráster de objetos (entero de 32 bits), ráster de clases y CSV.
 
@@ -106,7 +106,7 @@ Métodos disponibles:
   - Coinciden las 71 columnas de métricas de elevación y las 34 de intensidad. En las de estratos solo quedan diferencias de 1e-4 por redondeo float32.
 - **MCC-LIDAR 2.1:** el 94,8 % de los puntos coincide. En el MDT resultante la mediana de diferencias es 0 m y el p90 2,5 cm.
 - **lidR 4.3 (caja negra):** los ápices coinciden exactamente (11 007, 4 352 y 8 528 árboles en tres configuraciones sobre un CHM de 2,1 M de celdas). Las copas cubren casi las mismas celdas (Dalponte 99,99 %, Silva 99,7 %) y asignan el mismo árbol en el 97 % (Dalponte) y el 99 % (Silva) de ellas; la diferencia está en píxeles disputados entre dos árboles.
-- **Inventario de campo** (`datos_1`, 16 parcelas, 125 árboles): con ventana variable 3 + 0,1·h se acierta el 86 % de los árboles (precisión 76 %, F = 0,81) con un sesgo de altura de +0,55 m.
+- **Inventario de campo** (`datos_1`, 16 unidades de muestreo, 125 árboles): con ventana variable 3 + 0,1·h se acierta el 86 % de los árboles (precisión 76 %, F = 0,81) con un sesgo de altura de +0,55 m.
 - **Edificios:** detecta el 83 % de los puntos de edificio que clasificó el proveedor de `fusa`, con un 98 % de precisión.
 
 ## Rendimiento
@@ -160,7 +160,7 @@ Requiere Rust 1.90 o superior. No hay dependencias de C.
 - **Color de los puntos:** elevación (azul-rojo o tierra), clasificación con colores editables, intensidad, retorno, ID de fuente, archivo y RGB. Filtros por clase y por tipo de retorno. Tamaño de punto.
 - **TIN sombreado** (con las clases que elijas) y **curvas de nivel** con equidistancia.
 - **Herramientas del visor:** zoom (clic, ventana, rueda, extensión anterior y completa), desplazar, consultar punto (Q), medir (W, con distancia 3D), densidad de puntos, perfil (tres clics; flechas y rueda mueven la caja), marcadores POI y áreas AOI con nombre, color y comentario, guardados y cargados como shapefile.
-- **Procesar:** información automática de los datos al abrir, clasificar, MDT, CHM, métricas, segmentación de árboles, recorte con polígonos y parcelas (archivo, AOI dibujadas, rectángulo o círculo) y exportar. Las rutas de salida se calculan a partir de la entrada y los ajustes, se pueden editar a mano y piden confirmación antes de sobrescribir. Al terminar, los rásteres y shapefiles nuevos aparecen como capas.
+- **Procesar:** información automática de los datos al abrir, clasificar, MDT, CHM, métricas, segmentación de árboles, recorte con polígonos y unidades de muestreo (archivo, AOI dibujadas, rectángulo o círculo) y exportar. Las rutas de salida se calculan a partir de la entrada y los ajustes, se pueden editar a mano y piden confirmación antes de sobrescribir. Al terminar, los rásteres y shapefiles nuevos aparecen como capas.
 - **Atajos:** Ctrl+O abrir, Ctrl+K comandos, Q consultar, W medir (distancia, y área y perímetro con tres puntos o más), Z zoom, X desplazar, T TIN, +/− tamaño de punto, N norte arriba.
 
 **Capas.** El panel *Contenido* es como la tabla de contenidos de un SIG: un árbol con el mapa, las capas en orden de dibujo (que se arrastran para reordenarlas) y las nubes de puntos; cada capa tiene su casilla de visibilidad, su símbolo y su nombre (recortado si es largo); el botón derecho abre zoom, tabla, guardar, subir, bajar y quitar, y la leyenda de las capas con símbolos por valores cuelga de su fila. Al elegir una capa aparecen en la cinta pestañas propias (en el color de acento):
