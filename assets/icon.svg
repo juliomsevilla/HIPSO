@@ -1,12 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#ffa21f"/>
-      <stop offset="1" stop-color="#ff7a00"/>
-    </linearGradient>
-  </defs>
-  <g transform="translate(42 56) scale(1.0)" fill="none" stroke="url(#g)" stroke-width="34" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M66 92C76 68 94 54 112 56C150 61 196 128 236 192C288 276 352 312 421 336"/>
-    <path d="M36 282C66 216 112 160 196 152C262 147 342 174 421 205"/>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="HIPSO"><title>HIPSO</title><rect width="1024" height="1024" rx="230" ry="230" fill="#181D20"/><g transform="translate(-394.62 -999.51) scale(2.6)"><path d="M240.4,491 L285,491 L285,569.5 L409,569.5 Q411.5,569.5 411.5,567 L411.5,555.8 L457,511.6 L457,671.7 L411.5,671.7 L411.5,612.5 Q411.5,610 409,610 L290.5,610 L285,618 L285,671.7 L240.4,671.7 Z" fill="#FFFFFF"/><polygon points="457,494.5 411.5,494.5 349.6,557.9 395.5,557.9" fill="#FC6309"/></g></svg>
