@@ -666,6 +666,7 @@ impl App {
         }
         let mut it = args.into_iter();
         let mut files = Vec::new();
+        let mut startup_actions = Vec::new();
         while let Some(a) = it.next() {
             match a.as_str() {
                 "--tab" => self.tab = it.next().and_then(|v| v.parse().ok()).unwrap_or(0),
@@ -695,6 +696,7 @@ impl App {
                         Some("trees") => Some(ToolId::Trees),
                         Some("clip") => Some(ToolId::Clip),
                         Some("export") => Some(ToolId::Export),
+                        Some("tls") => Some(ToolId::Tls),
                         _ => None,
                     }
                 }
@@ -800,6 +802,23 @@ impl App {
                     }
                 }
                 "--contours" => self.contours_on = true,
+                "--action" => startup_actions.push(match it.next().as_deref() {
+                    Some("terrain") => Action::Terrain,
+                    Some("obia") => Action::Obia,
+                    Some("align") => Action::Align,
+                    Some("change") => Action::Change,
+                    Some("model") => Action::Model,
+                    Some("corridor") => Action::Corridor,
+                    Some("classes") => Action::Classes,
+                    Some("about") => Action::About,
+                    Some("manual") => Action::Manual,
+                    Some("shortcuts") => Action::Shortcuts,
+                    _ => continue,
+                }),
+                "--dark" => {
+                    self.dark = true;
+                    self.theme_pending = false;
+                }
                 "--light" => {
                     self.dark = false;
                     self.theme_pending = false;
@@ -822,6 +841,9 @@ impl App {
             && let Some(v) = self.active_vec_mut()
         {
             v.selected = (0..v.data.features.len()).collect();
+        }
+        for a in startup_actions {
+            self.act(ctx, a);
         }
         if self.rs.compute_at_start {
             self.rs.open = true;
