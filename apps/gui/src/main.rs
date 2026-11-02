@@ -6,6 +6,7 @@
 mod aba_plots;
 mod aba_ui;
 mod align_ui;
+mod backstage;
 mod basemap;
 mod brand;
 mod change_ui;
@@ -214,9 +215,9 @@ enum Layout {
     All,
 }
 
-/// The ribbon tabs before the ones that depend on the selected layer: Inicio, Vista, Procesar
-/// and Ayuda. Editing points lives in the side panel, so it stays within reach of the others.
-const FIRST_EXTRA: usize = 4;
+/// The ribbon tabs before the ones that depend on the selected layer: Archivo, Vista and
+/// Procesar. Editing points lives in the side panel, so it stays within reach of the others.
+const FIRST_EXTRA: usize = 3;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Side {
@@ -226,7 +227,11 @@ enum Side {
 }
 
 /// The background read of a window: what it will send, and the window.
-type DetailJob = (Receiver<Result<Option<(PointStore, f64)>, String>>, [f64; 4], f64);
+type DetailJob = (
+    Receiver<Result<Option<(PointStore, f64)>, String>>,
+    [f64; 4],
+    f64,
+);
 
 /// A window of COPC clouds read at full detail, and the dot spacing that goes with it.
 struct Detail {
@@ -441,8 +446,10 @@ struct App {
     detail3: Option<Detail>,
     detail3_job: Option<DetailJob>,
     detail_id: u64,
-    show_about: bool,
-    show_shortcuts: bool,
+    /// The "Archivo" view is open over the work area.
+    backstage: bool,
+    /// What the "Inicio" view shows on its right.
+    backstage_page: backstage::Page,
     /// When the log last said how far the running job is.
     last_progress_log: Instant,
     manual: manual::Manual,
@@ -532,7 +539,7 @@ impl Default for App {
             tools: Tools::default(),
             running: None,
             log: vec![format!(
-                "{} listo. Abre una nube LAS/LAZ (Inicio → Abrir).",
+                "{} listo. Abre una nube LAS/LAZ (Archivo → Abrir).",
                 brand::NAME
             )],
             palette: None,
@@ -556,8 +563,8 @@ impl Default for App {
             detail3: None,
             detail3_job: None,
             detail_id: 0,
-            show_about: false,
-            show_shortcuts: false,
+            backstage: false,
+            backstage_page: backstage::Page::Home,
             last_progress_log: Instant::now(),
             manual: manual::Manual::default(),
         }
@@ -1700,9 +1707,9 @@ impl App {
                 ][usize::from(k.min(3))];
             }
             Action::Classes => self.show_classes = !self.show_classes,
-            Action::About => self.show_about = true,
-            Action::Shortcuts => self.show_shortcuts = !self.show_shortcuts,
-            Action::Manual => self.manual.open = true,
+            Action::About => self.show_backstage(backstage::Page::About),
+            Action::Shortcuts => self.show_backstage(backstage::Page::Shortcuts),
+            Action::Manual => self.show_backstage(backstage::Page::Manual),
         }
     }
 
@@ -1870,6 +1877,13 @@ impl App {
                         {
                             self.act(ctx, Action::ToggleTheme);
                         }
+                        if ui
+                            .add(egui::Button::new("📜").frame(false).selected(self.show_log))
+                            .on_hover_text("Mostrar u ocultar el registro")
+                            .clicked()
+                        {
+                            self.act(ctx, Action::ToggleLog);
+                        }
                     });
                 });
             });
@@ -1893,14 +1907,21 @@ impl App {
                 if self.tab >= FIRST_EXTRA + extra.len() {
                     self.tab = 0;
                 }
-                let mut names = vec!["Inicio", "Vista", "Procesar", "Ayuda"];
+                let mut names = vec!["Archivo", "Vista", "Procesar"];
                 names.extend_from_slice(extra);
                 let mut tab = self.tab;
-                if ribbon::tab_strip(ui, &t, "Archivo", &names, FIRST_EXTRA, &mut tab) {
-                    self.act(ctx, Action::Open);
+                if ribbon::tab_strip(ui, &t, "Inicio", &names, FIRST_EXTRA, &mut tab) {
+                    self.backstage = !self.backstage;
+                    self.backstage_page = backstage::Page::Home;
+                }
+                if tab != self.tab {
+                    self.backstage = false;
                 }
                 self.tab = tab;
             });
+        if self.backstage {
+            return;
+        }
         egui::Panel::top("ribbon")
             .exact_size(108.0)
             .frame(
@@ -2076,24 +2097,6 @@ impl App {
                                             self.act(ctx, Action::Align);
                                         }
                                     });
-                                });
-                                ribbon::group(ui, &t, "Aspecto", |ui| {
-                                    if ribbon::big_button(
-                                        ui,
-                                        &t,
-                                        if self.dark { "☀" } else { "🌙" },
-                                        "Tema",
-                                        false,
-                                    )
-                                    .clicked()
-                                    {
-                                        self.act(ctx, Action::ToggleTheme);
-                                    }
-                                    if ribbon::big_button(ui, &t, "📜", "Registro", self.show_log)
-                                        .clicked()
-                                    {
-                                        self.act(ctx, Action::ToggleLog);
-                                    }
                                 });
                             }
                             2 => {
@@ -2490,41 +2493,6 @@ ui.menu_button("⚙", |ui| {
                                     });
                                 });
                             }
-                            3 => {
-                                ribbon::group(ui, &t, "Ayuda", |ui| {
-                                    if ribbon::big_button(
-                                        ui,
-                                        &t,
-                                        "@manual",
-                                        "Manual",
-                                        self.manual.open,
-                                    )
-                                    .clicked()
-                                    {
-                                        self.act(ctx, Action::Manual);
-                                    }
-                                    if ribbon::big_button(
-                                        ui,
-                                        &t,
-                                        "@keys",
-                                        "Atajos de\nteclado",
-                                        self.show_shortcuts,
-                                    )
-                                    .clicked()
-                                    {
-                                        self.act(ctx, Action::Shortcuts);
-                                    }
-                                    if ribbon::big_button(ui, &t, "ℹ", "Acerca de", false).clicked()
-                                    {
-                                        self.act(ctx, Action::About);
-                                    }
-                                    if ribbon::big_button(ui, &t, "🔍", "Buscar\ncomando", false)
-                                        .clicked()
-                                    {
-                                        self.palette = Some(String::new());
-                                    }
-                                });
-                            }
                             _ => self.layer_tab(ui, &t, ctx, self.tab),
                         });
                     });
@@ -2708,6 +2676,44 @@ ui.menu_button("⚙", |ui| {
                         });
                 });
         }
+    }
+
+    /// What "Acerca de" says: in its window and in the "Archivo" view.
+    fn about_body(&self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            brand::paint(ui, brand::Art::Logo, self.dark, 84.0);
+            ui.vertical(|ui| {
+                brand::paint(ui, brand::Art::Wordmark, self.dark, 26.0);
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(brand::CLAIM)
+                            .strong()
+                            .color(theme::brand_text(&self.tokens())),
+                    )
+                    .wrap_mode(egui::TextWrapMode::Extend),
+                );
+                ui.label(format!("Versión {}", env!("CARGO_PKG_VERSION")));
+            });
+        });
+        ui.add_space(6.0);
+        ui.label(brand::DESCRIPTOR);
+        ui.label("Lectura en flujo: la memoria depende del área, no del número de puntos.");
+        ui.add_space(6.0);
+        ui.label("Autoría: Julio M. Sevilla");
+        ui.horizontal(|ui| {
+            ui.label("Contacto:");
+            ui.hyperlink_to("julio@jsevilla.es", "mailto:julio@jsevilla.es");
+            ui.label("·");
+            ui.hyperlink_to("LinkedIn", "https://es.linkedin.com/in/juliomsevilla");
+        });
+        ui.add_space(6.0);
+        ui.label(
+            egui::RichText::new(
+                "Uso gratuito. Consulta LICENSE, NOTICE y THIRD_PARTY_LICENSES.md.",
+            )
+            .size(11.0)
+            .weak(),
+        );
     }
 
     // ----------------------------------------------------------------------------- views
@@ -3638,7 +3644,14 @@ ui.menu_button("⚙", |ui| {
                 .detail3
                 .as_ref()
                 .filter(|d| contains(d.window, [tx - half, ty - half, tx + half, ty + half]))
-                .map(|d| (d.store.clone(), d.level_spacing.max(d.spacing), d.id, d.window));
+                .map(|d| {
+                    (
+                        d.store.clone(),
+                        d.level_spacing.max(d.spacing),
+                        d.id,
+                        d.window,
+                    )
+                });
             if let Some(d) = &over {
                 st.hole = Some(d.3);
             }
@@ -3967,7 +3980,7 @@ ui.menu_button("⚙", |ui| {
                         Action::PointSize(-1)
                     },
                 ),
-                (Key::F1, _) => self.manual.open = true,
+                (Key::F1, _) => self.show_backstage(backstage::Page::Manual),
                 (Key::Escape, _) => {
                     self.dig_draft.clear();
                     self.profile_clicks.clear();
@@ -4033,8 +4046,15 @@ impl eframe::App for App {
         self.header(ui, &ctx);
         self.ribbon(ui, &ctx);
         self.status_bar(ui);
-        self.side_panel(ui, &ctx);
-        self.views(ui, &ctx);
+        if self.backstage {
+            if ctx.input(|i| i.key_pressed(Key::Escape)) {
+                self.backstage = false;
+            }
+            self.backstage_view(ui, &ctx);
+        } else {
+            self.side_panel(ui, &ctx);
+            self.views(ui, &ctx);
+        }
         self.histogram_window(&ctx);
         let aois = self.polygon_aois();
         let busy = self.running.is_some();
@@ -4120,93 +4140,6 @@ impl eframe::App for App {
             ctx.request_repaint();
         }
         self.class_window(&ctx);
-        if self.show_about {
-            let mut open = true;
-            egui::Window::new(format!("Acerca de {}", brand::NAME))
-                .open(&mut open)
-                .collapsible(false)
-                .resizable(false)
-                .show(&ctx, |ui| {
-                    ui.horizontal(|ui| {
-                        brand::paint(ui, brand::Art::Logo, self.dark, 84.0);
-                        ui.vertical(|ui| {
-                            brand::paint(ui, brand::Art::Wordmark, self.dark, 26.0);
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(brand::CLAIM)
-                                        .strong()
-                                        .color(theme::brand_text(&self.tokens())),
-                                )
-                                .wrap_mode(egui::TextWrapMode::Extend),
-                            );
-                            ui.label(format!("Versión {}", env!("CARGO_PKG_VERSION")));
-                        });
-                    });
-                    ui.add_space(6.0);
-                    ui.label(brand::DESCRIPTOR);
-                    ui.label(
-                        "Lectura en flujo: la memoria depende del área, no del número de puntos.",
-                    );
-                    ui.add_space(6.0);
-                    ui.label("Autoría: Julio M. Sevilla");
-                    ui.horizontal(|ui| {
-                        ui.label("Contacto:");
-                        ui.hyperlink_to("julio@jsevilla.es", "mailto:julio@jsevilla.es");
-                        ui.label("·");
-                        ui.hyperlink_to("LinkedIn", "https://es.linkedin.com/in/juliomsevilla");
-                    });
-                    ui.add_space(6.0);
-                    ui.label(
-                        egui::RichText::new(
-                            "Uso gratuito. Consulta LICENSE, NOTICE y THIRD_PARTY_LICENSES.md.",
-                        )
-                        .size(11.0)
-                        .weak(),
-                    );
-                });
-            self.show_about = open;
-        }
-        if self.show_shortcuts {
-            let mut open = true;
-            egui::Window::new("Atajos de teclado")
-                .open(&mut open)
-                .collapsible(false)
-                .resizable(false)
-                .show(&ctx, |ui| {
-                    egui::Grid::new("shortcuts")
-                        .num_columns(2)
-                        .spacing([24.0, 4.0])
-                        .show(ui, |ui| {
-                            for (k, d) in [
-                                ("Ctrl+O", "Abrir nubes"),
-                                ("Ctrl+K", "Buscar comando"),
-                                ("F1", "Manual"),
-                                ("Z / X", "Zoom / desplazar"),
-                                ("Q / W", "Consultar / medir"),
-                                ("T", "TIN sombreado"),
-                                ("N", "Norte arriba (vista 3D)"),
-                                ("+ / −", "Tamaño del punto"),
-                                ("Flechas", "Mover el perfil"),
-                                ("Clic / clic derecho", "Zoom: acerca ×2 / aleja"),
-                                ("Arrastrar · rueda", "Zoom: ventana / continuo"),
-                                ("Botón central", "Zoom anterior"),
-                                ("Ctrl+Z / Ctrl+Y", "Deshacer / rehacer (edición)"),
-                                ("Ctrl+A / Ctrl+I", "Seleccionar todo / invertir"),
-                                ("Esc", "Quitar la selección"),
-                                ("Supr", "Eliminar los puntos seleccionados"),
-                                ("Mayús", "Selección: añadir"),
-                                ("Alt", "Selección: restar"),
-                                ("Ctrl", "Selección: intersecar"),
-                            ] {
-                                ui.label(egui::RichText::new(k).strong());
-                                ui.label(d);
-                                ui.end_row();
-                            }
-                        });
-                });
-            self.show_shortcuts = open;
-        }
-        self.manual.window(&ctx);
     }
 }
 
