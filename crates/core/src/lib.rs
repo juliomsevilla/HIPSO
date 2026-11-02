@@ -1,4 +1,4 @@
-//! EasyLiDAR's engine: forestry products from LiDAR point clouds, read as a stream so that
+//! HIPSO's engine: forestry products from LiDAR point clouds, read as a stream so that
 //! memory depends on the area and cell size, never on the number of points.
 
 pub mod aba;

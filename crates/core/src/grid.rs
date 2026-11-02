@@ -480,7 +480,7 @@ mod tests {
     fn tiff_round_trip() -> Result<()> {
         let mut g = Grid::new(277750.0, 6122250.0, 2.0, 3, 2)?;
         g.data = vec![1.0, f32::NAN, 3.0, 4.0, 5.0, 6.5];
-        let p = std::env::temp_dir().join("rustlidar_grid_test.tif");
+        let p = std::env::temp_dir().join("hipso_grid_test.tif");
         g.write_tiff(&p, Some(32754))?;
         let back = Grid::read_tiff(&p)?;
         let _ = std::fs::remove_file(&p);

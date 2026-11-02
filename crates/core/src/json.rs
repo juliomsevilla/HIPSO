@@ -1,4 +1,4 @@
-//! A small JSON reader for the files EasyLiDAR meets (GeoJSON layers): objects, arrays, numbers,
+//! A small JSON reader for the files HIPSO meets (GeoJSON layers): objects, arrays, numbers,
 //! strings with their escapes, booleans and null. Nesting is limited, so a hostile file cannot
 //! exhaust the stack.
 

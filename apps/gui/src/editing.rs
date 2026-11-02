@@ -632,8 +632,7 @@ impl App {
             let ext = i
                 .extension()
                 .map_or("las".into(), |e| e.to_string_lossy().into_owned());
-            let auto =
-                hipso_core::paths::unique(&hipso_core::paths::product(i, "editada", &ext));
+            let auto = hipso_core::paths::unique(&hipso_core::paths::product(i, "editada", &ext));
             let out = if inputs.len() == 1 && !self.ed.auto_save {
                 match crate::prefs::dialog()
                     .add_filter("LAS/LAZ", &["las", "laz"])

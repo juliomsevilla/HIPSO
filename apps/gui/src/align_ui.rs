@@ -87,7 +87,7 @@ impl AlignTool {
             return (
                 false,
                 format!(
-                    "otro sistema de coordenadas (EPSG {b}, la referencia EPSG {a}): pásalo antes al sistema de la referencia (easylidar reproject)"
+                    "otro sistema de coordenadas (EPSG {b}, la referencia EPSG {a}): pásalo antes al sistema de la referencia (hipso reproject)"
                 ),
             );
         }
@@ -125,7 +125,7 @@ impl App {
             .show(ctx, |ui| {
                 let t = &mut self.at;
                 ui.label(
-                    egui::RichText::new("Pone varios rásteres sobre las celdas de uno de referencia (mismo origen, tamaño de celda y dimensiones), para poder apilarlos o usarlos juntos celda a celda, por ejemplo en el análisis por objetos. Cada ráster da un archivo nuevo; los originales no se tocan. Todos deben estar en el mismo sistema de coordenadas; si no, pásalos antes al de la referencia (easylidar reproject).")
+                    egui::RichText::new("Pone varios rásteres sobre las celdas de uno de referencia (mismo origen, tamaño de celda y dimensiones), para poder apilarlos o usarlos juntos celda a celda, por ejemplo en el análisis por objetos. Cada ráster da un archivo nuevo; los originales no se tocan. Todos deben estar en el mismo sistema de coordenadas; si no, pásalos antes al de la referencia (hipso reproject).")
                         .color(weak)
                         .size(11.0),
                 );

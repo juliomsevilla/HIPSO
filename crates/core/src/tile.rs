@@ -133,7 +133,7 @@ impl Tiled {
         let header = first.header.clone();
         let rec_len = usize::from(header.record_len);
         let dir = std::env::temp_dir().join(format!(
-            "rustlidar-tiles-{}-{}",
+            "hipso-tiles-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

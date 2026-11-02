@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 
 use crate::Result;
 
-/// The folder of the copies (`EASYLIDAR_CACHE_DIR` when set, else the cache folder of the system).
+/// The folder of the copies (`HIPSO_CACHE_DIR` when set, else the cache folder of the system).
 fn cache_dir() -> PathBuf {
-    if let Some(d) = std::env::var_os("EASYLIDAR_CACHE_DIR") {
+    if let Some(d) = std::env::var_os("HIPSO_CACHE_DIR") {
         return PathBuf::from(d);
     }
     let home = |sub: &str| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(sub));
@@ -25,7 +25,7 @@ fn cache_dir() -> PathBuf {
             .or_else(|| home(".cache"))
     };
     dir.unwrap_or_else(std::env::temp_dir)
-        .join("EasyLiDAR")
+        .join("HIPSO")
         .join("copc")
 }
 

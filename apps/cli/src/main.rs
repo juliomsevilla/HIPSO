@@ -1,4 +1,4 @@
-//! `easylidar`: forestry products from LiDAR point clouds, from the command line.
+//! `hipso`: forestry products from LiDAR point clouds, from the command line.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -21,7 +21,7 @@ use hipso_core::{Error, Result, jobs, paths};
 
 #[derive(Parser)]
 #[command(
-    name = "easylidar",
+    name = "hipso",
     version,
     about = "Streaming LiDAR forestry tools: classification, DTM, canopy height model and grid metrics"
 )]
@@ -1849,12 +1849,7 @@ fn run(cmd: Cmd) -> Result<()> {
             let output = single_output(output, inputs.len())?;
             let tag = format!("clasif{}", steps.tag());
             let out_for = |p: &Path| out_path(output.clone(), p, &tag, &ext_of(p));
-            hipso_core::sheets::classify_each(
-                &inputs,
-                &out_for,
-                &steps.steps(),
-                &steps.tiling(),
-            )?
+            hipso_core::sheets::classify_each(&inputs, &out_for, &steps.steps(), &steps.tiling())?
         }
         Cmd::Dtm {
             inputs,
@@ -2016,14 +2011,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 smooth,
                 smoothing: smoothing_of(smoothing),
             };
-            hipso_core::sheets::chm_each(
-                &inputs,
-                &base,
-                &out_for,
-                &dtm_of,
-                mosaic_to.as_deref(),
-            )?
-            .0
+            hipso_core::sheets::chm_each(&inputs, &base, &out_for, &dtm_of, mosaic_to.as_deref())?.0
         }
         Cmd::Trees {
             chm,
@@ -2993,10 +2981,7 @@ fn run(cmd: Cmd) -> Result<()> {
                         ..vector::ReadOptions::default()
                     };
                     let list = vector::read_regions(path, &opts)?;
-                    for (k, r) in hipso_core::ops::polygons_of(&list)
-                        .into_iter()
-                        .enumerate()
-                    {
+                    for (k, r) in hipso_core::ops::polygons_of(&list).into_iter().enumerate() {
                         sel.push(SelOp {
                             mode: if k == 0 { Mode::New } else { Mode::Add },
                             region: r,
@@ -3238,9 +3223,7 @@ fn run(cmd: Cmd) -> Result<()> {
             average,
             tiles,
         } => {
-            use hipso_core::rastertools::{
-                Extent, Overlap, RasterJob, Resample, Source, mosaic,
-            };
+            use hipso_core::rastertools::{Extent, Overlap, RasterJob, Resample, Source, mosaic};
             let mut job = RasterJob::new(
                 inputs
                     .into_iter()
@@ -3511,9 +3494,8 @@ fn run(cmd: Cmd) -> Result<()> {
                 ColorArg::Rgb => ColorBy::Rgb,
             };
             st.point_size = point_size;
-            let mask_of = |c: &str| -> Result<hipso_core::classes::ClassSet> {
-                Ok(ClassSel::parse(c)?.set)
-            };
+            let mask_of =
+                |c: &str| -> Result<hipso_core::classes::ClassSet> { Ok(ClassSel::parse(c)?.set) };
             if let Some(c) = &class {
                 st.classes = mask_of(c)?;
             }
@@ -3662,9 +3644,7 @@ fn run(cmd: Cmd) -> Result<()> {
                         "red" => Ok(Item::Red),
                         "green" | "g" => Ok(Item::Green),
                         "blue" | "b" => Ok(Item::Blue),
-                        o => Err(hipso_core::Error::Param(format!(
-                            "dato desconocido '{o}'"
-                        ))),
+                        o => Err(hipso_core::Error::Param(format!("dato desconocido '{o}'"))),
                     })
                     .collect::<Result<Vec<_>>>()?;
                 let delimiter = match delimiter.as_str() {

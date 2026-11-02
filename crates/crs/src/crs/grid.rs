@@ -3,13 +3,13 @@
 //! <https://cdn.proj.org>), with their subgrids. PROJ's notice is in `NOTICE`.
 //!
 //! Grids are looked up by name in, in order: grids registered in memory ([`register_grid`]), the
-//! directories of `EASYLIDAR_GRID_DIR`, `PROJ_DATA` and `PROJ_LIB`, PROJ's user directory (where
-//! `projsync` writes), and terrio's download cache. When `EASYLIDAR_NETWORK` (or, when it is not set,
+//! directories of `HIPSO_GRID_DIR`, `PROJ_DATA` and `PROJ_LIB`, PROJ's user directory (where
+//! `projsync` writes), and terrio's download cache. When `HIPSO_NETWORK` (or, when it is not set,
 //! `PROJ_NETWORK`) is `ON`, a grid found nowhere is downloaded from the PROJ CDN
-//! (`EASYLIDAR_CDN_ENDPOINT`, `PROJ_NETWORK_ENDPOINT`, default `https://cdn.proj.org`): read in place
+//! (`HIPSO_CDN_ENDPOINT`, `PROJ_NETWORK_ENDPOINT`, default `https://cdn.proj.org`): read in place
 //! with HTTP range requests, as PROJ reads it, fetching only the header and the blocks of the
-//! points transformed; or, with `EASYLIDAR_GRID_DOWNLOAD=YES`, downloaded whole into the cache
-//! (`EASYLIDAR_GRID_CACHE`, default `~/.cache/terrio/grids`), where later runs find it.
+//! points transformed; or, with `HIPSO_GRID_DOWNLOAD=YES`, downloaded whole into the cache
+//! (`HIPSO_GRID_CACHE`, default `~/.cache/terrio/grids`), where later runs find it.
 
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -851,7 +851,7 @@ fn config() -> &'static Mutex<Config> {
 }
 
 /// Sets the directories datum shift and geoid grids are looked up in, in order, instead of those
-/// of the environment (`EASYLIDAR_GRID_DIR`, `PROJ_DATA`, `PROJ_LIB`, PROJ's user directory and
+/// of the environment (`HIPSO_GRID_DIR`, `PROJ_DATA`, `PROJ_LIB`, PROJ's user directory and
 /// terrio's download cache); `None` goes back to the environment's. As PROJ's
 /// `proj_context_set_search_paths`. Transformers created afterwards use them.
 pub fn set_grid_search_paths(paths: Option<Vec<std::path::PathBuf>>) {
@@ -862,7 +862,7 @@ pub fn set_grid_search_paths(paths: Option<Vec<std::path::PathBuf>>) {
 }
 
 /// Enables or disables downloading grids from the PROJ CDN, instead of following the
-/// `EASYLIDAR_NETWORK` (or `PROJ_NETWORK`) environment variable; `None` goes back to it. As PROJ's
+/// `HIPSO_NETWORK` (or `PROJ_NETWORK`) environment variable; `None` goes back to it. As PROJ's
 /// `proj_context_set_enable_network`.
 pub fn set_network_enabled(enabled: Option<bool>) {
     if let Ok(mut c) = config().lock() {
@@ -915,7 +915,7 @@ pub(crate) fn network_enabled() -> bool {
     };
     #[cfg(not(target_family = "wasm"))]
     {
-        if let Ok(v) = std::env::var("EASYLIDAR_NETWORK") {
+        if let Ok(v) = std::env::var("HIPSO_NETWORK") {
             return on(v);
         }
         if let Ok(v) = std::env::var("PROJ_NETWORK") {
@@ -936,7 +936,7 @@ fn home() -> Option<std::path::PathBuf> {
 /// The directory downloaded grids are kept in.
 #[cfg(not(target_family = "wasm"))]
 pub(crate) fn cache_dir() -> Option<std::path::PathBuf> {
-    if let Some(d) = std::env::var_os("EASYLIDAR_GRID_CACHE") {
+    if let Some(d) = std::env::var_os("HIPSO_GRID_CACHE") {
         return Some(d.into());
     }
     if let Some(d) = std::env::var_os("XDG_CACHE_HOME") {
@@ -960,7 +960,7 @@ fn search_dirs() -> Vec<std::path::PathBuf> {
     // download cache), which change the transformations PROJ and terrio pick: their results are
     // those of a machine without grids. Tests needing grids set the search paths or register them.
     if cfg!(test) {
-        std::env::var_os("EASYLIDAR_GRID_DIR")
+        std::env::var_os("HIPSO_GRID_DIR")
             .map(|v| std::env::split_paths(&v).collect())
             .unwrap_or_default()
     } else {
@@ -968,12 +968,12 @@ fn search_dirs() -> Vec<std::path::PathBuf> {
     }
 }
 
-/// The directories grids are looked up in by default: those of `EASYLIDAR_GRID_DIR`, `PROJ_DATA`
+/// The directories grids are looked up in by default: those of `HIPSO_GRID_DIR`, `PROJ_DATA`
 /// and `PROJ_LIB`, PROJ's user directory and terrio's download cache.
 #[cfg(not(target_family = "wasm"))]
 fn machine_search_dirs() -> Vec<std::path::PathBuf> {
     let mut dirs = Vec::new();
-    for var in ["EASYLIDAR_GRID_DIR", "PROJ_DATA", "PROJ_LIB"] {
+    for var in ["HIPSO_GRID_DIR", "PROJ_DATA", "PROJ_LIB"] {
         if let Some(v) = std::env::var_os(var) {
             dirs.extend(std::env::split_paths(&v));
         }
@@ -1045,17 +1045,17 @@ fn cdn_url(name: &str) -> Option<String> {
     if name.contains(['/', '\\']) || !name.ends_with(".tif") {
         return None;
     }
-    let endpoint = std::env::var("EASYLIDAR_CDN_ENDPOINT")
+    let endpoint = std::env::var("HIPSO_CDN_ENDPOINT")
         .or_else(|_| std::env::var("PROJ_NETWORK_ENDPOINT"))
         .unwrap_or_else(|_| "https://cdn.proj.org".into());
     Some(format!("{}/{name}", endpoint.trim_end_matches('/')))
 }
 
-/// Whether grids from the CDN are downloaded whole (`EASYLIDAR_GRID_DOWNLOAD=YES`) rather than read
+/// Whether grids from the CDN are downloaded whole (`HIPSO_GRID_DOWNLOAD=YES`) rather than read
 /// by range.
 #[cfg(remote)]
 fn download_whole() -> bool {
-    std::env::var("EASYLIDAR_GRID_DOWNLOAD").is_ok_and(|v| {
+    std::env::var("HIPSO_GRID_DOWNLOAD").is_ok_and(|v| {
         matches!(
             v.trim().to_ascii_uppercase().as_str(),
             "YES" | "ON" | "TRUE" | "1"

@@ -491,14 +491,14 @@ mod tests {
         assert!(p[3] > 250.0 && p[4] < 5.0 && p[5] < 5.0);
     }
 
-    /// Writes a window of the file named by `RUSTLIDAR_IMAGE` as `RUSTLIDAR_OUT` (a PNG) and
+    /// Writes a window of the file named by `HIPSO_IMAGE` as `HIPSO_OUT` (a PNG) and
     /// prints the levels (`-- --ignored --nocapture`).
     #[test]
     #[ignore]
     fn sample_window() -> Result<()> {
         let (Some(p), Some(out)) = (
-            std::env::var_os("RUSTLIDAR_IMAGE"),
-            std::env::var_os("RUSTLIDAR_OUT"),
+            std::env::var_os("HIPSO_IMAGE"),
+            std::env::var_os("HIPSO_OUT"),
         ) else {
             return Ok(());
         };

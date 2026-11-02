@@ -422,7 +422,7 @@ pub(crate) fn prepare(
         "laszip encoded",
         22204,
         laz_payload.len(),
-        "EasyLiDAR",
+        "HIPSO",
     )?);
     vlrs.extend(&laz_payload);
     let mut n_vlrs = 2 + n_others;
@@ -447,7 +447,7 @@ pub(crate) fn prepare(
     head[6..8].copy_from_slice(&enc.to_le_bytes());
     head[24] = 1;
     head[25] = 4;
-    let soft = b"EasyLiDAR";
+    let soft = b"HIPSO";
     head[58..58 + soft.len()].copy_from_slice(soft);
     head[94..96].copy_from_slice(&375u16.to_le_bytes());
     head[96..100].copy_from_slice(&(point_offset as u32).to_le_bytes());

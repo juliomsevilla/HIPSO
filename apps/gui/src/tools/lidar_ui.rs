@@ -676,12 +676,7 @@ impl Tools {
             hipso_core::raster::EXTENSIONS,
         );
         match s.vol_source {
-            1 => Self::raster_row(
-                ui,
-                "MDT",
-                &mut s.vol_dtm,
-                hipso_core::raster::EXTENSIONS,
-            ),
+            1 => Self::raster_row(ui, "MDT", &mut s.vol_dtm, hipso_core::raster::EXTENSIONS),
             2 => num(
                 ui,
                 "Cota de referencia (m)",

@@ -1,4 +1,4 @@
-//! EasyLiDAR's desktop app: a point-cloud viewer (plan, 3D and profile windows, shaded TIN,
+//! HIPSO's desktop app: a point-cloud viewer (plan, 3D and profile windows, shaded TIN,
 //! contours, reference layers, POI/AOI, query, measure, density) with the processing tools of the
 //! command line one click away, with a ribbon interface.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -72,9 +72,9 @@ fn gpu_adapters() -> Vec<eframe::egui_wgpu::wgpu::AdapterInfo> {
 /// through DirectX 12, Vulkan or Metal; otherwise OpenGL (glow). Old drivers (an Intel HD of
 /// 2015) have no DirectX 12 or Vulkan, so wgpu offers only the software adapter there, which is
 /// slow, and its OpenGL backend does not start on them; the OpenGL of glow does.
-/// `EASYLIDAR_RENDERER=glow` or `wgpu` forces one, and a `WGPU_BACKEND` is left to wgpu.
+/// `HIPSO_RENDERER=glow` or `wgpu` forces one, and a `WGPU_BACKEND` is left to wgpu.
 fn choose_renderer() -> eframe::Renderer {
-    match std::env::var("EASYLIDAR_RENDERER").as_deref() {
+    match std::env::var("HIPSO_RENDERER").as_deref() {
         Ok("glow") => return eframe::Renderer::Glow,
         Ok("wgpu") => return eframe::Renderer::Wgpu,
         _ => {}
@@ -127,7 +127,7 @@ fn main() -> eframe::Result {
 
 {info}
 
-Si es de gráficos, prueba                      a definir la variable de entorno EASYLIDAR_RENDERER con glow o wgpu.",
+Si es de gráficos, prueba                      a definir la variable de entorno HIPSO_RENDERER con glow o wgpu.",
                     brand::NAME
                 ))
                 .show();
@@ -765,9 +765,10 @@ impl App {
                     if v.len() == 4 {
                         let op = hipso_core::edit::SelOp {
                             mode: hipso_core::edit::Mode::New,
-                            region: hipso_core::edit::Region::Plan(
-                                hipso_core::edit::rectangle([v[0], v[1]], [v[2], v[3]]),
-                            ),
+                            region: hipso_core::edit::Region::Plan(hipso_core::edit::rectangle(
+                                [v[0], v[1]],
+                                [v[2], v[3]],
+                            )),
                             attr: hipso_core::edit::Attr::default(),
                         };
                         self.queue(editing::Cmd::AddOp(Box::new(op)));
@@ -839,7 +840,7 @@ impl App {
             .map(|e| e.to_string_lossy().to_ascii_lowercase())
             .unwrap_or_default();
         match ext.as_str() {
-            project::EXT => self.open_project(ctx, &p),
+            project::EXT | project::LEGACY_EXT => self.open_project(ctx, &p),
             e if hipso_core::raster::is_raster_ext(e) => {
                 if !self.add_raster(ctx, &p) {
                     self.log(format!("No se pudo abrir {}", p.display()));
@@ -851,9 +852,8 @@ impl App {
                     self.log("Hay otro proceso en marcha: espera a que termine para abrir el E57.");
                 } else {
                     // an E57 is converted to LAZ (in the results folder) and that file is opened
-                    let out = hipso_core::paths::unique(&hipso_core::paths::product(
-                        &p, "e57", "laz",
-                    ));
+                    let out =
+                        hipso_core::paths::unique(&hipso_core::paths::product(&p, "e57", "laz"));
                     let (src, dst) = (p.clone(), out.clone());
                     let task: tools::Task = Box::new(move || {
                         let r = hipso_core::e57::convert(&src, &dst, None)?;
@@ -876,9 +876,8 @@ impl App {
                     self.log("Hay otro proceso en marcha: espera a que termine para abrir el PLY.");
                 } else {
                     // a PLY is converted to LAZ (in the results folder) and that file is opened
-                    let out = hipso_core::paths::unique(&hipso_core::paths::product(
-                        &p, "ply", "laz",
-                    ));
+                    let out =
+                        hipso_core::paths::unique(&hipso_core::paths::product(&p, "ply", "laz"));
                     let (src, dst) = (p.clone(), out.clone());
                     let task: tools::Task = Box::new(move || {
                         let r = hipso_core::ply::convert(&src, &dst, None)?;
@@ -1030,9 +1029,7 @@ impl App {
         prefs::opened(&files);
         let mut clouds = false;
         for f in files {
-            if f.extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case(project::EXT))
-            {
+            if project::is_project(&f) {
                 self.open_project(ctx, &f);
             } else if is_cloud(&f) {
                 if !self.clouds.contains(&f) {
@@ -1209,8 +1206,7 @@ impl App {
                     // another, they are loaded again in the cloud's
                     if let Some(w) = self.work_crs.take()
                         && let Some(c) = self.project_crs()
-                        && hipso_core::crs::relation(c, w)
-                            == hipso_core::crs::Relation::Different
+                        && hipso_core::crs::relation(c, w) == hipso_core::crs::Relation::Different
                     {
                         for q in self.refs.iter().map(|r| r.path.clone()).collect::<Vec<_>>() {
                             let gpkg = q
@@ -1503,7 +1499,16 @@ impl App {
             Action::Open => {
                 // one door for everything: point clouds, rasters, images and vector layers; what
                 // is opened is added to what is there (Cerrar todo starts again)
-                let mut every = vec!["las", "laz", "ply", "e57", "xyz", "txt", project::EXT];
+                let mut every = vec![
+                    "las",
+                    "laz",
+                    "ply",
+                    "e57",
+                    "xyz",
+                    "txt",
+                    project::EXT,
+                    project::LEGACY_EXT,
+                ];
                 every.extend(layer_extensions());
                 let files = crate::prefs::dialog()
                     .add_filter("Todo lo que se puede abrir", &every)
@@ -1939,7 +1944,7 @@ impl App {
                             0 => {
                                 ribbon::group(ui, &t, "Proyecto", |ui| {
                                     if ribbon::big_button(ui, &t, "@save", "Guardar\nproyecto", false)
-                                        .on_hover_text("Guarda qué nubes y capas están abiertas y cómo se ve (archivo .elp).")
+                                        .on_hover_text("Guarda qué nubes y capas están abiertas y cómo se ve (archivo .hipso).")
                                         .clicked()
                                     {
                                         self.act(ctx, Action::SaveProject);

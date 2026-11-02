@@ -545,8 +545,7 @@ impl App {
         let from = from?;
         match self.project_crs() {
             Some(to)
-                if hipso_core::crs::relation(to, from)
-                    == hipso_core::crs::Relation::Different =>
+                if hipso_core::crs::relation(to, from) == hipso_core::crs::Relation::Different =>
             {
                 Some((from, to))
             }
@@ -1503,10 +1502,10 @@ impl App {
                 _ => None,
             })
         });
-        let dir = self.clouds.first().map_or_else(
-            || PathBuf::from("."),
-            |c| hipso_core::paths::results_dir(c),
-        );
+        let dir = self
+            .clouds
+            .first()
+            .map_or_else(|| PathBuf::from("."), |c| hipso_core::paths::results_dir(c));
         let Some(r) = self.refs.get_mut(k) else {
             return;
         };

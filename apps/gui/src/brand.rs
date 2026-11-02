@@ -1,6 +1,5 @@
 //! The name, the descriptor and the claim, and the pieces of the brand drawn in the interface
-//! (`assets/brand`). Renaming the program on screen is a matter of changing `NAME`; the folders of
-//! the preferences and of the caches keep their old name on purpose.
+//! (`assets/brand`). Renaming the program on screen is a matter of changing `NAME`.
 
 use eframe::egui::{self, ColorImage, Id, TextureHandle, TextureOptions, Ui};
 use resvg::{tiny_skia, usvg};

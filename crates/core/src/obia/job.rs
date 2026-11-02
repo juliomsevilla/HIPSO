@@ -531,7 +531,7 @@ mod strata_tests {
     }
 }
 
-/// Timing on a large synthetic canopy: `cargo test -p rustlidar-core --release obia::job::bench -- --ignored --nocapture`
+/// Timing on a large synthetic canopy: `cargo test -p hipso-core --release obia::job::bench -- --ignored --nocapture`
 /// (set `RL_OBIA_CELLS=20000000` to change the size).
 #[cfg(test)]
 mod bench {
