@@ -390,12 +390,12 @@ mod tests {
     fn mixing_systems_is_refused_and_says_who() {
         let e = check(&[
             item("nube.laz", Some(25829)),
-            item("parcelas.shp", Some(25830)),
+            item("muestras.shp", Some(25830)),
         ])
         .err()
         .map(|e| e.to_string())
         .unwrap_or_default();
-        assert!(e.contains("nube.laz") && e.contains("parcelas.shp"), "{e}");
+        assert!(e.contains("nube.laz") && e.contains("muestras.shp"), "{e}");
         assert!(e.contains("EPSG:25829") && e.contains("EPSG:25830"), "{e}");
     }
 

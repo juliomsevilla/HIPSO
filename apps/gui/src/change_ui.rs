@@ -1,4 +1,4 @@
-//! Cambio forestal (Inventario forestal): the difference between the canopy height models of two
+//! Cambio de la cubierta vegetal (Inventario de la vegetación): the difference between the canopy height models of two
 //! dates.
 
 use super::*;
@@ -102,7 +102,7 @@ impl App {
         let weak = self.tokens().weak;
         let mut open = true;
         let mut go = false;
-        egui::Window::new("Cambio forestal")
+        egui::Window::new("Cambio de la cubierta vegetal")
             .vscroll(true)
             .max_height((ctx.content_rect().height() - 90.0).max(240.0))
             .open(&mut open)
@@ -110,7 +110,7 @@ impl App {
             .show(ctx, |ui| {
                 let t = &mut self.ct;
                 ui.label(
-                    egui::RichText::new("Compara los modelos de alturas (CHM) de dos fechas: cuánto ha crecido o bajado cada celda, dónde se ha perdido o ganado copa, las manchas perturbadas, el resumen por rodal y el crecimiento de cada árbol. Los dos CHM deben coincidir celda a celda (Ráster → Igualar rásteres).")
+                    egui::RichText::new("Compara los modelos de alturas (CHM) de dos fechas: cuánto ha crecido o bajado cada celda, dónde se ha perdido o ganado cubierta vegetal, las manchas perturbadas, el resumen por unidad de gestión y el crecimiento de cada individuo. Los dos CHM deben coincidir celda a celda (Ráster → Igualar rásteres).")
                         .color(weak)
                         .size(11.0),
                 );
@@ -121,7 +121,7 @@ impl App {
                     ui.add(egui::TextEdit::singleline(&mut t.years).desired_width(50.0).hint_text("opcional"));
                     ui.label("Cambio mínimo");
                     ui.add(NumField::new(&mut t.min_change).range(0.0..=20.0).suffix(" m"));
-                    ui.label("Copa desde");
+                    ui.label("Cubierta desde");
                     ui.add(NumField::new(&mut t.cover_height).range(0.0..=50.0).suffix(" m"));
                 });
                 ui.label(egui::RichText::new("Un cambio de altura menor que el mínimo se considera ruido. El error vertical entre fechas (MDT distintos) puede ser mayor que el crecimiento anual: el informe lo mide.").color(weak).size(11.0));
@@ -130,10 +130,10 @@ impl App {
                     ui.add(NumField::new(&mut t.min_patch).range(1.0..=1.0e6).suffix(" celdas"));
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Rodales");
+                    ui.label("Unidades de gestión");
                     ui.label(t.stands.as_deref().map_or("(opcional)".to_string(), paths::stem));
                     if ui.button("Archivo…").clicked()
-                        && let Some(p) = crate::prefs::dialog().add_filter("Rodales", &["shp", "geojson", "json", "gpkg"]).pick_file()
+                        && let Some(p) = crate::prefs::dialog().add_filter("Unidades de gestión", &["shp", "geojson", "json", "gpkg"]).pick_file()
                     {
                         t.stands = Some(p);
                     }
@@ -143,7 +143,7 @@ impl App {
                     ui.label("Campo del nombre");
                     ui.add(egui::TextEdit::singleline(&mut t.stand_field).desired_width(80.0));
                 });
-                ui.checkbox(&mut t.trees, "Emparejar los árboles de las dos fechas y medir su crecimiento");
+                ui.checkbox(&mut t.trees, "Emparejar los individuos de las dos fechas y medir su crecimiento");
                 if t.trees {
                     ui.horizontal(|ui| {
                         ui.label("Altura mínima");
@@ -155,7 +155,7 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.label("Suavizar");
                         ui.add(NumField::new(&mut t.smooth).range(0.0..=20.0).suffix(" m"));
-                        ui.label("Mismo árbol si dista menos de");
+                        ui.label("Mismo individuo si dista menos de");
                         ui.add(NumField::new(&mut t.match_dist).range(0.1..=50.0).suffix(" m"));
                     });
                 }
@@ -230,7 +230,7 @@ impl App {
             self.start(
                 ctx,
                 Launch {
-                    label: "Cambio forestal".to_string(),
+                    label: "Cambio de la cubierta vegetal".to_string(),
                     task,
                     show,
                     outputs,

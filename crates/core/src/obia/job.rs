@@ -281,7 +281,7 @@ fn write_strata(
         st.labels.count, opts.min_cells
     )];
     let layer = &stack.layers[0].name;
-    let mut csv = format!("clase,poligonos,area_ha,{layer}_media,{layer}_desv,cv_pct,parcelas\n");
+    let mut csv = format!("clase,poligonos,area_ha,{layer}_media,{layer}_desv,cv_pct,muestras\n");
     for (s, (name, n_plots)) in stats.iter().zip(c.names.iter().zip(&plots)) {
         if s.cells == 0 {
             continue;
@@ -301,7 +301,7 @@ fn write_strata(
             s.sd,
             s.cv(),
             if opts.plots > 0 {
-                format!(", {n_plots} parcelas")
+                format!(", {n_plots} muestras")
             } else {
                 String::new()
             }
@@ -357,7 +357,7 @@ mod tests {
         let rules = dir.join("reglas.txt");
         std::fs::write(
             &rules,
-            "arbolado: chm_media >= 8\nmatorral: chm_media >= 0.5\n",
+            "vegetacion_arborea: chm_media >= 8\nvegetacion_arbustiva: chm_media >= 0.5\n",
         )?;
         let job = ObiaJob {
             rasters: vec![path],
@@ -386,7 +386,7 @@ mod tests {
         let text = obia(&job)?;
         assert!(text.contains("2 objetos"), "{text}");
         assert!(
-            text.contains("arbolado: 1") && text.contains("matorral: 1"),
+            text.contains("vegetacion_arborea: 1") && text.contains("vegetacion_arbustiva: 1"),
             "{text}"
         );
         let csv = std::fs::read_to_string(dir.join("resultado.csv"))?;

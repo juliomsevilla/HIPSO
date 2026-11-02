@@ -308,14 +308,14 @@ fn copc_colour_and_intensity_round_trip() -> Result<()> {
 fn a_model_names_its_metrics_by_short_or_long_name_and_never_overwrites() -> Result<()> {
     let d = Dir::new("model")?;
     // twelve plots with two metrics and a field volume that follows the first
-    let mut plots = String::from("Parcela,Elev P90,Elev mean\n");
-    let mut field = String::from("Parcela,VOL\n");
+    let mut plots = String::from("Muestra,Elev P90,Elev mean\n");
+    let mut field = String::from("Muestra,VOL\n");
     for k in 1..=12 {
         let p90 = 8.0 + f64::from(k);
         plots.push_str(&format!("{k},{p90},{}\n", p90 / 2.0 + f64::from(k % 3)));
         field.push_str(&format!("{k},{}\n", 20.0 * p90 + f64::from((k * 7) % 5)));
     }
-    std::fs::write(d.join("parcelas.csv"), plots)?;
+    std::fs::write(d.join("muestras.csv"), plots)?;
     std::fs::write(d.join("campo.csv"), field)?;
     let res = d.s("res");
     for predictor in ["Elev P90", "EP90"] {
@@ -324,7 +324,7 @@ fn a_model_names_its_metrics_by_short_or_long_name_and_never_overwrites() -> Res
             &res,
             "model",
             "--plots",
-            &d.s("parcelas.csv"),
+            &d.s("muestras.csv"),
             "--field",
             &d.s("campo.csv"),
             "--response",
@@ -342,7 +342,7 @@ fn a_model_names_its_metrics_by_short_or_long_name_and_never_overwrites() -> Res
         .args([
             "model",
             "--plots",
-            &d.s("parcelas.csv"),
+            &d.s("muestras.csv"),
             "--field",
             &d.s("campo.csv"),
             "--response",
@@ -377,5 +377,13 @@ fn damaged_files_are_reported_in_spanish_with_their_path() -> Result<()> {
             assert!(text.contains("no_existe.las"), "{text}");
         }
     }
+    Ok(())
+}
+
+#[test]
+fn the_old_name_of_the_volume_command_still_works() -> Result<()> {
+    let new = run(&["stem-volume", "--help"])?;
+    let old = run(&["cubicar", "--help"])?;
+    assert_eq!(new.lines().nth(1), old.lines().nth(1));
     Ok(())
 }

@@ -199,7 +199,7 @@ impl Default for FieldColumns {
             x: "X_arbol".into(),
             y: "Y_arbol".into(),
             height: "Ht".into(),
-            plot: "Parcela".into(),
+            plot: "Muestra".into(),
         }
     }
 }
@@ -223,7 +223,13 @@ pub fn read_field(path: &Path, cols: &FieldColumns) -> Result<Vec<FieldTree>> {
         .split(delim)
         .map(|s| s.trim().trim_start_matches('\u{feff}').to_lowercase())
         .collect();
-    let at = |n: &str| names.iter().position(|c| *c == n.to_lowercase());
+    // files written before the sampling units were called "Muestra" name them "Parcela"
+    let at = |n: &str| {
+        let n = n.to_lowercase();
+        let find = |w: &str| names.iter().position(|c| c == w);
+        find(&n)
+            .or_else(|| find(&n.replace("muestra", "parcela")).filter(|_| n.contains("muestra")))
+    };
     let (Some(ix), Some(iy)) = (at(&cols.x), at(&cols.y)) else {
         return Err(Error::Param(format!(
             "no se encuentran las columnas '{}' y '{}' en {}",
@@ -358,7 +364,7 @@ pub fn plot_circles(
 
 pub fn evaluation_text(e: &Evaluation) -> String {
     format!(
-        "Evaluación contra el inventario: {} árboles de campo, {} detectados en las parcelas\n  \
+        "Evaluación contra el inventario: {} árboles de campo, {} detectados en las muestras\n  \
          acertados {}  falsos positivos {}  omitidos {}\n  \
          exhaustividad {:.1} %  precisión {:.1} %  F {:.3}\n  \
          altura: sesgo {:+.2} m  RMSE {:.2} m",
@@ -386,6 +392,21 @@ pub fn sibling(base: &Path, suffix: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn field_files_with_the_old_plot_column_are_still_read() -> Result<()> {
+        let p = std::env::temp_dir().join(format!("hipso_field_old_{}.csv", std::process::id()));
+        std::fs::write(&p, "X_arbol,Y_arbol,Ht,Parcela\n1,2,10,P1\n3,4,12,P1\n")?;
+        let trees = read_field(&p, &FieldColumns::default())?;
+        std::fs::remove_file(&p)?;
+        assert_eq!(trees.len(), 2);
+        assert!(
+            trees.iter().all(|t| t.plot == "P1"),
+            "{:?}",
+            trees.first().map(|t| &t.plot)
+        );
+        Ok(())
+    }
 
     #[test]
     fn hull_of_a_square_with_inner_points() {

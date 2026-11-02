@@ -578,7 +578,7 @@ fn trees_run(j: &TreesJob) -> Result<String> {
         forest::write_tops_shp(&path, &list, &hulls, epsg)?;
         written.push(path.display().to_string());
     }
-    let mut lines = vec![format!("{} árboles: {}", list.len(), written.join(", "))];
+    let mut lines = vec![format!("{} individuos: {}", list.len(), written.join(", "))];
     if let Some(path) = &j.crowns {
         paths::ensure_parent(path)?;
         let mut r = g.like();
@@ -588,12 +588,12 @@ fn trees_run(j: &TreesJob) -> Result<String> {
             }
         }
         r.write_tiff(path, None)?;
-        lines.push(format!("  copas (ráster): {}", path.display()));
+        lines.push(format!("  individuos (ráster): {}", path.display()));
     }
     if let Some(path) = &j.crowns_shp {
         paths::ensure_parent(path)?;
         forest::write_crowns_shp(path, &list, &hulls)?;
-        lines.push(format!("  copas (polígonos): {}", path.display()));
+        lines.push(format!("  individuos (polígonos): {}", path.display()));
     }
     // the tops shapefile is already the main result when vector output is on
     if let Some(path) = j.tops_shp.as_ref().filter(|_| !f.vector) {
@@ -659,7 +659,7 @@ pub fn clip(job: &crate::clip::ClipJob) -> Result<String> {
         ),
     );
     if let Some(m) = &job.metrics {
-        lines.push(format!("  métricas por parcela: {}", m.csv.display()));
+        lines.push(format!("  métricas por muestra: {}", m.csv.display()));
     }
     Ok(lines.join("\n") + &crate::crs::notes(&warnings))
 }

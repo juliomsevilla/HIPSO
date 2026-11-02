@@ -216,7 +216,7 @@ impl Tools {
 
     pub fn tls_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         let weak = |s: &str| egui::RichText::new(s.to_string()).color(t.weak).size(11.0);
-        ui.label(weak("Mide el diámetro del tronco a lo largo de todo el fuste en nubes de escáner terrestre, móvil o fotogramétrico, y cubica cada árbol con la fórmula de Smalian: V = (A₁ + A₂)/2 · L por cada troza, desde la altura de la base hasta donde el diámetro baja al diámetro de punta delgada. Cada nube es una hoja y da su propio resultado."));
+        ui.label(weak("Mide el diámetro del tronco a lo largo de todo el tronco en nubes de escáner terrestre, móvil o fotogramétrico, y estima el volumen de cada individuo con la fórmula de Smalian: V = (A₁ + A₂)/2 · L por cada troza, desde la altura de la base hasta donde el diámetro baja al diámetro de punta delgada. Cada nube es una hoja y da su propio resultado."));
         let s = &mut self.lx.tls;
         ui.horizontal(|ui| {
             ui.label("Equipo:");
@@ -235,7 +235,7 @@ impl Tools {
                 s.voxel = 0.05;
             }
         });
-        ui.label(egui::RichText::new("Cubicación").strong());
+        ui.label(egui::RichText::new("Estimación de volumen").strong());
         let (mut base_cm, mut top_cm) = (s.base_height * 100.0, s.top_diam * 100.0);
         num(
             ui,
@@ -283,7 +283,7 @@ impl Tools {
             let mut share = s.lost_top_share * 100.0;
             num(
                 ui,
-                "Altura comercial esperada (% de la total) de los fustes perdidos estando gruesos; 0: no estimar",
+                "Altura libre de ramas esperada (% de la total) de los troncos perdidos estando gruesos; 0: no estimar",
                 &mut share,
                 0.0..=95.0,
                 1.0,
@@ -361,7 +361,7 @@ impl Tools {
             );
         });
         egui::CollapsingHeader::new("Cepas y bifurcaciones (rebrotes)").show(ui, |ui| {
-            ui.label(weak("Varios troncos de un mismo pie. Si están separados a la altura del diámetro, son brotes de una cepa y cada uno es un árbol (columnas CEPA y BROTES). Si son un solo tronco a esa altura y se bifurcan por encima, es un árbol bifurcado: se mide el diámetro del tronco y se cubica el tronco y cada rama (H_BIF, RAMA)."));
+            ui.label(weak("Varios troncos de un mismo individuo. Si están separados a la altura del diámetro, son brotes de una cepa y cada uno es un árbol (columnas CEPA y BROTES). Si son un solo tronco a esa altura y se bifurcan por encima, es un árbol bifurcado: se mide el diámetro del tronco y se cubica el tronco y cada rama (H_BIF, RAMA)."));
             num(
                 ui,
                 "Altura del diámetro (m): separa brotes de bifurcación",
@@ -380,12 +380,12 @@ impl Tools {
         ui.separator();
         ui.checkbox(
             &mut self.lx.tls_stems,
-            "Guardar la nube con fustes (clase 64) y ramas (clase 65)",
+            "Guardar la nube con troncos (clase 64) y ramas (clase 65)",
         )
         .on_hover_text("Para editar: los puntos dentro del círculo medido del tronco pasan a la clase 64 y el resto de los que están junto a un tronco a la 65. Se usa la distancia máxima al eje de abajo.");
         ui.checkbox(
             &mut self.lx.tls_clouds,
-            "Guardar también la nube de puntos de cada árbol",
+            "Guardar también la nube de puntos de cada individuo",
         );
         if self.lx.tls_clouds || self.lx.tls_stems {
             num(
@@ -397,7 +397,7 @@ impl Tools {
             );
         }
         self.formats_row(ui);
-        ui.label(weak("Resultado: puntos en la base de cada tronco con DAP, alturas, volumen, nº de trozas, inclinación y calidad (.shp y/o .csv) y <nombre>_trozas.csv con el detalle de cada troza."));
+        ui.label(weak("Resultado: puntos en la base de cada tronco con diámetro a 1,30 m, alturas, volumen, nº de trozas, inclinación y calidad (.shp y/o .csv) y <nombre>_trozas.csv con el detalle de cada troza."));
     }
 
     fn reference_row(ui: &mut egui::Ui, text: &mut String) {
@@ -1103,7 +1103,7 @@ impl Tools {
                 let params = self.lx.tls.clone();
                 let clouds = self.lx.tls_clouds;
                 let stems = self.lx.tls_stems;
-                let outs = names_ext("cubicado", "shp");
+                let outs = names_ext("volumen", "shp");
                 let mut outputs: Vec<PathBuf> = Vec::new();
                 let mut show = Vec::new();
                 for o in outs.values() {

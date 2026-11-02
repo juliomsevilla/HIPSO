@@ -83,27 +83,24 @@ pub fn tip(label: &str) -> Option<&'static str> {
             "Pendiente, orientación, curvatura, sombreado e hidrología a partir de un MDT."
         }
         "Volumen sobre MDT" => "Volumen entre una superficie y el terreno, celda a celda.",
-        "Métricas de rodal" => "Métricas de altura y densidad de la vegetación por celda.",
-        "Segmentar árboles" => "Detecta los árboles y sus copas en un modelo de alturas.",
+        "Métricas por celda" => "Métricas de altura y densidad de la vegetación por celda.",
+        "Segmentar individuos" => "Detecta los individuos y sus copas en un modelo de alturas.",
         "OBIA" => "Agrupa el modelo de alturas en objetos y los clasifica.",
         "Modelos de transición" => {
-            "Relaciona una variable de campo con las métricas LiDAR de las parcelas y la valida."
+            "Relaciona una variable de campo con las métricas LiDAR de las unidades de muestreo y la valida."
         }
-        "Cambio forestal" => {
-            "Compara dos fechas y mide la pérdida y la ganancia de altura y de copa."
+        "Cambio de la cubierta vegetal" => {
+            "Compara dos fechas y mide la pérdida y la ganancia de altura y de cubierta vegetal."
         }
         "Corredores eléctricos" => {
             "Conductores, apoyos y vegetación en riesgo de las líneas eléctricas."
         }
-        "Recortar parcelas" => "Corta las nubes por parcelas y calcula sus métricas.",
+        "Extraer muestras" => "Corta las nubes por unidades de muestreo y calcula sus métricas.",
         "Métodos de masa" => {
-            "Inventario por área con nubes aéreas (ALS): métricas de rodal, recorte de parcelas y modelos de transición."
+            "Inventario por área con nubes aéreas (ALS): métricas por celda, extracción de muestras y modelos de transición."
         }
-        "Dendrometría" => {
-            "Inventario con nubes de escáner terrestre (TLS): mide los fustes, los cubica y clasifica fustes y ramas."
-        }
-        "Dendrometría TLS" => {
-            "Mide los fustes en nubes de escáner terrestre (diámetros a lo largo del tronco, altura y volumen con Smalian) y clasifica fustes y ramas."
+        "Medición de troncos (TLS)" => {
+            "Inventario con nubes de escáner terrestre (TLS): mide los troncos, estima su volumen y clasifica troncos y ramas."
         }
         // Ayuda
         "Manual" => "Abre el manual de uso (F1).",

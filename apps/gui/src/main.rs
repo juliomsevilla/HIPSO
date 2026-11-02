@@ -985,8 +985,8 @@ impl App {
                     icon: "@metrics",
                     label: "Métodos\nde masa",
                     items: vec![
-                        tool("@metrics", "Métricas de rodal", ToolId::Metrics),
-                        tool("@clip", "Recortar parcelas", ToolId::Clip),
+                        tool("@metrics", "Métricas por celda", ToolId::Metrics),
+                        tool("@clip", "Extraer muestras", ToolId::Clip),
                         other(
                             "@model",
                             "Modelos de transición",
@@ -996,15 +996,20 @@ impl App {
                     ],
                 }],
                 columns: vec![vec![
-                    tool("@segment", "Segmentar árboles", ToolId::Trees),
-                    other("@change", "Cambio forestal", self.ct.open, Action::Change),
+                    tool("@segment", "Segmentar individuos", ToolId::Trees),
+                    other(
+                        "@change",
+                        "Cambio de la cubierta vegetal",
+                        self.ct.open,
+                        Action::Change,
+                    ),
                     other("@obia", "Análisis por objetos", self.ot.open, Action::Obia),
                 ]],
             },
             Group {
                 caption: "TLS",
                 icon: "@tree",
-                big: vec![tool("@tree", "Dendrometría", ToolId::Tls)],
+                big: vec![tool("@tree", "Medición de troncos (TLS)", ToolId::Tls)],
                 menus: vec![],
                 columns: vec![],
             },
@@ -1351,7 +1356,7 @@ impl App {
             // the stems and branches cloud of the TLS tool is big and made to be opened on demand
             let on_demand = f
                 .file_stem()
-                .is_some_and(|n| n.to_string_lossy().ends_with("_fustes"));
+                .is_some_and(|n| n.to_string_lossy().ends_with("_troncos"));
             let loadable = !on_demand
                 && (hipso_core::raster::is_raster_ext(&e)
                     || matches!(e.as_str(), "shp" | "geojson" | "gpkg" | "las" | "laz"));
@@ -1762,11 +1767,11 @@ impl App {
                 Action::Obia,
             ),
             (
-                "Cambio forestal entre dos fechas (diferencia de CHM, perturbaciones, crecimiento)",
+                "Cambio de la cubierta vegetal entre dos fechas (diferencia de CHM, perturbaciones, crecimiento)",
                 Action::Change,
             ),
             (
-                "Modelos de transición (regresión de una variable de campo sobre las métricas LiDAR de las parcelas)",
+                "Modelos de transición (regresión de una variable de campo sobre las métricas LiDAR de las unidades de muestreo)",
                 Action::Model,
             ),
             (
@@ -1790,7 +1795,7 @@ impl App {
             ("Clasificar puntos", Action::Tool(ToolId::Classify)),
             ("Asignar sistema de coordenadas", Action::Tool(ToolId::Crs)),
             ("Adelgazar nube (decimar)", Action::Tool(ToolId::Thin)),
-            ("Dendrometría de fustes (TLS)", Action::Tool(ToolId::Tls)),
+            ("Medición de troncos (TLS)", Action::Tool(ToolId::Tls)),
             ("Volúmenes respecto al MDT", Action::Tool(ToolId::Volume)),
             ("Quitar puntos duplicados", Action::Tool(ToolId::Dups)),
             ("Alturas sobre el suelo", Action::Tool(ToolId::Hag)),
@@ -1808,10 +1813,10 @@ impl App {
             ("Separación entre pasadas", Action::Tool(ToolId::Swath)),
             ("Calcular MDT", Action::Tool(ToolId::Dtm)),
             ("Calcular MDS / CHM", Action::Tool(ToolId::Chm)),
-            ("Métricas de rodal", Action::Tool(ToolId::Metrics)),
-            ("Segmentar árboles", Action::Tool(ToolId::Trees)),
+            ("Métricas por celda", Action::Tool(ToolId::Metrics)),
+            ("Segmentar individuos", Action::Tool(ToolId::Trees)),
             (
-                "Recortar con polígonos o parcelas",
+                "Extraer muestras con polígonos o puntos",
                 Action::Tool(ToolId::Clip),
             ),
             ("Exportar puntos", Action::Tool(ToolId::Export)),

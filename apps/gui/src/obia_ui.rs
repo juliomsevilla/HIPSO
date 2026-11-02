@@ -1,4 +1,4 @@
-//! Object-based analysis (Inventario forestal): group the cells of the canopy height model and of
+//! Object-based analysis (Inventario de la vegetación): group the cells of the canopy height model and of
 //! other layers into objects, describe them and classify them.
 
 use super::*;
@@ -88,7 +88,7 @@ const CLOUD_LAYERS: [(CloudLayer, &str); 4] = [
     (CloudLayer::Density, "Densidad de puntos"),
 ];
 
-const RULES_HELP: &str = "Un archivo de texto con una regla por línea:\n  arbolado: chm_media >= 5 and area < 400\n  matorral: chm_media >= 0.5\nSe aplica la primera que cumple un objeto. Los atributos disponibles se ven en la tabla de resultados (area, perimetro, compacidad, alargamiento, <capa>_media, _desv, _min, _max).";
+const RULES_HELP: &str = "Un archivo de texto con una regla por línea:\n  vegetacion_arborea: chm_media >= 5 and area < 400\n  vegetacion_arbustiva: chm_media >= 0.5\nSe aplica la primera que cumple un objeto. Los atributos disponibles se ven en la tabla de resultados (area, perimetro, compacidad, alargamiento, <capa>_media, _desv, _min, _max).";
 
 impl App {
     pub fn obia_window(&mut self, ctx: &egui::Context) {
@@ -113,7 +113,7 @@ impl App {
             .show(ctx, |ui| {
                 let t = &mut self.ot;
                 ui.label(
-                    egui::RichText::new("Agrupa las celdas en objetos (copas, rodales, tejados…) a partir del CHM y de otras capas, los describe y, si quieres, los clasifica. Todas las capas deben coincidir celda a celda.")
+                    egui::RichText::new("Agrupa las celdas en objetos (copas de árboles concretos, unidades de gestión, tejados…) a partir del CHM y de otras capas, los describe y, si quieres, los clasifica. Todas las capas deben coincidir celda a celda.")
                         .color(weak)
                         .size(11.0),
                 );
@@ -224,7 +224,7 @@ impl App {
                                 ui.add(NumField::new(&mut t.k).range(2.0..=64.0));
                             });
                             ui.label(
-                                egui::RichText::new("Sin reglas ni muestras: agrupa los objetos según su altura media, su percentil 95, la cobertura de copas y la media de las demás capas, dando más peso a los objetos grandes. El estrato 1 es el más bajo.")
+                                egui::RichText::new("Sin reglas ni muestras: agrupa los objetos según su altura media, su percentil 95, la cobertura de la vegetación y la media de las demás capas, dando más peso a los objetos grandes. El estrato 1 es el más bajo.")
                                     .color(weak)
                                     .size(11.0),
                             );
@@ -254,7 +254,7 @@ impl App {
                             ui.horizontal(|ui| {
                                 ui.label("Campo de la clase");
                                 ui.add(egui::TextEdit::singleline(&mut t.class_field).desired_width(110.0));
-                                ui.label("Árboles");
+                                ui.label("Individuos");
                                 ui.add(NumField::new(&mut t.trees).range(5.0..=2000.0));
                             });
                             ui.label(
@@ -276,7 +276,7 @@ impl App {
                                     ui.label(egui::RichText::new("los menores toman la clase de sus vecinos").color(weak).size(11.0));
                                 });
                                 ui.horizontal(|ui| {
-                                    ui.label("Parcelas a repartir");
+                                    ui.label("Unidades de muestreo a repartir");
                                     ui.add(NumField::new(&mut t.plots).range(0.0..=100000.0));
                                     ui.label(egui::RichText::new("0 = no repartir (asignación de Neyman: más a lo grande y variable)").color(weak).size(11.0));
                                 });
@@ -284,7 +284,7 @@ impl App {
                             ui.horizontal(|ui| {
                                 ui.label("Cobertura desde");
                                 ui.add(NumField::new(&mut t.cover_height).range(0.0..=100.0).suffix(" m"));
-                                ui.label(egui::RichText::new("altura a partir de la cual una celda cuenta como copa").color(weak).size(11.0));
+                                ui.label(egui::RichText::new("altura a partir de la cual una celda cuenta como cubierta vegetal").color(weak).size(11.0));
                             });
                         });
                         if t.classify == 0 {

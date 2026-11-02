@@ -497,7 +497,7 @@ fn write_metrics(m: &SampleMetrics, job: &ClipJob, rows: &[(usize, Vec<String>)]
     if f.csv {
         let path = crate::paths::swap_ext(&m.csv, "csv");
         let mut out = std::io::BufWriter::new(std::fs::File::create(&path)?);
-        writeln!(out, "Parcela,Area,{},Date", head.join(","))?;
+        writeln!(out, "Muestra,Area,{},Date", head.join(","))?;
         for (k, row) in &rows {
             let r = &job.regions[*k];
             writeln!(
@@ -514,7 +514,7 @@ fn write_metrics(m: &SampleMetrics, job: &ClipJob, rows: &[(usize, Vec<String>)]
         }
     }
     // a shapefile: each region's own polygon with the metrics as attributes
-    let mut columns = vec!["Parcela".to_string(), "Area".to_string()];
+    let mut columns = vec!["Muestra".to_string(), "Area".to_string()];
     columns.extend(head);
     columns.push("Date".to_string());
     let prj = job
@@ -681,7 +681,7 @@ mod tests {
         assert!(
             csv.lines()
                 .next()
-                .is_some_and(|h| h.starts_with("Parcela,Area,Total return count"))
+                .is_some_and(|h| h.starts_with("Muestra,Area,Total return count"))
         );
         std::fs::remove_dir_all(&dir)?;
         Ok(())

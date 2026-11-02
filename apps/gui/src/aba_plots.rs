@@ -1,6 +1,6 @@
 //! Diagnostic graphics of a transition model: observed against predicted, residuals against
 //! fitted values, normal Q–Q of the residuals and Cook's distance. They are read from the plot
-//! table (`…_parcelas.csv`) the model writes, and drawn with the painter: no plotting library.
+//! table (`…_muestras.csv`) the model writes, and drawn with the painter: no plotting library.
 
 use super::*;
 use eframe::egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Shape, Stroke, Vec2};
@@ -407,8 +407,8 @@ impl Diag {
                 chart(
                     ui,
                     size,
-                    "Influencia de cada parcela (Cook)",
-                    "parcela (orden de la tabla)",
+                    "Influencia de cada unidad de muestreo (Cook)",
+                    "unidad de muestreo (orden de la tabla)",
                     "distancia de Cook",
                     &cook,
                     &[Ln {
@@ -422,7 +422,7 @@ impl Diag {
                 ui.end_row();
             });
         ui.label(
-            egui::RichText::new("Los puntos sobre la línea discontinua de «observado frente a estimado» son aciertos; los círculos naranjas son la estimación por validación cruzada (sin la parcela). En residuos, la nube debe ser un manchón sin forma ni abanico y casi todo entre −2 y 2; en Q–Q, los puntos sobre la diagonal; en Cook, ninguna barra por encima de 0,5. Rojo: parcelas que la tabla avisa como atípicas, de palanca alta o influyentes. Pasa el ratón por un punto para ver su parcela.")
+            egui::RichText::new("Los puntos sobre la línea discontinua de «observado frente a estimado» son aciertos; los círculos naranjas son la estimación por validación cruzada (sin la unidad de muestreo). En residuos, la nube debe ser un manchón sin forma ni abanico y casi todo entre −2 y 2; en Q–Q, los puntos sobre la diagonal; en Cook, ninguna barra por encima de 0,5. Rojo: unidades de muestreo que la tabla avisa como atípicas, de palanca alta o influyentes. Pasa el ratón por un punto para ver su unidad de muestreo.")
                 .color(ui.visuals().weak_text_color())
                 .size(11.0),
         );
@@ -433,7 +433,7 @@ impl Diag {
 mod tests {
     use super::*;
 
-    const TABLE: &str = "Parcela,Observado,Ajustado,Residuo,Validacion_cruzada,Error_validacion,Palanca,Residuo_estudentizado,Cook,Aviso\n\
+    const TABLE: &str = "Muestra,Observado,Ajustado,Residuo,Validacion_cruzada,Error_validacion,Palanca,Residuo_estudentizado,Cook,Aviso\n\
         1,330.0,300.0,30.0,290.0,40.0,0.10,0.9,0.05,\n\
         2,348.0,380.0,-32.0,390.0,-42.0,0.30,-1.1,0.30,palanca\n\
         3,250.0,260.0,-10.0,262.0,-12.0,0.08,-0.3,0.01,\n\
