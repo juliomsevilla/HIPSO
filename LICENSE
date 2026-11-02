@@ -1,11 +1,12 @@
-HIPSO — Licencia de uso gratuito
+HIPSO · Licencia de uso gratuito
 Copyright © 2026 Julio M. Sevilla. Todos los derechos reservados.
 Contacto: julio@jsevilla.es · https://es.linkedin.com/in/juliomsevilla
 
-(English summary: HIPSO is free to use, including at work and for commercial
-projects. You may not modify it, reverse engineer it, sell it or redistribute it
-other than as the unmodified original package, free of charge. It is provided
-"as is", without warranty. The Spanish text below is the binding one.)
+(English summary: HIPSO is proprietary freeware. It is free to use, including at
+work and for commercial projects. You may not modify it, disassemble it,
+decompile it or reverse engineer it, sell it, or redistribute it other than as
+the unmodified original package, free of charge. It is provided "as is",
+without warranty. The Spanish text below is the binding one.)
 
 1. QUÉ ES ESTA LICENCIA
 Este acuerdo regula el uso del programa HIPSO (en adelante, «el Programa»),
@@ -27,8 +28,14 @@ y (b) de forma gratuita. Puedes hacer copias de seguridad.
 
 4. LO QUE NO PUEDES HACER
 a) Modificar, adaptar, traducir ni crear obras derivadas del Programa.
-b) Descompilar, desensamblar ni aplicar ingeniería inversa, salvo en la medida
-   en que la ley aplicable lo permita expresamente y no pueda excluirse por contrato.
+b) Desmontar, descompilar, desensamblar ni aplicar ingeniería inversa al
+   Programa o a cualquiera de sus partes, ni intentar obtener su código fuente,
+   sus algoritmos o sus formatos internos por esos medios, ni eliminar o eludir
+   las protecciones que lleve. Se exceptúa únicamente lo que la ley aplicable
+   permita expresamente y no pueda excluirse por contrato (en la Unión Europea,
+   la descompilación estrictamente necesaria para lograr la interoperabilidad
+   con otro programa, con las condiciones que la ley fija), y los derechos que
+   las licencias de los componentes de terceros (apartado 6) te dan sobre ellos.
 c) Vender, alquilar, sublicenciar ni cobrar por el Programa o por su acceso,
    ni incluirlo en un producto o servicio de pago como componente propio.
 d) Quitar o alterar los avisos de autoría, de licencia o de terceros.
