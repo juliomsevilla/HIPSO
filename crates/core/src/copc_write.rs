@@ -408,7 +408,7 @@ pub(crate) fn prepare(
     vlr.write_to(&mut laz_payload)?;
     let wkt = r.meta.wkt.clone().or_else(|| {
         h.epsg.and_then(|code| {
-            rustlidar_crs::SpatialRef::from_epsg(u32::from(code))
+            hipso_crs::SpatialRef::from_epsg(u32::from(code))
                 .ok()
                 .and_then(|c| c.to_wkt())
         })

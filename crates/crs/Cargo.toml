@@ -1,5 +1,5 @@
 [package]
-name = "rustlidar-crs"
+name = "hipso-crs"
 description = "Coordinate reference systems and reprojection (EPSG, WKT, PROJ strings, datum grids), with the Spanish datum grids built in"
 version.workspace = true
 edition.workspace = true

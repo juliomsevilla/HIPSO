@@ -5,19 +5,19 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use rustlidar_core::axelsson::AxelssonParams;
-use rustlidar_core::buildings::BuildingParams;
-use rustlidar_core::csf::CsfParams;
-use rustlidar_core::ground::GroundParams;
-use rustlidar_core::mcc::MccParams;
-use rustlidar_core::metrics::MetricParams;
-use rustlidar_core::noise::NoiseParams;
-use rustlidar_core::pipeline::{self, Ground, Noise, Steps, Surface, Tiling};
-use rustlidar_core::pmf::PmfParams;
-use rustlidar_core::rules::ClassRule;
-use rustlidar_core::smrf::SmrfParams;
-use rustlidar_core::trees::{CrownParams, Segmenter, Shape, Smoothing, TopParams};
-use rustlidar_core::{Error, Result, jobs, paths};
+use hipso_core::axelsson::AxelssonParams;
+use hipso_core::buildings::BuildingParams;
+use hipso_core::csf::CsfParams;
+use hipso_core::ground::GroundParams;
+use hipso_core::mcc::MccParams;
+use hipso_core::metrics::MetricParams;
+use hipso_core::noise::NoiseParams;
+use hipso_core::pipeline::{self, Ground, Noise, Steps, Surface, Tiling};
+use hipso_core::pmf::PmfParams;
+use hipso_core::rules::ClassRule;
+use hipso_core::smrf::SmrfParams;
+use hipso_core::trees::{CrownParams, Segmenter, Shape, Smoothing, TopParams};
+use hipso_core::{Error, Result, jobs, paths};
 
 #[derive(Parser)]
 #[command(
@@ -194,8 +194,8 @@ enum CompressArg {
 }
 
 impl TileArgs {
-    fn compression(self) -> Option<rustlidar_core::tiled::Compression> {
-        use rustlidar_core::tiled::Compression;
+    fn compression(self) -> Option<hipso_core::tiled::Compression> {
+        use hipso_core::tiled::Compression;
         match self.compress {
             CompressArg::Auto => None,
             CompressArg::Deflate => Some(Compression::Deflate),
@@ -222,8 +222,8 @@ struct SelArgs {
 }
 
 impl SelArgs {
-    fn filter(&self) -> Result<rustlidar_core::filter::Filter> {
-        use rustlidar_core::filter::{ClassSel, Filter, ReturnSel};
+    fn filter(&self) -> Result<hipso_core::filter::Filter> {
+        use hipso_core::filter::{ClassSel, Filter, ReturnSel};
         Ok(Filter {
             classes: self
                 .class
@@ -514,8 +514,8 @@ impl StepArgs {
         self.steps_with(GroundMethod::Kraus)
     }
 
-    fn extras(&self) -> rustlidar_core::extras::Extras {
-        use rustlidar_core::extras::{Extras, PoleParams, VegParams, WireParams};
+    fn extras(&self) -> hipso_core::extras::Extras {
+        use hipso_core::extras::{Extras, PoleParams, VegParams, WireParams};
         Extras {
             vegetation: self.vegetation.then(VegParams::default),
             wires: self.wires.then(WireParams::default),
@@ -1787,7 +1787,7 @@ fn numbers(text: &str, n: usize, what: &str) -> Result<Vec<f64>> {
     if v.len() == n {
         Ok(v)
     } else {
-        Err(rustlidar_core::Error::Param(format!(
+        Err(hipso_core::Error::Param(format!(
             "{what} necesita {n} números separados por comas, no '{text}'"
         )))
     }
@@ -1802,7 +1802,7 @@ fn out_path(given: Option<PathBuf>, input: &Path, tag: &str, ext: &str) -> PathB
 /// The DTM given, else the newest one made from `input`.
 fn dtm_for(given: Option<PathBuf>, input: &Path) -> Result<PathBuf> {
     given.or_else(|| paths::find_dtm(input)).ok_or_else(|| {
-        rustlidar_core::Error::Param(format!(
+        hipso_core::Error::Param(format!(
             "no se ha indicado MDT y no hay ninguno hecho a partir de {} en {}: ejecuta antes `dtm` o indica --dtm",
             input.display(),
             paths::results_dir(input).display()
@@ -1821,7 +1821,7 @@ fn smoothing_of(a: SmoothArg) -> Smoothing {
 /// `-o` names one result; with several sheets each has its own, so `-o` is not accepted.
 fn single_output(output: Option<PathBuf>, sheets: usize) -> Result<Option<PathBuf>> {
     if sheets > 1 && output.is_some() {
-        return Err(rustlidar_core::Error::Param(
+        return Err(hipso_core::Error::Param(
             "con varias hojas cada una tiene su propio resultado: quita -o".into(),
         ));
     }
@@ -1849,7 +1849,7 @@ fn run(cmd: Cmd) -> Result<()> {
             let output = single_output(output, inputs.len())?;
             let tag = format!("clasif{}", steps.tag());
             let out_for = |p: &Path| out_path(output.clone(), p, &tag, &ext_of(p));
-            rustlidar_core::sheets::classify_each(
+            hipso_core::sheets::classify_each(
                 &inputs,
                 &out_for,
                 &steps.steps(),
@@ -1907,7 +1907,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 smoothing: smoothing_of(smoothing),
                 breaklines,
             };
-            rustlidar_core::sheets::dtm_each(&inputs, &base, &out_for, mosaic_to.as_deref())?.0
+            hipso_core::sheets::dtm_each(&inputs, &base, &out_for, mosaic_to.as_deref())?.0
         }
         Cmd::Dsm {
             inputs,
@@ -1972,7 +1972,7 @@ fn run(cmd: Cmd) -> Result<()> {
         } => {
             let output = single_output(output, inputs.len())?;
             if inputs.len() > 1 && dtm.is_some() {
-                return Err(rustlidar_core::Error::Param(
+                return Err(hipso_core::Error::Param(
                     "--dtm indica un solo MDT: con varias hojas, cada una usa el MDT hecho a partir de ella"
                         .into(),
                 ));
@@ -2016,7 +2016,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 smooth,
                 smoothing: smoothing_of(smoothing),
             };
-            rustlidar_core::sheets::chm_each(
+            hipso_core::sheets::chm_each(
                 &inputs,
                 &base,
                 &out_for,
@@ -2118,7 +2118,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 smoothing: smoothing_of(smoothing),
                 field: field.map(|file| jobs::FieldJob {
                     file,
-                    columns: rustlidar_core::forest::FieldColumns {
+                    columns: hipso_core::forest::FieldColumns {
                         x: field_x,
                         y: field_y,
                         height: field_h,
@@ -2165,7 +2165,7 @@ fn run(cmd: Cmd) -> Result<()> {
             let mut layers = Vec::new();
             for name in &cloud_layers {
                 layers.push(
-                    rustlidar_core::obia::layers::CloudLayer::parse(name)
+                    hipso_core::obia::layers::CloudLayer::parse(name)
                         .ok_or_else(|| Error::Param(format!("capa desconocida «{name}»")))?,
                 );
             }
@@ -2182,8 +2182,8 @@ fn run(cmd: Cmd) -> Result<()> {
                 ));
             }
             let seg_method = match method {
-                ObiaMethod::Merge => rustlidar_core::obia::segment::Method::Merge(
-                    rustlidar_core::obia::segment::MergeParams {
+                ObiaMethod::Merge => hipso_core::obia::segment::Method::Merge(
+                    hipso_core::obia::segment::MergeParams {
                         scale,
                         shape,
                         compact,
@@ -2191,7 +2191,7 @@ fn run(cmd: Cmd) -> Result<()> {
                         init,
                     },
                 ),
-                ObiaMethod::Mask => rustlidar_core::obia::segment::Method::Mask {
+                ObiaMethod::Mask => hipso_core::obia::segment::Method::Mask {
                     layer: mask_layer.ok_or_else(|| {
                         Error::Param("--method mask necesita --mask-layer".into())
                     })?,
@@ -2211,9 +2211,9 @@ fn run(cmd: Cmd) -> Result<()> {
                 rasters,
                 clouds: cloud,
                 cloud_layers: layers,
-                filter: rustlidar_core::filter::Filter::default(),
+                filter: hipso_core::filter::Filter::default(),
                 roughness,
-                segment: rustlidar_core::obia::segment::SegmentParams {
+                segment: hipso_core::obia::segment::SegmentParams {
                     method: seg_method,
                     min_cells,
                 },
@@ -2223,7 +2223,7 @@ fn run(cmd: Cmd) -> Result<()> {
                     (None, Some(file), _) => jobs::ClassifyBy::Samples {
                         file,
                         field: class_field,
-                        forest: rustlidar_core::obia::classify::ForestParams {
+                        forest: hipso_core::obia::classify::ForestParams {
                             trees,
                             seed,
                             ..Default::default()
@@ -2242,7 +2242,7 @@ fn run(cmd: Cmd) -> Result<()> {
             })?
         }
         Cmd::Geojson { input, output } => {
-            use rustlidar_core::view::{self, GeomKind};
+            use hipso_core::view::{self, GeomKind};
             let to_shp = input.extension().is_some_and(|e| {
                 e.eq_ignore_ascii_case("geojson") || e.eq_ignore_ascii_case("json")
             });
@@ -2255,7 +2255,7 @@ fn run(cmd: Cmd) -> Result<()> {
             });
             paths::ensure_parent(&output)?;
             let (data, kind, epsg) = if to_shp {
-                let (d, k, e, skipped) = rustlidar_core::geojson::read_vector(&input)?;
+                let (d, k, e, skipped) = hipso_core::geojson::read_vector(&input)?;
                 if skipped > 0 {
                     eprintln!(
                         "aviso: {skipped} elementos con otra geometría o sin ella no se han copiado"
@@ -2271,10 +2271,10 @@ fn run(cmd: Cmd) -> Result<()> {
                 } else {
                     GeomKind::Line
                 };
-                (d, k, rustlidar_core::crs::epsg_of(&input))
+                (d, k, hipso_core::crs::epsg_of(&input))
             };
-            let prj = epsg.and_then(rustlidar_core::vector::prj_for_epsg);
-            rustlidar_core::vector::write_layer(&output, &data, kind, prj.as_deref())?;
+            let prj = epsg.and_then(hipso_core::vector::prj_for_epsg);
+            hipso_core::vector::write_layer(&output, &data, kind, prj.as_deref())?;
             format!(
                 "{} elementos: {}{}",
                 data.features.len(),
@@ -2307,7 +2307,7 @@ fn run(cmd: Cmd) -> Result<()> {
             let output =
                 output.unwrap_or_else(|| paths::unique(&paths::product(&after, "cambio", "shp")));
             let formats = formats_of(format, &output);
-            let job = rustlidar_core::change::ChangeJob {
+            let job = hipso_core::change::ChangeJob {
                 before,
                 after,
                 output,
@@ -2316,7 +2316,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 min_patch,
                 years,
                 regions: stands.map(|f| (f, stand_field)),
-                trees: trees.then_some(rustlidar_core::change::TreeChange {
+                trees: trees.then_some(hipso_core::change::TreeChange {
                     tops: TopParams {
                         hmin,
                         a: ws_a,
@@ -2329,7 +2329,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 }),
                 formats,
             };
-            rustlidar_core::change::change(&job)?
+            hipso_core::change::change(&job)?
         }
         Cmd::Import {
             input,
@@ -2343,8 +2343,8 @@ fn run(cmd: Cmd) -> Result<()> {
             if ext == "e57" {
                 let output =
                     output.unwrap_or_else(|| paths::unique(&paths::product(&input, "e57", "laz")));
-                let r = rustlidar_core::e57::convert(&input, &output, epsg)?;
-                rustlidar_core::e57::describe(&r, &output)
+                let r = hipso_core::e57::convert(&input, &output, epsg)?;
+                hipso_core::e57::describe(&r, &output)
                     + if epsg.is_none() {
                         "\nAviso: el E57 no dice su sistema de coordenadas; usa --epsg o `crs` para asignarlo"
                     } else {
@@ -2358,8 +2358,8 @@ fn run(cmd: Cmd) -> Result<()> {
                 }
                 let output =
                     output.unwrap_or_else(|| paths::unique(&paths::product(&input, "ply", "laz")));
-                let r = rustlidar_core::ply::convert(&input, &output, epsg)?;
-                rustlidar_core::ply::describe(&r, &output)
+                let r = hipso_core::ply::convert(&input, &output, epsg)?;
+                hipso_core::ply::describe(&r, &output)
                     + if epsg.is_none() {
                         "\nAviso: el PLY no dice su sistema de coordenadas; usa --epsg o `crs` para asignarlo"
                     } else {
@@ -2378,9 +2378,9 @@ fn run(cmd: Cmd) -> Result<()> {
                     let stem = stem.strip_suffix(".copc").unwrap_or(&stem).to_string();
                     paths::unique(&paths::results_dir(p).join(format!("{stem}.copc.laz")))
                 });
-                let format = rustlidar_core::las::Reader::open(p)?.header.format;
-                let r = rustlidar_core::copc_write::write(p, &out)?;
-                lines.push(rustlidar_core::copc_write::describe(&r, format, &out));
+                let format = hipso_core::las::Reader::open(p)?.header.format;
+                let r = hipso_core::copc_write::write(p, &out)?;
+                lines.push(hipso_core::copc_write::describe(&r, format, &out));
             }
             lines.join("\n")
         }
@@ -2404,7 +2404,7 @@ fn run(cmd: Cmd) -> Result<()> {
                     (p.clone(), out)
                 })
                 .collect();
-            rustlidar_core::colorize::run(&rustlidar_core::colorize::ColorizeJob {
+            hipso_core::colorize::run(&hipso_core::colorize::ColorizeJob {
                 image,
                 rgb: [bands[0], bands[1], bands[2]],
                 nir,
@@ -2420,7 +2420,7 @@ fn run(cmd: Cmd) -> Result<()> {
             reference,
             output,
         } => {
-            use rustlidar_core::intensity::{IntensityJob, Sensor, run};
+            use hipso_core::intensity::{IntensityJob, Sensor, run};
             if output.is_some() && inputs.len() > 1 {
                 return Err(Error::Param("-o sirve para una sola nube".into()));
             }
@@ -2461,9 +2461,9 @@ fn run(cmd: Cmd) -> Result<()> {
             paths::ensure_parent(&output)?;
             // images of several bands or of whole numbers (photographs, satellite scenes,
             // classes) are rewritten as a stream, whatever their size
-            let pyr = rustlidar_core::pyramid::Pyramid::open(&input).ok();
+            let pyr = hipso_core::pyramid::Pyramid::open(&input).ok();
             if let Some(p) = pyr.filter(|p| p.bands > 1 || p.bits <= 16) {
-                use rustlidar_core::rastertools::{RasterJob, Resample, Source, stack};
+                use hipso_core::rastertools::{RasterJob, Resample, Source, stack};
                 let mut job = RasterJob::new(
                     vec![Source {
                         path: input.clone(),
@@ -2478,11 +2478,11 @@ fn run(cmd: Cmd) -> Result<()> {
                 }
                 stack(&job)?
             } else {
-                let g = rustlidar_core::grid::Grid::read(&input)?;
-                rustlidar_core::cog::write(
+                let g = hipso_core::grid::Grid::read(&input)?;
+                hipso_core::cog::write(
                     &g,
                     &output,
-                    rustlidar_core::grid::Grid::read_epsg(&input),
+                    hipso_core::grid::Grid::read_epsg(&input),
                     nearest,
                 )?;
                 format!(
@@ -2522,7 +2522,7 @@ fn run(cmd: Cmd) -> Result<()> {
             let output =
                 output.unwrap_or_else(|| paths::unique(&paths::product(&first, "corredor", "shp")));
             let formats = formats_of(format, &output);
-            let params = rustlidar_core::corridor::CorridorParams {
+            let params = hipso_core::corridor::CorridorParams {
                 wire_class,
                 pole_class,
                 link,
@@ -2536,10 +2536,10 @@ fn run(cmd: Cmd) -> Result<()> {
                 cell,
                 min_height,
                 pole_reach,
-                vegetation: rustlidar_core::filter::ClassSel::parse(&vegetation)?,
+                vegetation: hipso_core::filter::ClassSel::parse(&vegetation)?,
                 ..Default::default()
             };
-            rustlidar_core::corridor::run(&rustlidar_core::corridor::CorridorJob {
+            hipso_core::corridor::run(&hipso_core::corridor::CorridorJob {
                 inputs,
                 dtm,
                 output,
@@ -2584,9 +2584,9 @@ fn run(cmd: Cmd) -> Result<()> {
             minht,
             metrics_format,
         } => {
-            use rustlidar_core::clip::{ClipJob, ClipMode, SampleMetrics};
-            use rustlidar_core::filter::{ClassSel, Filter, ReturnSel};
-            use rustlidar_core::vector::{self, Region, Shape2};
+            use hipso_core::clip::{ClipJob, ClipMode, SampleMetrics};
+            use hipso_core::filter::{ClassSel, Filter, ReturnSel};
+            use hipso_core::vector::{self, Region, Shape2};
             let mut list: Vec<Region> = Vec::new();
             if let Some(path) = &regions {
                 let opts = vector::ReadOptions {
@@ -2603,7 +2603,7 @@ fn run(cmd: Cmd) -> Result<()> {
             let first = inputs.first().cloned().unwrap_or_default();
             let mut layout_note = None;
             if let Some(kind) = sample {
-                use rustlidar_core::plots::{PlotShape, Sampling, generate, write_layout};
+                use hipso_core::plots::{PlotShape, Sampling, generate, write_layout};
                 let mut b = [
                     f64::INFINITY,
                     f64::INFINITY,
@@ -2611,7 +2611,7 @@ fn run(cmd: Cmd) -> Result<()> {
                     f64::NEG_INFINITY,
                 ];
                 for p in &inputs {
-                    let h = rustlidar_core::las::Reader::open(p)?.header.bounds;
+                    let h = hipso_core::las::Reader::open(p)?.header.bounds;
                     b = [
                         b[0].min(h[0]),
                         b[1].min(h[1]),
@@ -2621,7 +2621,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 }
                 let shape = if square {
                     let w = side.ok_or_else(|| {
-                        rustlidar_core::Error::Param(
+                        hipso_core::Error::Param(
                             "--side es el lado de las parcelas en metros".into(),
                         )
                     })?;
@@ -2629,7 +2629,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 } else {
                     PlotShape::Circle {
                         radius: radius.ok_or_else(|| {
-                            rustlidar_core::Error::Param(
+                            hipso_core::Error::Param(
                                 "--radius es el radio de las parcelas en metros".into(),
                             )
                         })?,
@@ -2646,7 +2646,7 @@ fn run(cmd: Cmd) -> Result<()> {
                     },
                     SampleArg::Systematic => {
                         let sp = spacing.as_deref().ok_or_else(|| {
-                            rustlidar_core::Error::Param(
+                            hipso_core::Error::Param(
                                 "--spacing es la distancia entre parcelas".into(),
                             )
                         })?;
@@ -2658,7 +2658,7 @@ fn run(cmd: Cmd) -> Result<()> {
                             [a] => (*a, *a),
                             [a, c] => (*a, *c),
                             _ => {
-                                return Err(rustlidar_core::Error::Param(
+                                return Err(hipso_core::Error::Param(
                                     "--spacing es X o X,Y".into(),
                                 ));
                             }
@@ -2686,7 +2686,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 let path = layout
                     .clone()
                     .unwrap_or_else(|| paths::unique(&paths::product(&first, "parcelas", "shp")));
-                let prj = rustlidar_core::las::Reader::open(&first)
+                let prj = hipso_core::las::Reader::open(&first)
                     .ok()
                     .and_then(|r| r.header.epsg)
                     .and_then(vector::prj_for_epsg);
@@ -2720,7 +2720,7 @@ fn run(cmd: Cmd) -> Result<()> {
             }
             if let Some(w) = &where_ {
                 let (field, value) = w.split_once('=').ok_or_else(|| {
-                    rustlidar_core::Error::Param("--where necesita CAMPO=VALOR".into())
+                    hipso_core::Error::Param("--where necesita CAMPO=VALOR".into())
                 })?;
                 list.retain(|r| {
                     r.attrs.iter().any(|(k, v)| {
@@ -2796,7 +2796,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 "filtrada"
             };
             let mut job =
-                rustlidar_core::ops::whole_cloud_job(inputs, out_path(output, &first, tag, &ext))?;
+                hipso_core::ops::whole_cloud_job(inputs, out_path(output, &first, tag, &ext))?;
             job.filter = sel.filter()?;
             job.dtm = dtm;
             job.z_offset = z_offset;
@@ -2815,7 +2815,7 @@ fn run(cmd: Cmd) -> Result<()> {
             seed,
             sel,
         } => {
-            use rustlidar_core::thin::{ThinMethod, ThinParams, report, thin_cloud};
+            use hipso_core::thin::{ThinMethod, ThinParams, report, thin_cloud};
             let params = ThinParams {
                 method: match method {
                     ThinArg::Lowest => ThinMethod::Lowest,
@@ -2866,7 +2866,7 @@ fn run(cmd: Cmd) -> Result<()> {
             stat,
             sel,
         } => {
-            use rustlidar_core::ops::{Stat, raster_stat};
+            use hipso_core::ops::{Stat, raster_stat};
             let first = inputs.first().cloned().unwrap_or_default();
             let (st, tag) = match stat {
                 StatArg::Density => (Stat::Density, "densidad"),
@@ -2895,10 +2895,10 @@ fn run(cmd: Cmd) -> Result<()> {
             azimuth,
             altitude,
         } => {
-            let g = rustlidar_core::grid::Grid::read(&input)?;
+            let g = hipso_core::grid::Grid::read(&input)?;
             let out = output
                 .unwrap_or_else(|| paths::unique(&paths::product(&input, "sombreado", "png")));
-            rustlidar_core::ops::hillshade(&g, azimuth, altitude).write_png(&out)?;
+            hipso_core::ops::hillshade(&g, azimuth, altitude).write_png(&out)?;
             format!("{} x {} px: {}", g.cols, g.rows, out.display())
         }
         Cmd::Contour {
@@ -2906,7 +2906,7 @@ fn run(cmd: Cmd) -> Result<()> {
             output,
             interval,
         } => {
-            let g = rustlidar_core::grid::Grid::read(&input)?;
+            let g = hipso_core::grid::Grid::read(&input)?;
             let out = output.unwrap_or_else(|| {
                 paths::unique(&paths::product(
                     &input,
@@ -2914,7 +2914,7 @@ fn run(cmd: Cmd) -> Result<()> {
                     "shp",
                 ))
             });
-            let n = rustlidar_core::ops::write_contours(&g, interval, &out, None)?;
+            let n = hipso_core::ops::write_contours(&g, interval, &out, None)?;
             format!("{n} curvas de nivel: {}", out.display())
         }
         Cmd::Tile {
@@ -2935,7 +2935,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 f64::NEG_INFINITY,
             ];
             for p in &inputs {
-                let h = rustlidar_core::las::Reader::open(p)?.header.bounds;
+                let h = hipso_core::las::Reader::open(p)?.header.bounds;
                 b = [
                     b[0].min(h[0]),
                     b[1].min(h[1]),
@@ -2943,9 +2943,9 @@ fn run(cmd: Cmd) -> Result<()> {
                     b[3].max(h[4]),
                 ];
             }
-            let regions = rustlidar_core::ops::tile_regions(b, size, buffer, "t")?;
-            let mut job = rustlidar_core::clip::ClipJob::new(inputs, regions, out);
-            job.mode = rustlidar_core::clip::ClipMode::PerRegion;
+            let regions = hipso_core::ops::tile_regions(b, size, buffer, "t")?;
+            let mut job = hipso_core::clip::ClipJob::new(inputs, regions, out);
+            job.mode = hipso_core::clip::ClipMode::PerRegion;
             jobs::clip(&job)?
         }
         Cmd::Edit {
@@ -2960,14 +2960,14 @@ fn run(cmd: Cmd) -> Result<()> {
             delete,
             set_class,
         } => {
-            use rustlidar_core::edit::{self, Action, Attr, Edit, Mode, Region, SelOp};
-            use rustlidar_core::filter::ClassSel;
-            use rustlidar_core::vector;
+            use hipso_core::edit::{self, Action, Attr, Edit, Mode, Region, SelOp};
+            use hipso_core::filter::ClassSel;
+            use hipso_core::vector;
             let action = match (delete, set_class) {
                 (true, _) => Action::Delete,
                 (false, Some(c)) => Action::Reclassify(c),
                 _ => {
-                    return Err(rustlidar_core::Error::Param(
+                    return Err(hipso_core::Error::Param(
                         "indica qué hacer: --delete o --set-class N".into(),
                     ));
                 }
@@ -2993,7 +2993,7 @@ fn run(cmd: Cmd) -> Result<()> {
                         ..vector::ReadOptions::default()
                     };
                     let list = vector::read_regions(path, &opts)?;
-                    for (k, r) in rustlidar_core::ops::polygons_of(&list)
+                    for (k, r) in hipso_core::ops::polygons_of(&list)
                         .into_iter()
                         .enumerate()
                     {
@@ -3001,7 +3001,7 @@ fn run(cmd: Cmd) -> Result<()> {
                             mode: if k == 0 { Mode::New } else { Mode::Add },
                             region: r,
                             attr: Attr {
-                                classes: rustlidar_core::classes::ClassSet::all(),
+                                classes: hipso_core::classes::ClassSet::all(),
                                 z: None,
                                 ..Attr::default()
                             },
@@ -3044,12 +3044,12 @@ fn run(cmd: Cmd) -> Result<()> {
             replace,
             output,
         } => {
-            use rustlidar_core::ops::{CrsSource, assign_projection};
+            use hipso_core::ops::{CrsSource, assign_projection};
             let source = match (from, epsg) {
                 (Some(f), _) => CrsSource::Cloud(f),
                 (None, Some(e)) => CrsSource::Epsg(e),
                 _ => {
-                    return Err(rustlidar_core::Error::Param(
+                    return Err(hipso_core::Error::Param(
                         "give --from <cloud> or --epsg <code>".into(),
                     ));
                 }
@@ -3083,11 +3083,11 @@ fn run(cmd: Cmd) -> Result<()> {
             extrapolate,
             epsg,
         } => {
-            use rustlidar_core::aba::{self, AbaJob, Criterion, Spec, Transform};
+            use hipso_core::aba::{self, AbaJob, Criterion, Spec, Transform};
             let output = output.unwrap_or_else(|| {
                 paths::unique_with(
                     &paths::product(&plots, "mapa", "tif"),
-                    rustlidar_core::aba::COMPANIONS,
+                    hipso_core::aba::COMPANIONS,
                 )
             });
             let job = AbaJob {
@@ -3143,7 +3143,7 @@ fn run(cmd: Cmd) -> Result<()> {
             nodata,
             tiles,
         } => {
-            use rustlidar_core::rastertools::{RasterJob, Source, stack};
+            use hipso_core::rastertools::{RasterJob, Source, stack};
             let mut job = RasterJob::new(
                 inputs
                     .into_iter()
@@ -3165,7 +3165,7 @@ fn run(cmd: Cmd) -> Result<()> {
             nodata,
             tiles,
         } => {
-            use rustlidar_core::rastertools::{AlignJob, Resample, align};
+            use hipso_core::rastertools::{AlignJob, Resample, align};
             let pairs = inputs
                 .into_iter()
                 .map(|p| {
@@ -3195,9 +3195,9 @@ fn run(cmd: Cmd) -> Result<()> {
             ground_class,
             replace_z,
         } => {
-            use rustlidar_core::hag::{HagParams, run};
+            use hipso_core::hag::{HagParams, run};
             if output.is_some() && inputs.len() > 1 {
-                return Err(rustlidar_core::Error::Param(
+                return Err(hipso_core::Error::Param(
                     "-o solo vale con una nube; sin -o cada una da su archivo".into(),
                 ));
             }
@@ -3226,7 +3226,7 @@ fn run(cmd: Cmd) -> Result<()> {
             output,
             to,
             from,
-        } => rustlidar_core::reproject::file(&input, &output, to, from)?,
+        } => hipso_core::reproject::file(&input, &output, to, from)?,
         Cmd::Mosaic {
             inputs,
             output,
@@ -3238,7 +3238,7 @@ fn run(cmd: Cmd) -> Result<()> {
             average,
             tiles,
         } => {
-            use rustlidar_core::rastertools::{
+            use hipso_core::rastertools::{
                 Extent, Overlap, RasterJob, Resample, Source, mosaic,
             };
             let mut job = RasterJob::new(
@@ -3286,7 +3286,7 @@ fn run(cmd: Cmd) -> Result<()> {
             target,
             max_distance,
         } => {
-            use rustlidar_core::terrain::{Product, TerrainJob, run as terrain};
+            use hipso_core::terrain::{Product, TerrainJob, run as terrain};
             let product = match product {
                 TerrainArg::Slope => Product::Slope,
                 TerrainArg::Aspect => Product::Aspect,
@@ -3321,7 +3321,7 @@ fn run(cmd: Cmd) -> Result<()> {
             all_copies,
             also,
         } => {
-            use rustlidar_core::cloudtools::{DupFields, remove_duplicates};
+            use hipso_core::cloudtools::{DupFields, remove_duplicates};
             let mut f = DupFields::default();
             for a in &also {
                 match a.as_str() {
@@ -3332,7 +3332,7 @@ fn run(cmd: Cmd) -> Result<()> {
                     "count" => f.return_count = true,
                     "source" => f.source_id = true,
                     o => {
-                        return Err(rustlidar_core::Error::Param(format!(
+                        return Err(hipso_core::Error::Param(format!(
                             "'{o}' no es un atributo: class, gps, intensity, return, count o source"
                         )));
                     }
@@ -3357,7 +3357,7 @@ fn run(cmd: Cmd) -> Result<()> {
             distance,
             neighbors,
         } => {
-            use rustlidar_core::cloudtools::{CompareParams, compare_clouds, compare_text};
+            use hipso_core::cloudtools::{CompareParams, compare_clouds, compare_text};
             let out = out_path(output, &input, "cambios", &ext_of(&input));
             let rep = compare_clouds(
                 &reference,
@@ -3381,7 +3381,7 @@ fn run(cmd: Cmd) -> Result<()> {
             stop,
             shift_only,
         } => {
-            use rustlidar_core::cloudtools::{FitParams, fit_cloud, fit_text};
+            use hipso_core::cloudtools::{FitParams, fit_cloud, fit_text};
             let out = out_path(output, &input, "ajustada", &ext_of(&input));
             let rep = fit_cloud(
                 &reference,
@@ -3405,13 +3405,13 @@ fn run(cmd: Cmd) -> Result<()> {
             returns,
             by_cloud,
         } => {
-            use rustlidar_core::cloudtools::{SwathReturns, swath_separation, swath_text};
+            use hipso_core::cloudtools::{SwathReturns, swath_separation, swath_text};
             let returns = match returns.as_str() {
                 "all" => SwathReturns::All,
                 "last" => SwathReturns::Last,
                 "single" => SwathReturns::Single,
                 o => {
-                    return Err(rustlidar_core::Error::Param(format!(
+                    return Err(hipso_core::Error::Param(format!(
                         "'{o}': usa all, last o single"
                     )));
                 }
@@ -3441,7 +3441,7 @@ fn run(cmd: Cmd) -> Result<()> {
             max_gap,
             lost_top_share,
         } => {
-            use rustlidar_core::tls::{TlsJob, TlsParams, run};
+            use hipso_core::tls::{TlsJob, TlsParams, run};
             let output = single_output(output, inputs.len())?;
             let mut lines = Vec::new();
             for input in &inputs {
@@ -3489,14 +3489,14 @@ fn run(cmd: Cmd) -> Result<()> {
             contours,
             class,
         } => {
-            use rustlidar_core::filter::ClassSel;
-            use rustlidar_core::view::{self, ColorBy, Orbit, Plan, ProfileBox, Style};
+            use hipso_core::filter::ClassSel;
+            use hipso_core::view::{self, ColorBy, Orbit, Plan, ProfileBox, Style};
             let (w, h) = size
                 .split_once('x')
                 .and_then(|(a, b)| Some((a.parse::<usize>().ok()?, b.parse::<usize>().ok()?)))
                 .filter(|(w, h)| *w > 0 && *h > 0 && w * h <= 1 << 28)
                 .ok_or_else(|| {
-                    rustlidar_core::Error::Param(format!("--size necesita ANCHOxALTO, no '{size}'"))
+                    hipso_core::Error::Param(format!("--size necesita ANCHOxALTO, no '{size}'"))
                 })?;
             let store = view::load(&inputs, max_points)?;
             let mut st = Style::fit(&store);
@@ -3511,7 +3511,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 ColorArg::Rgb => ColorBy::Rgb,
             };
             st.point_size = point_size;
-            let mask_of = |c: &str| -> Result<rustlidar_core::classes::ClassSet> {
+            let mask_of = |c: &str| -> Result<hipso_core::classes::ClassSet> {
                 Ok(ClassSel::parse(c)?.set)
             };
             if let Some(c) = &class {
@@ -3524,7 +3524,7 @@ fn run(cmd: Cmd) -> Result<()> {
                     if shade.is_some() || contours.is_some() {
                         let mask = match &shade {
                             Some(c) if !c.is_empty() => mask_of(c)?,
-                            _ => rustlidar_core::classes::ClassSet::all(),
+                            _ => hipso_core::classes::ClassSet::all(),
                         };
                         let g = view::surface(&store, mask, 1024)?;
                         if shade.is_some() {
@@ -3598,8 +3598,8 @@ fn run(cmd: Cmd) -> Result<()> {
             zmax,
             decimate,
         } => {
-            use rustlidar_core::export::{self, AsciiJob, Item};
-            use rustlidar_core::filter::{ClassSel, Filter, ReturnSel};
+            use hipso_core::export::{self, AsciiJob, Item};
+            use hipso_core::filter::{ClassSel, Filter, ReturnSel};
             let filter = Filter {
                 classes: class
                     .as_deref()
@@ -3613,7 +3613,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 skip_noise: false,
             };
             if inputs.len() > 1 && dtm.is_some() {
-                return Err(rustlidar_core::Error::Param(
+                return Err(hipso_core::Error::Param(
                     "--dtm indica un solo MDT: con varias nubes, cada una usa el MDT hecho a partir de ella"
                         .into(),
                 ));
@@ -3662,7 +3662,7 @@ fn run(cmd: Cmd) -> Result<()> {
                         "red" => Ok(Item::Red),
                         "green" | "g" => Ok(Item::Green),
                         "blue" | "b" => Ok(Item::Blue),
-                        o => Err(rustlidar_core::Error::Param(format!(
+                        o => Err(hipso_core::Error::Param(format!(
                             "dato desconocido '{o}'"
                         ))),
                     })
@@ -3714,7 +3714,7 @@ fn run(cmd: Cmd) -> Result<()> {
         } => {
             let output = single_output(output, inputs.len())?;
             if inputs.len() > 1 && dtm.is_some() {
-                return Err(rustlidar_core::Error::Param(
+                return Err(hipso_core::Error::Param(
                     "--dtm indica un solo MDT: con varias hojas, cada una usa el MDT hecho a partir de ella"
                         .into(),
                 ));
@@ -3735,7 +3735,7 @@ fn run(cmd: Cmd) -> Result<()> {
                     memory: memory_mb.saturating_mul(1 << 20),
                     strata: strata_limits,
                     int_strata: int_strata_limits,
-                    structure: structure.then_some(rustlidar_core::metrics::StructureParams {
+                    structure: structure.then_some(hipso_core::metrics::StructureParams {
                         layer: structure_layer,
                         top: structure_top,
                         gap_height,
@@ -3747,7 +3747,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 intensity,
                 strata,
             };
-            rustlidar_core::sheets::metrics_each(&inputs, &base, &out_for, &dtm_of)?
+            hipso_core::sheets::metrics_each(&inputs, &base, &out_for, &dtm_of)?
         }
     };
     println!("{summary}");
@@ -3764,10 +3764,10 @@ fn main() -> ExitCode {
             paths::set_output_dir(cli.results_dir);
             run(cli.cmd)
         })
-        .map_err(rustlidar_core::Error::Io)
+        .map_err(hipso_core::Error::Io)
         .and_then(|h| {
             h.join()
-                .unwrap_or_else(|_| Err(rustlidar_core::Error::Format("error interno".into())))
+                .unwrap_or_else(|_| Err(hipso_core::Error::Format("error interno".into())))
         });
     match result {
         Ok(()) => ExitCode::SUCCESS,

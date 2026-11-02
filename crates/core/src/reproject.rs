@@ -7,8 +7,8 @@
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
-use rustlidar_crs::SpatialRef;
-pub use rustlidar_crs::Transformer;
+use hipso_crs::SpatialRef;
+pub use hipso_crs::Transformer;
 
 use crate::grid::Grid;
 use crate::las::{self, Reader, Writer};
@@ -359,7 +359,7 @@ pub fn file(input: &Path, output: &Path, to: u16, from: Option<u16>) -> Result<S
 /// a circle keeps its centre's image and its radius, whose distortion is parts per thousand.
 pub fn regions(list: &[Region], from: u16, to: u16) -> Result<Vec<Region>> {
     let t = transformer(from, to)?;
-    let bad = |e: rustlidar_crs::Error| {
+    let bad = |e: hipso_crs::Error| {
         Error::Param(format!("una zona cae fuera del sistema EPSG:{to}: {e}"))
     };
     list.iter()

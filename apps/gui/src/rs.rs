@@ -6,8 +6,8 @@ use std::sync::mpsc::{Receiver, channel};
 
 use super::*;
 use crate::symbology::ramp_rgb;
-use rustlidar_core::pyramid::Pyramid;
-use rustlidar_core::raster::{self, BandStats, Expr, INDICES, Image as BandImage, RgbStyle};
+use hipso_core::pyramid::Pyramid;
+use hipso_core::raster::{self, BandStats, Expr, INDICES, Image as BandImage, RgbStyle};
 
 /// How the values of a band are mapped to black and white.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -82,7 +82,7 @@ pub struct ImageLayer {
     last_plan: (f64, f64, f64),
     steady_since: Instant,
     /// Moves the image's coordinates to the work's system, when they differ.
-    pub warp: Option<Arc<rustlidar_core::reproject::Transformer>>,
+    pub warp: Option<Arc<hipso_core::reproject::Transformer>>,
 }
 
 /// An image opened: its pyramid, the reduced whole image and the reduction.
@@ -555,10 +555,10 @@ impl App {
                         self.log(format!(
                             "«{}» está en {}, distinto del de la nube ({}): se pasa a él al cargar, y eso tarda más.",
                             p.display(),
-                            rustlidar_core::crs::name(from),
-                            rustlidar_core::crs::name(to)
+                            hipso_core::crs::name(from),
+                            hipso_core::crs::name(to)
                         ));
-                        match rustlidar_core::reproject::grid(&g, from, to) {
+                        match hipso_core::reproject::grid(&g, from, to) {
                             Ok(m) => {
                                 g = m;
                                 self.log(format!(
@@ -635,17 +635,17 @@ impl App {
                     }
                     let mut layer = ImageLayer::new(ctx, &name, pyr, work, reduction);
                     if let (Some(from), Some(to)) = (from, self.project_crs())
-                        && rustlidar_core::crs::relation(to, from)
-                            == rustlidar_core::crs::Relation::Different
+                        && hipso_core::crs::relation(to, from)
+                            == hipso_core::crs::Relation::Different
                     {
-                        match rustlidar_core::reproject::transformer(from, to) {
+                        match hipso_core::reproject::transformer(from, to) {
                             Ok(t) => {
                                 layer.warp = Some(Arc::new(t));
                                 self.log(format!(
                                     "«{}» está en {}, distinto del de la nube ({}): se coloca en el mapa convertida (a la resolución de la vista previa, sin ventanas nítidas al acercar).",
                                     job.path.display(),
-                                    rustlidar_core::crs::name(from),
-                                    rustlidar_core::crs::name(to)
+                                    hipso_core::crs::name(from),
+                                    hipso_core::crs::name(to)
                                 ));
                             }
                             Err(e) => self.log(format!(
@@ -882,7 +882,7 @@ impl App {
         let base = self.refs[self.rs.layer].path.clone();
         match result {
             Ok(g) => {
-                let name = format!("{}_{label}", rustlidar_core::paths::stem(&base));
+                let name = format!("{}_{label}", hipso_core::paths::stem(&base));
                 let path = base.with_file_name(format!("{name}.tif"));
                 self.add_grid(ctx, name.clone(), path, g.clone());
                 self.rs.last = Some((name, g));

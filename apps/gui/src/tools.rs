@@ -5,25 +5,25 @@
 use std::path::{Path, PathBuf};
 
 use eframe::egui;
-use rustlidar_core::axelsson::AxelssonParams;
-use rustlidar_core::buildings::BuildingParams;
-use rustlidar_core::csf::CsfParams;
-use rustlidar_core::export::{self, AsciiJob, Item};
-use rustlidar_core::extras::{Extras, PoleParams, VegParams, WireParams};
-use rustlidar_core::filter::{ClassSel, Filter, ReturnSel};
-use rustlidar_core::ground::GroundParams;
-use rustlidar_core::jobs::{self, ChmMethod};
-use rustlidar_core::markup::Aoi;
-use rustlidar_core::mcc::MccParams;
-use rustlidar_core::metrics::MetricParams;
-use rustlidar_core::noise::NoiseParams;
-use rustlidar_core::paths;
-use rustlidar_core::pipeline::{Ground, Noise, PitFree, Steps, Surface, Tiling};
-use rustlidar_core::pmf::PmfParams;
-use rustlidar_core::rules::ClassRule;
-use rustlidar_core::smrf::SmrfParams;
-use rustlidar_core::trees::{CrownParams, Segmenter, Shape, Smoothing, TopParams};
-use rustlidar_core::vector::{self, Polygon, Region, Shape2};
+use hipso_core::axelsson::AxelssonParams;
+use hipso_core::buildings::BuildingParams;
+use hipso_core::csf::CsfParams;
+use hipso_core::export::{self, AsciiJob, Item};
+use hipso_core::extras::{Extras, PoleParams, VegParams, WireParams};
+use hipso_core::filter::{ClassSel, Filter, ReturnSel};
+use hipso_core::ground::GroundParams;
+use hipso_core::jobs::{self, ChmMethod};
+use hipso_core::markup::Aoi;
+use hipso_core::mcc::MccParams;
+use hipso_core::metrics::MetricParams;
+use hipso_core::noise::NoiseParams;
+use hipso_core::paths;
+use hipso_core::pipeline::{Ground, Noise, PitFree, Steps, Surface, Tiling};
+use hipso_core::pmf::PmfParams;
+use hipso_core::rules::ClassRule;
+use hipso_core::smrf::SmrfParams;
+use hipso_core::trees::{CrownParams, Segmenter, Shape, Smoothing, TopParams};
+use hipso_core::vector::{self, Polygon, Region, Shape2};
 
 use crate::theme::Tokens;
 
@@ -31,7 +31,7 @@ mod lidar_ui;
 mod sheets_ui;
 pub use sheets_ui::related;
 
-pub type Task = Box<dyn FnOnce() -> rustlidar_core::Result<String> + Send>;
+pub type Task = Box<dyn FnOnce() -> hipso_core::Result<String> + Send>;
 
 /// A job ready to run, and what to show when it ends.
 pub struct Launch {
@@ -1151,7 +1151,7 @@ impl Tools {
 
     fn trees_form(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf]) {
         self.in_chm.row(ui, t, "CHM", "CHM", || {
-            pick_file("Ráster", rustlidar_core::raster::EXTENSIONS)
+            pick_file("Ráster", hipso_core::raster::EXTENSIONS)
         });
         if inputs.len() > 1 && !self.in_chm.manual {
             ui.label(
@@ -1360,7 +1360,7 @@ impl Tools {
                 ui,
                 "MDT",
                 &mut self.ex_dtm,
-                rustlidar_core::raster::EXTENSIONS,
+                hipso_core::raster::EXTENSIONS,
             );
             ui.label(
                 egui::RichText::new(
@@ -1586,7 +1586,7 @@ impl Tools {
                         smoothing: self.smoothing,
                         field: (!self.field.trim().is_empty()).then(|| jobs::FieldJob {
                             file: PathBuf::from(self.field.trim()),
-                            columns: rustlidar_core::forest::FieldColumns::default(),
+                            columns: hipso_core::forest::FieldColumns::default(),
                             plot_x: "X_Parcela".into(),
                             plot_y: "Y_Parcela".into(),
                             plot_radius: self.field_radius,
@@ -1598,7 +1598,7 @@ impl Tools {
                     Box::new(move || {
                         let mut lines = Vec::new();
                         for j in &trees_jobs {
-                            rustlidar_core::check_cancel()?;
+                            hipso_core::check_cancel()?;
                             lines.push(jobs::trees(j)?);
                         }
                         Ok(lines.join("\n"))

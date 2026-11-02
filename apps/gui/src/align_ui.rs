@@ -2,9 +2,9 @@
 //! cell for cell.
 
 use super::*;
-use rustlidar_core::paths;
-use rustlidar_core::pyramid::Pyramid;
-use rustlidar_core::rastertools::{self, AlignJob, Dtype, Resample};
+use hipso_core::paths;
+use hipso_core::pyramid::Pyramid;
+use hipso_core::rastertools::{self, AlignJob, Dtype, Resample};
 
 /// What a raster says about its cells, for the list.
 #[derive(Clone)]
@@ -137,7 +137,7 @@ impl App {
                             .map_or("(elige el ráster cuyas celdas se copian)".to_string(), |r| paths::stem(&r.0)),
                     );
                     if ui.button("Archivo…").clicked()
-                        && let Some(p) = crate::prefs::dialog().add_filter("Ráster", rustlidar_core::raster::EXTENSIONS).pick_file()
+                        && let Some(p) = crate::prefs::dialog().add_filter("Ráster", hipso_core::raster::EXTENSIONS).pick_file()
                     {
                         let c = describe(&p);
                         t.reference = Some((p, c));
@@ -162,7 +162,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label("Rásteres a igualar");
                     if ui.button("➕ Añadir…").clicked()
-                        && let Some(v) = crate::prefs::dialog().add_filter("Ráster", rustlidar_core::raster::EXTENSIONS).pick_files()
+                        && let Some(v) = crate::prefs::dialog().add_filter("Ráster", hipso_core::raster::EXTENSIONS).pick_files()
                     {
                         for p in v {
                             if !t.inputs.iter().any(|i| i.0 == p) {

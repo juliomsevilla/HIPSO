@@ -4,7 +4,7 @@
 //! memory cap), in the background; until they arrive it draws the points already in memory.
 
 use super::*;
-use rustlidar_core::edit;
+use hipso_core::edit;
 use std::sync::mpsc::TryRecvError;
 
 /// Bytes a point takes in the store.
@@ -14,7 +14,7 @@ const POINT_BYTES: u64 = 24;
 /// 16 million, about 350 MB). Past it the strip is thinned, which only happens when the box
 /// itself holds more than that.
 fn cap() -> usize {
-    let mem = rustlidar_core::copc_cache::total_memory().unwrap_or(8 << 30);
+    let mem = hipso_core::copc_cache::total_memory().unwrap_or(8 << 30);
     ((mem / 8 / POINT_BYTES) as usize).clamp(16_000_000, 200_000_000)
 }
 

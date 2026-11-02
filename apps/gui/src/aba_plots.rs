@@ -4,7 +4,7 @@
 
 use super::*;
 use eframe::egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Shape, Stroke, Vec2};
-use rustlidar_core::aba::normal_quantile;
+use hipso_core::aba::normal_quantile;
 
 /// One plot of the model as the table has it.
 #[derive(Clone)]

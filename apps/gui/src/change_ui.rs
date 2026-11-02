@@ -3,9 +3,9 @@
 
 use super::*;
 use crate::numfield::NumField;
-use rustlidar_core::change::{ChangeJob, TreeChange};
-use rustlidar_core::paths::{self, Formats};
-use rustlidar_core::trees::{Shape, TopParams};
+use hipso_core::change::{ChangeJob, TreeChange};
+use hipso_core::paths::{self, Formats};
+use hipso_core::trees::{Shape, TopParams};
 
 pub struct ChangeTool {
     pub open: bool,
@@ -69,7 +69,7 @@ fn pick_raster(
         );
         if ui.button("Archivo…").clicked()
             && let Some(p) = crate::prefs::dialog()
-                .add_filter("Ráster", rustlidar_core::raster::EXTENSIONS)
+                .add_filter("Ráster", hipso_core::raster::EXTENSIONS)
                 .pick_file()
         {
             *slot = Some(p);
@@ -226,7 +226,7 @@ impl App {
             outputs.extend(o.patches_table);
             outputs.extend(o.stands);
             outputs.extend(o.trees);
-            let task: tools::Task = Box::new(move || rustlidar_core::change::change(&job));
+            let task: tools::Task = Box::new(move || hipso_core::change::change(&job));
             self.start(
                 ctx,
                 Launch {

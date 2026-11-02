@@ -32,10 +32,10 @@ impl App {
             let r = std::panic::catch_unwind(|| {
                 let copies = clouds
                     .iter()
-                    .map(|p| rustlidar_core::copc_cache::ensure(p))
+                    .map(|p| hipso_core::copc_cache::ensure(p))
                     .collect::<Result<Vec<_>, _>>();
                 if let Ok(c) = &copies {
-                    rustlidar_core::copc_cache::prune(rustlidar_core::copc_cache::MAX_BYTES, c);
+                    hipso_core::copc_cache::prune(hipso_core::copc_cache::MAX_BYTES, c);
                 }
                 copies
             })
@@ -135,7 +135,7 @@ impl App {
         let c = ctx.clone();
         std::thread::spawn(move || {
             let r = std::panic::catch_unwind(|| {
-                rustlidar_core::copc_detail::load_detail(&paths, window, BUDGET, px, origin, &files)
+                hipso_core::copc_detail::load_detail(&paths, window, BUDGET, px, origin, &files)
             })
             .map_err(|_| "error interno".to_string())
             .and_then(|r| r.map_err(|e| e.to_string()));

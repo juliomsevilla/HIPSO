@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use rustlidar_core::grid::Grid;
+use hipso_core::grid::Grid;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();

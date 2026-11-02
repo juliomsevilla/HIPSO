@@ -6,11 +6,11 @@
 use std::collections::HashMap;
 
 use super::*;
-use rustlidar_core::cloudtools::{self, DupFields};
-use rustlidar_core::hag::{self, HagParams};
-use rustlidar_core::thin::{self, ThinMethod, ThinParams};
-use rustlidar_core::tls::{self, TlsJob, TlsParams};
-use rustlidar_core::volume::{self, ReferenceSource, VolumeJob};
+use hipso_core::cloudtools::{self, DupFields};
+use hipso_core::hag::{self, HagParams};
+use hipso_core::thin::{self, ThinMethod, ThinParams};
+use hipso_core::tls::{self, TlsJob, TlsParams};
+use hipso_core::volume::{self, ReferenceSource, VolumeJob};
 
 pub struct State {
     pub thin_method: usize,
@@ -138,7 +138,7 @@ impl Tools {
             inputs.len()
         ));
         for p in inputs {
-            if let Ok(r) = rustlidar_core::las::Reader::open(p) {
+            if let Ok(r) = hipso_core::las::Reader::open(p) {
                 let b = r.header.bounds;
                 let area = (b[3] - b[0]).max(0.0) * (b[4] - b[1]).max(0.0);
                 if area > 0.0 {
@@ -438,7 +438,7 @@ impl Tools {
                     .desired_width(260.0),
             );
             if ui.button("…").clicked()
-                && let Some(p) = pick_file("Imagen", rustlidar_core::raster::EXTENSIONS)
+                && let Some(p) = pick_file("Imagen", hipso_core::raster::EXTENSIONS)
             {
                 s.col_image = p.display().to_string();
             }
@@ -673,14 +673,14 @@ impl Tools {
             ui,
             surface,
             &mut s.vol_surface,
-            rustlidar_core::raster::EXTENSIONS,
+            hipso_core::raster::EXTENSIONS,
         );
         match s.vol_source {
             1 => Self::raster_row(
                 ui,
                 "MDT",
                 &mut s.vol_dtm,
-                rustlidar_core::raster::EXTENSIONS,
+                hipso_core::raster::EXTENSIONS,
             ),
             2 => num(
                 ui,
@@ -883,7 +883,7 @@ impl Tools {
                     Box::new(move || {
                         let mut lines = Vec::new();
                         for p in &inputs_v {
-                            rustlidar_core::check_cancel()?;
+                            hipso_core::check_cancel()?;
                             let out = outs.get(p).cloned().unwrap_or_default();
                             let (r, k) = thin::thin_cloud(
                                 std::slice::from_ref(p),
@@ -910,7 +910,7 @@ impl Tools {
                     Box::new(move || {
                         let mut lines = Vec::new();
                         for f in &inputs_v {
-                            rustlidar_core::check_cancel()?;
+                            hipso_core::check_cancel()?;
                             let out = outs.get(f).cloned().unwrap_or_default();
                             lines.push(hag::run(f, &out, &p)?);
                         }
@@ -935,7 +935,7 @@ impl Tools {
                     .collect();
                 (
                     Box::new(move || {
-                        rustlidar_core::colorize::run(&rustlidar_core::colorize::ColorizeJob {
+                        hipso_core::colorize::run(&hipso_core::colorize::ColorizeJob {
                             image,
                             rgb: b,
                             nir: None,
@@ -947,7 +947,7 @@ impl Tools {
                 )
             }
             ToolId::Intensity => {
-                use rustlidar_core::intensity::{IntensityJob, Sensor};
+                use hipso_core::intensity::{IntensityJob, Sensor};
                 let sensor = if self.lx.int_mode == 0 {
                     let p = PathBuf::from(self.lx.int_traj.trim());
                     if !p.is_file() {
@@ -969,7 +969,7 @@ impl Tools {
                     .collect();
                 (
                     Box::new(move || {
-                        rustlidar_core::intensity::run(&IntensityJob {
+                        hipso_core::intensity::run(&IntensityJob {
                             sensor,
                             exponent,
                             reference: (r > 0.0).then_some(r),
@@ -996,11 +996,11 @@ impl Tools {
                     Box::new(move || {
                         let mut lines = Vec::new();
                         for p in &inputs_v {
-                            rustlidar_core::check_cancel()?;
+                            hipso_core::check_cancel()?;
                             let out = outs.get(p).cloned().unwrap_or_default();
-                            let format = rustlidar_core::las::Reader::open(p)?.header.format;
-                            let r = rustlidar_core::copc_write::write(p, &out)?;
-                            lines.push(rustlidar_core::copc_write::describe(&r, format, &out));
+                            let format = hipso_core::las::Reader::open(p)?.header.format;
+                            let r = hipso_core::copc_write::write(p, &out)?;
+                            lines.push(hipso_core::copc_write::describe(&r, format, &out));
                         }
                         Ok(lines.join("\n"))
                     }),
@@ -1015,7 +1015,7 @@ impl Tools {
                     Box::new(move || {
                         let mut lines = Vec::new();
                         for p in &inputs_v {
-                            rustlidar_core::check_cancel()?;
+                            hipso_core::check_cancel()?;
                             let out = outs.get(p).cloned().unwrap_or_default();
                             let (read, gone) = cloudtools::remove_duplicates(p, &out, f, all)?;
                             lines.push(format!(
@@ -1060,7 +1060,7 @@ impl Tools {
                     Box::new(move || {
                         let mut lines = Vec::new();
                         for p in &inputs_v {
-                            rustlidar_core::check_cancel()?;
+                            hipso_core::check_cancel()?;
                             let out = outs.get(p).cloned().unwrap_or_default();
                             let refs = std::slice::from_ref(&reference);
                             lines.push(if is_cmp {
@@ -1141,7 +1141,7 @@ impl Tools {
                 let task: Task = Box::new(move || {
                     let mut lines = Vec::new();
                     for p in &inputs_v {
-                        rustlidar_core::check_cancel()?;
+                        hipso_core::check_cancel()?;
                         let job = TlsJob {
                             input: p.clone(),
                             output: outs.get(p).cloned().unwrap_or_default(),

@@ -3,12 +3,12 @@
 
 use super::*;
 use crate::numfield::NumField;
-use rustlidar_core::filter::Filter;
-use rustlidar_core::jobs::{ClassifyBy, ObiaJob, StrataOpts};
-use rustlidar_core::obia::classify::ForestParams;
-use rustlidar_core::obia::layers::CloudLayer;
-use rustlidar_core::obia::segment::{MergeParams, Method, SegmentParams};
-use rustlidar_core::paths::{self, Formats};
+use hipso_core::filter::Filter;
+use hipso_core::jobs::{ClassifyBy, ObiaJob, StrataOpts};
+use hipso_core::obia::classify::ForestParams;
+use hipso_core::obia::layers::CloudLayer;
+use hipso_core::obia::segment::{MergeParams, Method, SegmentParams};
+use hipso_core::paths::{self, Formats};
 
 pub struct ObiaTool {
     pub open: bool,
@@ -121,7 +121,7 @@ impl App {
                     ui.label("CHM");
                     ui.label(t.chm.as_deref().map_or("(elige un CHM)".to_string(), paths::stem));
                     if ui.button("Archivo…").clicked()
-                        && let Some(p) = crate::prefs::dialog().add_filter("Ráster", rustlidar_core::raster::EXTENSIONS).pick_file()
+                        && let Some(p) = crate::prefs::dialog().add_filter("Ráster", hipso_core::raster::EXTENSIONS).pick_file()
                     {
                         t.chm = Some(p);
                     }
@@ -140,7 +140,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label("Otras capas ráster");
                     if ui.button("Añadir…").clicked()
-                        && let Some(ps) = crate::prefs::dialog().add_filter("Ráster", rustlidar_core::raster::EXTENSIONS).pick_files()
+                        && let Some(ps) = crate::prefs::dialog().add_filter("Ráster", hipso_core::raster::EXTENSIONS).pick_files()
                     {
                         t.extra.extend(ps);
                     }
@@ -426,7 +426,7 @@ impl App {
                 outputs.push(outs.objects);
                 outputs.extend(outs.table);
                 outputs.extend(outs.strata_table);
-                let task: tools::Task = Box::new(move || rustlidar_core::jobs::obia(&job));
+                let task: tools::Task = Box::new(move || hipso_core::jobs::obia(&job));
                 self.start(
                     ctx,
                     Launch {

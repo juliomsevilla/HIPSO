@@ -3,8 +3,8 @@
 
 use super::*;
 use crate::numfield::NumField;
-use rustlidar_core::aba::{self, AbaJob, Criterion, Spec, Transform};
-use rustlidar_core::paths;
+use hipso_core::aba::{self, AbaJob, Criterion, Spec, Transform};
+use hipso_core::paths;
 
 use crate::aba_plots::Diag;
 
@@ -146,7 +146,7 @@ impl ModelTool {
             let p = PathBuf::from(self.plots.trim());
             paths::unique_with(
                 &paths::product(&p, "modelo", "tif"),
-                rustlidar_core::aba::COMPANIONS,
+                hipso_core::aba::COMPANIONS,
             )
         };
         // the metrics ticked in the table are the model's
@@ -492,7 +492,7 @@ impl App {
                         } else {
                             let p = PathBuf::from(t.plots.trim());
                             let resp: String = t.response.chars().take_while(|c| c.is_alphanumeric()).collect();
-                            paths::unique_with(&paths::product(&p, &format!("mapa_{resp}"), "tif"), rustlidar_core::aba::COMPANIONS).display().to_string()
+                            paths::unique_with(&paths::product(&p, &format!("mapa_{resp}"), "tif"), hipso_core::aba::COMPANIONS).display().to_string()
                         };
                     }
                     ui.horizontal(|ui| {

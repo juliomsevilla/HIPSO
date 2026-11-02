@@ -22,7 +22,7 @@ pub struct Geom {
     /// millions of vertices would otherwise take minutes and gigabytes to open.
     pub tris: Vec<std::sync::OnceLock<Vec<Tri>>>,
     /// Which features lie in a window, worked out the first time it is asked for.
-    pub index: std::sync::OnceLock<rustlidar_core::rtree::RTree>,
+    pub index: std::sync::OnceLock<hipso_core::rtree::RTree>,
     /// Vertices of all the features.
     pub nverts: usize,
 }
@@ -210,7 +210,7 @@ impl VecLayer {
     pub fn in_window(&self, w: [f64; 4]) -> Vec<usize> {
         self.geom
             .index
-            .get_or_init(|| rustlidar_core::rtree::RTree::new(&self.geom.bbox))
+            .get_or_init(|| hipso_core::rtree::RTree::new(&self.geom.bbox))
             .query(w)
     }
 
@@ -545,8 +545,8 @@ impl App {
         let from = from?;
         match self.project_crs() {
             Some(to)
-                if rustlidar_core::crs::relation(to, from)
-                    == rustlidar_core::crs::Relation::Different =>
+                if hipso_core::crs::relation(to, from)
+                    == hipso_core::crs::Relation::Different =>
             {
                 Some((from, to))
             }
@@ -562,7 +562,7 @@ impl App {
     pub fn add_vector(&mut self, p: &Path) {
         if p.extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("gpkg"))
-            && let Ok(t) = rustlidar_core::gpkg::layers(p)
+            && let Ok(t) = hipso_core::gpkg::layers(p)
             && t.len() > 1
         {
             let first = t.first().map(|l| l.table.clone());
@@ -607,12 +607,12 @@ impl App {
 
     pub fn add_vector_table(&mut self, p: &Path, table: Option<&str>) {
         let read = match (table, p.extension()) {
-            (Some(t), _) => rustlidar_core::gpkg::read_vector(p, Some(t)),
+            (Some(t), _) => hipso_core::gpkg::read_vector(p, Some(t)),
             _ => view::read_vector(p),
         };
         match read {
             Ok(mut data) => {
-                let own = table.and_then(|t| rustlidar_core::gpkg::epsg_of_table(p, t));
+                let own = table.and_then(|t| hipso_core::gpkg::epsg_of_table(p, t));
                 if let Some((from, to)) = if own.is_some() {
                     self.crs_move_from(p, own)
                 } else {
@@ -622,10 +622,10 @@ impl App {
                     self.log(format!(
                         "«{}» está en {}, distinto del de la nube ({}): se pasa a él al cargar.",
                         p.display(),
-                        rustlidar_core::crs::name(from),
-                        rustlidar_core::crs::name(to)
+                        hipso_core::crs::name(from),
+                        hipso_core::crs::name(to)
                     ));
-                    match rustlidar_core::reproject::vector_data(&mut data, from, to) {
+                    match hipso_core::reproject::vector_data(&mut data, from, to) {
                         Ok(()) => self.log(format!(
                             "  convertida en {:.1} s",
                             started.elapsed().as_secs_f64()
@@ -1499,13 +1499,13 @@ impl App {
         // the projection of the cloud, else that of an image on the map
         let prj = self.store.as_ref().and_then(|s| s.prj.clone()).or_else(|| {
             self.refs.iter().find_map(|r| match &r.kind {
-                RefKind::Image(il) => il.pyr.epsg.and_then(rustlidar_core::vector::prj_for_epsg),
+                RefKind::Image(il) => il.pyr.epsg.and_then(hipso_core::vector::prj_for_epsg),
                 _ => None,
             })
         });
         let dir = self.clouds.first().map_or_else(
             || PathBuf::from("."),
-            |c| rustlidar_core::paths::results_dir(c),
+            |c| hipso_core::paths::results_dir(c),
         );
         let Some(r) = self.refs.get_mut(k) else {
             return;
@@ -1520,7 +1520,7 @@ impl App {
         {
             r.path.clone()
         } else {
-            let stem = rustlidar_core::paths::stem(Path::new(&r.name));
+            let stem = hipso_core::paths::stem(Path::new(&r.name));
             let Some(p) = crate::prefs::dialog()
                 .add_filter("Shapefile", &["shp"])
                 .add_filter("GeoJSON", &["geojson"])
@@ -1537,7 +1537,7 @@ impl App {
             };
             p
         };
-        let res = rustlidar_core::vector::write_layer(&path, &v.data, v.kind, prj.as_deref());
+        let res = hipso_core::vector::write_layer(&path, &v.data, v.kind, prj.as_deref());
         match res {
             Ok(()) => {
                 r.path = path.clone();

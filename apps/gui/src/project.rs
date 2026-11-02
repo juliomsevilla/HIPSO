@@ -3,7 +3,7 @@
 //! holds paths, not data: the files stay where they are.
 
 use super::*;
-use rustlidar_core::json::{Json, quote};
+use hipso_core::json::{Json, quote};
 
 pub const EXT: &str = "elp";
 const LAYOUTS: [Layout; 4] = [

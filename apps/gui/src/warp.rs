@@ -2,8 +2,8 @@
 //! corners are moved to where they belong: straight edges become the curves they should be.
 
 use eframe::egui::{self, Color32, Pos2, Rect};
-use rustlidar_core::reproject::Transformer;
-use rustlidar_core::view::Plan;
+use hipso_core::reproject::Transformer;
+use hipso_core::view::Plan;
 
 /// Paints the texture of an image that covers `extent` (min x, min y, max x, max y) in the
 /// system `tf` converts from, in the system of the plan. `n` is how many cells the grid has along

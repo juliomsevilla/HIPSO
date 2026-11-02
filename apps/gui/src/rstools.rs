@@ -2,8 +2,8 @@
 //! rasters stacked into one image, and a mosaic that says what to do where pixels overlap.
 
 use super::*;
-use rustlidar_core::paths;
-use rustlidar_core::rastertools::{self, Dtype, Extent, Overlap, RasterJob, Resample, Source};
+use hipso_core::paths;
+use hipso_core::rastertools::{self, Dtype, Extent, Overlap, RasterJob, Resample, Source};
 
 pub struct RasterTools {
     /// 0: multiband image, 1: mosaic.
@@ -82,7 +82,7 @@ impl App {
                 ui.horizontal(|ui| {
                     if ui.button("➕ Añadir archivos…").clicked()
                         && let Some(v) = crate::prefs::dialog()
-                            .add_filter("Ráster", rustlidar_core::raster::EXTENSIONS)
+                            .add_filter("Ráster", hipso_core::raster::EXTENSIONS)
                             .pick_files()
                     {
                         for p in v {

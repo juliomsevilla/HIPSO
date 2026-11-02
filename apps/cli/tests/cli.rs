@@ -7,7 +7,7 @@ use std::process::Command;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_easylidar"))
+    Command::new(env!("CARGO_BIN_EXE_hipso"))
 }
 
 /// Runs the binary; returns its standard output and error, and fails the test if it failed.
@@ -19,7 +19,7 @@ fn run(args: &[&str]) -> Result<String> {
         String::from_utf8_lossy(&out.stderr)
     );
     if !out.status.success() {
-        return Err(format!("easylidar {args:?} failed:\n{text}").into());
+        return Err(format!("hipso {args:?} failed:\n{text}").into());
     }
     Ok(text)
 }

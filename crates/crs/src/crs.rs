@@ -4,7 +4,7 @@
 //! y/northing/latitude, whatever axis order the CRS's authority defines.
 //!
 //! ```no_run
-//! use rustlidar_crs::{SpatialRef, Transformer};
+//! use hipso_crs::{SpatialRef, Transformer};
 //!
 //! let nad27 = SpatialRef::parse("EPSG:4267")?;
 //! let utm = SpatialRef::parse("+proj=utm +zone=13 +datum=WGS84")?;
@@ -13,7 +13,7 @@
 //! let (x, y) = t.transform(-105.5, 39.5)?;
 //! let bounds = t.transform_bounds((-106.0, 39.0, -105.0, 40.0))?;
 //! println!("{}", utm.to_wkt().unwrap_or_default());
-//! # Ok::<(), rustlidar_crs::Error>(())
+//! # Ok::<(), hipso_crs::Error>(())
 //! ```
 //!
 //! Datum shift grids (NTv2, GeoTIFF) and geoid models are used when they can be found, as GDAL
@@ -24,7 +24,7 @@
 //! [`TransformOptions`]:
 //!
 //! ```no_run
-//! use rustlidar_crs::{SpatialRef, TransformOptions, Transformer};
+//! use hipso_crs::{SpatialRef, TransformOptions, Transformer};
 //!
 //! // Ellipsoidal heights (WGS 84) to EGM96 heights.
 //! let t = Transformer::new(&SpatialRef::parse("EPSG:4979")?, &SpatialRef::parse("EPSG:4326+5773")?)?;
@@ -33,7 +33,7 @@
 //! let opts = TransformOptions { source_coordinate_epoch: Some(2010.0), ..Default::default() };
 //! let t = Transformer::with_options(&SpatialRef::parse("EPSG:7912")?, &SpatialRef::parse("EPSG:7843")?, &opts)?;
 //! let (lon, lat, h) = t.transform_3d(135.0, -25.0, 0.0)?;
-//! # Ok::<(), rustlidar_crs::Error>(())
+//! # Ok::<(), hipso_crs::Error>(())
 //! ```
 
 use crate::{Error, Result};

@@ -423,7 +423,7 @@ fn srs_row(epsg: i64) -> Vec<Val> {
             "undefined geographic coordinate reference system",
         ),
         e => {
-            let sr = rustlidar_crs::SpatialRef::from_epsg(e as u32).ok();
+            let sr = hipso_crs::SpatialRef::from_epsg(e as u32).ok();
             (
                 sr.as_ref()
                     .and_then(|s| s.name())

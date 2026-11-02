@@ -6,8 +6,8 @@ use std::collections::HashMap;
 
 use super::*;
 use crate::editing::Cmd;
-use rustlidar_core::edit::{self, Attr, AttrKind, Mode, RangeSel, Region, SelOp};
-use rustlidar_core::histogram::{self, Histogram, Method};
+use hipso_core::edit::{self, Attr, AttrKind, Mode, RangeSel, Region, SelOp};
+use hipso_core::histogram::{self, Histogram, Method};
 
 /// How the odd values of an attribute are told from the rest.
 #[derive(Clone, Copy, PartialEq)]

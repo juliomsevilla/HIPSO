@@ -1,5 +1,5 @@
 [package]
-name = "rustlidar-core"
+name = "hipso-core"
 description = "Streaming LiDAR forestry engine: ground filter, DTM, canopy height model and grid metrics"
 version.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-rustlidar-crs.workspace = true
+hipso-crs.workspace = true
 laz.workspace = true
 tiff.workspace = true
 delaunator.workspace = true
