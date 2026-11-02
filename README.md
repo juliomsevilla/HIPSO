@@ -135,24 +135,16 @@ hipso compare nube2.laz --reference nube1.laz --distance 0.5
 
 ## Limitaciones conocidas
 
-**Coordenadas.** Cuando una herramienta combina archivos en sistemas distintos (por ejemplo una nube en ETRS89 UTM 30N con un MDT en 29N, o unas unidades de muestreo en ED50), HIPSO los transforma al sistema de la primera nube y lo dice en el informe. Las transformaciones coinciden con las de PROJ (se han comparado en 18 combinaciones de nueve países, con diferencias de 0,001 m como máximo en las que no necesitan rejillas adicionales) y las mallas oficiales de España (ED50 a ETRS89 del IGN y del ICGC, y el geoide EGM08-REDNAP de la Península y Canarias) van dentro del programa. Esto tiene cuatro consecuencias que conviene conocer.
+**Coordenadas.** Cuando una herramienta combina archivos en sistemas distintos, HIPSO los transforma al sistema de la primera nube y lo dice en el informe. Las transformaciones coinciden con las de PROJ, y las mallas oficiales de España (ED50 a ETRS89 y el geoide EGM08-REDNAP) van dentro del programa.
 
-- **Las alturas solo cambian si se pide.** Por defecto se conservan tal cual; pasar de elipsoidales a ortométricas es otra operación, que se hace con la ventana *Reproyectar* o con `hipso reproject --vertical-in … --vertical-out …`. Si el archivo no declara su referencia vertical, la herramienta la pide y no la supone.
-- **Una transformación aproximada se rechaza.** Si falta una rejilla, el punto cae fuera del geoide o no existe ajuste de datum entre los dos sistemas, se devuelve un error que dice cuál ha sido el motivo, porque el valor aproximado puede estar a decenas de metros. Se aceptan con `--allow-ballpark` y `--allow-fallback` (o con las variables `HIPSO_ALLOW_BALLPARK=YES` y `HIPSO_ONLY_BEST=NO`), y el informe cuenta entonces cuántos puntos pasaron por cada aproximación.
-- **Fuera de España hacen falta las rejillas.** El motor es global, pero los geoides y las mallas de datum de otros países no van incluidos: se buscan en la carpeta que indique `HIPSO_GRID_DIR` (o en `PROJ_DATA` y `PROJ_LIB`) y con `HIPSO_NETWORK=ON` se descargan bajo demanda a una caché del usuario. Sin ellas, las proyecciones y los cambios de datum que no las necesitan funcionan igual, y el resto se rechaza según la regla anterior.
-- **Lo que sigue pidiendo el mismo sistema.** Las imágenes de varias bandas (ortofotos, satélite) y las herramientas de imágenes grandes (*Apilar*, *Mosaico* de imágenes e *Igualar rásteres*) no reproyectan, y tampoco se pasan nubes desde o hacia coordenadas geográficas (grados). Si un archivo no declara su sistema no se puede comprobar, y el resultado lleva un aviso; ETRS89 y WGS 84 del mismo huso se consideran equivalentes y solo avisan, porque difieren en torno a un metro. Convertir una nube cuesta una pasada completa sobre ella, por lo que, si se va a trabajar mucho con ella, conviene convertirla una vez con `hipso reproject` y guardar el resultado.
+- Las alturas solo cambian si se pide (ventana *Reproyectar* o `hipso reproject --vertical-in … --vertical-out …`), y si el archivo no declara su referencia vertical, se pregunta.
+- Una transformación aproximada (sin ajuste de datum, sin geoide para el punto, con una rejilla que falta) se rechaza con un error; se acepta con `--allow-ballpark` y `--allow-fallback`.
+- Fuera de España los geoides y las mallas de datum se buscan en `HIPSO_GRID_DIR`, `PROJ_DATA` o `PROJ_LIB`, o se descargan con `HIPSO_NETWORK=ON`.
+- Las imágenes de varias bandas y las herramientas de imágenes grandes (*Apilar*, *Mosaico* de imágenes, *Igualar rásteres*) exigen el mismo sistema, y las nubes no se pasan desde o hacia grados.
 
-**Carreteras y vías.** El método parte del suelo clasificado y de que una vía es un suelo con muchos retornos de suelo y poca pendiente, así que **no distingue una vía de cualquier otro suelo desnudo** (un cortafuegos, una cantera, un cauce seco) salvo que se acote por intensidad. Su validación se ha hecho con escenas sintéticas de geometría conocida (`benchmarks/roads`) y no con una red real: con 5 puntos/m² recupera casi toda la longitud de las vías, pero con 1 punto/m² y ruido en las alturas pierde tramos, y en todos los casos el eje sale **fragmentado** en muchas líneas cortas y la anchura se subestima entre 1 y 3 m. Los umbrales de aceptación están sin fijar.
+**Carreteras y vías.** El método no distingue una vía de otro suelo desnudo (cortafuegos, canteras, cauces secos) salvo que se acote por intensidad, y su validación es sobre escenas sintéticas (`benchmarks/roads`).
 
-**Terreno, ráster y vectores.**
-
-- En el análisis de terreno, las celdas del borde y las vecinas a un hueco quedan sin dato por defecto, como en `gdaldem`; `--edges repeat` o `--edges center` les dan valor, a costa de aplanar la superficie allí.
-- Las herramientas que trabajan con el ráster completo en memoria (terreno, hidrología, relleno de huecos) admiten hasta 2^29 celdas (unos 537 millones), y los valores se guardan en 32 bits decimales, con lo que los identificadores enteros por encima de 16,7 millones dejan de ser exactos.
-- La estadística zonal y los geoprocesos exigen que ráster y polígonos estén en el mismo sistema, y la distancia del búfer se da en las unidades de la capa (grados, en una geográfica). Un shapefile no admite formas vacías: las entidades que desaparecen al reducir un búfer no se escriben.
-- El tamizado, la proximidad, el relleno de huecos, el ruido bajo ELM (una variante propia que usa la distribución de alturas de cada celda) y los corredores eléctricos se han comprobado con casos de resultado conocido, pero no se han contrastado con otros programas ni, en el caso de los corredores, con una línea real.
-- Tamizar, proximidad, relleno de huecos, ELM, y el búfer y la partición de multipartes del recorte están por ahora solo en la línea de comandos.
-- Los COG no se escriben con compresión zstd ni LERC, y ECW y MrSID no se leen.
-- La interfaz está solo en español.
+**Análisis de terreno.** Las celdas del borde y las vecinas a un hueco quedan sin dato por defecto, como en `gdaldem`; `--edges` permite darles valor.
 
 ---
 
