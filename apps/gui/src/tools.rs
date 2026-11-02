@@ -71,14 +71,14 @@ impl ToolId {
         match self {
             ToolId::Classify => "Clasificar puntos (ruido, suelo, edificios)",
             ToolId::Dtm => "Modelo digital del terreno (MDT)",
-            ToolId::Chm => "Modelo de superficie (MDS) y altura de copas (CHM)",
-            ToolId::Metrics => "Métricas de rodal",
-            ToolId::Trees => "Segmentación de árboles",
-            ToolId::Clip => "Parcelas: recorte y métricas",
+            ToolId::Chm => "Modelo de superficie (MDS) y modelo de alturas de la vegetación (CHM)",
+            ToolId::Metrics => "Métricas por celda",
+            ToolId::Trees => "Segmentación de individuos",
+            ToolId::Clip => "Muestras: extracción y métricas",
             ToolId::Export => "Exportar puntos (LAZ / ASCII / shapefile)",
             ToolId::Crs => "Asignar sistema de coordenadas",
             ToolId::Thin => "Adelgazar nube (decimar)",
-            ToolId::Tls => "Dendrometría de fustes (TLS)",
+            ToolId::Tls => "Medición de troncos (TLS)",
             ToolId::Dups => "Quitar puntos duplicados",
             ToolId::Compare => "Comparar nubes (cambios)",
             ToolId::Fit => "Ajustar una nube a otra",
@@ -703,7 +703,7 @@ impl Tools {
         let seg = self.seg_name();
         self.out_trees
             .auto(dir.join(format!("{}_arboles_{seg}.shp", paths::stem(&base))));
-        let tag = ["recorte", "fuera", "parcela"][match self.clip_mode {
+        let tag = ["recorte", "fuera", "muestra"][match self.clip_mode {
             1 => 1,
             2 => 2,
             _ => 0,
@@ -1163,7 +1163,7 @@ impl Tools {
                 .size(11.0),
             );
         }
-        self.out_trees.row(ui, "Árboles (base del nombre)", || {
+        self.out_trees.row(ui, "Individuos (base del nombre)", || {
             save_as("shp", "arboles.shp")
         });
         self.formats_row(ui);
@@ -1185,7 +1185,7 @@ impl Tools {
                     });
                 }
             });
-        egui::CollapsingHeader::new("2 · Ápices de los árboles (máximo local)")
+        egui::CollapsingHeader::new("2 · Ápices de los individuos (máximo local)")
             .default_open(true)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -1295,7 +1295,7 @@ impl Tools {
             .show(ui, |ui| {
                 ui.checkbox(
                     &mut self.crowns_tif,
-                    "Ráster de copas (identificador de árbol)",
+                    "Ráster de copas (identificador de individuo)",
                 );
                 ui.checkbox(&mut self.crowns_shp, "Polígonos de copa (shapefile)");
                 ui.checkbox(&mut self.tops_shp, "Ápices (shapefile PointZ)");
@@ -1316,14 +1316,14 @@ impl Tools {
             });
             ui.label(
                 egui::RichText::new(
-                    "Columnas: X_arbol, Y_arbol, Ht, Parcela, X_Parcela, Y_Parcela",
+                    "Columnas: X_arbol, Y_arbol, Ht, Muestra, X_Muestra, Y_Muestra",
                 )
                 .color(t.weak)
                 .size(11.0),
             );
             num(
                 ui,
-                "Radio de parcela (m)",
+                "Radio de la unidad de muestreo (m)",
                 &mut self.field_radius,
                 1.0..=100.0,
                 0.5,
@@ -1539,8 +1539,8 @@ impl Tools {
                         )
                     };
                     let (crowns, crowns_shp, tops_shp) = (
-                        self.crowns_tif.then(|| sib("copas", "tif")),
-                        self.crowns_shp.then(|| sib("copas", "shp")),
+                        self.crowns_tif.then(|| sib("individuos", "tif")),
+                        self.crowns_shp.then(|| sib("individuos", "shp")),
                         self.tops_shp.then(|| sib("apices", "shp")),
                     );
                     let cloud = self.cloud_ids.then(|| {
@@ -1582,8 +1582,8 @@ impl Tools {
                         field: (!self.field.trim().is_empty()).then(|| jobs::FieldJob {
                             file: PathBuf::from(self.field.trim()),
                             columns: hipso_core::forest::FieldColumns::default(),
-                            plot_x: "X_Parcela".into(),
-                            plot_y: "Y_Parcela".into(),
+                            plot_x: "X_Muestra".into(),
+                            plot_y: "Y_Muestra".into(),
                             plot_radius: self.field_radius,
                             max_dist: self.match_dist,
                         }),

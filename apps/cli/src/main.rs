@@ -790,11 +790,11 @@ enum Cmd {
         field_y: String,
         #[arg(long, default_value = "Ht")]
         field_h: String,
-        #[arg(long, default_value = "Parcela")]
+        #[arg(long, default_value = "Muestra")]
         field_plot: String,
-        #[arg(long, default_value = "X_Parcela")]
+        #[arg(long, default_value = "X_Muestra")]
         plot_x: String,
-        #[arg(long, default_value = "Y_Parcela")]
+        #[arg(long, default_value = "Y_Muestra")]
         plot_y: String,
         /// Plot radius for the check
         #[arg(long, default_value_t = 10.0)]
@@ -1325,12 +1325,13 @@ enum Cmd {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
-    /// Measure the stems of a terrestrial or mobile cloud along the trunk and cube each tree
-    /// with Smalian's formula (a shapefile/CSV of trees, a CSV of logs, optional clouds by tree)
-    Cubicar {
+    /// Measure the stems of a terrestrial or mobile cloud along the trunk and estimate the volume of each
+    /// individual with Smalian's formula (a shapefile/CSV of trees, a CSV of logs, optional clouds by tree)
+    #[command(alias = "cubicar")]
+    StemVolume {
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
-        /// Trees table (.shp or .csv); default: <results>/<input>_cubicado.shp
+        /// Trees table (.shp or .csv); default: <results>/<input>_volumen.shp
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Write a text table besides the shapefile
@@ -1398,7 +1399,7 @@ enum Cmd {
         #[arg(long)]
         response: String,
         /// Column that names the plot in the metrics table
-        #[arg(long, default_value = "Parcela")]
+        #[arg(long, default_value = "Muestra")]
         plot_key: String,
         /// Column that names the plot in the field table; default: the same name
         #[arg(long)]
@@ -2068,8 +2069,8 @@ fn run(cmd: Cmd) -> Result<()> {
             let formats = formats_of(format, &output);
             jobs::trees(&jobs::TreesJob {
                 formats,
-                crowns: crowns.then(|| extra("copas", "tif")),
-                crowns_shp: crowns_shp.then(|| extra("copas", "shp")),
+                crowns: crowns.then(|| extra("individuos", "tif")),
+                crowns_shp: crowns_shp.then(|| extra("individuos", "shp")),
                 tops_shp: tops_shp.then(|| extra("apices", "shp")),
                 cloud: cloud.map(|c| {
                     let ext = c
@@ -2610,7 +2611,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 let shape = if square {
                     let w = side.ok_or_else(|| {
                         hipso_core::Error::Param(
-                            "--side es el lado de las parcelas en metros".into(),
+                            "--side es el lado de las muestras en metros".into(),
                         )
                     })?;
                     PlotShape::Rect { w, h: w }
@@ -2618,7 +2619,7 @@ fn run(cmd: Cmd) -> Result<()> {
                     PlotShape::Circle {
                         radius: radius.ok_or_else(|| {
                             hipso_core::Error::Param(
-                                "--radius es el radio de las parcelas en metros".into(),
+                                "--radius es el radio de las muestras en metros".into(),
                             )
                         })?,
                     }
@@ -2635,7 +2636,7 @@ fn run(cmd: Cmd) -> Result<()> {
                     SampleArg::Systematic => {
                         let sp = spacing.as_deref().ok_or_else(|| {
                             hipso_core::Error::Param(
-                                "--spacing es la distancia entre parcelas".into(),
+                                "--spacing es la distancia entre muestras".into(),
                             )
                         })?;
                         let v: Vec<f64> = sp
@@ -2673,14 +2674,14 @@ fn run(cmd: Cmd) -> Result<()> {
                 let plots = generate(b, area.as_deref(), shape, sampling, seed)?;
                 let path = layout
                     .clone()
-                    .unwrap_or_else(|| paths::unique(&paths::product(&first, "parcelas", "shp")));
+                    .unwrap_or_else(|| paths::unique(&paths::product(&first, "muestras", "shp")));
                 let prj = hipso_core::las::Reader::open(&first)
                     .ok()
                     .and_then(|r| r.header.epsg)
                     .and_then(vector::prj_for_epsg);
                 write_layout(&path, &plots, prj.as_deref())?;
                 layout_note = Some(format!(
-                    "{} parcelas generadas: {}",
+                    "{} muestras generadas: {}",
                     plots.len(),
                     path.display()
                 ));
@@ -2718,14 +2719,14 @@ fn run(cmd: Cmd) -> Result<()> {
             }
             let ext = ext_of(&first);
             let tag = match mode {
-                ClipModeArg::Each => "parcela",
-                ClipModeArg::Metrics => "parcelas",
+                ClipModeArg::Each => "muestra",
+                ClipModeArg::Metrics => "muestras",
                 ClipModeArg::Merge => "recorte",
             };
             let metrics = match (metrics, mode) {
                 (None, ClipModeArg::Metrics) => Some(paths::unique(&paths::product(
                     &first,
-                    "parcelas_metricas",
+                    "muestras_metricas",
                     "shp",
                 ))),
                 (m, _) => m,
@@ -3404,7 +3405,7 @@ fn run(cmd: Cmd) -> Result<()> {
             let rep = swath_separation(&inputs, &out, cell, returns, by_cloud)?;
             swath_text(&rep, &out)
         }
-        Cmd::Cubicar {
+        Cmd::StemVolume {
             inputs,
             output,
             csv,
@@ -3430,7 +3431,7 @@ fn run(cmd: Cmd) -> Result<()> {
             for input in &inputs {
                 let job = TlsJob {
                     input: input.clone(),
-                    output: out_path(output.clone(), input, "cubicado", "shp"),
+                    output: out_path(output.clone(), input, "volumen", "shp"),
                     params: TlsParams {
                         voxel,
                         normalized,

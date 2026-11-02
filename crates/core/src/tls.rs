@@ -1729,7 +1729,7 @@ fn build_tree(
     let dbh =
         diam_at(&profile, 1.3).filter(|_| secs.iter().any(|s| s.ok && (s.h - 1.3).abs() <= 0.35));
     if dbh.is_none() {
-        flags.push("SIN_DAP");
+        flags.push("SIN_DIAM");
     }
     // a profile that still widens above breast height (the envelope starts on the sections it
     // finds, which may be the wrong ones) is left to be checked by eye
@@ -1812,9 +1812,9 @@ fn tree_table(r: &TlsResult, p: &TlsParams) -> (Vec<[f64; 3]>, Table) {
         ("X".into(), ColKind::Num(12, 3)),
         ("Y".into(), ColKind::Num(13, 3)),
         ("Z_SUELO".into(), ColKind::Num(9, 2)),
-        ("DAP_CM".into(), ColKind::Num(7, 1)),
+        ("DIAM_130_CM".into(), ColKind::Num(7, 1)),
         ("ALT_TOT".into(), ColKind::Num(7, 2)),
-        ("ALT_COM".into(), ColKind::Num(7, 2)),
+        ("ALT_LIBRE_RAMAS".into(), ColKind::Num(7, 2)),
         ("VOL_M3".into(), ColKind::Num(9, 4)),
         ("NTROZAS".into(), ColKind::Num(4, 0)),
         ("D_BASE_CM".into(), ColKind::Num(7, 1)),
@@ -1917,7 +1917,16 @@ pub fn write_results(
     if formats.vector {
         let shp = crate::paths::swap_ext(out, "shp");
         let prj = r.epsg.and_then(crate::vector::prj_for_epsg);
-        crate::vector::write_points(&shp, &pts, true, &table, prj.as_deref())?;
+        // a shapefile column name is 10 characters at most: two of the longer names get a short form
+        let mut shp_table = table.clone();
+        for (name, _) in &mut shp_table.columns {
+            match name.as_str() {
+                "DIAM_130_CM" => *name = "DIAM130_CM".into(),
+                "ALT_LIBRE_RAMAS" => *name = "ALT_LIBRE".into(),
+                _ => {}
+            }
+        }
+        crate::vector::write_points(&shp, &pts, true, &shp_table, prj.as_deref())?;
         files.push(shp);
     }
     if formats.csv {
@@ -2302,14 +2311,16 @@ impl TlsJob {
 }
 
 impl TlsJob {
-    /// The cloud with stems and branches classified: `<output name>_fustes` with the input's format.
+    /// The cloud with stems and branches classified: `<output name>_troncos` with the input's format.
     pub fn stems_path(&self) -> PathBuf {
         let ext = self
             .input
             .extension()
             .map_or("las".to_string(), |e| e.to_string_lossy().into_owned());
-        self.output
-            .with_file_name(format!("{}_fustes.{ext}", crate::paths::stem(&self.output)))
+        self.output.with_file_name(format!(
+            "{}_troncos.{ext}",
+            crate::paths::stem(&self.output)
+        ))
     }
 }
 
@@ -2334,7 +2345,7 @@ pub fn run(job: &TlsJob) -> Result<String> {
         let rep = classify_stems(&job.input, &r, &job.params, &job.stems_path())?;
         text.push_str(&format!(
             "
-Fustes (clase {}): {} puntos; ramas (clase {}): {} puntos: {}",
+Troncos (clase {}): {} puntos; ramas (clase {}): {} puntos: {}",
             crate::classes::STEM,
             rep.stem,
             crate::classes::BRANCH,
@@ -2366,7 +2377,7 @@ pub fn summary(r: &TlsResult, out: &Path) -> String {
         extra.push_str(&format!(", {forked} bifurcados"));
     }
     let mut text = format!(
-        "{} árboles cubicados{extra}, {:.3} m³ en total ({} puntos leídos, {} vóxeles): {}",
+        "{} individuos con volumen estimado{extra}, {:.3} m³ en total ({} puntos leídos, {} vóxeles): {}",
         r.trees.len(),
         vol,
         r.points_read,
@@ -2377,7 +2388,7 @@ pub fn summary(r: &TlsResult, out: &Path) -> String {
     if !estimated.is_empty() {
         let part: f64 = estimated.iter().map(|t| t.cubing.volume).sum();
         text.push_str(&format!(
-            "\n  Aviso: en {} de {} árboles (ESTIMADO) el fuste se perdió estando aún grueso y lejos de la copa; su altura comercial se estima con la proporción de la altura total que se ha indicado, y su volumen ({part:.3} m³) incluye ese tramo estimado",
+            "\n  Aviso: en {} de {} individuos (ESTIMADO) el tronco se perdió estando aún grueso y lejos de la copa; su altura libre de ramas se estima con la proporción de la altura total que se ha indicado, y su volumen ({part:.3} m³) incluye ese tramo estimado",
             estimated.len(),
             r.trees.len()
         ));
@@ -2385,7 +2396,7 @@ pub fn summary(r: &TlsResult, out: &Path) -> String {
     if !truncated.is_empty() {
         let part: f64 = truncated.iter().map(|t| t.cubing.volume).sum();
         text.push_str(&format!(
-            "\n  Aviso: en {} de {} árboles (TRUNCADO) el fuste no se pudo seguir hasta el diámetro en punta: \
+            "\n  Aviso: en {} de {} individuos (TRUNCADO) el tronco no se pudo seguir hasta el diámetro en punta: \
              su volumen ({part:.3} m³) es solo el del tramo medido, y el total se queda corto",
             truncated.len(),
             r.trees.len()

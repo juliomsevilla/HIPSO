@@ -78,7 +78,7 @@ pub fn generate(
     let (hx, hy) = shape.half_extent();
     if !(hx > 0.0 && hy > 0.0) {
         return Err(Error::Param(
-            "las parcelas necesitan un tamaño mayor que 0".into(),
+            "las muestras necesitan un tamaño mayor que 0".into(),
         ));
     }
     let area = [
@@ -89,7 +89,7 @@ pub fn generate(
     ];
     if area[2] <= area[0] || area[3] <= area[1] {
         return Err(Error::Param(
-            "las parcelas son más grandes que la zona".into(),
+            "las muestras son más grandes que la zona".into(),
         ));
     }
     let inside = |x: f64, y: f64| limit.is_none_or(|l| l.iter().any(|p| p.contains(x, y)));
@@ -114,7 +114,7 @@ pub fn generate(
             }
             if centres.len() < count {
                 return Err(Error::Param(format!(
-                    "solo caben {} de {count} parcelas: reduce el número, el tamaño o la distancia mínima",
+                    "solo caben {} de {count} muestras: reduce el número, el tamaño o la distancia mínima",
                     centres.len()
                 )));
             }
@@ -147,7 +147,7 @@ pub fn generate(
             }
             if centres.len() > 1_000_000 {
                 return Err(Error::Param(
-                    "demasiadas parcelas: aumenta el espaciado".into(),
+                    "demasiadas muestras: aumenta el espaciado".into(),
                 ));
             }
         }
@@ -174,7 +174,7 @@ pub fn rings(shape: &Shape2) -> Vec<Vec<[f64; 2]>> {
 
 /// Saves the plots as a polygon shapefile (name, shape, size, centre).
 pub fn write_layout(path: &Path, regions: &[Region], prj: Option<&str>) -> Result<()> {
-    let columns: Vec<String> = ["Parcela", "Forma", "Radio", "LadoX", "LadoY", "X", "Y"]
+    let columns: Vec<String> = ["Muestra", "Forma", "Radio", "LadoX", "LadoY", "X", "Y"]
         .iter()
         .map(|s| s.to_string())
         .collect();

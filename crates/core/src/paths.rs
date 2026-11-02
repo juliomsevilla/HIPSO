@@ -184,6 +184,7 @@ pub fn unique_with(path: &Path, companions: &[(&str, &str)]) -> PathBuf {
 const DERIVED: &[&str] = &[
     "arboles",
     "copas",
+    "individuos",
     "apices",
     "pendiente",
     "orientacion",

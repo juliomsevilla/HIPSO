@@ -1,4 +1,4 @@
-//! Corredores eléctricos (Inventario forestal): conductors, poles and vegetation that comes too
+//! Corredores eléctricos (Inventario de la vegetación): conductors, poles and vegetation that comes too
 //! close or could fall on the line.
 
 use super::*;

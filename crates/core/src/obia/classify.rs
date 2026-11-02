@@ -942,10 +942,10 @@ mod tests {
             ("area", vec![30.0, 500.0, 10.0, 10.0]),
         ]);
         let rules = parse_rules(
-            "# alturas\narbol: chm_media >= 5 and area < 100\nsuelo: chm_media < 0,5\nmatorral: chm_media >= 1 and chm_media < 5",
+            "# alturas\narbol: chm_media >= 5 and area < 100\nsuelo: chm_media < 0,5\nvegetacion_arbustiva: chm_media >= 1 and chm_media < 5",
         )?;
         let c = classify_rules(&t, &rules)?;
-        assert_eq!(c.names, vec!["arbol", "suelo", "matorral"]);
+        assert_eq!(c.names, vec!["arbol", "suelo", "vegetacion_arbustiva"]);
         assert_eq!(c.class, vec![1, 2, 3, 0]);
         assert!(parse_rules("sin dos puntos").is_err());
         assert!(parse_rules("a: nada").is_err());

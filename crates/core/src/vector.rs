@@ -383,7 +383,7 @@ pub struct ReadOptions {
 fn restored_plot_names(fields: &[String]) -> HashMap<String, String> {
     let mut best: (usize, HashMap<String, String>) = (0, HashMap::new());
     for hb in [2.0, 1.0, 1.3, 0.5, 1.5, 3.0, 4.0, 5.0, 10.0] {
-        let mut cols = vec!["Parcela".to_string(), "Area".to_string()];
+        let mut cols = vec!["Muestra".to_string(), "Area".to_string()];
         cols.extend(crate::metrics::sample_header(hb));
         cols.push(CAPTURE_FIELD.to_string());
         let map: HashMap<String, String> = dbf_names(&cols)
@@ -610,7 +610,7 @@ fn plot_at(
             y + h / 2.0,
         ])),
         _ => Err(Error::Param(format!(
-            "{}: las parcelas son cuadradas: indica el lado (o el campo que lo tiene)",
+            "{}: las muestras son cuadradas: indica el lado (o el campo que lo tiene)",
             path.display()
         ))),
     }
@@ -1145,8 +1145,8 @@ mod tests {
                 ("AREA".into(), ColKind::Num(12, 2)),
             ],
             rows: vec![
-                vec![Val::Text("parcela A".into()), Val::Num(100.0)],
-                vec![Val::Text("parcela B".into()), Val::Num(100.0)],
+                vec![Val::Text("muestra A".into()), Val::Num(100.0)],
+                vec![Val::Text("muestra B".into()), Val::Num(100.0)],
             ],
         };
         write_polygons(&path, &polys, &table, prj_for_epsg(25829).as_deref())?;
@@ -1158,7 +1158,7 @@ mod tests {
             },
         )?;
         assert_eq!(regions.len(), 2);
-        assert_eq!(regions[1].name, "parcela B");
+        assert_eq!(regions[1].name, "muestra B");
         assert!(regions[0].contains(5.0, 5.0) && !regions[0].contains(25.0, 5.0));
         let prj = std::fs::read_to_string(path.with_extension("prj"))?;
         assert_eq!(epsg_from_prj(&prj), Some(25829));
@@ -1829,7 +1829,7 @@ mod restored_names_tests {
         let dir = std::env::temp_dir().join("hipso_restore_names");
         std::fs::create_dir_all(&dir)?;
         let path = dir.join("p.shp");
-        let mut cols = vec!["Parcela".to_string(), "Area".to_string()];
+        let mut cols = vec!["Muestra".to_string(), "Area".to_string()];
         cols.extend(crate::metrics::sample_header(2.0));
         cols.push("Date".to_string());
         let row: Vec<String> = cols.iter().map(|_| "1.5".to_string()).collect();

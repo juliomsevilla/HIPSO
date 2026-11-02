@@ -166,11 +166,11 @@ fn merge_fork(mut members: Vec<TreeResult>, fork_h: f64, p: &TlsParams) -> TreeR
     sections.sort_by(|a, b| a.h.total_cmp(&b.h));
     let volume = logs.iter().map(|l| l.volume).sum();
     // what depends on the cubing is worked out again for the whole tree
-    for stale in ["SIN_DAP", "TRUNCADO", "SIN_VOLUMEN"] {
+    for stale in ["SIN_DAP", "SIN_DIAM", "TRUNCADO", "SIN_VOLUMEN"] {
         flags.remove(stale);
     }
     if tree.dbh.is_none() {
-        flags.insert("SIN_DAP".into());
+        flags.insert("SIN_DIAM".into());
     }
     if truncated {
         flags.insert("TRUNCADO".into());

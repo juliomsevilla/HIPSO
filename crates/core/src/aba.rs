@@ -387,7 +387,10 @@ fn clean(s: &str) -> String {
 
 fn lookup(names: &[String], name: &str) -> Option<usize> {
     let want = name.trim().to_lowercase();
-    names.iter().position(|c| c.trim().to_lowercase() == want)
+    let find = |w: &str| names.iter().position(|c| c.trim().to_lowercase() == w);
+    // tables written before the sampling units were called "Muestra" name them "Parcela"
+    find(&want)
+        .or_else(|| find(&want.replace("muestra", "parcela")).filter(|_| want.contains("muestra")))
 }
 
 /// A metric by its name or by the short name its column has in a shapefile (`EP90` for
@@ -424,7 +427,7 @@ fn missing_metric(names: &[String], name: &str, why: &str) -> Error {
         format!(" ¿Quizá {}?", close.join(", "))
     };
     Error::Param(format!(
-        "la métrica '{name}' no está en la tabla de parcelas{why}.{hint}"
+        "la métrica '{name}' no está en la tabla de muestras{why}.{hint}"
     ))
 }
 
@@ -556,9 +559,9 @@ pub fn columns(path: &Path) -> Result<Vec<String>> {
 fn is_candidate_name(name: &str) -> bool {
     let n = name.trim().to_lowercase();
     let n = n.split('#').next().unwrap_or("");
-    const SKIP: [&str; 11] = [
-        "parcela", "area", "row", "col", "fila", "columna", "center x", "center y", "date",
-        "captura", "id",
+    const SKIP: [&str; 12] = [
+        "muestra", "parcela", "area", "row", "col", "fila", "columna", "center x", "center y",
+        "date", "captura", "id",
     ];
     if SKIP.contains(&n) {
         return false;
@@ -1293,7 +1296,7 @@ fn screen_prepared(data: &Data, spec: &Spec, p: &Prepared) -> Screening {
                 response.p, l.p
             )),
             _ => advice.push(format!(
-                "La variable a estimar no es normal (Shapiro–Wilk p = {:.3}) y el logaritmo no lo arregla. Una regresión lineal pide residuos normales: comprueba los del modelo y ten cuidado con las parcelas extremas.",
+                "La variable a estimar no es normal (Shapiro–Wilk p = {:.3}) y el logaritmo no lo arregla. Una regresión lineal pide residuos normales: comprueba los del modelo y ten cuidado con las muestras extremas.",
                 response.p
             )),
         }
@@ -1326,7 +1329,7 @@ pub fn fit(data: &Data, spec: &Spec) -> Result<Fitted> {
     let n = data.y.len();
     if n < 6 {
         return Err(Error::Param(format!(
-            "hay {n} parcelas con dato de campo y métricas: hacen falta al menos 6 para ajustar un modelo (y bastantes más para fiarse de él)"
+            "hay {n} muestras con dato de campo y métricas: hacen falta al menos 6 para ajustar un modelo (y bastantes más para fiarse de él)"
         )));
     }
     if spec.transform.log_y() && data.y.iter().any(|v| *v <= 0.0) {
@@ -1362,7 +1365,7 @@ pub fn fit(data: &Data, spec: &Spec) -> Result<Fitted> {
     };
     if !automatic && fixed.len() + 3 > n {
         return Err(Error::Param(format!(
-            "{} métricas son demasiadas para {n} parcelas",
+            "{} métricas son demasiadas para {n} muestras",
             fixed.len()
         )));
     }
@@ -1378,7 +1381,7 @@ pub fn fit(data: &Data, spec: &Spec) -> Result<Fitted> {
     let chosen = choose(&cands, &yt);
     if chosen.is_empty() {
         return Err(Error::Param(
-            "ninguna métrica mejora a un modelo sin variables (la media): con estas parcelas no se ve relación entre el LiDAR y la variable de campo".into(),
+            "ninguna métrica mejora a un modelo sin variables (la media): con estas muestras no se ve relación entre el LiDAR y la variable de campo".into(),
         ));
     }
     let cols: Vec<&[f64]> = chosen.iter().map(|&j| cands[j].as_slice()).collect();
@@ -1399,7 +1402,7 @@ pub fn fit(data: &Data, spec: &Spec) -> Result<Fitted> {
     let k = m.k();
     if m.df() < 1.0 {
         return Err(Error::Param(
-            "no quedan grados de libertad: menos métricas o más parcelas".into(),
+            "no quedan grados de libertad: menos métricas o más muestras".into(),
         ));
     }
     let s2 = m.s2();
@@ -1724,17 +1727,17 @@ impl Fitted {
         let k = self.model.vars.len();
         if n < 15 {
             w.push(format!(
-                "Solo {n} parcelas: con tan pocas, las cifras de ajuste y de validación cambian mucho al añadir o quitar una parcela."
+                "Solo {n} muestras: con tan pocas, las cifras de ajuste y de validación cambian mucho al añadir o quitar una muestra."
             ));
         }
         if n < 10 * k {
             w.push(format!(
-                "Menos de 10 parcelas por variable ({n} parcelas, {k} variables): riesgo de sobreajuste."
+                "Menos de 10 muestras por variable ({n} muestras, {k} variables): riesgo de sobreajuste."
             ));
         }
         if self.automatic && self.n_candidates > n {
             w.push(format!(
-                "Se probaron {} métricas con {n} parcelas: el ajuste y los valores p son optimistas. Fíate de la validación cruzada.",
+                "Se probaron {} métricas con {n} muestras: el ajuste y los valores p son optimistas. Fíate de la validación cruzada.",
                 self.n_candidates
             ));
         } else if self.automatic {
@@ -1745,7 +1748,7 @@ impl Fitted {
             w.push(format!(
                 "La validación cruzada (R² {r2cv:.2}) queda muy por debajo del ajuste (R² {r2:.2}): señal de sobreajuste. {}",
                 if self.automatic {
-                    "Suele pasar al elegir entre muchas métricas con pocas parcelas: limita el número de variables o elige a mano las que tengan sentido forestal."
+                    "Suele pasar al elegir entre muchas métricas con pocas muestras: limita el número de variables o elige a mano las que tengan sentido en el terreno."
                 } else {
                     "Prueba con menos variables."
                 }
@@ -1782,7 +1785,7 @@ impl Fitted {
         }
         if self.bp_p < 0.05 {
             w.push(format!(
-                "Varianza no constante (Breusch–Pagan p = {:.3}): el error cambia con el tamaño de la parcela. {}",
+                "Varianza no constante (Breusch–Pagan p = {:.3}): el error cambia con el tamaño de la muestra. {}",
                 self.bp_p,
                 if self.spec.transform == Transform::None { "Prueba el logaritmo de la variable." } else { "" }
             ));
@@ -1805,7 +1808,7 @@ impl Fitted {
                 if self.spec.transform == Transform::None {
                     "Prueba la transformación logarítmica."
                 } else {
-                    "Revisa las parcelas extremas."
+                    "Revisa las muestras extremas."
                 }
             ));
         }
@@ -1821,7 +1824,7 @@ impl Fitted {
             .collect();
         if !wild.is_empty() {
             w.push(format!(
-                "La validación cruzada estima de forma disparatada {}: sin esas parcelas el modelo elige otras métricas, o sus valores se salen de lo que ve el resto. Las cifras de error de la validación están dominadas por ellas.",
+                "La validación cruzada estima de forma disparatada {}: sin esas muestras el modelo elige otras métricas, o sus valores se salen de lo que ve el resto. Las cifras de error de la validación están dominadas por ellas.",
                 wild.join(", ")
             ));
         }
@@ -1833,7 +1836,7 @@ impl Fitted {
             .collect();
         if !hot.is_empty() {
             w.push(format!(
-                "Parcelas que mandan sobre el modelo (distancia de Cook alta): {}. Comprueba su dato de campo o su posición.",
+                "Muestras que mandan sobre el modelo (distancia de Cook alta): {}. Comprueba su dato de campo o su posición.",
                 hot.join(", ")
             ));
         }
@@ -1850,7 +1853,7 @@ impl Fitted {
     pub fn plots_csv(&self) -> String {
         let n = self.plots.len() as f64;
         let mut s = String::from(
-            "Parcela,Observado,Ajustado,Residuo,Validacion_cruzada,Error_validacion,Palanca,Residuo_estudentizado,Cook,Aviso\n",
+            "Muestra,Observado,Ajustado,Residuo,Validacion_cruzada,Error_validacion,Palanca,Residuo_estudentizado,Cook,Aviso\n",
         );
         let k = self.model.vars.len() as f64 + 1.0;
         for p in &self.plots {
@@ -1888,7 +1891,7 @@ impl Fitted {
         let n = self.plots.len();
         let mut s = String::new();
         let _ = writeln!(s, "MODELO DE TRANSICIÓN (regresión lineal múltiple)");
-        let _ = writeln!(s, "Variable a estimar: {} · {n} parcelas", m.response);
+        let _ = writeln!(s, "Variable a estimar: {} · {n} muestras", m.response);
         let _ = writeln!(
             s,
             "Transformación: {}",
@@ -1947,7 +1950,7 @@ impl Fitted {
         let e = &self.fit_errors;
         let _ = writeln!(
             s,
-            "\nAJUSTE (con las mismas parcelas que lo ajustaron: optimista)"
+            "\nAJUSTE (con las mismas muestras que lo ajustaron: optimista)"
         );
         let _ = writeln!(
             s,
@@ -1972,7 +1975,7 @@ impl Fitted {
         let c = &self.cv_errors;
         let _ = writeln!(
             s,
-            "\nVALIDACIÓN CRUZADA, una parcela fuera cada vez{}",
+            "\nVALIDACIÓN CRUZADA, una muestra fuera cada vez{}",
             if self.automatic {
                 " y repitiendo la elección de métricas"
             } else {
@@ -1981,7 +1984,7 @@ impl Fitted {
         );
         let _ = writeln!(
             s,
-            "  Cada parcela se estima con un modelo que no la vio: es la medida de error que cabe esperar en parcelas nuevas."
+            "  Cada muestra se estima con un modelo que no la vio: es la medida de error que cabe esperar en muestras nuevas."
         );
         let _ = writeln!(
             s,
@@ -2095,13 +2098,13 @@ impl Fitted {
                 v.join(", ")
             }
         };
-        let _ = writeln!(s, "  Parcelas influyentes (Cook): {}", none(&hot));
+        let _ = writeln!(s, "  Muestras influyentes (Cook): {}", none(&hot));
         let _ = writeln!(
             s,
-            "  Parcelas atípicas (residuo estudentizado > 2,5): {}",
+            "  Muestras atípicas (residuo estudentizado > 2,5): {}",
             none(&far)
         );
-        let _ = writeln!(s, "  Parcelas de palanca alta (> 2k/n): {}", none(&lev));
+        let _ = writeln!(s, "  Muestras de palanca alta (> 2k/n): {}", none(&lev));
         let w = self.warnings();
         if !w.is_empty() {
             let _ = writeln!(s, "\nAVISOS");
@@ -2145,13 +2148,13 @@ pub fn join(plots: &Table, field: &Table, j: &JoinSpec) -> Result<(Data, Vec<Str
     } = *j;
     let kp = plots.index(plot_key_name).ok_or_else(|| {
         Error::Param(format!(
-            "la tabla de métricas no tiene la columna '{plot_key_name}' que identifica la parcela (columnas: {})",
+            "la tabla de métricas no tiene la columna '{plot_key_name}' que identifica la muestra (columnas: {})",
             plots.names.iter().take(6).cloned().collect::<Vec<_>>().join(", ")
         ))
     })?;
     let kf = field.index(field_key_name).ok_or_else(|| {
         Error::Param(format!(
-            "la tabla de campo no tiene la columna '{field_key_name}' que identifica la parcela (columnas: {})",
+            "la tabla de campo no tiene la columna '{field_key_name}' que identifica la muestra (columnas: {})",
             field.names.join(", ")
         ))
     })?;
@@ -2169,7 +2172,7 @@ pub fn join(plots: &Table, field: &Table, j: &JoinSpec) -> Result<(Data, Vec<Str
         }
         if by_key.insert(k.clone(), r).is_some() {
             return Err(Error::Param(format!(
-                "la parcela '{k}' sale en más de una fila de la tabla de campo: aquí hace falta una fila por parcela (el total o la media de la parcela, no la lista de árboles)"
+                "la muestra '{k}' sale en más de una fila de la tabla de campo: aquí hace falta una fila por muestra (el total o la media de la muestra, no la lista de árboles)"
             )));
         }
     }
@@ -2182,7 +2185,7 @@ pub fn join(plots: &Table, field: &Table, j: &JoinSpec) -> Result<(Data, Vec<Str
         let k = plot_key(&name);
         if !seen.insert(k.clone()) {
             return Err(Error::Param(format!(
-                "la parcela '{name}' sale dos veces en la tabla de métricas"
+                "la muestra '{name}' sale dos veces en la tabla de métricas"
             )));
         }
         match by_key.get(&k) {
@@ -2211,32 +2214,32 @@ pub fn join(plots: &Table, field: &Table, j: &JoinSpec) -> Result<(Data, Vec<Str
     };
     if !no_field.is_empty() {
         notes.push(format!(
-            "{} parcelas de la tabla de métricas no tienen fila en la de campo y no se usan: {}.",
+            "{} muestras de la tabla de métricas no tienen fila en la de campo y no se usan: {}.",
             no_field.len(),
             list(&no_field)
         ));
     }
     if !no_value.is_empty() {
         notes.push(format!(
-            "{} parcelas no tienen valor de '{response}' en el campo y no se usan: {}.",
+            "{} muestras no tienen valor de '{response}' en el campo y no se usan: {}.",
             no_value.len(),
             list(&no_value)
         ));
     }
     if !unmatched_field.is_empty() && no_field.is_empty() && no_value.is_empty() {
         notes.push(format!(
-            "{} filas de la tabla de campo no tienen parcela con métricas (¿nombres distintos?).",
+            "{} filas de la tabla de campo no tienen muestra con métricas (¿nombres distintos?).",
             unmatched_field.len()
         ));
     } else if !unmatched_field.is_empty() {
         notes.push(format!(
-            "{} filas de la tabla de campo no encontraron su parcela en la de métricas.",
+            "{} filas de la tabla de campo no encontraron su muestra en la de métricas.",
             unmatched_field.len()
         ));
     }
     if rows.is_empty() {
         return Err(Error::Param(format!(
-            "ninguna parcela de la tabla de métricas coincide con la de campo (columna '{plot_key_name}' frente a '{field_key_name}'): comprueba que los nombres son los mismos"
+            "ninguna muestra de la tabla de métricas coincide con la de campo (columna '{plot_key_name}' frente a '{field_key_name}'): comprueba que los nombres son los mismos"
         )));
     }
     let y: Vec<f64> = rows
@@ -2301,7 +2304,7 @@ pub fn join(plots: &Table, field: &Table, j: &JoinSpec) -> Result<(Data, Vec<Str
             let col = take(c);
             if col.iter().any(|v| v.is_nan()) {
                 return Err(Error::Param(format!(
-                    "la métrica '{w}' tiene valores vacíos o no numéricos en alguna parcela"
+                    "la métrica '{w}' tiene valores vacíos o no numéricos en alguna muestra"
                 )));
             }
             names.push(plots.names[c].clone());
@@ -2310,7 +2313,7 @@ pub fn join(plots: &Table, field: &Table, j: &JoinSpec) -> Result<(Data, Vec<Str
     }
     if gone_missing > 0 {
         notes.push(format!(
-            "{gone_missing} columnas con valores vacíos en alguna parcela (parcelas sin puntos) no se usan como candidatas."
+            "{gone_missing} columnas con valores vacíos en alguna muestra (muestras sin puntos) no se usan como candidatas."
         ));
     }
     if gone_intensity > 0 {
@@ -2320,7 +2323,7 @@ pub fn join(plots: &Table, field: &Table, j: &JoinSpec) -> Result<(Data, Vec<Str
     }
     if not_in_cells > 0 {
         notes.push(format!(
-            "{not_in_cells} métricas de las parcelas (p. ej. las de intensidad) no están en la tabla de celdas y no se ofrecen como candidatas, para poder hacer el mapa."
+            "{not_in_cells} métricas de las muestras (p. ej. las de intensidad) no están en la tabla de celdas y no se ofrecen como candidatas, para poder hacer el mapa."
         ));
     }
     if gone_const > 0 {
@@ -2334,7 +2337,7 @@ pub fn join(plots: &Table, field: &Table, j: &JoinSpec) -> Result<(Data, Vec<Str
         .collect();
     if wanted.is_empty() && !missing.is_empty() {
         return Err(Error::Param(format!(
-            "las candidatas {} no están en la tabla de parcelas, o tienen valores vacíos, o no están en la tabla de celdas",
+            "las candidatas {} no están en la tabla de muestras, o tienen valores vacíos, o no están en la tabla de celdas",
             missing
                 .iter()
                 .map(|s| format!("«{s}»"))
@@ -2344,7 +2347,7 @@ pub fn join(plots: &Table, field: &Table, j: &JoinSpec) -> Result<(Data, Vec<Str
     }
     if names.is_empty() {
         return Err(Error::Param(
-            "la tabla de parcelas no tiene métricas numéricas que usar".into(),
+            "la tabla de muestras no tiene métricas numéricas que usar".into(),
         ));
     }
     Ok((
@@ -2411,7 +2414,7 @@ pub fn predict_map(
         let find = |n: &str| lookup(&names, n);
         let (Some(cx), Some(cy)) = (find("center X"), find("center Y")) else {
             return Err(Error::Param(format!(
-                "{} no tiene las columnas 'center X' y 'center Y': usa la tabla de texto (.csv) que escribe Métricas de rodal",
+                "{} no tiene las columnas 'center X' y 'center Y': usa la tabla de texto (.csv) que escribe Métricas por celda",
                 cells_csv.display()
             )));
         };
@@ -2425,7 +2428,7 @@ pub fn predict_map(
         }
         if !missing.is_empty() {
             return Err(Error::Param(format!(
-                "{} no tiene las métricas {}: las parcelas y las celdas deben calcularse con el mismo corte de altura y las mismas opciones",
+                "{} no tiene las métricas {}: las muestras y las celdas deben calcularse con el mismo corte de altura y las mismas opciones",
                 cells_csv.display(),
                 missing.join(", ")
             )));
@@ -2521,7 +2524,7 @@ pub fn predict_map(
             .map(|(n, c)| format!("{n}: {c} celdas"))
             .collect();
         return Err(Error::Param(format!(
-            "ninguna celda tiene todas sus métricas dentro del rango de las parcelas, así que el modelo no puede estimar nada ({}). Las parcelas no representan esta zona, o las métricas de las celdas y de las parcelas no se calcularon igual (mismo corte de altura, mismas clases y retornos)",
+            "ninguna celda tiene todas sus métricas dentro del rango de las muestras, así que el modelo no puede estimar nada ({}). Las muestras no representan esta zona, o las métricas de las celdas y de las muestras no se calcularon igual (mismo corte de altura, mismas clases y retornos)",
             detail.join("; ")
         )));
     }
@@ -2562,7 +2565,7 @@ pub struct AbaJob {
 /// The files a model writes next to its map, as `(suffix, extension)`.
 pub const COMPANIONS: &[(&str, &str)] = &[
     ("modelo", "txt"),
-    ("parcelas", "csv"),
+    ("muestras", "csv"),
     ("incertidumbre", "tif"),
 ];
 
@@ -2572,7 +2575,7 @@ impl AbaJob {
     }
 
     pub fn plots_path(&self) -> PathBuf {
-        self.sibling("parcelas", "csv")
+        self.sibling("muestras", "csv")
     }
 
     pub fn interval_path(&self) -> PathBuf {
@@ -2611,7 +2614,7 @@ pub fn analyze(job: &AbaJob) -> Result<(Screening, Vec<String>)> {
         },
     )?;
     if data.y.len() < 3 {
-        return Err(Error::Param("hacen falta al menos 3 parcelas".into()));
+        return Err(Error::Param("hacen falta al menos 3 muestras".into()));
     }
     Ok((screen(&data, &job.spec), notes))
 }
@@ -2691,12 +2694,12 @@ pub fn run(job: &AbaJob) -> Result<String> {
                 .collect();
             let _ = writeln!(
                 text,
-                "  Celdas fuera del rango de las parcelas, por métrica: {}.",
+                "  Celdas fuera del rango de las muestras, por métrica: {}.",
                 worst.join(" · ")
             );
             let _ = writeln!(
                 text,
-                "  {} celdas ({:.1} %) quedan vacías por tener alguna métrica fuera del rango de las parcelas: el modelo no ha visto nada parecido.",
+                "  {} celdas ({:.1} %) quedan vacías por tener alguna métrica fuera del rango de las muestras: el modelo no ha visto nada parecido.",
                 st.outside_range,
                 100.0 * st.outside_range as f64 / st.cells as f64
             );
@@ -2741,6 +2744,14 @@ pub fn run(job: &AbaJob) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tables_written_with_the_old_sampling_unit_name_are_still_read() {
+        let names = vec!["Parcela".to_string(), "Elev P90".to_string()];
+        assert_eq!(lookup(&names, "Muestra"), Some(0));
+        assert_eq!(lookup(&names, "Parcela"), Some(0));
+        assert_eq!(lookup(&names, "Otra"), None);
+    }
 
     fn none() -> Error {
         Error::Param("sin resultado".into())
@@ -2939,8 +2950,8 @@ mod tests {
         let dir = std::env::temp_dir().join("hipso_aba_join");
         let _ = std::fs::create_dir_all(&dir);
         let (p, f) = (dir.join("p.csv"), dir.join("f.csv"));
-        let mut metrics = String::from("Parcela,Area,Elev P95,Elev mean,Total return count\n");
-        let mut field = String::from("Parcela;Vol\n");
+        let mut metrics = String::from("Muestra,Area,Elev P95,Elev mean,Total return count\n");
+        let mut field = String::from("Muestra;Vol\n");
         for i in 1..=8 {
             let h = f64::from(i) * 2.0 + f64::from(i % 3);
             metrics.push_str(&format!("{i},500,{h},{},{}\n", h / 2.0, 100 + i));
@@ -2956,8 +2967,8 @@ mod tests {
             &t,
             &u,
             &JoinSpec {
-                plot_key: "Parcela",
-                field_key: "Parcela",
+                plot_key: "Muestra",
+                field_key: "Muestra",
                 response: "Vol",
                 wanted: &[],
                 available: None,

@@ -1,4 +1,4 @@
-//! Modelos de transición (Inventario forestal): regression of a field variable on the metrics of
+//! Modelos de transición (Inventario de la vegetación): regression of a field variable on the metrics of
 //! the plots, its validation, and the map of the variable.
 
 use super::*;
@@ -98,7 +98,7 @@ fn guess_key(cols: &[String]) -> String {
     cols.iter()
         .find(|c| {
             let l = c.to_lowercase();
-            l.contains("parcela") || l.contains("plot") || l == "id"
+            l.contains("muestra") || l.contains("parcela") || l.contains("plot") || l == "id"
         })
         .or(cols.first())
         .cloned()
@@ -248,7 +248,7 @@ impl App {
                 let t = &mut self.mo;
                 // the button stays on top, whatever the form below is like
                 let missing = if t.plots.trim().is_empty() {
-                    "Falta la capa de parcelas con métricas"
+                    "Falta la capa de unidades de muestreo con métricas"
                 } else if t.field.trim().is_empty() {
                     "Faltan los datos de campo"
                 } else if t.response.is_empty() {
@@ -283,16 +283,16 @@ impl App {
                     .max_height((ctx.content_rect().height() - 200.0).max(220.0))
                     .show(ui, |ui| {
                 ui.label(
-                    egui::RichText::new("Un modelo de transición relaciona una variable medida en campo (volumen, área basimétrica, biomasa…) con las métricas LiDAR de las mismas parcelas y, si se quiere, dibuja su mapa. Se ajusta una regresión lineal y se valida dejando fuera una parcela cada vez, repitiendo la elección de métricas: esa es la cifra de error que cabe esperar en parcelas nuevas. Hacen falta al menos unas 20 parcelas; con menos, el resultado es muy inestable.")
+                    egui::RichText::new("Un modelo de transición relaciona una variable medida en campo (volumen, área basimétrica, biomasa…) con las métricas LiDAR de las mismas unidades de muestreo y, si se quiere, dibuja su mapa. Se ajusta una regresión lineal y se valida dejando fuera una unidad de muestreo cada vez, repitiendo la elección de métricas: esa es la cifra de error que cabe esperar en unidades de muestreo nuevas. Hacen falta al menos unas 20 unidades de muestreo; con menos, el resultado es muy inestable.")
                         .color(weak)
                         .size(11.0),
                 );
                 ui.horizontal(|ui| {
-                    ui.label("Capa de parcelas con métricas");
+                    ui.label("Capa de unidades de muestreo con métricas");
                     ui.add(egui::TextEdit::singleline(&mut t.plots).desired_width(330.0));
                     if ui.button("…").clicked()
                         && let Some(p) = crate::prefs::dialog()
-                            .add_filter("Capa o tabla de parcelas", &["shp", "csv", "txt"])
+                            .add_filter("Capa o tabla de unidades de muestreo", &["shp", "csv", "txt"])
                             .pick_file()
                     {
                         t.plots = p.display().to_string();
@@ -313,9 +313,9 @@ impl App {
                     ui,
                     "Datos de campo",
                     &mut t.field,
-                    &[("Tabla (una fila por parcela)", &["csv", "txt", "xlsx"])],
+                    &[("Tabla (una fila por unidad de muestreo)", &["csv", "txt", "xlsx"])],
                 );
-                ui.label(egui::RichText::new("La capa de parcelas es la que da «Recortar parcelas» (modo solo métricas, formato shapefile): un polígono por parcela con sus métricas; puede estar ya cargada en el programa. El campo, un Excel o CSV con una fila por parcela y su nombre igual al de la parcela.").color(weak).size(11.0));
+                ui.label(egui::RichText::new("La capa de unidades de muestreo es la que da «Extraer muestras» (modo solo métricas, formato shapefile): un polígono por unidad de muestreo con sus métricas; puede estar ya cargada en el programa. El campo, un Excel o CSV con una fila por unidad de muestreo y su nombre igual al de la unidad de muestreo.").color(weak).size(11.0));
                 refresh(&mut t.plots_cols, &t.plots);
                 refresh(&mut t.field_cols, &t.field);
                 if t.plot_key.is_empty() || !t.plots_cols.1.contains(&t.plot_key) {
@@ -328,7 +328,7 @@ impl App {
                     t.response.clear();
                 }
                 ui.horizontal(|ui| {
-                    ui.label("Parcela en métricas");
+                    ui.label("Muestra en métricas");
                     let cols = t.plots_cols.1.clone();
                     column_combo(ui, "mo_pk", &mut t.plot_key, &cols, "");
                     ui.label("en campo");
@@ -381,7 +381,7 @@ impl App {
                         ui.add(NumField::new(&mut t.max_vif).range(1.5..=100.0));
                     });
                     ui.checkbox(&mut t.intensity, "Probar también las métricas de intensidad");
-                    ui.label(egui::RichText::new("El programa deja de lado las métricas que repiten a otra (correlación mayor que el límite: se queda la más relacionada con la variable) y elige entre el resto por el criterio, con una variable por cada diez parcelas como mucho (entre dos y cinco). El informe trae el análisis previo de normalidad y de candidatas. La intensidad de casi todos los vuelos no está calibrada entre pasadas y se deja fuera salvo que se pida.").color(weak).size(11.0));
+                    ui.label(egui::RichText::new("El programa deja de lado las métricas que repiten a otra (correlación mayor que el límite: se queda la más relacionada con la variable) y elige entre el resto por el criterio, con una variable por cada diez unidades de muestreo como mucho (entre dos y cinco). El informe trae el análisis previo de normalidad y de candidatas. La intensidad de casi todos los vuelos no está calibrada entre pasadas y se deja fuera salvo que se pida.").color(weak).size(11.0));
                 } else {
                     ui.horizontal(|ui| {
                         let ready = !t.plots.trim().is_empty() && !t.field.trim().is_empty() && !t.response.is_empty();
@@ -438,7 +438,7 @@ impl App {
                             }
                         });
                         if ticked > most {
-                            ui.colored_label(egui::Color32::from_rgb(230, 160, 60), format!("Con {} parcelas, más de {most} variables arriesga el sobreajuste.", sc.response.n));
+                            ui.colored_label(egui::Color32::from_rgb(230, 160, 60), format!("Con {} unidades de muestreo, más de {most} variables arriesga el sobreajuste.", sc.response.n));
                         }
                         egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
                             egui::Grid::new("mo_cands").striped(true).show(ui, |ui| {
@@ -482,9 +482,9 @@ impl App {
                             t.cells.clear();
                         }
                     });
-                    ui.label(egui::RichText::new("Son las tablas de texto (.csv) de «Métricas de rodal» (una por hoja). Deben calcularse igual que las de las parcelas: mismo corte de altura, mismas clases y retornos, y celdas de tamaño parecido al de las parcelas. Solo se ofrecen las métricas que están en las dos tablas.").color(weak).size(11.0));
+                    ui.label(egui::RichText::new("Son las tablas de texto (.csv) de «Métricas por celda» (una por hoja). Deben calcularse igual que las de las unidades de muestreo: mismo corte de altura, mismas clases y retornos, y celdas de tamaño parecido al de las unidades de muestreo. Solo se ofrecen las métricas que están en las dos tablas.").color(weak).size(11.0));
                     ui.checkbox(&mut t.interval, "Guardar también el intervalo de predicción del 95 % (semiancho)");
-                    ui.checkbox(&mut t.extrapolate, "Estimar también las celdas fuera del rango de las parcelas");
+                    ui.checkbox(&mut t.extrapolate, "Estimar también las celdas fuera del rango de las unidades de muestreo");
                     ui.label(egui::RichText::new("Por defecto esas celdas quedan vacías: el modelo no ha visto nada parecido y extrapolar da cifras sin respaldo.").color(weak).size(11.0));
                     if !t.out_manual {
                         t.out = if t.plots.trim().is_empty() {

@@ -281,7 +281,7 @@ pub(crate) fn regions_of(layer: &Layer, opts: &ReadOptions) -> Result<Vec<Region
                     .or(opts.radius)
                     .ok_or_else(|| {
                         Error::Param(
-                            "las parcelas dadas como puntos necesitan un radio".to_string(),
+                            "las muestras dadas como puntos necesitan un radio".to_string(),
                         )
                     })?;
                 let p = f.parts[0][0];
@@ -535,13 +535,13 @@ mod tests {
         let path = temp("regions.geojson");
         std::fs::write(
             &path,
-            r#"{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"parcela":"P1"},
+            r#"{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"muestra":"P1"},
               "geometry":{"type":"Polygon","coordinates":[[[0,0],[10,0],[10,10],[0,10],[0,0]]]}}]}"#,
         )?;
         let regions = read_regions(
             &path,
             &ReadOptions {
-                name_field: Some("parcela".into()),
+                name_field: Some("muestra".into()),
                 ..Default::default()
             },
         )?;

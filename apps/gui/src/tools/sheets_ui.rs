@@ -543,7 +543,7 @@ impl Tools {
 
     pub fn plots_form(&mut self, ui: &mut egui::Ui, t: &Tokens, aois: &[Aoi]) {
         let weak = |s: &str| egui::RichText::new(s.to_string()).color(t.weak).size(11.0);
-        ui.label(egui::RichText::new("1 · De dónde salen las parcelas").strong());
+        ui.label(egui::RichText::new("1 · De dónde salen las unidades de muestreo").strong());
         ui.horizontal(|ui| {
             ui.radio_value(&mut self.s2.source, PlotSource::File, "Archivo vectorial");
             ui.radio_value(
@@ -569,16 +569,16 @@ impl Tools {
                     ui.add(egui::TextEdit::singleline(&mut self.s2.file).desired_width(330.0));
                     if ui.button("…").clicked()
                         && let Some(p) = pick_file(
-                            "Parcelas",
+                            "Unidades de muestreo",
                             &["shp", "geojson", "json", "gpkg", "csv", "txt"],
                         )
                     {
                         self.s2.file = p.display().to_string();
                     }
                 });
-                ui.label(weak("Polígonos (se usan tal cual) o puntos con el centro de cada parcela (la forma y el tamaño se dan abajo)."));
+                ui.label(weak("Polígonos (se usan tal cual) o puntos con el centro de cada unidad de muestreo (la forma y el tamaño se dan abajo)."));
                 ui.horizontal(|ui| {
-                    ui.label("Campo con el número de parcela");
+                    ui.label("Campo con el número de unidad de muestreo");
                     ui.add(
                         egui::TextEdit::singleline(&mut self.s2.name_field).desired_width(110.0),
                     );
@@ -614,7 +614,7 @@ impl Tools {
                     );
                 }
                 ui.horizontal(|ui| {
-                    ui.label("Solo las parcelas con CAMPO=VALOR");
+                    ui.label("Solo las unidades de muestreo con CAMPO=VALOR");
                     ui.add(egui::TextEdit::singleline(&mut self.s2.where_).desired_width(110.0));
                 });
             }
@@ -645,7 +645,13 @@ impl Tools {
                     );
                 } else {
                     let mut c = self.s2.count as f64;
-                    num(ui, "Número de parcelas", &mut c, 1.0..=100000.0, 1.0);
+                    num(
+                        ui,
+                        "Número de unidades de muestreo",
+                        &mut c,
+                        1.0..=100000.0,
+                        1.0,
+                    );
                     self.s2.count = c as usize;
                     num(
                         ui,
@@ -657,7 +663,7 @@ impl Tools {
                     let mut s = self.s2.seed as f64;
                     num(
                         ui,
-                        "Semilla (la misma semilla da las mismas parcelas)",
+                        "Semilla (la misma semilla da las mismas unidades de muestreo)",
                         &mut s,
                         0.0..=1e9,
                         1.0,
@@ -668,7 +674,7 @@ impl Tools {
                     ui.label("Limitar a los polígonos de");
                     ui.add(
                         egui::TextEdit::singleline(&mut self.s2.limit)
-                            .hint_text("rodal.shp (opcional)")
+                            .hint_text("unidades.shp (opcional)")
                             .desired_width(220.0),
                     );
                     if ui.button("…").clicked()
@@ -678,7 +684,7 @@ impl Tools {
                     }
                 });
                 ui.label(weak(
-                    "La ubicación de las parcelas generadas se guarda como capa vectorial.",
+                    "La ubicación de las unidades de muestreo generadas se guarda como capa vectorial.",
                 ));
             }
             PlotSource::Aois => {
@@ -694,7 +700,7 @@ impl Tools {
         ui.label(egui::RichText::new("2 · Qué se obtiene").strong());
         ui.checkbox(
             &mut self.s2.vector,
-            "Capa vectorial con las parcelas y sus métricas",
+            "Capa vectorial con las unidades de muestreo y sus métricas",
         );
         if self.s2.vector {
             self.formats_row(ui);
@@ -702,7 +708,7 @@ impl Tools {
         ui.horizontal(|ui| {
             ui.label("Nubes recortadas");
             ui.radio_value(&mut self.s2.clouds, 0, "ninguna");
-            ui.radio_value(&mut self.s2.clouds, 1, "una por parcela");
+            ui.radio_value(&mut self.s2.clouds, 1, "una por unidad de muestreo");
             ui.radio_value(&mut self.s2.clouds, 2, "una con todas");
         });
         egui::CollapsingHeader::new("Filtros y opciones").show(ui, |ui| {
@@ -732,21 +738,21 @@ impl Tools {
             );
             ui.label(
                 egui::RichText::new(
-                    "Marcada, las parcelas y sus métricas salen con alturas normalizadas y hace falta el MDT de cada nube. Desmárcala para trabajar con las cotas originales.",
+                    "Marcada, las unidades de muestreo y sus métricas salen con alturas normalizadas y hace falta el MDT de cada nube. Desmárcala para trabajar con las cotas originales.",
                 )
                 .size(11.0)
                 .weak(),
             );
-            ui.label("Puntos en el solape de dos parcelas:");
+            ui.label("Puntos en el solape de dos unidades de muestreo:");
             ui.radio_value(
                 &mut self.s2.exclusive,
                 false,
-                "se cuentan en todas las parcelas que los contienen",
+                "se cuentan en todas las unidades de muestreo que los contienen",
             );
             ui.radio_value(
                 &mut self.s2.exclusive,
                 true,
-                "se asignan solo a la primera parcela que los contiene (la primera del archivo)",
+                "se asignan solo a la primera unidad de muestreo que los contiene (la primera del archivo)",
             );
         });
     }
@@ -1033,7 +1039,7 @@ impl Tools {
         let regions = match s.source {
             PlotSource::File => {
                 if s.file.trim().is_empty() {
-                    log.push("Elige el archivo con las parcelas.".into());
+                    log.push("Elige el archivo con las unidades de muestreo.".into());
                     return None;
                 }
                 let opts = vector::ReadOptions {
@@ -1062,7 +1068,7 @@ impl Tools {
                         list
                     }
                     Err(e) => {
-                        log.push(format!("Parcelas: {e}"));
+                        log.push(format!("Unidades de muestreo: {e}"));
                         return None;
                     }
                 }
@@ -1145,7 +1151,7 @@ impl Tools {
                 };
                 match hipso_core::plots::generate(b, limit.as_deref(), shape, sampling, s.seed) {
                     Ok(plots) => {
-                        let layout = paths::unique(&paths::product(&first, "parcelas", "shp"));
+                        let layout = paths::unique(&paths::product(&first, "muestras", "shp"));
                         let prj = Reader::open(&first)
                             .ok()
                             .and_then(|r| r.header.epsg)
@@ -1153,11 +1159,13 @@ impl Tools {
                         if let Err(e) =
                             hipso_core::plots::write_layout(&layout, &plots, prj.as_deref())
                         {
-                            log.push(format!("No se pudo guardar la capa de parcelas: {e}"));
+                            log.push(format!(
+                                "No se pudo guardar la capa de unidades de muestreo: {e}"
+                            ));
                             return None;
                         }
                         log.push(format!(
-                            "{} parcelas generadas: {}",
+                            "{} unidades de muestreo generadas: {}",
                             plots.len(),
                             layout.display()
                         ));
@@ -1173,7 +1181,7 @@ impl Tools {
             }
         };
         if regions.is_empty() {
-            log.push("No hay parcelas.".into());
+            log.push("No hay unidades de muestreo.".into());
             return None;
         }
         let classes = match class_mask(&self.clip_class) {
@@ -1196,14 +1204,14 @@ impl Tools {
         };
         if !self.s2.vector && self.s2.clouds == 0 {
             log.push(
-                "Elige qué quieres obtener: la capa de parcelas, nubes recortadas, o ambas.".into(),
+                "Elige qué quieres obtener: la capa de unidades de muestreo, nubes recortadas, o ambas.".into(),
             );
             return None;
         }
         let (mode, tag) = match self.s2.clouds {
-            1 => (ClipMode::PerRegion, "parcela"),
+            1 => (ClipMode::PerRegion, "muestra"),
             2 => (ClipMode::Merge, "recorte"),
-            _ => (ClipMode::MetricsOnly, "parcelas"),
+            _ => (ClipMode::MetricsOnly, "muestras"),
         };
         let cloud_out = paths::unique(&paths::product(&first, tag, &ext));
         if self.s2.clouds != 0 {
@@ -1238,7 +1246,7 @@ impl Tools {
         }
         job.exclusive = self.s2.exclusive;
         if self.s2.vector {
-            let base = paths::unique(&paths::product(&first, "parcelas_metricas", "shp"));
+            let base = paths::unique(&paths::product(&first, "muestras_metricas", "shp"));
             let formats = self.formats();
             if formats.vector {
                 show.push(paths::swap_ext(&base, "shp"));

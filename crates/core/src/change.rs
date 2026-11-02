@@ -82,7 +82,7 @@ impl ChangeJob {
             classes: named("cambio", "tif"),
             patches: f.vector.then(|| named("perturbaciones", "shp")),
             patches_table: f.csv.then(|| named("perturbaciones", "csv")),
-            stands: self.regions.is_some().then(|| named("rodales", "csv")),
+            stands: self.regions.is_some().then(|| named("unidades", "csv")),
             trees: self.trees.is_some().then(|| named("arboles", "csv")),
         }
     }
@@ -326,8 +326,8 @@ pub fn change(j: &ChangeJob) -> Result<String> {
         (GREW, "crece"),
         (SHRANK, "baja"),
         (STABLE, "estable"),
-        (COVER_LOST, "pierde la copa"),
-        (COVER_GAINED, "gana copa"),
+        (COVER_LOST, "pierde la cubierta"),
+        (COVER_GAINED, "gana cubierta"),
     ] {
         lines.push(format!(
             "  {name}: {:.2} ha ({:.1} %)",
@@ -347,7 +347,7 @@ pub fn change(j: &ChangeJob) -> Result<String> {
     }
     lines.push(format!("  diferencia: {}", out.difference.display()));
     lines.push(format!(
-        "  clases (1 estable, 2 crece, 3 baja, 4 pierde copa, 5 gana copa): {}",
+        "  clases (1 estable, 2 crece, 3 baja, 4 pierde cubierta, 5 gana cubierta): {}",
         out.classes.display()
     ));
     check_cancel()?;
@@ -384,7 +384,7 @@ pub fn change(j: &ChangeJob) -> Result<String> {
             if let Some(p) = &out.patches {
                 let written = write_polygons(p, &labels, &table, None, 0.0, epsg)?;
                 lines.push(format!(
-                    "  perturbaciones (pérdida de copa de al menos {} celdas): {written} manchas, {lost:.2} ha: {}",
+                    "  perturbaciones (pérdida de cubierta de al menos {} celdas): {written} manchas, {lost:.2} ha: {}",
                     j.min_patch.max(1),
                     p.display()
                 ));
@@ -394,7 +394,7 @@ pub fn change(j: &ChangeJob) -> Result<String> {
                 lines.push(format!("  tabla de perturbaciones: {}", p.display()));
             }
         } else {
-            lines.push("  no hay manchas de pérdida de copa de ese tamaño".to_string());
+            lines.push("  no hay manchas de pérdida de cubierta de ese tamaño".to_string());
         }
     }
     // stands
@@ -411,7 +411,7 @@ pub fn change(j: &ChangeJob) -> Result<String> {
         let mut csv = std::io::BufWriter::new(std::fs::File::create(path)?);
         writeln!(
             csv,
-            "rodal,area_ha,cobertura_antes_pct,cobertura_despues_pct,dchm_medio,crece_ha,baja_ha,pierde_copa_ha,gana_copa_ha"
+            "unidad,area_ha,cobertura_antes_pct,cobertura_despues_pct,dchm_medio,crece_ha,baja_ha,pierde_cubierta_ha,gana_cubierta_ha"
         )?;
         for r in &rows {
             let cells = r.cells.max(1) as f64;
@@ -430,7 +430,11 @@ pub fn change(j: &ChangeJob) -> Result<String> {
             )?;
         }
         csv.flush()?;
-        lines.push(format!("  rodales ({}): {}", rows.len(), path.display()));
+        lines.push(format!(
+            "  unidades de gestión ({}): {}",
+            rows.len(),
+            path.display()
+        ));
     }
     // trees
     if let (Some(tc), Some(path)) = (&j.trees, &out.trees) {
@@ -474,7 +478,7 @@ pub fn change(j: &ChangeJob) -> Result<String> {
             / growth.len().max(1) as f64)
             .sqrt();
         lines.push(format!(
-            "  árboles: {} de la primera fecha, {} de la segunda, {} emparejados (crecimiento {:+.2} ± {:.2} m{}), {} perdidos, {} nuevos: {}",
+            "  individuos: {} de la primera fecha, {} de la segunda, {} emparejados (crecimiento {:+.2} ± {:.2} m{}), {} perdidos, {} nuevos: {}",
             tb.len(),
             ta.len(),
             pairs.len(),
@@ -535,7 +539,7 @@ mod tests {
         cone(&mut after, 1025.0, 2005.0, 9.0, 6.0); // D new
         before.write_tiff(&dir.join("a.tif"), Some(25830))?;
         after.write_tiff(&dir.join("b.tif"), Some(25830))?;
-        let regions = dir.join("rodales.geojson");
+        let regions = dir.join("unidades.geojson");
         std::fs::write(
             &regions,
             r#"{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"n":"izq"},
@@ -567,7 +571,7 @@ mod tests {
             },
         };
         let text = change(&job)?;
-        assert!(text.contains("pierde la copa"), "{text}");
+        assert!(text.contains("pierde la cubierta"), "{text}");
         let out = job.outputs();
         // the class raster: tree B's centre lost its canopy, A's centre grew, C's did not change
         let classes = crate::obia::Labels::read_tiff(&out.classes)?;
