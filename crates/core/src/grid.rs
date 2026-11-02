@@ -188,6 +188,17 @@ impl Grid {
 
     /// Writes a Deflate-compressed 32-bit float GeoTIFF; `epsg` is the projected system.
     pub fn write_tiff(&self, path: &Path, epsg: Option<u16>) -> Result<()> {
+        self.write_tiff_vertical(path, epsg, None)
+    }
+
+    /// As [`Grid::write_tiff`], also declaring the vertical reference of the values (EPSG code of
+    /// a vertical CRS, GeoKey 4096).
+    pub fn write_tiff_vertical(
+        &self,
+        path: &Path,
+        epsg: Option<u16>,
+        vertical: Option<u16>,
+    ) -> Result<()> {
         let w = BufWriter::new(File::create(path)?);
         let mut enc = TiffEncoder::new(w)
             .map_err(tiff_err)?
@@ -213,6 +224,10 @@ impl Grid {
         if let Some(code) = epsg {
             keys[3] = 3;
             keys.extend([3072, 0, 1, code]);
+            if let Some(v) = vertical {
+                keys[3] = 4;
+                keys.extend([4096, 0, 1, v]);
+            }
         }
         e.write_tag(Tag::GeoKeyDirectoryTag, &keys[..])
             .map_err(tiff_err)?;
@@ -317,6 +332,19 @@ impl Grid {
                 .and_then(|e| u16::try_from(e[3]).ok())
         };
         key(3072).or_else(|| key(2048))
+    }
+
+    /// The EPSG code of the vertical CRS a GeoTIFF declares (GeoKey 4096), if any.
+    pub fn read_vertical_epsg(path: &Path) -> Option<u16> {
+        use tiff::decoder::Decoder;
+        let mut d = Decoder::new(BufReader::new(File::open(path).ok()?)).ok()?;
+        let keys = d.get_tag_u32_vec(Tag::GeoKeyDirectoryTag).ok()?;
+        keys.get(4..)?
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .find(|e| e[0] == 4096 && e[1] == 0 && e[3] != 32767 && e[3] != 0)
+            .and_then(|e| u16::try_from(e[3]).ok())
     }
 
     /// Reads a north-up 32-bit float GeoTIFF such as [`Grid::write_tiff`] writes.

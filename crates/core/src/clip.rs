@@ -531,6 +531,7 @@ fn write_metrics(m: &SampleMetrics, job: &ClipJob, rows: &[(usize, Vec<String>)]
         values.push(date.clone());
         let rings: Vec<Vec<[f64; 2]>> = match &r.shape {
             crate::vector::Shape2::Polygon(p) => p.rings.clone(),
+            crate::vector::Shape2::Buffered(b) => b.poly.rings.clone(),
             crate::vector::Shape2::Circle { cx, cy, r } => crate::edit::circle(*cx, *cy, *r).rings,
             crate::vector::Shape2::Rect(b) => {
                 vec![vec![[b[0], b[1]], [b[0], b[3]], [b[2], b[3]], [b[2], b[1]]]]
@@ -741,6 +742,43 @@ mod tests {
             (back.header.bounds[2] - 10.0).abs() < 0.02
                 && (back.header.bounds[5] - 10.0).abs() < 0.02
         );
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn three_polygons_give_three_files_named_by_their_field_and_a_buffer_widens_each() -> Result<()> {
+        let dir = tmp("buffer")?;
+        let input = cloud(&dir)?;
+        let poly = |name: &str, x: f64| Region {
+            name: name.into(),
+            shape: Shape2::Polygon(crate::vector::Polygon::new(vec![vec![
+                [x, 2020.0],
+                [x, 2040.0],
+                [x + 20.0, 2040.0],
+                [x + 20.0, 2020.0],
+            ]])),
+            attrs: vec![],
+        };
+        let regions = vec![poly("norte", 1000.0), poly("centro", 1030.0), poly("sur", 1060.0)];
+        let mut job = ClipJob::new(vec![input.clone()], regions.clone(), dir.join("p.las"));
+        job.mode = ClipMode::PerRegion;
+        let plain = run(&job)?;
+        assert_eq!(plain.files.len(), 3);
+        for n in ["norte", "centro", "sur"] {
+            assert!(plain.files.iter().any(|f| f.path.to_string_lossy().contains(n)), "{n}");
+        }
+        let wide: Vec<Region> = regions.iter().map(|r| r.buffered(10.0)).collect();
+        let mut job2 = ClipJob::new(vec![input.clone()], wide, dir.join("w.las"));
+        job2.mode = ClipMode::PerRegion;
+        let grown = run(&job2)?;
+        // the bounds of each output reach 10 m (to the cloud's resolution) beyond the polygon
+        for (a, b) in plain.files.iter().zip(&grown.files) {
+            assert!(b.points > a.points);
+        }
+        let ba = Reader::open(&grown.files[1].path)?.header.bounds;
+        assert!(ba[0] <= 1030.0 - 9.0 && ba[0] >= 1030.0 - 10.0 - 1e-6, "{ba:?}");
+        assert!(ba[4] >= 2040.0 + 9.0 && ba[4] <= 2040.0 + 10.0 + 1e-6, "{ba:?}");
         std::fs::remove_dir_all(&dir)?;
         Ok(())
     }

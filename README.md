@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/juliomsevilla/HIPSO/releases/latest"><img alt="Descargar" src="https://img.shields.io/badge/descargar-v0.6.0-ff8a1f?style=for-the-badge"></a>
+  <a href="https://github.com/juliomsevilla/HIPSO/releases/latest"><img alt="Descargar" src="https://img.shields.io/badge/descargar-v0.7.0-ff8a1f?style=for-the-badge"></a>
   <img alt="Plataformas" src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-555?style=for-the-badge">
   <img alt="Gratuito" src="https://img.shields.io/badge/uso-gratuito-2e7d32?style=for-the-badge">
 </p>
@@ -56,12 +56,15 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/HIPSO/releases/
 | **Calidad** | Comparar nubes (cambios) · Ajustar una nube a otra (ICP) · Separación entre pasadas |
 | **Superficies** | MDT (triangulación por defecto, ponderado por distancia o media por celda, con **líneas de rotura**) · MDS / CHM (MDS por triangulación, ponderado por distancia o máximo por celda; CHM con *pit-free* y suavizado) · **Análisis de terreno** sobre el MDT: pendiente, orientación, sombreado, curvaturas, rugosidad, TRI, TPI, depresiones, acumulación de flujo, TWI, red de drenaje, subcuencas y cuenca visual · Volumen sobre (y bajo) el MDT, desde el CHM o el MDS, por ráster completo, AOI o polígonos |
 | **Inventario de la vegetación** | Métricas por celda · Extraer muestras (de archivo, muestreo o dibujadas) · Segmentar individuos (Dalponte, Silva, cuencas, ventana variable) con evaluación frente a campo · **Medición de troncos (TLS)**: mide diámetros a lo largo del tronco, estima el volumen con Smalian, estima la altura libre de ramas de los troncos perdidos y guarda la nube con **troncos (clase 64) y ramas (clase 65)** para editarla · **Modelos de transición**: regresión de volumen, área basimétrica… sobre las métricas LiDAR, validada dejando una unidad de muestreo fuera cada vez, y su mapa · Cambio de la cubierta vegetal · Análisis por objetos (OBIA) |
-| **Infraestructuras** | Corredores eléctricos |
+| **Infraestructuras** | Corredores eléctricos · **Carreteras y vías** (ejes y anchura a partir del suelo clasificado) |
 
 ### Ráster
 
 - **Composiciones de bandas e índices espectrales** (NDVI, GNDVI, NDWI, EVI, SAVI, NDMI, NBR, VARI, ExG o expresión propia).
-- **Igualar rásteres**: los pone sobre las celdas de uno de referencia para que coincidan celda a celda.
+- **Igualar rásteres**: los pone sobre las celdas de uno de referencia para que coincidan celda a celda, con remuestreo vecino, bilineal, media, cúbico o moda.
+- **Reproyectar** nubes y rásteres, con **cambio de la referencia vertical** (elipsoidal a ortométrica con el geoide) y política estricta: una transformación aproximada se rechaza en vez de entregarse en silencio.
+- **Estadística zonal** de un ráster por polígono, como capa con un campo nuevo por estadístico, y **geoprocesos con polígonos** (validar, reparar, búfer, disolver, unión).
+- **Tamizar, proximidad y relleno de huecos** por la línea de comandos.
 - **Crear multibanda** a partir de rásteres sueltos.
 - **Mosaico** con regla de solape: primero, último, media, mínimo, máximo, mediana, suma o número de capas.
 - **Cloud Optimized GeoTIFF multibanda**: mosaicos, imágenes multibanda y rásteres igualados salen en teselas con vistas reducidas, en JPEG (ortofotos) o sin pérdida; tres hojas de ortofoto PNOA ocupan 2,4 GB en vez de 14,7.
@@ -114,6 +117,9 @@ hipso colorize nube.laz --image ortofoto.tif
 hipso copc nube.laz
 hipso import escaneo.e57 --epsg 25830
 hipso reproject nube_ed50.laz -o nube_etrs89.laz --to 25830
+hipso reproject nube.laz --to 25830 --vertical-in ellipsoidal --vertical-out 5782 -o nube_orto.laz
+hipso zonal chm.tif --regions rodales.shp --prefix chm_
+hipso roads nube_clasificada.laz
 hipso compare nube2.laz --reference nube1.laz --distance 0.5
 ```
 
@@ -121,11 +127,11 @@ hipso compare nube2.laz --reference nube1.laz --distance 0.5
 
 ## Limitaciones conocidas
 
-**Las coordenadas se transforman solas entre distintos sistemas pero solo en horizontal.** Cuando una herramienta combina archivos en sistemas distintos (por ejemplo una nube en ETRS89 UTM 30N con un MDT en 29N, o unas unidades de muestreo en ED50), HIPSO **los transforma al sistema de la primera nube** y te lo dice en el informe. Las transformaciones coinciden con las de PROJ en todos los casos probados en España e incluyen las mallas oficiales del IGN y del ICGC para pasar de ED50 a ETRS89, que van dentro del programa.
+**Las coordenadas se transforman solas entre distintos sistemas, y solo en horizontal salvo que se pida otra cosa.** Cuando una herramienta combina archivos en sistemas distintos (por ejemplo una nube en ETRS89 UTM 30N con un MDT en 29N, o unas unidades de muestreo en ED50), HIPSO **los transforma al sistema de la primera nube** y te lo dice en el informe. Las transformaciones coinciden con las de PROJ en todos los casos probados en España e incluyen las mallas oficiales del IGN y del ICGC para pasar de ED50 a ETRS89, que van dentro del programa.
 
 - En el visor, las capas en otro sistema se pasan al de la primera nube al cargarlas (el registro avisa de que tardará más solo cuando hay capas en sistemas distintos).
 - Qué se convierte: nubes LAS/LAZ y rásteres (copias temporales que se borran al terminar) y unidades de muestreo o muestras en shapefile o GeoJSON (en memoria, casi sin coste). Si todo está ya en el mismo sistema no se hace nada y no se pierde tiempo. El comando `hipso reproject` convierte una nube o un ráster y guarda el resultado.
-- **Solo cambian X e Y.** Las alturas se conservan tal cual: pasar de alturas elipsoidales a ortométricas (geoide) es otra operación y no se hace sola. Al reproyectar un ráster entre husos la celda se mantiene (por ejemplo 1 m) y los valores se interpolan; los rásteres de números enteros (clases) usan el vecino más cercano.
+- **Por defecto solo cambian X e Y.** Las alturas se conservan tal cual: pasar de alturas elipsoidales a ortométricas (geoide) es otra operación y no se hace sola, sino con `hipso reproject --vertical-in … --vertical-out …` o con la ventana *Reproyectar*. Si no hay modelo de geoide para el punto, o falta una rejilla, la transformación se rechaza con un error en lugar de entregar un valor dudoso (`--allow-ballpark` y `--allow-fallback` aceptan las aproximaciones). Al reproyectar un ráster entre husos la celda se mantiene (por ejemplo 1 m) y los valores se interpolan; los rásteres de números enteros (clases) usan el vecino más cercano.
 - Lo que no se convierte y sigue pidiendo que se haga antes: imágenes de varias bandas (ortofotos, satélite) y las herramientas de imágenes grandes (*Apilar*, *Mosaico* de imágenes e *Igualar rásteres*), que exigen el mismo sistema. Tampoco se pasan nubes desde o hacia coordenadas geográficas (grados).
 - Si un archivo no declara su sistema no se puede comprobar, y el resultado lleva un aviso. ETRS89 y WGS 84 del mismo huso se consideran equivalentes y solo avisan, porque difieren en torno a un metro.
 - Convertir una nube cuesta una pasada completa sobre ella, y su copia temporal ocupa espacio en disco. Si vas a trabajar mucho con ella, conviene convertirla una vez con `hipso reproject` y guardar el resultado.

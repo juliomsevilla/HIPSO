@@ -108,6 +108,8 @@ impl App {
             .open(&mut open)
             .default_width(580.0)
             .show(ctx, |ui| {
+                crate::tools::output_row(ui, &mut self.tools.out_dir);
+                ui.separator();
                 let t = &mut self.ct;
                 ui.label(
                     egui::RichText::new("Compara los modelos de alturas (CHM) de dos fechas: cuánto ha crecido o bajado cada celda, dónde se ha perdido o ganado cubierta vegetal, las manchas perturbadas, el resumen por unidad de gestión y el crecimiento de cada individuo. Los dos CHM deben coincidir celda a celda (Ráster → Igualar rásteres).")

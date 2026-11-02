@@ -51,6 +51,19 @@ pub fn epsg_of(path: &Path) -> Option<u16> {
     }
 }
 
+/// The EPSG code of the vertical reference a file declares, if any (LAS/LAZ and GeoTIFF).
+pub fn vertical_epsg_of(path: &Path) -> Option<u16> {
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "las" | "laz" => Reader::open(path).ok().and_then(|r| r.header.vertical_epsg),
+        "tif" | "tiff" => crate::grid::Grid::read_vertical_epsg(path),
+        _ => None,
+    }
+}
+
 /// A readable name for a code, with the code: `ETRS89 / UTM 30N (EPSG:25830)`.
 pub fn name(epsg: u16) -> String {
     let utm = |datum: &str, zone: u16, south: bool| {

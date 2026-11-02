@@ -276,6 +276,7 @@ pub fn polygons_of(regions: &[Region]) -> Vec<crate::edit::Region> {
         .map(|r| {
             crate::edit::Region::Plan(match &r.shape {
                 Shape2::Polygon(p) => p.clone(),
+                Shape2::Buffered(b) => b.poly.clone(),
                 Shape2::Circle { cx, cy, r } => crate::edit::circle(*cx, *cy, *r),
                 Shape2::Rect(b) => Polygon::new(vec![vec![
                     [b[0], b[1]],

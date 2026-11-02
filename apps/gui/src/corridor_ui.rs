@@ -63,6 +63,8 @@ impl App {
             .open(&mut open)
             .default_width(560.0)
             .show(ctx, |ui| {
+                crate::tools::output_row(ui, &mut self.tools.out_dir);
+                ui.separator();
                 let t = &mut self.co;
                 ui.label(
                     egui::RichText::new("Reconstruye los conductores con los puntos de cable (clase 14), localiza los postes (clase 15) y marca la vegetación que queda más cerca del conductor que la distancia de seguridad o que podría alcanzarlo si cayera. Clasifica antes «Cables y postes» en Clasificar. El resultado trae un informe por vano.")

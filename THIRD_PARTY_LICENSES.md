@@ -30,6 +30,7 @@ Las fuentes tipográficas incluidas en egui (`epaint_default_fonts`) están bajo
 | anstyle-parse | 1.0.0 | MIT OR Apache-2.0 | https://github.com/rust-cli/anstyle.git |
 | anstyle-query | 1.1.5 | MIT OR Apache-2.0 | https://github.com/rust-cli/anstyle.git |
 | anstyle-wincon | 3.0.11 | MIT OR Apache-2.0 | https://github.com/rust-cli/anstyle.git |
+| approx | 0.5.1 | Apache-2.0 | https://github.com/brendanzab/approx |
 | arboard | 3.7.0 | MIT OR Apache-2.0 | https://github.com/1Password/arboard |
 | arrayref | 0.3.9 | BSD-2-Clause | https://github.com/droundy/arrayref |
 | arrayvec | 0.7.8 | MIT OR Apache-2.0 | https://github.com/bluss/arrayvec |
@@ -105,6 +106,7 @@ Las fuentes tipográficas incluidas en egui (`epaint_default_fonts`) están bajo
 | downcast-rs | 1.2.1 | MIT/Apache-2.0 | https://github.com/marcianx/downcast-rs |
 | dpi | 0.1.2 | Apache-2.0 AND MIT | https://github.com/rust-windowing/winit |
 | e57 | 0.11.13 | MIT | https://github.com/cry-inc/e57 |
+| earcut | 0.4.5 | ISC | https://github.com/ciscorn/earcut-rs |
 | earcutr | 0.5.0 | ISC | https://github.com/frewsxcv/earcutr/ |
 | ecolor | 0.36.2 | MIT OR Apache-2.0 | https://github.com/emilk/egui |
 | eframe | 0.36.2 | MIT OR Apache-2.0 | https://github.com/emilk/egui/tree/main/crates/eframe |
@@ -132,6 +134,7 @@ Las fuentes tipográficas incluidas en egui (`epaint_default_fonts`) están bajo
 | find-msvc-tools | 0.1.14 | MIT OR Apache-2.0 | https://github.com/rust-lang/cc-rs |
 | flate2 | 1.1.10 | MIT OR Apache-2.0 | https://github.com/rust-lang/flate2-rs |
 | float-cmp | 0.9.0 | MIT | https://github.com/mikedilger/float-cmp |
+| float_next_after | 2.0.0 | MIT | https://gitlab.com/bronsonbdevost/next_afterf |
 | foldhash | 0.2.0 | Zlib | https://github.com/orlp/foldhash |
 | font-types | 0.12.7 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations |
 | foreign-types | 0.5.0 | MIT/Apache-2.0 | https://github.com/sfackler/foreign-types |
@@ -144,6 +147,8 @@ Las fuentes tipográficas incluidas en egui (`epaint_default_fonts`) están bajo
 | futures-macro | 0.3.34 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
 | futures-task | 0.3.34 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
 | futures-util | 0.3.34 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
+| geo | 0.33.1 | MIT OR Apache-2.0 | https://github.com/georust/geo |
+| geo-types | 0.7.20 | MIT OR Apache-2.0 | https://github.com/georust/geo |
 | geographiclib-rs | 0.2.7 | MIT | https://github.com/georust/geographiclib-rs |
 | gethostname | 1.1.0 | Apache-2.0 | https://codeberg.org/swsnr/gethostname.rs.git |
 | getrandom | 0.2.17 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom |
@@ -161,13 +166,20 @@ Las fuentes tipográficas incluidas en egui (`epaint_default_fonts`) están bajo
 | guillotiere | 0.7.0 | MIT/Apache-2.0 | https://github.com/nical/guillotiere |
 | half | 2.7.1 | MIT OR Apache-2.0 | https://github.com/VoidStarKat/half-rs |
 | harfrust | 0.12.0 | MIT | https://github.com/harfbuzz/harfrust |
+| hash32 | 0.3.1 | MIT OR Apache-2.0 | https://github.com/japaric/hash32 |
 | hashbrown | 0.16.1 | MIT OR Apache-2.0 | https://github.com/rust-lang/hashbrown |
 | hashbrown | 0.17.1 | MIT OR Apache-2.0 | https://github.com/rust-lang/hashbrown |
+| heapless | 0.8.0 | MIT OR Apache-2.0 | https://github.com/rust-embedded/heapless |
 | heck | 0.5.0 | MIT OR Apache-2.0 | https://github.com/withoutboats/heck |
 | hermit-abi | 0.5.3 | MIT OR Apache-2.0 | https://github.com/hermit-os/hermit-rs |
 | hex | 0.4.3 | MIT OR Apache-2.0 | https://github.com/KokaKiwi/rust-hex |
 | http | 1.5.0 | MIT OR Apache-2.0 | https://github.com/hyperium/http |
 | httparse | 1.10.1 | MIT OR Apache-2.0 | https://github.com/seanmonstar/httparse |
+| i_float | 1.16.0 | MIT | https://github.com/iShape-Rust/iFloat |
+| i_key_sort | 0.10.3 | MIT | https://github.com/iShape-Rust/iKeySort |
+| i_overlay | 4.5.2 | MIT OR Apache-2.0 | https://github.com/iShape-Rust/iOverlay |
+| i_shape | 1.18.0 | MIT | https://github.com/iShape-Rust/iShape |
+| i_tree | 0.18.0 | MIT | https://github.com/iShape-Rust/iTree |
 | icu_collections | 2.3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
 | icu_locale_core | 2.3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
 | icu_normalizer | 2.3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
@@ -201,8 +213,8 @@ Las fuentes tipográficas incluidas en egui (`epaint_default_fonts`) están bajo
 | libm | 0.2.16 | MIT | https://github.com/rust-lang/compiler-builtins |
 | libredox | 0.1.25 | MIT | https://gitlab.redox-os.org/redox-os/libredox.git |
 | linebender_resource_handle | 0.1.1 | Apache-2.0 OR MIT | https://github.com/linebender/raw_resource_handle |
-| linux-raw-sys | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | https://github.com/sunfishcode/linux-raw-sys |
 | linux-raw-sys | 0.4.15 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | https://github.com/sunfishcode/linux-raw-sys |
+| linux-raw-sys | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | https://github.com/sunfishcode/linux-raw-sys |
 | litemap | 0.8.3 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
 | litrs | 1.0.1 | MIT OR Apache-2.0 | https://github.com/LukasKalbertodt/litrs |
 | lock_api | 0.4.14 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot |
@@ -290,6 +302,9 @@ Las fuentes tipográficas incluidas en egui (`epaint_default_fonts`) están bajo
 | quote | 1.0.47 | MIT OR Apache-2.0 | https://github.com/dtolnay/quote |
 | r-efi | 5.3.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later | https://github.com/r-efi/r-efi |
 | r-efi | 6.0.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later | https://github.com/r-efi/r-efi |
+| rand | 0.10.3 | MIT OR Apache-2.0 | https://github.com/rust-random/rand |
+| rand_core | 0.10.1 | MIT OR Apache-2.0 | https://github.com/rust-random/rand_core |
+| rand_pcg | 0.10.2 | MIT OR Apache-2.0 | https://github.com/rust-random/rngs |
 | range-alloc | 0.1.5 | MIT OR Apache-2.0 | https://github.com/gfx-rs/range-alloc |
 | raw-window-handle | 0.6.2 | MIT OR Apache-2.0 OR Zlib | https://github.com/rust-windowing/raw-window-handle |
 | raw-window-metal | 1.1.0 | MIT OR Apache-2.0 | https://github.com/rust-windowing/raw-window-metal |
@@ -306,6 +321,7 @@ Las fuentes tipográficas incluidas en egui (`epaint_default_fonts`) están bajo
 | ring | 0.17.14 | Apache-2.0 AND ISC | https://github.com/briansmith/ring |
 | robust | 1.2.0 | MIT OR Apache-2.0 | https://github.com/georust/robust |
 | roxmltree | 0.21.1 | MIT OR Apache-2.0 | https://github.com/RazrFalcon/roxmltree |
+| rstar | 0.12.2 | MIT OR Apache-2.0 | https://github.com/georust/rstar |
 | rustc-hash | 1.1.0 | Apache-2.0/MIT | https://github.com/rust-lang-nursery/rustc-hash |
 | rustc-hash | 2.1.3 | Apache-2.0 OR MIT | https://github.com/rust-lang/rustc-hash |
 | rustc_version | 0.4.1 | MIT OR Apache-2.0 | https://github.com/djc/rustc-version-rs |
@@ -331,6 +347,7 @@ Las fuentes tipográficas incluidas en egui (`epaint_default_fonts`) están bajo
 | serde_spanned | 1.1.2 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml |
 | shapefile | 0.9.0 | MIT | https://github.com/tmontaigu/shapefile-rs |
 | shlex | 2.0.1 | MIT OR Apache-2.0 | https://github.com/comex/rust-shlex |
+| sif-itree | 0.4.1 | MIT OR Apache-2.0 | https://codeberg.org/adamreichold/sif-itree |
 | signal-hook-registry | 1.4.8 | MIT OR Apache-2.0 | https://github.com/vorner/signal-hook |
 | simd-adler32 | 0.3.10 | MIT | https://github.com/mcountryman/simd-adler32 |
 | simd_cesu8 | 1.2.0 | Apache-2.0 OR MIT | https://github.com/seancroach/simd_cesu8 |
@@ -345,6 +362,7 @@ Las fuentes tipográficas incluidas en egui (`epaint_default_fonts`) están bajo
 | smithay-client-toolkit | 0.20.0 | MIT | https://github.com/smithay/client-toolkit |
 | smithay-clipboard | 0.7.3 | MIT | https://github.com/smithay/smithay-clipboard |
 | smol_str | 0.2.2 | MIT OR Apache-2.0 | https://github.com/rust-analyzer/smol_str |
+| spade | 2.15.1 | MIT OR Apache-2.0 | https://github.com/Stoeoef/spade |
 | spirv | 0.4.0+sdk-1.4.341.0 | Apache-2.0 | https://github.com/gfx-rs/rspirv |
 | stable_deref_trait | 1.2.1 | MIT OR Apache-2.0 | https://github.com/storyyeller/stable_deref_trait |
 | static_assertions | 1.1.0 | MIT OR Apache-2.0 | https://github.com/nvzqz/static-assertions-rs |

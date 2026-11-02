@@ -68,11 +68,13 @@ impl Default for AlignTool {
     }
 }
 
-const RESAMPLE: [&str; 4] = [
+const RESAMPLE: [&str; 6] = [
     "Automático (media si es más fino, si no bilineal)",
     "Vecino más cercano (clases)",
     "Bilineal",
     "Media",
+    "Cúbico",
+    "Moda (clases, para reducir)",
 ];
 
 impl AlignTool {
@@ -123,6 +125,8 @@ impl App {
             .open(&mut open)
             .default_width(600.0)
             .show(ctx, |ui| {
+                crate::tools::output_row(ui, &mut self.tools.out_dir);
+                ui.separator();
                 let t = &mut self.at;
                 ui.label(
                     egui::RichText::new("Pone varios rásteres sobre las celdas de uno de referencia (mismo origen, tamaño de celda y dimensiones), para poder apilarlos o usarlos juntos celda a celda, por ejemplo en el análisis por objetos. Cada ráster da un archivo nuevo; los originales no se tocan. Todos deben estar en el mismo sistema de coordenadas; si no, pásalos antes al de la referencia (hipso reproject).")
@@ -267,6 +271,8 @@ impl App {
                     Some(Resample::Nearest),
                     Some(Resample::Bilinear),
                     Some(Resample::Average),
+                    Some(Resample::Cubic),
+                    Some(Resample::Mode),
                 ][t.resample],
                 dtype: None::<Dtype>,
                 nodata: t.nodata.trim().replace(',', ".").parse().unwrap_or(-9999.0),

@@ -361,7 +361,7 @@ pub struct Tools {
     ex_dtm: String,
     // paths
     /// Folder the user picked for every result (empty: next to each input).
-    out_dir: String,
+    pub out_dir: String,
     out_classify: OutPath,
     out_dtm: OutPath,
     out_chm: OutPath,
@@ -1700,4 +1700,29 @@ impl Tools {
             show,
         })
     }
+}
+
+/// The "Guardar en" row of every tool window: the folder results go to (empty: beside each
+/// input). It is the same choice for all tools, applied at once.
+pub fn output_row(ui: &mut egui::Ui, out_dir: &mut String) {
+    ui.horizontal(|ui| {
+        ui.label("Guardar en");
+        ui.add(
+            egui::TextEdit::singleline(out_dir)
+                .hint_text("carpeta de resultados (vacío: junto al original)")
+                .desired_width(300.0),
+        );
+        if ui.button("…").clicked()
+            && let Some(d) = crate::prefs::dialog()
+                .set_title("Carpeta donde guardar los resultados")
+                .pick_folder()
+        {
+            *out_dir = d.display().to_string();
+        }
+        if !out_dir.is_empty() && ui.button("auto").clicked() {
+            out_dir.clear();
+        }
+    });
+    let dir = out_dir.trim();
+    hipso_core::paths::set_output_dir((!dir.is_empty()).then(|| std::path::PathBuf::from(dir)));
 }

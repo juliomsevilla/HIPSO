@@ -48,6 +48,8 @@ pub enum Noise {
     Isolated(NoiseParams),
     /// Statistical outlier removal on the mean distance to the k nearest neighbours.
     Sor { k: usize, m: f64 },
+    /// Low noise: points far below the heights of their cell (extended local minimum).
+    Elm { cell: f64, threshold: f64 },
 }
 
 /// What to classify.
@@ -116,6 +118,7 @@ fn classify_tile(work: &mut Points, s: &Steps) -> Result<TileClasses> {
         let flags = match method {
             Noise::Isolated(np) => noise::isolated(&work.pts, np),
             Noise::Sor { k, m } => noise::sor(&work.pts, *k, *m),
+            Noise::Elm { cell, threshold } => noise::elm(&work.pts, *cell, *threshold),
         };
         for (k, iso) in flags.into_iter().enumerate() {
             if iso {

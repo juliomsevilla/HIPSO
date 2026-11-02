@@ -114,6 +114,8 @@ impl App {
             .open(&mut open)
             .default_width(560.0)
             .show(ctx, |ui| {
+                crate::tools::output_row(ui, &mut self.tools.out_dir);
+                ui.separator();
                 let t = &mut self.ot;
                 ui.label(
                     egui::RichText::new("Agrupa las celdas en objetos (copas de árboles concretos, unidades de gestión, tejados…) a partir del CHM y de otras capas, los describe y, si quieres, los clasifica. Todas las capas deben coincidir celda a celda.")

@@ -5,9 +5,9 @@
 //!
 //! The methods are the published ones: Horn (1981) for slope, aspect and hillshade, Zevenbergen
 //! and Thorne (1987) for curvatures, Wilson et al. (2007) for the ruggedness index, and the
-//! position index of Weiss (2001). Conventions: windows over empty or missing
-//! neighbours take the centre's height, and a cell that is empty stays empty. Written from the
-//! published methods.
+//! position index of Weiss (2001). Conventions: by default a cell whose 3x3 window reaches
+//! past the edge or an empty cell has no value (see [`Edges`] for the alternatives), and a cell
+//! that is empty stays empty. Written from the published methods.
 
 use std::path::PathBuf;
 
@@ -107,6 +107,20 @@ impl Product {
     }
 }
 
+/// What a 3x3 window does where it reaches past the raster's edge or an empty cell.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Edges {
+    /// The cell has no value: the result is never worked out from heights that are not there.
+    #[default]
+    NoData,
+    /// Missing neighbours (edge or empty) take the centre's height: every cell gets a value, near
+    /// edges and holes the surface is flattened.
+    Center,
+    /// Past the edge the border cells are repeated (a window of the edge as if the surface went on
+    /// level); a window over an empty cell inside the raster still has no value.
+    RepeatEdge,
+}
+
 #[derive(Clone, Debug)]
 pub struct TerrainJob {
     pub input: PathBuf,
@@ -132,6 +146,8 @@ pub struct TerrainJob {
     pub target_height: f64,
     /// Viewshed: how far the observer looks, map units.
     pub max_distance: f64,
+    /// 3x3 products: what windows over edges and empty cells do.
+    pub edges: Edges,
 }
 
 impl TerrainJob {
@@ -150,6 +166,7 @@ impl TerrainJob {
             observer_height: 1.7,
             target_height: 0.0,
             max_distance: 1000.0,
+            edges: Edges::NoData,
         }
     }
 }
@@ -168,14 +185,14 @@ pub fn compute(g: &Grid, job: &TerrainJob) -> Result<Grid> {
     crate::check_cancel()?;
     let z = job.z_factor;
     Ok(match job.product {
-        Product::Slope => slope(g, z, job.percent),
-        Product::Aspect => aspect(g, z),
-        Product::Hillshade => hillshade(g, z, job.azimuth, job.altitude),
-        Product::PlanCurvature => curvature(g, z, Curv::Plan),
-        Product::ProfileCurvature => curvature(g, z, Curv::Profile),
-        Product::Curvature => curvature(g, z, Curv::Total),
-        Product::Roughness => roughness(g, z),
-        Product::Ruggedness => ruggedness(g, z),
+        Product::Slope => slope(g, z, job.percent, job.edges),
+        Product::Aspect => aspect(g, z, job.edges),
+        Product::Hillshade => hillshade(g, z, job.azimuth, job.altitude, job.edges),
+        Product::PlanCurvature => curvature(g, z, Curv::Plan, job.edges),
+        Product::ProfileCurvature => curvature(g, z, Curv::Profile, job.edges),
+        Product::Curvature => curvature(g, z, Curv::Total, job.edges),
+        Product::Roughness => roughness(g, z, job.edges),
+        Product::Ruggedness => ruggedness(g, z, job.edges),
         Product::Position => position(g, z, job.radius)?,
         Product::FillDepth => crate::hydro::fill_depth(g, z),
         Product::FlowAccumulation => crate::hydro::flow_accumulation(g, z),
@@ -222,33 +239,49 @@ pub fn run(job: &TerrainJob) -> Result<String> {
 }
 
 /// The 3x3 window around `(c, r)`, row by row from the north: `[a b c / d e f / g h i]`.
-/// Neighbours past the edge or empty take the centre's height. `None` if the centre is empty.
+/// `None` if the centre is empty, or a neighbour is missing and `edges` does not fill it.
 #[inline]
-fn window(g: &Grid, c: usize, r: usize) -> Option<[f32; 9]> {
+fn window(g: &Grid, c: usize, r: usize, edges: Edges) -> Option<[f32; 9]> {
     let e = *g.data.get(r * g.cols + c)?;
     if e.is_nan() {
         return None;
     }
     let mut w = [e; 9];
     for (k, slot) in w.iter_mut().enumerate() {
-        let rr = (r + k / 3).saturating_sub(1).min(g.rows - 1);
-        let cc = (c + k % 3).saturating_sub(1).min(g.cols - 1);
-        if let Some(v) = g.data.get(rr * g.cols + cc).filter(|v| !v.is_nan()) {
-            *slot = *v;
+        let (dr, dc) = ((k / 3) as isize - 1, (k % 3) as isize - 1);
+        let (rr, cc) = (r as isize + dr, c as isize + dc);
+        let outside = rr < 0 || cc < 0 || rr >= g.rows as isize || cc >= g.cols as isize;
+        let (rr, cc) = if outside && edges == Edges::RepeatEdge {
+            (
+                rr.clamp(0, g.rows as isize - 1) as usize,
+                cc.clamp(0, g.cols as isize - 1) as usize,
+            )
+        } else if outside {
+            if edges == Edges::NoData {
+                return None;
+            }
+            continue;
+        } else {
+            (rr as usize, cc as usize)
+        };
+        match g.data.get(rr * g.cols + cc).filter(|v| !v.is_nan()) {
+            Some(v) => *slot = *v,
+            None if edges == Edges::Center => {}
+            None => return None,
         }
     }
     Some(w)
 }
 
 /// Applies `f` to the window of every cell, rows in parallel.
-fn map3(g: &Grid, f: impl Fn(&[f32; 9]) -> f32 + Sync) -> Grid {
+fn map3(g: &Grid, edges: Edges, f: impl Fn(&[f32; 9]) -> f32 + Sync) -> Grid {
     let mut out = g.like();
     out.data
         .par_chunks_mut(g.cols)
         .enumerate()
         .for_each(|(r, row)| {
             for (c, v) in row.iter_mut().enumerate() {
-                if let Some(w) = window(g, c, r) {
+                if let Some(w) = window(g, c, r, edges) {
                     *v = f(&w);
                 }
             }
@@ -267,9 +300,9 @@ fn gradient(w: &[f32; 9], cell: f64, z: f64) -> (f64, f64) {
     )
 }
 
-pub fn slope(g: &Grid, z: f64, percent: bool) -> Grid {
+pub fn slope(g: &Grid, z: f64, percent: bool, edges: Edges) -> Grid {
     let cell = g.cell;
-    map3(g, |w| {
+    map3(g, edges, |w| {
         let (gx, gy) = gradient(w, cell, z);
         let s = gx.hypot(gy);
         (if percent {
@@ -281,9 +314,9 @@ pub fn slope(g: &Grid, z: f64, percent: bool) -> Grid {
 }
 
 /// Direction the slope faces, degrees clockwise from north; flat cells are empty.
-pub fn aspect(g: &Grid, z: f64) -> Grid {
+pub fn aspect(g: &Grid, z: f64, edges: Edges) -> Grid {
     let cell = g.cell;
-    map3(g, |w| {
+    map3(g, edges, |w| {
         let (gx, gy) = gradient(w, cell, z);
         if gx.hypot(gy) < 1e-9 {
             return f32::NAN;
@@ -295,11 +328,11 @@ pub fn aspect(g: &Grid, z: f64) -> Grid {
 }
 
 /// Illumination 0-255 from a light at `azimuth` and `altitude` (degrees).
-pub fn hillshade(g: &Grid, z: f64, azimuth: f64, altitude: f64) -> Grid {
+pub fn hillshade(g: &Grid, z: f64, azimuth: f64, altitude: f64, edges: Edges) -> Grid {
     let cell = g.cell;
     let (az, alt) = (azimuth.to_radians(), altitude.to_radians());
     let (lx, ly, lz) = (az.sin() * alt.cos(), az.cos() * alt.cos(), alt.sin());
-    map3(g, |w| {
+    map3(g, edges, |w| {
         let (gx, gy) = gradient(w, cell, z);
         let shade = (lz - gx * lx - gy * ly) / (1.0 + gx * gx + gy * gy).sqrt();
         (255.0 * shade.max(0.0)) as f32
@@ -314,9 +347,9 @@ enum Curv {
 }
 
 /// Zevenbergen and Thorne's curvatures, in 1/m; positive is convex.
-fn curvature(g: &Grid, z: f64, kind: Curv) -> Grid {
+fn curvature(g: &Grid, z: f64, kind: Curv, edges: Edges) -> Grid {
     let l = g.cell;
-    map3(g, |w| {
+    map3(g, edges, |w| {
         let v = |k: usize| f64::from(w[k]) * z;
         let d = ((v(3) + v(5)) / 2.0 - v(4)) / (l * l);
         let e = ((v(1) + v(7)) / 2.0 - v(4)) / (l * l);
@@ -334,8 +367,8 @@ fn curvature(g: &Grid, z: f64, kind: Curv) -> Grid {
     })
 }
 
-pub fn roughness(g: &Grid, z: f64) -> Grid {
-    map3(g, |w| {
+pub fn roughness(g: &Grid, z: f64, edges: Edges) -> Grid {
+    map3(g, edges, |w| {
         let (lo, hi) = w.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |a, v| {
             (a.0.min(*v), a.1.max(*v))
         });
@@ -343,8 +376,8 @@ pub fn roughness(g: &Grid, z: f64) -> Grid {
     })
 }
 
-pub fn ruggedness(g: &Grid, z: f64) -> Grid {
-    map3(g, |w| {
+pub fn ruggedness(g: &Grid, z: f64, edges: Edges) -> Grid {
+    map3(g, edges, |w| {
         let sum: f32 = w.iter().map(|v| (v - w[4]).abs()).sum();
         (f64::from(sum) / 8.0 * z) as f32
     })
@@ -434,8 +467,8 @@ mod tests {
     fn slope_of_a_plane_is_exact() -> Result<()> {
         // rises 0.5 m per metre to the east
         let g = surface(9, 9, |x, _| 0.5 * x)?;
-        assert!((mid(&slope(&g, 1.0, false)) - 0.5f32.atan().to_degrees()).abs() < 1e-4);
-        assert!((mid(&slope(&g, 1.0, true)) - 50.0).abs() < 1e-3);
+        assert!((mid(&slope(&g, 1.0, false, Edges::NoData)) - 0.5f32.atan().to_degrees()).abs() < 1e-4);
+        assert!((mid(&slope(&g, 1.0, true, Edges::NoData)) - 50.0).abs() < 1e-3);
         Ok(())
     }
 
@@ -443,14 +476,14 @@ mod tests {
     fn aspect_is_the_compass_direction_downhill() -> Result<()> {
         // rises to the west: faces east (90); rises to the south: faces north (0)
         let east = surface(9, 9, |x, _| -x)?;
-        assert!((mid(&aspect(&east, 1.0)) - 90.0).abs() < 1e-3);
+        assert!((mid(&aspect(&east, 1.0, Edges::NoData)) - 90.0).abs() < 1e-3);
         let north = surface(9, 9, |_, y| -y)?;
-        let a = mid(&aspect(&north, 1.0));
+        let a = mid(&aspect(&north, 1.0, Edges::NoData));
         assert!(a < 1e-3 || a > 359.999, "{a}");
         let west = surface(9, 9, |x, _| x)?;
-        assert!((mid(&aspect(&west, 1.0)) - 270.0).abs() < 1e-3);
+        assert!((mid(&aspect(&west, 1.0, Edges::NoData)) - 270.0).abs() < 1e-3);
         let flat = surface(9, 9, |_, _| 5.0)?;
-        assert!(mid(&aspect(&flat, 1.0)).is_nan());
+        assert!(mid(&aspect(&flat, 1.0, Edges::NoData)).is_nan());
         Ok(())
     }
 
@@ -458,13 +491,13 @@ mod tests {
     fn hillshade_is_bright_toward_the_light() -> Result<()> {
         // slope facing north-west with the light at north-west (315), 45 deg
         let nw = surface(9, 9, |x, y| 0.5 * (x - y))?;
-        let toward = mid(&hillshade(&nw, 1.0, 315.0, 45.0));
-        let away = mid(&hillshade(&nw, 1.0, 135.0, 45.0));
+        let toward = mid(&hillshade(&nw, 1.0, 315.0, 45.0, Edges::NoData));
+        let away = mid(&hillshade(&nw, 1.0, 135.0, 45.0, Edges::NoData));
         assert!(toward > away + 100.0, "{toward} {away}");
         // flat ground: 255 * sin(altitude)
         let flat = surface(9, 9, |_, _| 3.0)?;
         assert!(
-            (mid(&hillshade(&flat, 1.0, 315.0, 45.0)) - 255.0 * 45f32.to_radians().sin()).abs()
+            (mid(&hillshade(&flat, 1.0, 315.0, 45.0, Edges::NoData)) - 255.0 * 45f32.to_radians().sin()).abs()
                 < 1e-3
         );
         Ok(())
@@ -474,10 +507,10 @@ mod tests {
     fn curvature_is_positive_on_a_dome_and_negative_in_a_bowl() -> Result<()> {
         let dome = surface(9, 9, |x, y| -0.1 * ((x - 4.5).powi(2) + (y - 4.5).powi(2)))?;
         let bowl = surface(9, 9, |x, y| 0.1 * ((x - 4.5).powi(2) + (y - 4.5).powi(2)))?;
-        assert!((mid(&curvature(&dome, 1.0, Curv::Total)) - 0.4).abs() < 1e-4);
-        assert!((mid(&curvature(&bowl, 1.0, Curv::Total)) + 0.4).abs() < 1e-4);
+        assert!((mid(&curvature(&dome, 1.0, Curv::Total, Edges::Center)) - 0.4).abs() < 1e-4);
+        assert!((mid(&curvature(&bowl, 1.0, Curv::Total, Edges::Center)) + 0.4).abs() < 1e-4);
         // off the summit, on a dome both curvatures are convex
-        let at = |g: &Grid, k: Curv| curvature(g, 1.0, k).data[4 * 9 + 6];
+        let at = |g: &Grid, k: Curv| curvature(g, 1.0, k, Edges::Center).data[4 * 9 + 6];
         assert!(at(&dome, Curv::Profile) > 0.0 && at(&dome, Curv::Plan) > 0.0);
         assert!(at(&bowl, Curv::Profile) < 0.0 && at(&bowl, Curv::Plan) < 0.0);
         Ok(())
@@ -487,8 +520,8 @@ mod tests {
     fn roughness_ruggedness_and_position() -> Result<()> {
         let mut g = surface(7, 7, |_, _| 10.0)?;
         g.data[3 * 7 + 3] = 18.0;
-        assert_eq!(mid(&roughness(&g, 1.0)), 8.0);
-        assert_eq!(mid(&ruggedness(&g, 1.0)), 8.0);
+        assert_eq!(mid(&roughness(&g, 1.0, Edges::Center)), 8.0);
+        assert_eq!(mid(&ruggedness(&g, 1.0, Edges::Center)), 8.0);
         let p = position(&g, 1.0, 2.0)?;
         assert!((mid(&p) - 8.0).abs() < 1e-4);
         // a neighbour of the peak sees it in its mean
@@ -529,8 +562,34 @@ mod tests {
     fn empty_cells_stay_empty_and_neighbours_do_not_poison() -> Result<()> {
         let mut g = surface(5, 5, |x, _| x)?;
         g.data[2 * 5 + 2] = f32::NAN;
-        assert!(mid(&slope(&g, 1.0, false)).is_nan());
-        assert!(slope(&g, 1.0, false).data[2 * 5 + 1].is_finite());
+        assert!(mid(&slope(&g, 1.0, false, Edges::NoData)).is_nan());
+        // default: the eight cells around a hole have no value either, as do the edge cells
+        let s0 = slope(&g, 1.0, false, Edges::NoData);
+        for (r, c) in [(1, 1), (1, 2), (1, 3), (2, 1), (2, 3), (3, 1), (3, 2), (3, 3)] {
+            assert!(s0.data[r * 5 + c].is_nan(), "({c},{r})");
+        }
+        assert!(s0.data[0].is_nan() && s0.data[4].is_nan() && s0.data[24].is_nan());
+        // the centre fill gives them a value
+        let sc = slope(&g, 1.0, false, Edges::Center);
+        assert!(sc.data[2 * 5 + 1].is_finite() && sc.data[0].is_finite());
+        // repeating the edge fills the border but not the cells around a hole
+        let sr = slope(&g, 1.0, false, Edges::RepeatEdge);
+        assert!(sr.data[0].is_finite() && sr.data[2 * 5 + 1].is_nan());
+        Ok(())
+    }
+
+    #[test]
+    fn nodata_default_leaves_the_interior_of_a_full_raster_unchanged() -> Result<()> {
+        let g = surface(9, 9, |x, y| 0.5 * x + 0.25 * y)?;
+        let a = slope(&g, 1.0, true, Edges::NoData);
+        let b = slope(&g, 1.0, true, Edges::Center);
+        for r in 1..8 {
+            for c in 1..8 {
+                assert_eq!(a.data[r * 9 + c], b.data[r * 9 + c]);
+            }
+        }
+        // a plane keeps its slope at the edge only when the border is not repeated
+        assert!(a.data[0].is_nan());
         Ok(())
     }
 

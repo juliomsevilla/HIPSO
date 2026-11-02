@@ -18,6 +18,7 @@ png.workspace = true
 zune-jpeg.workspace = true
 jpeg-encoder.workspace = true
 e57.workspace = true
+geo = "0.33"
 
 [lints]
 workspace = true

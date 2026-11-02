@@ -167,6 +167,8 @@ pub fn generate(
 pub fn rings(shape: &Shape2) -> Vec<Vec<[f64; 2]>> {
     match shape {
         Shape2::Polygon(p) => p.rings.clone(),
+        // the outline drawn is the polygon's; the buffer is applied when clipping
+        Shape2::Buffered(b) => b.poly.rings.clone(),
         Shape2::Circle { cx, cy, r } => crate::edit::circle(*cx, *cy, *r).rings,
         Shape2::Rect(b) => vec![vec![[b[0], b[1]], [b[0], b[3]], [b[2], b[3]], [b[2], b[1]]]],
     }

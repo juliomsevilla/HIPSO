@@ -1,0 +1,9 @@
+{
+  "tolerance_m": 0.01,
+  "note": "Reference values come from independent computations (PROJ via pyproj for the horizontal cases, published geoid undulations for the vertical ones). Each case: src CRS, dst CRS, point (x, y, z) and the expected result.",
+  "cases": [
+    {"name": "Madrid, ellipsoidal 0 m to REDNAP orthometric", "src": "EPSG:4937", "dst": "EPSG:25830+5782", "point": [-3.7038, 40.4168, 0.0], "z": -51.11, "tol": 0.01},
+    {"name": "Tenerife, ellipsoidal 0 m to REDNAP Canarias orthometric", "src": "EPSG:4937", "dst": "EPSG:25828+9398", "point": [-16.25, 28.47, 0.0], "z": -44.07, "tol": 0.05},
+    {"name": "Madrid UTM 30N, ellipsoidal 700 m to orthometric", "src": "EPSG:25830", "dst": "EPSG:25830+5782", "point": [440295.0, 4474235.0, 700.0], "z": 648.89, "tol": 0.02, "src_ellipsoidal": true}
+  ]
+}

@@ -6,6 +6,9 @@
 mod aba_plots;
 mod aba_ui;
 mod align_ui;
+mod reproject_ui;
+mod vector_ui;
+mod roads_ui;
 mod backstage;
 mod basemap;
 mod brand;
@@ -320,9 +323,12 @@ enum Action {
     Terrain,
     Obia,
     Align,
+    Reproject,
+    VectorOps,
     Change,
     Model,
     Corridor,
+    Roads,
     ClearMarks,
     ToggleTheme,
     NorthUp,
@@ -427,6 +433,9 @@ struct App {
     tt: terrain::TerrainTool,
     ot: obia_ui::ObiaTool,
     at: align_ui::AlignTool,
+    rp: reproject_ui::ReprojectTool,
+    vt: vector_ui::VectorTool,
+    rd: roads_ui::RoadTool,
     ct: change_ui::ChangeTool,
     mo: aba_ui::ModelTool,
     co: corridor_ui::CorridorTool,
@@ -555,6 +564,9 @@ impl Default for App {
             tt: terrain::TerrainTool::default(),
             ot: obia_ui::ObiaTool::default(),
             at: align_ui::AlignTool::default(),
+            rp: reproject_ui::ReprojectTool::default(),
+            vt: vector_ui::VectorTool::default(),
+            rd: roads_ui::RoadTool::default(),
             ct: change_ui::ChangeTool::default(),
             mo: aba_ui::ModelTool::default(),
             co: corridor_ui::CorridorTool::default(),
@@ -812,9 +824,12 @@ impl App {
                     Some("terrain") => Action::Terrain,
                     Some("obia") => Action::Obia,
                     Some("align") => Action::Align,
+                    Some("reproject") => Action::Reproject,
+                    Some("vector") => Action::VectorOps,
                     Some("change") => Action::Change,
                     Some("model") => Action::Model,
                     Some("corridor") => Action::Corridor,
+                    Some("roads") => Action::Roads,
                     Some("classes") => Action::Classes,
                     Some("about") => Action::About,
                     Some("manual") => Action::Manual,
@@ -1066,12 +1081,15 @@ impl App {
             Group {
                 caption: "Infraestructuras",
                 icon: "@corridor",
-                big: vec![other(
-                    "@corridor",
-                    "Corredores\neléctricos",
-                    self.co.open,
-                    Action::Corridor,
-                )],
+                big: vec![
+                    other(
+                        "@corridor",
+                        "Corredores\neléctricos",
+                        self.co.open,
+                        Action::Corridor,
+                    ),
+                    other("@road", "Carreteras\ny vías", self.rd.open, Action::Roads),
+                ],
                 menus: vec![],
                 columns: vec![],
             },
@@ -1738,9 +1756,12 @@ impl App {
             Action::Terrain => self.tt.open = true,
             Action::Obia => self.ot.open = true,
             Action::Align => self.at.open = true,
+            Action::Reproject => self.rp.open = true,
+            Action::VectorOps => self.vt.open = true,
             Action::Change => self.ct.open = true,
             Action::Model => self.mo.open = true,
             Action::Corridor => self.co.open = true,
+            Action::Roads => self.rd.open = true,
             Action::ClearMarks => {
                 self.measure.clear();
                 self.density = None;
@@ -1809,6 +1830,14 @@ impl App {
                 Action::Align,
             ),
             (
+                "Reproyectar nubes y rásteres (sistema de coordenadas y alturas)",
+                Action::Reproject,
+            ),
+            (
+                "Capas vectoriales: estadística zonal, validar, búfer, disolver, unión",
+                Action::VectorOps,
+            ),
+            (
                 "Análisis de terreno (pendiente, orientación, drenaje, visibilidad…)",
                 Action::Terrain,
             ),
@@ -1827,6 +1856,10 @@ impl App {
             (
                 "Corredores eléctricos (conductores, postes y vegetación en riesgo)",
                 Action::Corridor,
+            ),
+            (
+                "Carreteras y vías (ejes y anchura a partir del suelo clasificado)",
+                Action::Roads,
             ),
             (
                 "Editar: seleccionar con rectángulo",
@@ -2155,6 +2188,28 @@ impl App {
                                         .clicked()
                                         {
                                             self.act(ctx, Action::Align);
+                                        }
+                                        if ribbon::small_button(
+                                            ui,
+                                            &t,
+                                            "@reproject",
+                                            "Reproyectar",
+                                            self.rp.open,
+                                        )
+                                        .clicked()
+                                        {
+                                            self.act(ctx, Action::Reproject);
+                                        }
+                                        if ribbon::small_button(
+                                            ui,
+                                            &t,
+                                            "@zonal",
+                                            "Vector",
+                                            self.vt.open,
+                                        )
+                                        .clicked()
+                                        {
+                                            self.act(ctx, Action::VectorOps);
                                         }
                                     });
                                 });
@@ -4207,6 +4262,9 @@ impl eframe::App for App {
         self.terrain_window(&ctx);
         self.obia_window(&ctx);
         self.align_window(&ctx);
+        self.reproject_window(&ctx);
+        self.vector_window(&ctx);
+        self.roads_window(&ctx);
         self.change_window(&ctx);
         self.model_window(&ctx);
         self.corridor_window(&ctx);

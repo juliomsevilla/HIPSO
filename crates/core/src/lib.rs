@@ -28,6 +28,7 @@ pub mod filter;
 pub mod footprint;
 pub mod forest;
 pub mod geojson;
+pub mod geomops;
 pub mod gpkg;
 pub mod gpkg_write;
 pub mod grid;
@@ -56,8 +57,10 @@ pub mod pmf;
 pub mod pyramid;
 pub mod raster;
 pub mod rasterfmt;
+pub mod rasterops;
 pub mod rastertools;
 pub mod reproject;
+pub mod roads;
 pub mod rtree;
 pub mod rules;
 pub mod sheets;
@@ -77,6 +80,7 @@ pub mod view;
 pub mod viewshed;
 pub mod volume;
 pub mod xlsx;
+pub mod zonal;
 
 /// Everything that can go wrong; input files are hostile, so nothing here panics.
 #[derive(Debug)]
