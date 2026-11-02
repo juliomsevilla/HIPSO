@@ -43,12 +43,15 @@ pub struct ObiaTool {
     pub simplify: f64,
     pub out: String,
     pub out_manual: bool,
+    /// Runs by itself once the CHM is chosen (for screenshots).
+    pub autorun: bool,
 }
 
 impl Default for ObiaTool {
     fn default() -> Self {
         Self {
             open: false,
+            autorun: false,
             chm: None,
             extra: Vec::new(),
             cloud: [true, true, false, false],
@@ -327,6 +330,10 @@ impl App {
                         2 => t.samples.is_some() && !t.class_field.trim().is_empty(),
                         _ => true,
                     };
+if t.autorun && ready && self.running.is_none() {
+                    t.autorun = false;
+                    go = true;
+                }
                 if ui.add_enabled(ready && self.running.is_none(), egui::Button::new("▶ Calcular")).clicked() {
                     go = true;
                 }

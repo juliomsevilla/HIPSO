@@ -38,12 +38,26 @@ pub struct ModelTool {
     extrapolate: bool,
     out: String,
     out_manual: bool,
+    /// Fits by itself once the form is complete (for screenshots).
+    autorun: bool,
+}
+
+impl ModelTool {
+    /// Opens the window with the tables and the variable already chosen, and fits at once.
+    pub fn preset(&mut self, plots: &str, field: &str, response: &str) {
+        self.open = true;
+        self.plots = plots.to_string();
+        self.field = field.to_string();
+        self.response = response.to_string();
+        self.autorun = true;
+    }
 }
 
 impl Default for ModelTool {
     fn default() -> Self {
         Self {
             open: false,
+            autorun: false,
             diag: None,
             diag_open: false,
             diag_pending: None,
@@ -261,6 +275,10 @@ impl App {
                     ""
                 };
                 let busy = self.running.is_some();
+                if t.autorun && missing.is_empty() && !busy {
+                    t.autorun = false;
+                    go = true;
+                }
                 ui.horizontal(|ui| {
                     if ui
                         .add_enabled(missing.is_empty() && !busy, egui::Button::new("▶ Ajustar y validar"))
