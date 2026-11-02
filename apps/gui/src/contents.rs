@@ -343,8 +343,8 @@ impl App {
                             let layer_crs = self.crs_of(&own_path);
                             let mismatch = match (layer_crs, project_crs) {
                                 (Some(a), Some(b)) => {
-                                    rustlidar_core::crs::relation(a, b)
-                                        == rustlidar_core::crs::Relation::Different
+                                    hipso_core::crs::relation(a, b)
+                                        == hipso_core::crs::Relation::Different
                                 }
                                 _ => false,
                             };
@@ -358,10 +358,10 @@ impl App {
                                 match (layer_crs, project_crs) {
                                     (Some(a), Some(b)) if mismatch => format!(
                                         "\n⚠ Está en {}, y la nube en {}: no coinciden en el mapa. Las herramientas la pasarán al sistema de la nube al combinarlas (solo X e Y).",
-                                        rustlidar_core::crs::name(a),
-                                        rustlidar_core::crs::name(b)
+                                        hipso_core::crs::name(a),
+                                        hipso_core::crs::name(b)
                                     ),
-                                    (Some(a), _) => format!("\n{}", rustlidar_core::crs::name(a)),
+                                    (Some(a), _) => format!("\n{}", hipso_core::crs::name(a)),
                                     _ => String::new(),
                                 }
                             );
@@ -582,13 +582,13 @@ impl App {
                                     let warn = (|| {
                                         let (a, b) =
                                             (cloud_crs.get(k).copied().flatten()?, first_crs?);
-                                        (rustlidar_core::crs::relation(a, b)
-                                            == rustlidar_core::crs::Relation::Different)
+                                        (hipso_core::crs::relation(a, b)
+                                            == hipso_core::crs::Relation::Different)
                                             .then(|| {
                                                 format!(
                                                     "⚠ Está en {}, y la primera nube en {}: al mezclarlas los puntos quedarían en coordenadas incompatibles.",
-                                                    rustlidar_core::crs::name(a),
-                                                    rustlidar_core::crs::name(b)
+                                                    hipso_core::crs::name(a),
+                                                    hipso_core::crs::name(b)
                                                 )
                                             })
                                     })();
@@ -760,7 +760,7 @@ impl App {
         }
         if let Some(k) = cloud_zoom {
             // the tile: its extent, from the header of the file
-            if let Ok(r) = rustlidar_core::las::Reader::open(&self.clouds[k]) {
+            if let Ok(r) = hipso_core::las::Reader::open(&self.clouds[k]) {
                 let b = r.header.bounds;
                 self.zoom_to_bounds([b[0], b[1], b[3], b[4]]);
             }

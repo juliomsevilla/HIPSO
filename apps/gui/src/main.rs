@@ -46,12 +46,12 @@ use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Align2, Color32, FontId, Key, Pos2, Rect, Sense, Stroke, Vec2};
-use rustlidar_core::classes::ClassSet;
-use rustlidar_core::grid::Grid;
-use rustlidar_core::inspect;
-use rustlidar_core::jobs;
-use rustlidar_core::markup::Aoi;
-use rustlidar_core::view::{self, ColorBy, Image, Orbit, Plan, PointStore, ProfileBox, Style};
+use hipso_core::classes::ClassSet;
+use hipso_core::grid::Grid;
+use hipso_core::inspect;
+use hipso_core::jobs;
+use hipso_core::markup::Aoi;
+use hipso_core::view::{self, ColorBy, Image, Orbit, Plan, PointStore, ProfileBox, Style};
 
 use copcdetail::contains;
 use theme::Tokens;
@@ -641,7 +641,7 @@ impl App {
         *self
             .crs_cache
             .entry(path.to_path_buf())
-            .or_insert_with(|| rustlidar_core::crs::epsg_of(path))
+            .or_insert_with(|| hipso_core::crs::epsg_of(path))
     }
 
     /// The system of the work: that of the first cloud.
@@ -763,12 +763,12 @@ impl App {
                         .filter_map(|t| t.parse().ok())
                         .collect();
                     if v.len() == 4 {
-                        let op = rustlidar_core::edit::SelOp {
-                            mode: rustlidar_core::edit::Mode::New,
-                            region: rustlidar_core::edit::Region::Plan(
-                                rustlidar_core::edit::rectangle([v[0], v[1]], [v[2], v[3]]),
+                        let op = hipso_core::edit::SelOp {
+                            mode: hipso_core::edit::Mode::New,
+                            region: hipso_core::edit::Region::Plan(
+                                hipso_core::edit::rectangle([v[0], v[1]], [v[2], v[3]]),
                             ),
-                            attr: rustlidar_core::edit::Attr::default(),
+                            attr: hipso_core::edit::Attr::default(),
                         };
                         self.queue(editing::Cmd::AddOp(Box::new(op)));
                     }
@@ -840,7 +840,7 @@ impl App {
             .unwrap_or_default();
         match ext.as_str() {
             project::EXT => self.open_project(ctx, &p),
-            e if rustlidar_core::raster::is_raster_ext(e) => {
+            e if hipso_core::raster::is_raster_ext(e) => {
                 if !self.add_raster(ctx, &p) {
                     self.log(format!("No se pudo abrir {}", p.display()));
                 }
@@ -851,13 +851,13 @@ impl App {
                     self.log("Hay otro proceso en marcha: espera a que termine para abrir el E57.");
                 } else {
                     // an E57 is converted to LAZ (in the results folder) and that file is opened
-                    let out = rustlidar_core::paths::unique(&rustlidar_core::paths::product(
+                    let out = hipso_core::paths::unique(&hipso_core::paths::product(
                         &p, "e57", "laz",
                     ));
                     let (src, dst) = (p.clone(), out.clone());
                     let task: tools::Task = Box::new(move || {
-                        let r = rustlidar_core::e57::convert(&src, &dst, None)?;
-                        Ok(rustlidar_core::e57::describe(&r, &dst))
+                        let r = hipso_core::e57::convert(&src, &dst, None)?;
+                        Ok(hipso_core::e57::describe(&r, &dst))
                     });
                     self.log("El E57 no suele decir su sistema de coordenadas: asígnalo después con «Asignar proyección» si lo necesitas.");
                     self.start(
@@ -876,13 +876,13 @@ impl App {
                     self.log("Hay otro proceso en marcha: espera a que termine para abrir el PLY.");
                 } else {
                     // a PLY is converted to LAZ (in the results folder) and that file is opened
-                    let out = rustlidar_core::paths::unique(&rustlidar_core::paths::product(
+                    let out = hipso_core::paths::unique(&hipso_core::paths::product(
                         &p, "ply", "laz",
                     ));
                     let (src, dst) = (p.clone(), out.clone());
                     let task: tools::Task = Box::new(move || {
-                        let r = rustlidar_core::ply::convert(&src, &dst, None)?;
-                        Ok(rustlidar_core::ply::describe(&r, &dst))
+                        let r = hipso_core::ply::convert(&src, &dst, None)?;
+                        Ok(hipso_core::ply::describe(&r, &dst))
                     });
                     self.log("El PLY no dice su sistema de coordenadas: asígnalo después con «Asignar proyección» si lo necesitas.");
                     self.start(
@@ -1050,25 +1050,25 @@ impl App {
 
     fn reload(&mut self, ctx: &egui::Context) {
         let files = self.clouds.clone();
-        rustlidar_core::progress::reset();
+        hipso_core::progress::reset();
         self.last_progress_log = Instant::now();
         let max = (self.max_points_m * 1e6) as usize;
         // clouds in another system than the first one are converted while they load
-        let (target, other) = rustlidar_core::reproject::clouds_in_other_system(&files);
+        let (target, other) = hipso_core::reproject::clouds_in_other_system(&files);
         let (tx, rx) = channel();
         let c = ctx.clone();
         std::thread::spawn(move || {
             let r = std::panic::catch_unwind(|| {
-                let moved = rustlidar_core::reproject::project_clouds(&files);
+                let moved = hipso_core::reproject::project_clouds(&files);
                 if moved.files.is_empty() {
-                    return Err(rustlidar_core::Error::Param(moved.notes.join("\n")));
+                    return Err(hipso_core::Error::Param(moved.notes.join("\n")));
                 }
                 // a cloud that has its COPC copy in the cache is read from it: the sample comes from
                 // the first levels of the octree, without decompressing the whole file
                 let read: Vec<PathBuf> = moved
                     .files
                     .iter()
-                    .map(|p| rustlidar_core::copc_cache::find(p).unwrap_or_else(|| p.clone()))
+                    .map(|p| hipso_core::copc_cache::find(p).unwrap_or_else(|| p.clone()))
                     .collect();
                 view::load_from(&moved.files, &read, max).map(|store| CloudLoad {
                     store,
@@ -1086,7 +1086,7 @@ impl App {
         if let (Some(t), true) = (target, other > 0) {
             self.log(format!(
                 "{other} nube(s) están en un sistema distinto del de la primera ({}): se pasan a él al cargar, y eso tarda más. La copia convertida queda guardada junto a la original y la próxima vez se carga sin convertir.",
-                rustlidar_core::crs::name(t)
+                hipso_core::crs::name(t)
             ));
         }
         self.run_info(ctx);
@@ -1209,8 +1209,8 @@ impl App {
                     // another, they are loaded again in the cloud's
                     if let Some(w) = self.work_crs.take()
                         && let Some(c) = self.project_crs()
-                        && rustlidar_core::crs::relation(c, w)
-                            == rustlidar_core::crs::Relation::Different
+                        && hipso_core::crs::relation(c, w)
+                            == hipso_core::crs::Relation::Different
                     {
                         for q in self.refs.iter().map(|r| r.path.clone()).collect::<Vec<_>>() {
                             let gpkg = q
@@ -1273,7 +1273,7 @@ impl App {
                     };
                     // the marks belong to the cloud they were made on; the window stays open
                     self.ed.hist.open = hist_open;
-                    self.ed.session = Some(rustlidar_core::edit::Session::new(&s));
+                    self.ed.session = Some(hipso_core::edit::Session::new(&s));
                     self.store = Some(Arc::new(s));
                     self.rev += 1;
                 }
@@ -1357,7 +1357,7 @@ impl App {
                 .file_stem()
                 .is_some_and(|n| n.to_string_lossy().ends_with("_fustes"));
             let loadable = !on_demand
-                && (rustlidar_core::raster::is_raster_ext(&e)
+                && (hipso_core::raster::is_raster_ext(&e)
                     || matches!(e.as_str(), "shp" | "geojson" | "gpkg" | "las" | "laz"));
             if f.is_file() && loadable && !list.contains(f) {
                 list.push(f.clone());
@@ -1414,7 +1414,7 @@ impl App {
         }
         self.ed.draft.clear();
         self.ed.pdraft.clear();
-        self.ed.session = Some(rustlidar_core::edit::Session::new(&s));
+        self.ed.session = Some(hipso_core::edit::Session::new(&s));
         self.tin = None;
         self.query = None;
         self.profile = None;
@@ -1434,8 +1434,8 @@ impl App {
     }
 
     fn start(&mut self, ctx: &egui::Context, l: Launch) {
-        rustlidar_core::reset_cancel();
-        rustlidar_core::progress::reset();
+        hipso_core::reset_cancel();
+        hipso_core::progress::reset();
         self.last_progress_log = Instant::now();
         let (tx, rx) = channel();
         let c = ctx.clone();
@@ -1612,7 +1612,7 @@ impl App {
                     match self.project_crs() {
                         Some(c) => self.log(format!(
                             "Mapa base encendido (se coloca en {}). Las teselas se descargan de internet y se guardan una semana en la caché del sistema.",
-                            rustlidar_core::crs::name(c)
+                            hipso_core::crs::name(c)
                         )),
                         None => self.log("Mapa base encendido, pero hace falta abrir una nube que declare su sistema de coordenadas para colocarlo."),
                     }
@@ -1620,7 +1620,7 @@ impl App {
             }
             Action::LoadRaster => {
                 for p in crate::prefs::dialog()
-                    .add_filter("Ráster", rustlidar_core::raster::EXTENSIONS)
+                    .add_filter("Ráster", hipso_core::raster::EXTENSIONS)
                     .pick_files()
                     .unwrap_or_default()
                 {
@@ -2564,7 +2564,7 @@ ui.menu_button("⚙", |ui| {
         let t = self.tokens();
         // the system of the view: that of the first cloud (the others are brought to it)
         let system = (!self.clouds.is_empty()).then(|| match self.project_crs() {
-            Some(code) => rustlidar_core::crs::name(code),
+            Some(code) => hipso_core::crs::name(code),
             None => "sin declarar".to_string(),
         });
         egui::Panel::bottom("status")
@@ -2624,7 +2624,7 @@ ui.menu_button("⚙", |ui| {
                             .on_hover_text("Para el trabajo y borra lo que haya creado")
                             .clicked()
                         {
-                            rustlidar_core::request_cancel();
+                            hipso_core::request_cancel();
                         }
                     }
                     if let Some(r) = &self.running {
@@ -3828,7 +3828,7 @@ ui.menu_button("⚙", |ui| {
                         self.style.classes = ClassSet::none();
                     }
                     if ui.button("Colores por defecto").clicked() {
-                        self.style.class_colors = rustlidar_core::classes::default_colors();
+                        self.style.class_colors = hipso_core::classes::default_colors();
                         self.ctable.paint(&mut self.style.class_colors);
                         self.colors_rev += 1;
                     }
@@ -4062,7 +4062,7 @@ impl eframe::App for App {
         let mut log = Vec::new();
         let first_cloud = self.clouds.clone();
         if std::mem::take(&mut self.tools.s2.stop) {
-            rustlidar_core::request_cancel();
+            hipso_core::request_cancel();
             self.log("Deteniendo…");
         }
         let sel = self.selection_inputs();
@@ -4094,8 +4094,8 @@ impl eframe::App for App {
                 l.outputs.extend(pairs.iter().map(|p| p.1.clone()));
                 l.task = Box::new(move || {
                     for (i, o) in &todo {
-                        rustlidar_core::check_cancel()?;
-                        rustlidar_core::edit::extract_selected(i, &ops, o)?;
+                        hipso_core::check_cancel()?;
+                        hipso_core::edit::extract_selected(i, &ops, o)?;
                     }
                     inner()
                 });
@@ -4145,7 +4145,7 @@ impl eframe::App for App {
 
 /// "42 % · quedan ~ 3 min 20 s" for a job started at `started`, when it says how far it is.
 fn progress_text(started: Instant) -> Option<String> {
-    let f = rustlidar_core::progress::fraction()?;
+    let f = hipso_core::progress::fraction()?;
     let elapsed = started.elapsed().as_secs_f64();
     // too early for a steady rate: show the share only
     if f < 0.02 || elapsed < 5.0 {
@@ -4163,7 +4163,7 @@ fn progress_text(started: Instant) -> Option<String> {
 
 /// Extensions of everything the Layers dialog opens.
 fn layer_extensions() -> Vec<&'static str> {
-    let mut v = rustlidar_core::raster::EXTENSIONS.to_vec();
+    let mut v = hipso_core::raster::EXTENSIONS.to_vec();
     v.extend(["shp", "geojson", "json", "gpkg"]);
     v
 }

@@ -1,7 +1,7 @@
 //! Symbology of the layers, in the manner of a desktop GIS: colour ramps, and for vectors the four
 //! renderers (single symbol, unique values, graduated colours, proportional symbols) and labels.
 
-use rustlidar_core::view::VectorData;
+use hipso_core::view::VectorData;
 
 /// Named colour ramps of five stops, low to high.
 pub const RAMPS: [(&str, [[u8; 3]; 5]); 8] = [

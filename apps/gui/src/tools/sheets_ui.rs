@@ -5,10 +5,10 @@
 use std::collections::HashMap;
 
 use super::*;
-use rustlidar_core::las::Reader;
-use rustlidar_core::ops::{CrsSource, assign_projection};
-use rustlidar_core::plots::{PlotShape, Sampling};
-use rustlidar_core::sheets;
+use hipso_core::las::Reader;
+use hipso_core::ops::{CrsSource, assign_projection};
+use hipso_core::plots::{PlotShape, Sampling};
+use hipso_core::sheets;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PlotSource {
@@ -451,7 +451,7 @@ impl Tools {
             .on_hover_text("Fracción de huecos, índice de área foliar, diversidad de alturas del follaje, complejidad vertical y altura de la base de la copa")
             .changed()
         {
-            self.mp.structure = structure.then(rustlidar_core::metrics::StructureParams::default);
+            self.mp.structure = structure.then(hipso_core::metrics::StructureParams::default);
         }
         if let Some(sp) = &mut self.mp.structure {
             ui.horizontal(|ui| {
@@ -788,7 +788,7 @@ impl Tools {
         };
         let dtm_for = |p: &Path| {
             paths::find_dtm(p).ok_or_else(|| {
-                rustlidar_core::Error::Param(format!("no hay MDT de {}", p.display()))
+                hipso_core::Error::Param(format!("no hay MDT de {}", p.display()))
             })
         };
         let inputs_v = inputs.to_vec();
@@ -986,7 +986,7 @@ impl Tools {
                     Box::new(move || {
                         let mut lines = Vec::new();
                         for p in &inputs_v {
-                            rustlidar_core::check_cancel()?;
+                            hipso_core::check_cancel()?;
                             let has = Reader::open(p)
                                 .ok()
                                 .is_some_and(|r| r.header.epsg.is_some() || r.meta.wkt.is_some());
@@ -1023,7 +1023,7 @@ impl Tools {
         aois: &[Aoi],
         log: &mut Vec<String>,
     ) -> Option<Launch> {
-        use rustlidar_core::clip::{ClipJob, ClipMode, SampleMetrics};
+        use hipso_core::clip::{ClipJob, ClipMode, SampleMetrics};
         let first = inputs.first()?.clone();
         let ext = first
             .extension()
@@ -1144,7 +1144,7 @@ impl Tools {
                         }
                     }
                 };
-                match rustlidar_core::plots::generate(b, limit.as_deref(), shape, sampling, s.seed)
+                match hipso_core::plots::generate(b, limit.as_deref(), shape, sampling, s.seed)
                 {
                     Ok(plots) => {
                         let layout = paths::unique(&paths::product(&first, "parcelas", "shp"));
@@ -1153,7 +1153,7 @@ impl Tools {
                             .and_then(|r| r.header.epsg)
                             .and_then(vector::prj_for_epsg);
                         if let Err(e) =
-                            rustlidar_core::plots::write_layout(&layout, &plots, prj.as_deref())
+                            hipso_core::plots::write_layout(&layout, &plots, prj.as_deref())
                         {
                             log.push(format!("No se pudo guardar la capa de parcelas: {e}"));
                             return None;

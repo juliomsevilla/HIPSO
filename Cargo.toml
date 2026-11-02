@@ -9,8 +9,8 @@ license = "LicenseRef-EasyLiDAR-Freeware"
 rust-version = "1.90"
 
 [workspace.dependencies]
-rustlidar-core = { path = "crates/core" }
-rustlidar-crs = { path = "crates/crs" }
+hipso-core = { path = "crates/core" }
+hipso-crs = { path = "crates/crs" }
 laz = { version = "0.13", features = ["parallel"] }
 tiff = { version = "0.11", default-features = false, features = ["deflate", "lzw", "jpeg"] }
 clap = { version = "4.6", features = ["derive"] }

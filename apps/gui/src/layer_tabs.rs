@@ -558,7 +558,7 @@ impl App {
                 });
                 ui.horizontal(|ui| {
                     if ui.button("Percentiles 2–98 %").clicked() {
-                        (style.lo, style.hi) = rustlidar_core::raster::stretch(&grid.data);
+                        (style.lo, style.hi) = hipso_core::raster::stretch(&grid.data);
                         changed = true;
                     }
                     if ui.button("Mín–máx").clicked() {

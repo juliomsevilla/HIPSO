@@ -1,6 +1,6 @@
 //! Transforms the points of a JSON file (`[{"src","dst","pts":[[x,y,(z)]...]}]`) and prints the
 //! results as JSON: the same cases are run through PROJ by `scripts/check_spain_crs.py`.
-use rustlidar_crs::{SpatialRef, Transformer};
+use hipso_crs::{SpatialRef, Transformer};
 
 fn main() {
     let path = std::env::args().nth(1).expect("file");

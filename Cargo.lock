@@ -1600,6 +1600,61 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "hipso-cli"
+version = "0.5.3"
+dependencies = [
+ "clap",
+ "hipso-core",
+]
+
+[[package]]
+name = "hipso-core"
+version = "0.5.3"
+dependencies = [
+ "delaunator",
+ "e57",
+ "flate2",
+ "hipso-crs",
+ "jpeg-encoder",
+ "laz",
+ "png",
+ "rayon",
+ "shapefile",
+ "tiff",
+ "zune-jpeg",
+]
+
+[[package]]
+name = "hipso-crs"
+version = "0.5.3"
+dependencies = [
+ "geographiclib-rs",
+ "rayon",
+ "ruzstd",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tiff",
+ "wbprojection",
+]
+
+[[package]]
+name = "hipso-gui"
+version = "0.5.3"
+dependencies = [
+ "earcutr",
+ "eframe",
+ "hipso-core",
+ "png",
+ "pollster 1.0.1",
+ "rayon",
+ "resvg",
+ "rfd",
+ "ureq",
+ "zune-jpeg",
+]
+
+[[package]]
 name = "http"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3019,61 +3074,6 @@ dependencies = [
  "libc",
  "linux-raw-sys 0.12.1",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "rustlidar"
-version = "0.5.3"
-dependencies = [
- "clap",
- "rustlidar-core",
-]
-
-[[package]]
-name = "rustlidar-core"
-version = "0.5.3"
-dependencies = [
- "delaunator",
- "e57",
- "flate2",
- "jpeg-encoder",
- "laz",
- "png",
- "rayon",
- "rustlidar-crs",
- "shapefile",
- "tiff",
- "zune-jpeg",
-]
-
-[[package]]
-name = "rustlidar-crs"
-version = "0.5.3"
-dependencies = [
- "geographiclib-rs",
- "rayon",
- "ruzstd",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tiff",
- "wbprojection",
-]
-
-[[package]]
-name = "rustlidar-gui"
-version = "0.5.3"
-dependencies = [
- "earcutr",
- "eframe",
- "png",
- "pollster 1.0.1",
- "rayon",
- "resvg",
- "rfd",
- "rustlidar-core",
- "ureq",
- "zune-jpeg",
 ]
 
 [[package]]

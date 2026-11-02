@@ -3,9 +3,9 @@
 
 use super::*;
 use crate::numfield::NumField;
-use rustlidar_core::corridor::{CorridorJob, CorridorParams};
-use rustlidar_core::filter::ClassSel;
-use rustlidar_core::paths::{self, Formats};
+use hipso_core::corridor::{CorridorJob, CorridorParams};
+use hipso_core::filter::ClassSel;
+use hipso_core::paths::{self, Formats};
 
 pub struct CorridorTool {
     pub open: bool,
@@ -85,7 +85,7 @@ impl App {
                         .unwrap_or("(hace falta un MDT)".to_string());
                     ui.label(shown);
                     if ui.button("Archivo…").clicked()
-                        && let Some(p) = crate::prefs::dialog().add_filter("Ráster", rustlidar_core::raster::EXTENSIONS).pick_file()
+                        && let Some(p) = crate::prefs::dialog().add_filter("Ráster", hipso_core::raster::EXTENSIONS).pick_file()
                     {
                         t.dtm = Some(p);
                     }
@@ -184,7 +184,7 @@ impl App {
             let mut outputs = show.clone();
             outputs.push(o.spans);
             outputs.push(o.hazards_table);
-            let task: tools::Task = Box::new(move || rustlidar_core::corridor::run(&job));
+            let task: tools::Task = Box::new(move || hipso_core::corridor::run(&job));
             self.start(
                 ctx,
                 Launch {

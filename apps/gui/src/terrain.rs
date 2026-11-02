@@ -3,8 +3,8 @@
 
 use super::*;
 use crate::numfield::NumField;
-use rustlidar_core::paths;
-use rustlidar_core::terrain::{self, Product, TerrainJob};
+use hipso_core::paths;
+use hipso_core::terrain::{self, Product, TerrainJob};
 
 pub struct TerrainTool {
     pub open: bool,
@@ -123,7 +123,7 @@ impl App {
                     ui.label(shown);
                     if ui.button("Archivo…").clicked()
                         && let Some(p) = crate::prefs::dialog()
-                            .add_filter("Ráster", rustlidar_core::raster::EXTENSIONS)
+                            .add_filter("Ráster", hipso_core::raster::EXTENSIONS)
                             .pick_file()
                     {
                         t.input = Some(p);

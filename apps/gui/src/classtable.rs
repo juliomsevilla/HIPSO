@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use rustlidar_core::classes;
+use hipso_core::classes;
 
 #[derive(Default)]
 pub struct ClassTable {

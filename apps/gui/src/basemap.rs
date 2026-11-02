@@ -12,9 +12,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect};
-use rustlidar_core::reproject::{self, Transformer};
-use rustlidar_core::tilemap::{self, HALF_WORLD};
-use rustlidar_core::view::Plan;
+use hipso_core::reproject::{self, Transformer};
+use hipso_core::tilemap::{self, HALF_WORLD};
+use hipso_core::view::Plan;
 
 /// A source of tiles.
 pub struct Provider {

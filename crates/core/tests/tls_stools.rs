@@ -1,8 +1,8 @@
 //! The TLS cubing on a cloud made of cylinders: a tree on its own, a stool with two sprouts and a
 //! tree that forks above the height of the diameter.
 
-use rustlidar_core::Result;
-use rustlidar_core::tls::{TlsParams, analyse};
+use hipso_core::Result;
+use hipso_core::tls::{TlsParams, analyse};
 
 /// Points on the surface of a vertical (or leaning) cylinder, every ~1.5 cm.
 fn cylinder(out: &mut Vec<[f64; 3]>, c: (f64, f64), r: f64, z0: f64, z1: f64, lean: (f64, f64)) {
@@ -103,7 +103,7 @@ fn a_stem_a_stool_and_a_fork() -> Result<()> {
             .map(|t| (t.x, t.dbh, t.flags.clone()))
             .collect::<Vec<_>>()
     );
-    let near = |x: f64| -> Vec<&rustlidar_core::tls::TreeResult> {
+    let near = |x: f64| -> Vec<&hipso_core::tls::TreeResult> {
         trees
             .iter()
             .filter(|(rx, _)| (rx - x).abs() <= 1.0)
@@ -161,7 +161,7 @@ fn a_stem_a_stool_and_a_fork() -> Result<()> {
 }
 
 /// The x of the leftmost tree, where the tree on its own stands.
-fn near_origin(r: &rustlidar_core::tls::TlsResult) -> f64 {
+fn near_origin(r: &hipso_core::tls::TlsResult) -> f64 {
     r.trees
         .iter()
         .map(|t| t.x.round())
@@ -185,7 +185,7 @@ fn a_stem_with_an_unmeasured_stretch_is_followed_through_it() -> Result<()> {
     );
     let _ = std::fs::remove_file(&input);
     let (followed, lost) = (followed?, lost?);
-    let top = |r: &rustlidar_core::tls::TlsResult| {
+    let top = |r: &hipso_core::tls::TlsResult| {
         r.trees
             .iter()
             .flat_map(|t| t.sections.iter().filter(|s| s.ok).map(|s| s.h))

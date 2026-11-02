@@ -5,8 +5,8 @@
 //! are rules the engine applies to every point of the file when saving.
 
 use super::*;
-use rustlidar_core::edit::{self, Attr, Edit, Mode, Region, SelOp, Session, ViewCut};
-use rustlidar_core::vector::Polygon;
+use hipso_core::edit::{self, Attr, Edit, Mode, Region, SelOp, Session, ViewCut};
+use hipso_core::vector::Polygon;
 
 pub enum Cmd {
     AddOp(Box<SelOp>),
@@ -427,8 +427,8 @@ impl App {
             let ext = c
                 .extension()
                 .map_or("las".to_string(), |e| e.to_string_lossy().into_owned());
-            let out = rustlidar_core::paths::results_dir(c)
-                .join(format!("{}_sel.{ext}", rustlidar_core::paths::stem(c)));
+            let out = hipso_core::paths::results_dir(c)
+                .join(format!("{}_sel.{ext}", hipso_core::paths::stem(c)));
             paths.push(out.clone());
             pairs.push(((*c).clone(), out));
         }
@@ -461,7 +461,7 @@ impl App {
             task: Box::new(move || {
                 let mut n = 0;
                 for (i, o) in &pairs {
-                    rustlidar_core::check_cancel()?;
+                    hipso_core::check_cancel()?;
                     n += edit::extract_selected(i, &ops, o)?;
                 }
                 Ok(format!("{n} puntos aislados"))
@@ -633,7 +633,7 @@ impl App {
                 .extension()
                 .map_or("las".into(), |e| e.to_string_lossy().into_owned());
             let auto =
-                rustlidar_core::paths::unique(&rustlidar_core::paths::product(i, "editada", &ext));
+                hipso_core::paths::unique(&hipso_core::paths::product(i, "editada", &ext));
             let out = if inputs.len() == 1 && !self.ed.auto_save {
                 match crate::prefs::dialog()
                     .add_filter("LAS/LAZ", &["las", "laz"])
