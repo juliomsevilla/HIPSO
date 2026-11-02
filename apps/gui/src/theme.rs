@@ -4,8 +4,19 @@ use eframe::egui::{
     self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, Stroke, Vec2,
 };
 
-pub const BRAND: Color32 = Color32::from_rgb(0xB8, 0x4A, 0x2C);
-pub const BRAND_HOVER: Color32 = Color32::from_rgb(0x96, 0x3A, 0x22);
+/// The orange of the mark, `#FC6309`: logo and, as text, on dark surfaces. Too bright for a fill
+/// in the interface (it would outshine the blue of the selection), hence `BRAND`.
+pub const BRAND_PURE: Color32 = Color32::from_rgb(0xFC, 0x63, 0x09);
+/// Brand fill in the interface (the "Archivo" button): as heavy as the blue accent (luminance
+/// 0.177). White text on it reaches 4.6:1.
+pub const BRAND: Color32 = Color32::from_rgb(0xC9, 0x4D, 0x00);
+/// Hover of `BRAND`, and brand text on light surfaces (5.1:1 or more).
+pub const BRAND_HOVER: Color32 = Color32::from_rgb(0xA8, 0x3F, 0x00);
+
+/// The brand colour for text: the pure orange on dark surfaces, the deep one on light ones.
+pub fn brand_text(t: &Tokens) -> Color32 {
+    if t.dark { BRAND_PURE } else { BRAND_HOVER }
+}
 
 #[derive(Clone, Copy)]
 pub struct Tokens {
@@ -145,4 +156,49 @@ pub fn install_fonts(ctx: &egui::Context) {
         }
     }
     ctx.set_fonts(fonts);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn linear(c: u8) -> f32 {
+        let c = f32::from(c) / 255.0;
+        if c <= 0.03928 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    fn luminance(c: Color32) -> f32 {
+        0.2126 * linear(c.r()) + 0.7152 * linear(c.g()) + 0.0722 * linear(c.b())
+    }
+
+    /// WCAG contrast ratio.
+    fn contrast(a: Color32, b: Color32) -> f32 {
+        let (x, y) = (luminance(a), luminance(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    #[test]
+    fn white_text_on_the_brand_fill_reaches_aa() {
+        assert!(contrast(Color32::WHITE, BRAND) >= 4.5);
+        assert!(contrast(Color32::WHITE, BRAND_HOVER) >= 4.5);
+    }
+
+    #[test]
+    fn brand_text_reaches_aa_on_every_surface() {
+        for t in [DARK, LIGHT] {
+            for bg in [t.header, t.ribbon, t.pane] {
+                assert!(contrast(brand_text(&t), bg) >= 4.5, "dark: {}", t.dark);
+            }
+        }
+    }
+
+    #[test]
+    fn the_brand_fill_weighs_as_much_as_the_light_blue() {
+        let d = (luminance(BRAND) - luminance(LIGHT.accent)).abs();
+        assert!(d < 0.02, "difference {d}");
+    }
 }

@@ -20,7 +20,7 @@ fn text(p: &Path) -> String {
 impl App {
     pub fn save_project(&mut self) {
         let Some(file) = crate::prefs::dialog()
-            .add_filter("Proyecto de EasyLiDAR", &[EXT])
+            .add_filter(format!("Proyecto de {}", crate::brand::NAME), &[EXT])
             .set_file_name(format!("proyecto.{EXT}"))
             .save_file()
         else {
@@ -68,7 +68,7 @@ impl App {
 
     pub fn open_project_dialog(&mut self, ctx: &egui::Context) {
         if let Some(f) = crate::prefs::dialog()
-            .add_filter("Proyecto de EasyLiDAR", &[EXT])
+            .add_filter(format!("Proyecto de {}", crate::brand::NAME), &[EXT])
             .pick_file()
         {
             self.open_project(ctx, &f);
@@ -83,7 +83,7 @@ impl App {
             .and_then(|t| Json::parse(&t).map_err(|e| e.to_string()));
         let j = match parsed {
             Ok(j) if j.get("version").is_some() => j,
-            Ok(_) => return self.log("Ese archivo no es un proyecto de EasyLiDAR."),
+            Ok(_) => return self.log("Ese archivo no es un proyecto de este programa."),
             Err(e) => return self.log(format!("No se pudo leer el proyecto: {e}")),
         };
         let nums = |k: &str| -> Vec<f64> {

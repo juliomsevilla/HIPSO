@@ -7,6 +7,7 @@ mod aba_plots;
 mod aba_ui;
 mod align_ui;
 mod basemap;
+mod brand;
 mod change_ui;
 mod classtable;
 mod contents;
@@ -54,30 +55,6 @@ use rustlidar_core::view::{self, ColorBy, Image, Orbit, Plan, PointStore, Profil
 use copcdetail::contains;
 use theme::Tokens;
 use tools::{Launch, ToolId, Tools};
-
-const ICON_PNG: &[u8] = include_bytes!("../../../assets/icon-256.png");
-
-/// The decoded RGBA pixels of the logo, with its size.
-fn logo_pixels() -> Option<(Vec<u8>, [usize; 2])> {
-    let mut r = png::Decoder::new(std::io::Cursor::new(ICON_PNG))
-        .read_info()
-        .ok()?;
-    let mut buf = vec![0; r.output_buffer_size()?];
-    let info = r.next_frame(&mut buf).ok()?;
-    buf.truncate(info.buffer_size());
-    if info.color_type != png::ColorType::Rgba {
-        return None;
-    }
-    Some((buf, [info.width as usize, info.height as usize]))
-}
-
-fn app_icon() -> egui::IconData {
-    logo_pixels().map_or_else(Default::default, |(rgba, [width, height])| egui::IconData {
-        rgba,
-        width: width as u32,
-        height: height as u32,
-    })
-}
 
 /// The graphics adapters wgpu sees. A "Cpu" one is the software adapter (Windows' Basic Render
 /// Driver, llvmpipe): it draws, but with the processor, and slowly.
@@ -143,13 +120,14 @@ fn main() -> eframe::Result {
         if std::thread::current().name() == Some("main") {
             rfd::MessageDialog::new()
                 .set_level(rfd::MessageLevel::Error)
-                .set_title("EasyLiDAR")
+                .set_title(brand::NAME)
                 .set_description(format!(
-                    "EasyLiDAR se ha cerrado por un error.
+                    "{} se ha cerrado por un error.
 
 {info}
 
-Si es de gráficos, prueba                      a definir la variable de entorno EASYLIDAR_RENDERER con glow o wgpu."
+Si es de gráficos, prueba                      a definir la variable de entorno EASYLIDAR_RENDERER con glow o wgpu.",
+                    brand::NAME
                 ))
                 .show();
         }
@@ -171,13 +149,13 @@ fn run(renderer: eframe::Renderer) -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1360.0, 860.0])
             .with_min_inner_size([900.0, 560.0])
-            .with_icon(app_icon())
-            .with_title("EasyLiDAR"),
+            .with_icon(brand::app_icon())
+            .with_title(brand::NAME),
         renderer,
         ..Default::default()
     };
     eframe::run_native(
-        "EasyLiDAR",
+        brand::NAME,
         options,
         Box::new(|cc| {
             theme::install_fonts(&cc.egui_ctx);
@@ -467,7 +445,6 @@ struct App {
     show_shortcuts: bool,
     /// When the log last said how far the running job is.
     last_progress_log: Instant,
-    logo: Option<egui::TextureHandle>,
     manual: manual::Manual,
 }
 
@@ -554,7 +531,10 @@ impl Default for App {
             isolate: false,
             tools: Tools::default(),
             running: None,
-            log: vec!["EasyLiDAR listo. Abre una nube LAS/LAZ (Inicio → Abrir).".into()],
+            log: vec![format!(
+                "{} listo. Abre una nube LAS/LAZ (Inicio → Abrir).",
+                brand::NAME
+            )],
             palette: None,
             show_classes: false,
             ctable: classtable::ClassTable::load(),
@@ -579,7 +559,6 @@ impl Default for App {
             show_about: false,
             show_shortcuts: false,
             last_progress_log: Instant::now(),
-            logo: None,
             manual: manual::Manual::default(),
         }
     }
@@ -673,13 +652,6 @@ impl App {
     /// Command-line arguments: files to open, and a few switches for screenshots.
     fn startup(&mut self, ctx: &egui::Context, args: Vec<String>) {
         self.ctable.paint(&mut self.style.class_colors);
-        if let Some((rgba, size)) = logo_pixels() {
-            self.logo = Some(ctx.load_texture(
-                "logo",
-                egui::ColorImage::from_rgba_unmultiplied(size, &rgba),
-                egui::TextureOptions::LINEAR,
-            ));
-        }
         // the theme the system uses; when it is not known yet, the first frame sets it
         if let Some(theme) = ctx.system_theme() {
             self.dark = theme != egui::Theme::Light;
@@ -1851,7 +1823,7 @@ impl App {
             ("Clases visibles y colores", Action::Classes),
             ("Mostrar u ocultar el registro", Action::ToggleLog),
             ("Atajos de teclado", Action::Shortcuts),
-            ("Acerca de EasyLiDAR", Action::About),
+            ("Acerca del programa", Action::About),
             ("Manual de uso (F1)", Action::Manual),
         ]
     }
@@ -1866,15 +1838,8 @@ impl App {
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     ui.add_space(10.0);
-                    if let Some(l) = &self.logo {
-                        ui.image((l.id(), Vec2::splat(22.0)));
-                    }
-                    ui.label(
-                        egui::RichText::new("EasyLiDAR")
-                            .strong()
-                            .size(14.0)
-                            .color(theme::BRAND),
-                    );
+                    brand::paint(ui, brand::Art::Logo, t.dark, 24.0);
+                    brand::paint(ui, brand::Art::Wordmark, t.dark, 14.0);
                     ui.add_space(8.0);
                     for (icon, tip, a) in [
                         ("@open", "Abrir (Ctrl+O)", Action::Open),
@@ -4157,27 +4122,28 @@ impl eframe::App for App {
         self.class_window(&ctx);
         if self.show_about {
             let mut open = true;
-            egui::Window::new("Acerca de EasyLiDAR")
+            egui::Window::new(format!("Acerca de {}", brand::NAME))
                 .open(&mut open)
                 .collapsible(false)
                 .resizable(false)
                 .show(&ctx, |ui| {
                     ui.horizontal(|ui| {
-                        if let Some(l) = &self.logo {
-                            ui.image((l.id(), Vec2::splat(72.0)));
-                        }
+                        brand::paint(ui, brand::Art::Logo, self.dark, 84.0);
                         ui.vertical(|ui| {
-                            ui.label(
-                                egui::RichText::new("EasyLiDAR")
-                                    .size(26.0)
-                                    .strong()
-                                    .color(Color32::from_rgb(0xFF, 0x8A, 0x1F)),
+                            brand::paint(ui, brand::Art::Wordmark, self.dark, 26.0);
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(brand::CLAIM)
+                                        .strong()
+                                        .color(theme::brand_text(&self.tokens())),
+                                )
+                                .wrap_mode(egui::TextWrapMode::Extend),
                             );
                             ui.label(format!("Versión {}", env!("CARGO_PKG_VERSION")));
                         });
                     });
                     ui.add_space(6.0);
-                    ui.label("EasyLiDAR · Procesamiento y edición de nubes LiDAR para forestales");
+                    ui.label(brand::DESCRIPTOR);
                     ui.label(
                         "Lectura en flujo: la memoria depende del área, no del número de puntos.",
                     );
