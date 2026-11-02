@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Compares rustlidar-crs with PROJ (pyproj) on points over Spain, with the IGN/ICGC grids.
+"""Compares hipso-crs with PROJ (pyproj) on points over Spain, with the IGN/ICGC grids.
 
     python3 scripts/check_spain_crs.py [dir with the grids]   (default: crates/crs/data/grids)
 
-Needs pyproj and a built `cargo build -p rustlidar-crs --release --example batch`.
+Needs pyproj and a built `cargo build -p hipso-crs --release --example batch`.
 """
 import json, math, subprocess, sys, os, random
 import pyproj

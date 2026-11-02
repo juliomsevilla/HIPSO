@@ -32,20 +32,20 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          d=EasyLiDAR-${{ matrix.name }}
+          d=HIPSO-${{ matrix.name }}
           mkdir "$d"
-          cp target/release/easylidar${{ matrix.ext }} target/release/easylidar-gui${{ matrix.ext }} README.md LICENSE NOTICE THIRD_PARTY_LICENSES.md docs/MANUAL.md "$d"/
+          cp target/release/hipso${{ matrix.ext }} target/release/hipso-gui${{ matrix.ext }} README.md LICENSE NOTICE THIRD_PARTY_LICENSES.md docs/MANUAL.md "$d"/
           cp -r licenses "$d"/
           # en macOS la app va en un .app (doble clic sin ventana de Terminal), igual que en scripts/package.sh
           if [ "$RUNNER_OS" = "macOS" ]; then
-            chmod +x "$d"/easylidar "$d"/easylidar-gui
-            scripts/macos-app.sh "$d" target/release/easylidar-gui
+            chmod +x "$d"/hipso "$d"/hipso-gui
+            scripts/macos-app.sh "$d" target/release/hipso-gui
           fi
           if [ "$RUNNER_OS" = "Windows" ]; then 7z a "$d.zip" "$d"; else tar czf "$d.tar.gz" "$d"; fi
       - uses: actions/upload-artifact@v4
         with:
-          name: EasyLiDAR-${{ matrix.name }}
-          path: EasyLiDAR-${{ matrix.name }}.*
+          name: HIPSO-${{ matrix.name }}
+          path: HIPSO-${{ matrix.name }}.*
 
   publish:
     needs: build

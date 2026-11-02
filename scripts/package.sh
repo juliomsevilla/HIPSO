@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Empaqueta EasyLiDAR en macOS o Linux: compila en release y crea dist/EasyLiDAR-<sistema>-<arquitectura>.tar.gz
+# Empaqueta HIPSO en macOS o Linux: compila en release y crea dist/HIPSO-<sistema>-<arquitectura>.tar.gz
 # (los mismos nombres que enlaza el README). En un Mac con Apple Silicon crea también el paquete Intel
 # (necesita `rustup target add x86_64-apple-darwin`).
 # Con --publish sube los paquetes a la release vX.Y.Z de GitHub (la crea si no existe; requiere `gh`).
@@ -12,13 +12,13 @@ mkdir -p dist
 packages=()
 
 pack() { # <nombre> <carpeta de salida de cargo>
-  local name="EasyLiDAR-$1" d="dist/EasyLiDAR-$1"
+  local name="HIPSO-$1" d="dist/HIPSO-$1"
   rm -rf "$d"; mkdir -p "$d"
-  cp "$2/easylidar" "$2/easylidar-gui" "$d"/
+  cp "$2/hipso" "$2/hipso-gui" "$d"/
   cp README.md LICENSE NOTICE THIRD_PARTY_LICENSES.md docs/MANUAL.md "$d"/
   cp -r licenses "$d"/
-  chmod +x "$d"/easylidar "$d"/easylidar-gui
-  if [ "$os" = macos ]; then scripts/macos-app.sh "$d" "$2/easylidar-gui"; fi
+  chmod +x "$d"/hipso "$d"/hipso-gui
+  if [ "$os" = macos ]; then scripts/macos-app.sh "$d" "$2/hipso-gui"; fi
   tar czf "dist/$name.tar.gz" -C dist "$name"
   rm -rf "$d"
   echo "dist/$name.tar.gz"
