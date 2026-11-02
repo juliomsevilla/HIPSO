@@ -11,7 +11,7 @@ HIPSO consta de dos ejecutables sin dependencias de C ni instalador: `hipso` (l�
 | Los tres, a la vez | Etiqueta `vX.Y.Z` en GitHub (`.github/workflows/release.yml`) | Paquetes de Windows, Linux, macOS Intel y macOS Apple Silicon como artefactos |
 | Código fuente | `HIPSO-<versión>-fuente.zip` | Permite compilar en cualquier sistema con `cargo build --release` |
 
-Cada paquete lleva: los dos ejecutables, `README.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_LICENSES.md`, `MANUAL.md` y la carpeta `licenses`. El manual también está dentro del programa (Ayuda → Manual, o F1). **No incluyas archivos de desarrollo (`target`, `.git`, notas internas) ni datos de terceros.**
+Cada paquete lleva: los dos ejecutables, `README.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_LICENSES.md`, `MANUAL.md` y la carpeta `licenses`. El manual también está dentro del programa (Inicio → Manual, o F1). **No incluyas archivos de desarrollo (`target`, `.git`, notas internas) ni datos de terceros.**
 
 Linux compila con: `libxkbcommon-dev libwayland-dev libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev`.
 

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/icon-256.png" alt="EasyLiDAR" width="128">
+  <img src="assets/icon-256.png" alt="HIPSO" width="128">
 </p>
 
-<h1 align="center">EasyLiDAR</h1>
+<h1 align="center">HIPSO</h1>
 
 <p align="center">
   <strong>Procesamiento y edición de nubes LiDAR para forestales</strong><br>
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/juliomsevilla/EasyLiDAR/releases/latest"><img alt="Descargar" src="https://img.shields.io/badge/descargar-v0.5.0-ff8a1f?style=for-the-badge"></a>
+  <a href="https://github.com/juliomsevilla/HIPSO/releases/latest"><img alt="Descargar" src="https://img.shields.io/badge/descargar-v0.5.0-ff8a1f?style=for-the-badge"></a>
   <img alt="Plataformas" src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-555?style=for-the-badge">
   <img alt="Gratuito" src="https://img.shields.io/badge/uso-gratuito-2e7d32?style=for-the-badge">
 </p>
@@ -19,13 +19,13 @@
 
 ## Descargar
 
-Ve a la página de **[Releases](https://github.com/juliomsevilla/EasyLiDAR/releases/latest)**, descarga el paquete de tu sistema (Windows, macOS Apple Silicon o Intel, Linux), descomprímelo y ejecuta `easylidar-gui` (en macOS, `EasyLiDAR.app`). No necesita instalador ni permisos de administrador.
+Ve a la página de **[Releases](https://github.com/juliomsevilla/HIPSO/releases/latest)**, descarga el paquete de tu sistema (Windows, macOS Apple Silicon o Intel, Linux), descomprímelo y ejecuta `hipso-gui` (en macOS, `HIPSO.app`). No necesita instalador ni permisos de administrador.
 
 **Primera vez que lo abres**
 
 - **Windows:** si aparece el aviso azul de SmartScreen: *Más información → Ejecutar de todas formas*.
-- **macOS:** abre `EasyLiDAR.app` (no abre ventana de Terminal). El programa no está firmado por un desarrollador que Apple conozca, así que la primera vez macOS lo bloquea: ábrelo una vez, ve a *Ajustes del Sistema → Privacidad y seguridad* y pulsa *Abrir igualmente*. Si descargas el paquete con el navegador, macOS marca también `easylidar` y `easylidar-gui` y los cierra al ejecutarlos desde la consola; se desbloquean con `xattr -dr com.apple.quarantine EasyLiDAR-macos-arm64` (o `-x64`) sobre la carpeta descomprimida, y si no arrancan: `chmod +x easylidar-gui easylidar`.
-- **Linux:** `chmod +x easylidar-gui easylidar` si el archivo perdió el permiso. Hace falta GTK 3 para los diálogos de archivo y OpenGL 2 o superior (Mesa sirve).
+- **macOS:** abre `HIPSO.app` (no abre ventana de Terminal). El programa no está firmado por un desarrollador que Apple conozca, así que la primera vez macOS lo bloquea: ábrelo una vez, ve a *Ajustes del Sistema → Privacidad y seguridad* y pulsa *Abrir igualmente*. Si descargas el paquete con el navegador, macOS marca también `hipso` y `hipso-gui` y los cierra al ejecutarlos desde la consola; se desbloquean con `xattr -dr com.apple.quarantine HIPSO-macos-arm64` (o `-x64`) sobre la carpeta descomprimida, y si no arrancan: `chmod +x hipso-gui hipso`.
+- **Linux:** `chmod +x hipso-gui hipso` si el archivo perdió el permiso. Hace falta GTK 3 para los diálogos de archivo y OpenGL 2 o superior (Mesa sirve).
 
 ---
 
@@ -44,7 +44,7 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/EasyLiDAR/relea
 - Colorear por elevación, clase, intensidad, retorno, pasada, archivo o RGB.
 - **Edición por selecciones** (rectángulo, círculo, polígono, lazo, en planta, en perfil o **en la vista 3D**, con rebanada de profundidad y *Aislar selección* para editar un árbol a toda su densidad) con filtros por clase, altura, intensidad y retorno; eliminar o reclasificar; deshacer, rehacer e historial. El original nunca se modifica.
 - **Histogramas de atributos** (elevación, intensidad, retornos, clase, pasada, ángulo de barrido): se marcan barras para seleccionar los puntos, o se detectan los valores raros con un estadístico (Tukey, MAD, desviaciones típicas, percentiles).
-- **Proyectos (`.elp`):** guardan qué nubes y capas están abiertas, su orden, visibilidad, la vista y la orientación 3D, para retomar la sesión donde la dejaste.
+- **Proyectos (`.hipso`):** guardan qué nubes y capas están abiertas, su orden, visibilidad, la vista y la orientación 3D, para retomar la sesión donde la dejaste.
 - **Capas grandes sin colgarse:** las capas vectoriales pesadas se dibujan como una imagen (un shapefile de 41 mil objetos pasa de 4,5 GB a 233 MB) y se consultan con un índice espacial R-tree. Cualquier nube LAS/LAZ se lee a más detalle, en segundo plano, al acercar el zoom en planta y en 3D (con una copia COPC en la caché que se crea sola), con relleno de huecos y relieve opcional; reabrir una nube grande tarda menos de un segundo y el perfil lee todos los puntos de su franja.
 - **Clases ASPRS 0–255:** la tabla vigente y clases nuevas propias (64–255) con nombre y color.
 
@@ -96,53 +96,53 @@ LAS y LAZ (también **COPC**, leído solo en la parte que hace falta y escrito c
 
 ## Manual
 
-El manual completo está en [`docs/MANUAL.md`](docs/MANUAL.md) y dentro del programa: **Ayuda → Manual** o la tecla **F1**. La referencia de la línea de comandos está en [`docs/REFERENCIA.md`](docs/REFERENCIA.md).
+El manual completo está en [`docs/MANUAL.md`](docs/MANUAL.md) y dentro del programa: **Inicio → Manual** o la tecla **F1**. La referencia de la línea de comandos está en [`docs/REFERENCIA.md`](docs/REFERENCIA.md).
 
 ## Línea de comandos
 
-`easylidar` hace lo mismo que la interfaz, por lotes:
+`hipso` hace lo mismo que la interfaz, por lotes:
 
 ```sh
-easylidar info nube.laz
-easylidar thin nube.laz --method density --density 1
-easylidar classify nube.laz --ground csf --noise isolated --buildings --vegetation
-easylidar dtm nube.laz --cell 1
-easylidar chm nube.laz --cell 0.5 --method pitfree
-easylidar cubicar parcela_tls.laz --csv --tree-clouds --stem-classes
-easylidar mosaic a.tif b.tif -o mosaico.tif --overlap mean
-easylidar colorize nube.laz --image ortofoto.tif
-easylidar copc nube.laz
-easylidar import escaneo.e57 --epsg 25830
-easylidar reproject nube_ed50.laz -o nube_etrs89.laz --to 25830
-easylidar compare nube2.laz --reference nube1.laz --distance 0.5
+hipso info nube.laz
+hipso thin nube.laz --method density --density 1
+hipso classify nube.laz --ground csf --noise isolated --buildings --vegetation
+hipso dtm nube.laz --cell 1
+hipso chm nube.laz --cell 0.5 --method pitfree
+hipso cubicar parcela_tls.laz --csv --tree-clouds --stem-classes
+hipso mosaic a.tif b.tif -o mosaico.tif --overlap mean
+hipso colorize nube.laz --image ortofoto.tif
+hipso copc nube.laz
+hipso import escaneo.e57 --epsg 25830
+hipso reproject nube_ed50.laz -o nube_etrs89.laz --to 25830
+hipso compare nube2.laz --reference nube1.laz --distance 0.5
 ```
 
-`easylidar <comando> --help` lista todos los parámetros.
+`hipso <comando> --help` lista todos los parámetros.
 
 ## Limitaciones conocidas
 
-**Las coordenadas se pasan solas, pero solo en horizontal.** Cuando una herramienta combina archivos en sistemas distintos (por ejemplo una nube en ETRS89 UTM 30N con un MDT en 29N, o unas parcelas en ED50), EasyLiDAR **los pasa al sistema de la primera nube** y te lo dice en el informe. Las transformaciones coinciden con las de PROJ en todos los casos probados en España e incluyen las mallas oficiales del IGN y del ICGC para pasar de ED50 a ETRS89, que van dentro del programa.
+**Las coordenadas se transforman solas entre distintos sistemas pero solo en horizontal.** Cuando una herramienta combina archivos en sistemas distintos (por ejemplo una nube en ETRS89 UTM 30N con un MDT en 29N, o unas parcelas en ED50), HIPSO **los transforma al sistema de la primera nube** y te lo dice en el informe. Las transformaciones coinciden con las de PROJ en todos los casos probados en España e incluyen las mallas oficiales del IGN y del ICGC para pasar de ED50 a ETRS89, que van dentro del programa.
 
 - En el visor, las capas en otro sistema se pasan al de la primera nube al cargarlas (el registro avisa de que tardará más solo cuando hay capas en sistemas distintos).
-- Qué se convierte: nubes LAS/LAZ y rásteres (copias temporales que se borran al terminar) y parcelas o muestras en shapefile o GeoJSON (en memoria, casi sin coste). Si todo está ya en el mismo sistema no se hace nada y no se pierde tiempo. El comando `easylidar reproject` convierte una nube o un ráster y guarda el resultado.
+- Qué se convierte: nubes LAS/LAZ y rásteres (copias temporales que se borran al terminar) y parcelas o muestras en shapefile o GeoJSON (en memoria, casi sin coste). Si todo está ya en el mismo sistema no se hace nada y no se pierde tiempo. El comando `hipso reproject` convierte una nube o un ráster y guarda el resultado.
 - **Solo cambian X e Y.** Las alturas se conservan tal cual: pasar de alturas elipsoidales a ortométricas (geoide) es otra operación y no se hace sola. Al reproyectar un ráster entre husos la celda se mantiene (por ejemplo 1 m) y los valores se interpolan; los rásteres de números enteros (clases) usan el vecino más cercano.
 - Lo que no se convierte y sigue pidiendo que se haga antes: imágenes de varias bandas (ortofotos, satélite) y las herramientas de imágenes grandes (*Apilar*, *Mosaico* de imágenes e *Igualar rásteres*), que exigen el mismo sistema. Tampoco se pasan nubes desde o hacia coordenadas geográficas (grados).
 - Si un archivo no declara su sistema no se puede comprobar, y el resultado lleva un aviso. ETRS89 y WGS 84 del mismo huso se consideran equivalentes y solo avisan, porque difieren en torno a un metro.
-- Convertir una nube cuesta una pasada completa sobre ella, y su copia temporal ocupa espacio en disco. Si vas a trabajar mucho con ella, conviene convertirla una vez con `easylidar reproject` y guardar el resultado.
+- Convertir una nube cuesta una pasada completa sobre ella, y su copia temporal ocupa espacio en disco. Si vas a trabajar mucho con ella, conviene convertirla una vez con `hipso reproject` y guardar el resultado.
 
 ---
 
 ## Licencia
 
-EasyLiDAR es de **uso gratuito**, también para trabajo profesional y comercial. No se puede modificar, vender ni redistribuir salvo en su paquete original y gratis. Las condiciones están en [`LICENSE`](LICENSE). Los componentes de terceros conservan sus licencias ([`NOTICE`](NOTICE), [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md), [`licenses/`](licenses)).
+HIPSO es de **uso gratuito**, también para trabajo profesional y comercial. No se puede modificar, vender ni redistribuir salvo en su paquete original y gratis. Las condiciones están en [`LICENSE`](LICENSE). Los componentes de terceros conservan sus licencias ([`NOTICE`](NOTICE), [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md), [`licenses/`](licenses)).
 
 ### Aviso
 
-EasyLiDAR está construido principalmente con [Claude](https://www.anthropic.com/claude), un modelo de IA de Anthropic, bajo dirección y revisión humanas. Sus resultados se contrastan con otros programas libres como FUSION, lidR, WhiteboxTools y GeoLibre, pero compruébalos para tu propio uso y, por favor, avisa de cualquier cosa que parezca incorrecta.
+HIPSO está construido principalmente con [Claude](https://www.anthropic.com/claude), un modelo de IA de Anthropic, bajo dirección y revisión humanas. Sus resultados se contrastan con otros programas libres como FUSION, lidR, WhiteboxTools y GeoLibre, pero compruébalos para tu propio uso y, por favor, avisa de cualquier cosa que parezca incorrecta.
 
 ## Autoría y contacto
 
 **Julio M. Sevilla**
 ✉ [julio@jsevilla.es](mailto:julio@jsevilla.es) · [LinkedIn](https://es.linkedin.com/in/juliomsevilla)
 
-Se agradecen todas las aportaciones y la detección de errores (también en [Issues](https://github.com/juliomsevilla/EasyLiDAR/issues)). Los errores se irán corrigiendo en la medida de lo posible.
+Se agradecen las sugerencias y los fallos comunicados en [Issues](https://github.com/juliomsevilla/HIPSO/issues). La licencia no permite modificar ni redistribuir el programa. Los errores se irán corrigiendo en la medida de lo posible.

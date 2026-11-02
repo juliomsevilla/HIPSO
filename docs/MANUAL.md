@@ -1,13 +1,13 @@
-# EasyLiDAR · Manual de uso
+# HIPSO · Manual de uso
 
-**EasyLiDAR: procesamiento y edición de nubes LiDAR para forestales.**
+**HIPSO: procesamiento y edición de nubes LiDAR para forestales.**
 Autor: Julio M. Sevilla · julio@jsevilla.es · https://es.linkedin.com/in/juliomsevilla
 
 ---
 
-## 1. Qué es EasyLiDAR
+## 1. Qué es HIPSO
 
-EasyLiDAR es un programa para abrir nubes de puntos LiDAR (LAS y LAZ), clasificarlas y editarlas, generar modelos del terreno y de copas, calcular métricas e inventarios forestales, medir y cubicar árboles en nubes de escáner terrestre y trabajar, además, con las imágenes y las capas propias de un sistema de información geográfica.
+HIPSO es un programa para abrir nubes de puntos LiDAR (LAS y LAZ), clasificarlas y editarlas, generar modelos del terreno y de copas, calcular métricas e inventarios forestales, medir y cubicar árboles en nubes de escáner terrestre y trabajar, además, con las imágenes y las capas propias de un sistema de información geográfica.
 
 Su diseño responde a tres premisas, y las tres se deducen de un mismo problema: una nube LiDAR forestal tiene cientos de millones de puntos, y un programa que no esté pensado para ese tamaño se queda sin memoria o sin paciencia del usuario. La primera premisa es la **rapidez**, que no se declara, se mide, y por eso este manual da el tiempo de cada herramienta allí donde se ha medido. La segunda es la **eficiencia con nubes enormes**: los procesos leen la nube como un flujo, de modo que la memoria depende del área y del tamaño de celda, no del número de puntos, y los pasos locales trabajan por teselas, en paralelo, una por núcleo. La tercera es la **edición cómoda**: seleccionar, reclasificar y borrar con pocos clics, deshacer y rehacer, y ver el resultado al instante en planta, perfil y 3D.
 
@@ -15,9 +15,9 @@ Funciona en Windows, macOS y Linux, y es gratuito (las condiciones están en el 
 
 ## 2. Instalación
 
-El programa no necesita instalador, y por lo tanto basta con tres pasos. Primero se descomprime el ZIP del sistema en una carpeta con permisos de escritura. Después se ejecuta `easylidar-gui` (`easylidar-gui.exe` en Windows); en macOS y Linux, si no arranca, hay que darle permiso de ejecución con `chmod +x easylidar-gui easylidar`. Por último, `easylidar` es la versión de línea de comandos, descrita en el capítulo 14.
+El programa no necesita instalador, y por lo tanto basta con tres pasos. Primero se descomprime el ZIP del sistema en una carpeta con permisos de escritura. Después se ejecuta `hipso-gui` (`hipso-gui.exe` en Windows); en macOS y Linux, si no arranca, hay que darle permiso de ejecución con `chmod +x hipso-gui hipso`. Por último, `hipso` es la versión de línea de comandos, descrita en el capítulo 14.
 
-La primera vez en macOS se abre `EasyLiDAR.app`, el sistema lo bloquea y hay que ir a Ajustes del Sistema, Privacidad y seguridad, y pulsar Abrir igualmente. En Windows, si aparece el aviso azul de SmartScreen, se pulsa Más información y después Ejecutar de todas formas. Ambos avisos tienen el mismo origen (el programa no está firmado por un editor reconocido por el sistema) y ninguno indica un problema del archivo.
+La primera vez en macOS se abre `HIPSO.app`, el sistema lo bloquea y hay que ir a Ajustes del Sistema, Privacidad y seguridad, y pulsar Abrir igualmente. En Windows, si aparece el aviso azul de SmartScreen, se pulsa Más información y después Ejecutar de todas formas. Ambos avisos tienen el mismo origen (el programa no está firmado por un editor reconocido por el sistema) y ninguno indica un problema del archivo.
 
 Los requisitos son Windows 10/11, macOS 12 o superior, o un Linux con X11 o Wayland y OpenGL 2 o superior. En Linux hacen falta además las bibliotecas GTK 3, porque de ellas dependen los diálogos de archivo.
 
@@ -25,7 +25,7 @@ Los requisitos son Windows 10/11, macOS 12 o superior, o un Linux con X11 o Wayl
 
 El flujo de trabajo normal tiene cuatro momentos, y conviene conocerlos en orden porque cada uno condiciona el siguiente.
 
-El primero es abrir los datos. **Inicio → Abrir** (Ctrl+O, o arrastrando los archivos a la ventana) admite nubes de puntos, rásteres e imágenes, shapefiles, GeoJSON y GeoPackage, varios a la vez, y los **añade** a lo que ya está abierto (*Cerrar todo* empieza de nuevo). Cada nube es una **hoja**. Junto a *Abrir*, **Recientes** guarda los diez últimos archivos, y todos los diálogos de archivo empiezan en la carpeta del último abierto; el programa lo recuerda entre sesiones en `preferencias.txt`, dentro de la carpeta de configuración del sistema.
+El primero es abrir los datos. **Archivo → Abrir** (Ctrl+O, o arrastrando los archivos a la ventana) admite nubes de puntos, rásteres e imágenes, shapefiles, GeoJSON y GeoPackage, varios a la vez, y los **añade** a lo que ya está abierto (*Cerrar todo* empieza de nuevo). Cada nube es una **hoja**. Junto a *Abrir*, **Recientes** guarda los diez últimos archivos, y todos los diálogos de archivo empiezan en la carpeta del último abierto; el programa lo recuerda entre sesiones en `preferencias.txt`, dentro de la carpeta de configuración del sistema.
 
 El segundo es mirar. La nube se dibuja en la ventana, la rueda del ratón acerca y el botón central vuelve al encuadre anterior.
 
@@ -39,17 +39,17 @@ Todo trabajo se puede detener con **■ Detener**, y lo que se hubiera escrito a
 
 La interfaz se organiza en una cinta de opciones, un panel lateral, una barra de estado y un registro, y cada pieza responde a una pregunta distinta: qué se puede hacer, qué hay cargado, dónde está el cursor y qué ha ocurrido.
 
-La **cinta de opciones** tiene cuatro pestañas fijas (*Inicio*, *Vista*, *Procesar* y *Ayuda*). Al elegir una capa aparecen pestañas propias: simbología y edición vectorial para las capas vectoriales, ráster para imágenes y rásteres.
+La **cinta de opciones** tiene tres pestañas fijas (*Archivo*, *Vista* y *Procesar*), y a su izquierda el botón naranja **Inicio**, que abre una vista con los archivos recientes, el manual, los atajos de teclado y la información del programa. Al elegir una capa aparecen pestañas propias: simbología y edición vectorial para las capas vectoriales, ráster para imágenes y rásteres.
 
 El **panel lateral** contiene *Contenido* (el mapa, con sus capas y nubes en forma de árbol), *Información* (el informe de los datos, que **⧉ Copiar todo** lleva entero al portapapeles, como también el botón derecho sobre el texto) y *Edición*. La edición de puntos vive entera en este último panel (selección, edición e historial), de modo que la cinta de *Vista* y las herramientas de edición pueden estar abiertas a la vez.
 
 El panel *Contenido* funciona como la tabla de contenidos de un SIG. Arriba tiene un buscador y los botones *Abrir* y *Mostrar todo*; debajo, el árbol, que es el **orden de dibujo**: **Mapa** (su casilla muestra u oculta todo), las **capas** y el grupo **Nubes de puntos**, de arriba abajo, de manera que lo de arriba se dibuja encima. El grupo de nubes se comporta como un elemento más, y se sube o se baja entero por encima o por debajo de las capas (arrastrándolo o con el botón derecho). Los rásteres e imágenes nuevos se colocan bajo las nubes, y las capas vectoriales sobre ellas. Cada fila tiene su flecha (las capas con simbología por valores muestran sus clases debajo), su casilla de visibilidad, su símbolo y su nombre. Con el ratón encima aparecen sus acciones: en una capa, la tabla de atributos (si es vectorial), el zoom y quitarla; en una nube, el zoom a esa tesela y cerrarla; en el grupo, el zoom a todas y cerrar todas. *Ver solo esta nube* está en el botón derecho de cada nube. Un clic selecciona, el doble clic hace zoom a la capa y el botón derecho abre el menú. Para cambiar el orden de dibujo se **arrastra una capa** (o el grupo de nubes). Las propiedades de la capa seleccionada (opacidad, colores) salen al pie del panel, y una casilla a medias en un grupo indica que solo algunos de sus elementos se ven.
 
-La **barra de estado** muestra las coordenadas del cursor, el **sistema de coordenadas de la vista** (el de la primera nube, o 'sin declarar'), la herramienta activa, la escala y, cuando hay un proceso en marcha, su avance y la estimación de tiempo. El **Registro** (Inicio → Registro) conserva el historial de lo hecho, de los errores y del avance de los procesos largos.
+La **barra de estado** muestra las coordenadas del cursor, el **sistema de coordenadas de la vista** (el de la primera nube, o 'sin declarar'), la herramienta activa, la escala y, cuando hay un proceso en marcha, su avance y la estimación de tiempo. El **Registro** (botón 📜 de la cabecera) conserva el historial de lo hecho, de los errores y del avance de los procesos largos.
 
-Hay además varias ayudas de uso general. **Buscar comando** (Ctrl+K) localiza cualquier herramienta por su nombre. **Recientes** (Inicio → Archivo) guarda los diez últimos archivos abiertos, y *Vaciar la lista* los olvida. **Ayuda → Atajos de teclado** abre una ventana con todos los atajos (el capítulo 15 los resume), y los botones de la cinta no los repiten en su rótulo. El **tema claro y oscuro** se cambia en Inicio → Tema. Los **iconos** son propios, dibujados en SVG, y si faltara alguno se vería un cuadro con una interrogación.
+Hay además varias ayudas de uso general. **Buscar comando** (Ctrl+K) localiza cualquier herramienta por su nombre. **Recientes** (Archivo → Archivo, y en la vista Inicio) guarda los diez últimos archivos abiertos, y *Vaciar la lista* los olvida. **Inicio → Atajos de teclado** muestra todos los atajos (el capítulo 15 los resume), y los botones de la cinta no los repiten en su rótulo. El **tema claro y oscuro** se cambia con el botón ☀/🌙 de la cabecera. Los **iconos** son propios, dibujados en SVG, y si faltara alguno se vería un cuadro con una interrogación.
 
-**Proyectos.** Un proyecto es un archivo `.elp` que recuerda qué nubes y capas están abiertas, su orden de dibujo, su visibilidad y opacidad, el encuadre de la planta, la disposición de ventanas y la orientación de la vista 3D, de manera que una sesión puede retomarse donde se dejó. Se guarda y se abre en Inicio → Proyecto (*Guardar proyecto* y *Abrir proyecto*). El archivo contiene **rutas, no datos**: los archivos se quedan donde están, y si alguno se ha movido, solo ese deja de cargarse y el Registro lo indica. De una capa de GeoPackage recuerda también la tabla. *Abrir proyecto* cierra lo que hubiera abierto y carga lo del proyecto, y el mismo efecto tiene arrastrar el `.elp` a la ventana.
+**Proyectos.** Un proyecto es un archivo `.hipso` (los proyectos `.elp` de versiones anteriores se siguen abriendo, pero se guardan siempre como `.hipso`) que recuerda qué nubes y capas están abiertas, su orden de dibujo, su visibilidad y opacidad, el encuadre de la planta, la disposición de ventanas y la orientación de la vista 3D, de manera que una sesión puede retomarse donde se dejó. Se guarda y se abre en Archivo → Proyecto (*Guardar proyecto* y *Abrir proyecto*). El archivo contiene **rutas, no datos**: los archivos se quedan donde están, y si alguno se ha movido, solo ese deja de cargarse y el Registro lo indica. De una capa de GeoPackage recuerda también la tabla. *Abrir proyecto* cierra lo que hubiera abierto y carga lo del proyecto, y el mismo efecto tiene arrastrar el `.hipso` a la ventana.
 
 ### 4.1 Ventanas de trabajo
 
@@ -75,7 +75,7 @@ Hay además varias ayudas de uso general. **Buscar comando** (Ctrl+K) localiza c
 
 La **ampliación a la selección** (*Vista → Navegación*, *Zoom a la selección*) encuadra los puntos seleccionados o, si la capa activa es vectorial, los elementos seleccionados. En la vista 3D, **Refrescar 3D** la vuelve a encuadrar en lo que se ve en la planta, algo útil cuando hay capas muy separadas entre sí. Al abrir varios archivos a la vez se cargan todas las capas juntas, y **quitar una nube ya no recarga las demás**.
 
-**Detalle al acercar.** La vista dibuja una muestra uniforme de la nube, y esa muestra se queda corta cuando la ventana es pequeña. Por ese motivo el programa **lee en segundo plano los puntos de la ventana a más detalle** y los dibuja mientras cubran la vista, tanto en la **planta** como en la **vista 3D** (en 3D, el suelo que abarca la cámara alrededor de su objetivo, con la nube base dibujada fuera de esa zona). Funciona con **cualquier LAS/LAZ**, no solo con COPC: la primera vez que se abre una nube que ha habido que muestrear, el programa crea en segundo plano una **copia COPC** en la carpeta de caché del sistema (`~/Library/Caches/EasyLiDAR/copc` en macOS), sin tocar el original; el registro avisa con «Preparando el detalle al acercar» y «Detalle al acercar listo». La copia se reconoce por la ruta, el tamaño y la fecha del original. Se lee de ella el nivel del octree cuyo espaciado es de **un punto por píxel**, hasta unos 3 millones de puntos, y se vuelve a leer cuando el zoom entra al menos 1,8 veces más. Solo ocurre cuando la ventana ocupa menos de la mitad del área de la nube. La caché guarda hasta 20 GB: pasado ese tope se borran las copias que llevan más tiempo sin usarse, nunca las de las nubes abiertas.
+**Detalle al acercar.** La vista dibuja una muestra uniforme de la nube, y esa muestra se queda corta cuando la ventana es pequeña. Por ese motivo el programa **lee en segundo plano los puntos de la ventana a más detalle** y los dibuja mientras cubran la vista, tanto en la **planta** como en la **vista 3D** (en 3D, el suelo que abarca la cámara alrededor de su objetivo, con la nube base dibujada fuera de esa zona). Funciona con **cualquier LAS/LAZ**, no solo con COPC: la primera vez que se abre una nube que ha habido que muestrear, el programa crea en segundo plano una **copia COPC** en la carpeta de caché del sistema (`~/Library/Caches/HIPSO/copc` en macOS), sin tocar el original; el registro avisa con «Preparando el detalle al acercar» y «Detalle al acercar listo». La copia se reconoce por la ruta, el tamaño y la fecha del original. Se lee de ella el nivel del octree cuyo espaciado es de **un punto por píxel**, hasta unos 3 millones de puntos, y se vuelve a leer cuando el zoom entra al menos 1,8 veces más. Solo ocurre cuando la ventana ocupa menos de la mitad del área de la nube. La caché guarda hasta 20 GB: pasado ese tope se borran las copias que llevan más tiempo sin usarse, nunca las de las nubes abiertas.
 
 **Abrir desde la copia.** Cuando una nube ya tiene su copia COPC, el programa saca la muestra de pantalla de los primeros niveles del octree en vez de leer el archivo entero: QULTIVA Z2 (51 millones de puntos) pasa de 14 s a 0,4 s, y el TLS de 94 millones, de 4 s a 0,2 s. La primera apertura de una nube grande sigue leyéndola entera. Con nubes de más de unos 30 millones de puntos la copia se escribe en dos pasadas para gastar menos memoria (QULTIVA Z3 de 90 millones: unos 4,5 GB y 28 s), y por encima de 100 millones **por celdas**: el cubo de la nube se parte en las celdas de un nivel de su octree, los registros de cada celda esperan en un archivo temporal junto a la copia, y cada celda se construye y se escribe por separado, de modo que la memoria es la de una celda (una décima parte de la RAM) y no depende del tamaño de la nube. Una de las nubes de escáner terrestre de 226 millones de puntos (7,8 GB) se convierte en 5,7 minutos (casi todo es lectura del disco externo) con 1,3 GB de memoria, y da una copia de 1,9 GB que después se abre en 0,27 s y da detalle al acercar en 0,1 s. Hace falta disco libre para el archivo temporal (el registro avisa si no hay); si no hay memoria o disco suficientes, la copia no se crea y el registro lo dice.
 
@@ -85,7 +85,7 @@ La **ampliación a la selección** (*Vista → Navegación*, *Zoom a la selecci�
 
 Se enciende y se apaga en el Explorador de capas, con la casilla de la última fila ('Mapa base'). Es un mapa de fondo que queda siempre bajo todas las capas, colocado en el sistema de coordenadas de la nube (por lo que la primera nube debe declararlo). Las fuentes son **OpenStreetMap** (mundial), la **ortofoto PNOA** y el **mapa base del IGN** (ambos de España), o bien otro servidor de teselas con una dirección del tipo `https://…/{z}/{x}/{y}.png`.
 
-Las teselas se descargan en segundo plano de los servidores del proveedor (con el mapa apagado no se descarga nada), con el nombre del programa en la petición y como mucho dos descargas a la vez. Se guardan **una semana** en la carpeta de caché del sistema (en macOS, `~/Library/Caches/EasyLiDAR/tiles`), por lo que se reutilizan sin conexión. El crédito del proveedor se dibuja en la esquina del mapa. Conviene respetar los términos de cada proveedor, y en particular OpenStreetMap no admite descargas masivas.
+Las teselas se descargan en segundo plano de los servidores del proveedor (con el mapa apagado no se descarga nada), con el nombre del programa en la petición y como mucho dos descargas a la vez. Se guardan **una semana** en la carpeta de caché del sistema (en macOS, `~/Library/Caches/HIPSO/tiles`), por lo que se reutilizan sin conexión. El crédito del proveedor se dibuja en la esquina del mapa. Conviene respetar los términos de cada proveedor, y en particular OpenStreetMap no admite descargas masivas.
 
 ### 4.2.2 Capas en otros sistemas de coordenadas
 
@@ -131,7 +131,7 @@ El tiempo de esa lectura depende del formato. Con la copia COPC en caché (o en 
 
 La edición es por **selecciones**: primero se eligen puntos, y después se les aplica una acción. Todas las herramientas están en el panel lateral, pestaña *Edición* (*Selección*, *Editar* e *Historial*), mientras que la navegación (zoom, desplazar, extensión, zoom anterior y *Limpiar marcas*) está en la cinta *Vista → Navegación*. El proceso completo tiene seis pasos, y cada uno se apoya en el anterior.
 
-La **región** es un rectángulo, un círculo, un polígono o un lazo dibujado en la planta, en el perfil o en la vista 3D. En el perfil se seleccionan puntos por su altura (copas, ruido por encima o por debajo del suelo), y en la planta por su posición. La **combinación** con la selección previa puede ser *Nueva*, *Añadir*, *Restar* o *Intersecar* (en el panel *Edición*, sección *Selección*, donde además se puede invertir la selección), y con el teclado Mayús añade, Alt resta y Ctrl interseca (*Ayuda → Atajos de teclado*). El **filtro de atributos** (clases, rango de Z, rango de intensidad y tipos de retorno) hace que solo se seleccionen los puntos que lo cumplen.
+La **región** es un rectángulo, un círculo, un polígono o un lazo dibujado en la planta, en el perfil o en la vista 3D. En el perfil se seleccionan puntos por su altura (copas, ruido por encima o por debajo del suelo), y en la planta por su posición. La **combinación** con la selección previa puede ser *Nueva*, *Añadir*, *Restar* o *Intersecar* (en el panel *Edición*, sección *Selección*, donde además se puede invertir la selección), y con el teclado Mayús añade, Alt resta y Ctrl interseca (*Inicio → Atajos de teclado*). El **filtro de atributos** (clases, rango de Z, rango de intensidad y tipos de retorno) hace que solo se seleccionen los puntos que lo cumplen.
 
 La **acción** es *Eliminar* o *Asignar clase*, y la lista incluye todas las clases, también las nuevas. **Deshacer** y **Rehacer** son los últimos botones de *Editar* (Ctrl+Z y Ctrl+Y), y el **historial** de ediciones añade una posibilidad que no suele existir en otros programas: cada edición tiene una casilla, y al quitarla se **deshace esa edición sola**, sin tocar las demás; al volver a marcarla se recupera. Una edición posterior que elige por clase ve los puntos tal como están en ese momento. Las ediciones desactivadas no se guardan, y *Descartar todo* vuelve a la nube original.
 
@@ -164,13 +164,13 @@ Buscar los valores raros a ojo es poco reproducible, por lo que la ventana ofrec
 
 ### 6.2 Clases ASPRS y clases nuevas
 
-EasyLiDAR usa la tabla vigente de ASPRS (LAS 1.4): 0 nunca clasificado, 1 sin clasificar, 2 suelo, 3 a 5 vegetación baja, media y alta, 6 edificio, 7 punto bajo (ruido), 9 agua, 10 ferrocarril, 11 carretera, 13 y 14 cables, 15 torre, 16 conector, 17 tablero de puente, 18 ruido alto, 19 estructura elevada, 20 suelo ignorado, 21 nieve y 22 exclusión temporal. Los códigos 23 a 63 están reservados, y **64 a 255 son libres para el usuario**.
+HIPSO usa la tabla vigente de ASPRS (LAS 1.4): 0 nunca clasificado, 1 sin clasificar, 2 suelo, 3 a 5 vegetación baja, media y alta, 6 edificio, 7 punto bajo (ruido), 9 agua, 10 ferrocarril, 11 carretera, 13 y 14 cables, 15 torre, 16 conector, 17 tablero de puente, 18 ruido alto, 19 estructura elevada, 20 suelo ignorado, 21 nieve y 22 exclusión temporal. Los códigos 23 a 63 están reservados, y **64 a 255 son libres para el usuario**.
 
 Para añadir una clase se abre **Vista → Clases y colores**, se escribe el código y el nombre, y se pulsa *Añadir*; el color se cambia con el selector. Las clases propias se guardan para la próxima vez. Un detalle de formato condiciona su uso: los LAS anteriores a la versión 1.4 solo guardan clases hasta la 31, y por eso, si se guarda una edición con una clase mayor, el archivo se escribe como LAS 1.4 automáticamente.
 
 ### 6.3 Alturas sobre el suelo
 
-*Preparar → Alturas sobre suelo* (`easylidar hag`) calcula la altura de cada punto sobre el suelo a partir de los **puntos de suelo (clase 2) de la propia nube**. Una TIN de ellos da el suelo bajo cada punto, y no hace falta, por tanto, un MDT aparte. Si la nube no tiene suelo clasificado, la herramienta se niega y lo dice (hay que clasificarla antes).
+*Preparar → Alturas sobre suelo* (`hipso hag`) calcula la altura de cada punto sobre el suelo a partir de los **puntos de suelo (clase 2) de la propia nube**. Una TIN de ellos da el suelo bajo cada punto, y no hace falta, por tanto, un MDT aparte. Si la nube no tiene suelo clasificado, la herramienta se niega y lo dice (hay que clasificarla antes).
 
 El resultado es una copia nueva (`…_alturas`) con la altura como atributo extra **HeightAboveGround** (decimal, legible por otros programas) y las cotas intactas. Con la opción de normalizar (`--replace-z`), la altura sustituye a la cota (`…_normalizada`) y se descartan los puntos sin suelo debajo. La **celda** del suelo (0,5 m) fija el detalle, y en una hoja de 9 millones de puntos el cálculo tarda unos 3 s. En el borde de la nube el suelo se rellena, y la altura puede variar unos centímetros.
 
@@ -245,19 +245,19 @@ Con la densidad del PNOA suele volver solo la **cabeza** del apoyo (una cruceta 
 
 **Colorear con imagen** (RGB) da a cada punto el color del píxel de una imagen del mismo sitio, normalmente una ortofoto (PNOA, por ejemplo), y el infrarrojo cercano si la nube es de formato 8 y la imagen tiene esa banda. Se eligen las bandas de rojo, verde y azul (1, 2 y 3 por defecto). Las nubes sin color (formatos 0, 1 y 6) se guardan en formato 7 (LAS 1.4: se conserva todo y la clase pasa a ocupar un byte entero), y las de forma de onda (4 y 9) no se convierten.
 
-La imagen se lee una vez por nube y solo en su extensión; si esa ventana no cabe en memoria, se usa una vista reducida de la propia imagen y el informe lo dice. Los puntos que la imagen no cubre quedan en negro, o con su color si se marca la casilla. Escribe `…_rgb`. Sirve para ver la nube con su aspecto real, para distinguir copas de suelo o de tejados por el color, o para calcular métricas espectrales por árbol. La imagen debe estar en el sistema de la nube, y una ortofoto de otra fecha, o con las copas inclinadas por la perspectiva, da a algunos puntos el color de lo que tienen al lado. Una hoja PNOA de 13 millones de puntos se colorea en 1,5 s. En la línea de comandos: `easylidar colorize nube.laz --image orto.tif`.
+La imagen se lee una vez por nube y solo en su extensión; si esa ventana no cabe en memoria, se usa una vista reducida de la propia imagen y el informe lo dice. Los puntos que la imagen no cubre quedan en negro, o con su color si se marca la casilla. Escribe `…_rgb`. Sirve para ver la nube con su aspecto real, para distinguir copas de suelo o de tejados por el color, o para calcular métricas espectrales por árbol. La imagen debe estar en el sistema de la nube, y una ortofoto de otra fecha, o con las copas inclinadas por la perspectiva, da a algunos puntos el color de lo que tienen al lado. Una hoja PNOA de 13 millones de puntos se colorea en 1,5 s. En la línea de comandos: `hipso colorize nube.laz --image orto.tif`.
 
 **Normalizar intensidad** parte de un hecho físico: la energía que vuelve al escáner cae con el cuadrado de la distancia, y la misma superficie sale por ello más oscura en el borde de una pasada o desde una pasada más alta. Cada intensidad se multiplica por (R / R_ref)^a (Höfle y Pfeifer, 2007), con *a* = 2 para superficies extensas (suelo, copas) y en torno a 3 para cables y bordes; R_ref es por defecto la distancia media de la nube, para que los valores conserven su tamaño habitual.
 
-La distancia R de cada punto sale de la **trayectoria** del vuelo (un archivo de texto con líneas 'tiempo x y z', en el tiempo GPS y el sistema de la nube, que es lo más exacto) o, en su defecto, de la **altitud de vuelo** constante y el ángulo de escaneo: R = (altitud − z) / cos(ángulo). Los puntos sin distancia calculable (fuera de la trayectoria) conservan su intensidad, y el informe dice cuántos son. Escribe `…_intensidad`. Conviene aplicarla antes de usar la intensidad en clasificaciones, métricas o comparaciones entre pasadas y vuelos. No corrige el ángulo de incidencia sobre la superficie, ni la atmósfera, ni las diferencias entre sensores. En la línea de comandos: `easylidar intensity nube.laz --trajectory tray.txt` o `--altitude 3200`.
+La distancia R de cada punto sale de la **trayectoria** del vuelo (un archivo de texto con líneas 'tiempo x y z', en el tiempo GPS y el sistema de la nube, que es lo más exacto) o, en su defecto, de la **altitud de vuelo** constante y el ángulo de escaneo: R = (altitud − z) / cos(ángulo). Los puntos sin distancia calculable (fuera de la trayectoria) conservan su intensidad, y el informe dice cuántos son. Escribe `…_intensidad`. Conviene aplicarla antes de usar la intensidad en clasificaciones, métricas o comparaciones entre pasadas y vuelos. No corrige el ángulo de incidencia sobre la superficie, ni la atmósfera, ni las diferencias entre sensores. En la línea de comandos: `hipso intensity nube.laz --trajectory tray.txt` o `--altitude 3200`.
 
 **Guardar como COPC** reescribe la nube como **COPC** (Cloud Optimized Point Cloud), un LAZ 1.4 normal cuyos bloques son los nodos de un octree. Cada nodo guarda un punto por celda de una malla de 128 × 128 × 128 sobre su cubo y pasa el resto a sus ocho hijos, hasta nodos de 100 000 puntos como mucho. Cualquier programa que lea LAZ lo lee entero, y los que conocen COPC (QGIS, visores web, este mismo programa) leen solo la zona y el detalle que necesitan: recortar 4 ha de una hoja de 13 millones de puntos lee menos de un millón.
 
-Se conservan todos los atributos (comprobado punto a punto con lidR). Los formatos 0 a 3 pasan a 6 o 7, que son los que admite COPC, y el sistema de coordenadas se escribe como WKT, que COPC exige (si la nube no lo declara, el informe avisa). La nube se ordena en memoria: hasta 30 millones de puntos se sostiene entera (unos 70 bytes por punto) y, por encima, se lee dos veces, una para las posiciones y otra, por lotes de nodos, para los registros de cada bloque, con lo que la memoria baja a unos 35-50 bytes por punto (el fichero resultante es idéntico). Por encima de 100 millones de puntos se escribe por celdas (ver el apartado 4.2), sin límite práctico de tamaño. Una hoja PNOA de 13 millones de puntos tarda 1,3 s. Escribe `<nombre>.copc.laz`. En la línea de comandos: `easylidar copc nube.laz`.
+Se conservan todos los atributos (comprobado punto a punto con lidR). Los formatos 0 a 3 pasan a 6 o 7, que son los que admite COPC, y el sistema de coordenadas se escribe como WKT, que COPC exige (si la nube no lo declara, el informe avisa). La nube se ordena en memoria: hasta 30 millones de puntos se sostiene entera (unos 70 bytes por punto) y, por encima, se lee dos veces, una para las posiciones y otra, por lotes de nodos, para los registros de cada bloque, con lo que la memoria baja a unos 35-50 bytes por punto (el fichero resultante es idéntico). Por encima de 100 millones de puntos se escribe por celdas (ver el apartado 4.2), sin límite práctico de tamaño. Una hoja PNOA de 13 millones de puntos tarda 1,3 s. Escribe `<nombre>.copc.laz`. En la línea de comandos: `hipso copc nube.laz`.
 
 **Exportar puntos** saca los puntos a otro formato. Por defecto escribe una **nube LAZ** sin normalizar, y también se puede elegir LAS, **texto (ASCII)** con las columnas que se quieran, o **shapefile 3D** (PointZ). Se puede filtrar por clases y tomar uno de cada *n* puntos. Si se marca *Normalizar*, la herramienta pide el MDT y exporta **alturas sobre el suelo**: a la cota de cada punto se le resta la del MDT de **su propia nube** en ese lugar. Con varias nubes, cada una usa su MDT (el último que se calculó para ella, salvo que se indique uno a mano). Los puntos que quedan fuera del MDT no se exportan, y el mensaje final dice cuántos fueron.
 
-La normalización resulta útil para trabajar con otros programas que esperan alturas normalizadas, o para compartir un conjunto ya listo para métricas o segmentación. Es tan buena como el MDT: uno con errores deja puntos de suelo con alturas de unos decímetros. En la línea de comandos: `easylidar export nube.laz --normalize -o altura.laz` (con `--dtm mdt.tif` si no es el último MDT de esa nube; `.las`, `.laz`, `.shp` o texto según la extensión).
+La normalización resulta útil para trabajar con otros programas que esperan alturas normalizadas, o para compartir un conjunto ya listo para métricas o segmentación. Es tan buena como el MDT: uno con errores deja puntos de suelo con alturas de unos decímetros. En la línea de comandos: `hipso export nube.laz --normalize -o altura.laz` (con `--dtm mdt.tif` si no es el último MDT de esa nube; `.las`, `.laz`, `.shp` o texto según la extensión).
 
 ### 7.2 Superficies
 
@@ -273,7 +273,7 @@ El **ponderado por distancia (IDW)** toma en cada celda la media de los 8 puntos
 
 La **media por celda** calcula la media de las elevaciones de los puntos de suelo de cada celda, en una sola pasada y sin cargar la nube. Es la más rápida y la que menos memoria usa, pero deja huecos donde no hay puntos (se rellenan al final), de modo que solo conviene para comprobaciones rápidas o nubes inmensas en un equipo justo de memoria.
 
-Las **líneas de rotura** (con TIN o IDW) son un shapefile de líneas o polígonos que el MDT debe seguir en lugar de redondear: bordes de camino, taludes, cunetas, orillas. Cada línea se densifica a vértices separados media celda, que entran en la triangulación con los puntos de suelo, y los puntos de suelo pegados a la línea se apartan, así que los triángulos siguen la línea en vez de cruzarla. Las líneas **con cotas** (PolylineZ, PolygonZ) fijan la altura y son líneas duras, como las de un levantamiento topográfico. Las líneas **sin cotas** (un cauce o una cuneta dibujados sobre la ortofoto) toman en cada vértice el punto de suelo más bajo a menos de una celda, lo que hunde el cauce en el modelo; donde bajo las copas no hay suelo tan cerca, ese punto puede quedar algo más alto que la superficie que daba la triangulación sola. Contrastado en una hoja PNOA, una línea 3D deja el MDT exactamente a su altura y no cambia ninguna celda a más de 3 m de ella. En la línea de comandos: `easylidar dtm nube.laz --breaklines lineas.shp`.
+Las **líneas de rotura** (con TIN o IDW) son un shapefile de líneas o polígonos que el MDT debe seguir en lugar de redondear: bordes de camino, taludes, cunetas, orillas. Cada línea se densifica a vértices separados media celda, que entran en la triangulación con los puntos de suelo, y los puntos de suelo pegados a la línea se apartan, así que los triángulos siguen la línea en vez de cruzarla. Las líneas **con cotas** (PolylineZ, PolygonZ) fijan la altura y son líneas duras, como las de un levantamiento topográfico. Las líneas **sin cotas** (un cauce o una cuneta dibujados sobre la ortofoto) toman en cada vértice el punto de suelo más bajo a menos de una celda, lo que hunde el cauce en el modelo; donde bajo las copas no hay suelo tan cerca, ese punto puede quedar algo más alto que la superficie que daba la triangulación sola. Contrastado en una hoja PNOA, una línea 3D deja el MDT exactamente a su altura y no cambia ninguna celda a más de 3 m de ella. En la línea de comandos: `hipso dtm nube.laz --breaklines lineas.shp`.
 
 **MDS (modelo digital de superficie).** Representa lo más alto que ve el sensor (copas, tejados) y se calcula con los puntos que no son ruido. Por defecto se usa la **triangulación (TIN)**, que toma el punto más alto de cada celda, lo triangula y lo interpola, sin espigas ni huecos pequeños. El **máximo por celda** da la cota del punto más alto de cada celda en una sola pasada y rellena las celdas vacías (casilla *Rellenar*); es lo más rápido, pero deja 'pozos' en copas con huecos. El **ponderado por distancia (IDW)** trabaja sobre los puntos más altos de cada media celda.
 
@@ -307,7 +307,7 @@ El botón *Análisis de terreno* calcula productos derivados de un MDT (o de cua
 
 Todos los productos heredan los defectos del MDT: uno con terrazas, escalones entre hojas o ruido produce curvaturas y pendientes falsas, y la red de drenaje sale entrecortada. D8 reparte todo el flujo de una celda a una sola vecina, lo que da redes limpias pero no representa bien la dispersión en laderas llanas. Además, la mayoría de estos índices dependen de la resolución, y por eso hay que comparar siempre con la misma celda.
 
-Todo se calcula con el ráster completo en memoria (unos 20 bytes por celda las derivadas y 35 la hidrología; un MDT de 25 millones de celdas tarda de 2 a 7 s), por filas en paralelo. Por la línea de comandos: `easylidar terrain mdt.tif --product slope`, y `--help` lista los productos y sus parámetros.
+Todo se calcula con el ráster completo en memoria (unos 20 bytes por celda las derivadas y 35 la hidrología; un MDT de 25 millones de celdas tarda de 2 a 7 s), por filas en paralelo. Por la línea de comandos: `hipso terrain mdt.tif --product slope`, y `--help` lista los productos y sus parámetros.
 
 #### Volumen sobre MDT
 
@@ -582,7 +582,7 @@ Estas herramientas leen las imágenes por ventana y escriben un **Cloud Optimize
 
 El tratamiento vectorial cubre lo necesario para acompañar a la nube: abrir capas, crearlas, editarlas y simbolizarlas.
 
-Las **capas** se abren en Inicio → Abrir, y admiten imágenes y rásteres (GeoTIFF, JPEG 2000, PNG y JPEG con archivo de coordenadas, ENVI, SRTM), shapefiles, GeoJSON y GeoPackage; también se pueden arrastrar a la ventana. Una **capa nueva** puede ser de puntos, líneas o áreas: se digitaliza en la capa activa (con ajuste a vértices), se edita su **tabla de atributos** y se guarda como shapefile, GeoJSON o **GeoPackage** (según la extensión que se elija) con la proyección de la nube. La **simbología** puede ser de color único, por categorías o por rampa, con clasificación y etiquetas, y la **edición vectorial** incluye seleccionar, mover, editar vértices, deshacer y rehacer. Las capas de áreas visibles alimentan la herramienta de parcelas.
+Las **capas** se abren en Archivo → Abrir, y admiten imágenes y rásteres (GeoTIFF, JPEG 2000, PNG y JPEG con archivo de coordenadas, ENVI, SRTM), shapefiles, GeoJSON y GeoPackage; también se pueden arrastrar a la ventana. Una **capa nueva** puede ser de puntos, líneas o áreas: se digitaliza en la capa activa (con ajuste a vértices), se edita su **tabla de atributos** y se guarda como shapefile, GeoJSON o **GeoPackage** (según la extensión que se elija) con la proyección de la nube. La **simbología** puede ser de color único, por categorías o por rampa, con clasificación y etiquetas, y la **edición vectorial** incluye seleccionar, mover, editar vértices, deshacer y rehacer. Las capas de áreas visibles alimentan la herramienta de parcelas.
 
 **Capas grandes.** Una capa con muchos objetos (más de 4 000, o más de 150 000 vértices) se dibuja como **una sola imagen** en lugar de un dibujo por objeto, y por ello el coste depende del tamaño de la pantalla y no del número de vértices. Mientras se mueve la vista se desplaza y escala la última imagen, y se redibuja cuando la vista lleva un instante quieta. Un shapefile de 41 mil objetos pasó de 4,5 GB de memoria a 233 MB y dejó de colgar el equipo. Para seleccionar y consultar, las capas usan un **índice espacial R-tree** en memoria.
 
@@ -594,7 +594,7 @@ Los resultados van a la misma carpeta que la entrada, con otro nombre. Una ejecu
 
 ### Formatos que se leen
 
-Las **nubes** admitidas son LAS/LAZ (incluido **COPC**, que además se lee solo en la parte que hace falta), **PLY** (ASCII o binario) y **E57**, el formato de intercambio de los escáneres terrestres y móviles. En E57 cada escaneo se coloca con su pose, las coordenadas esféricas se pasan a cartesianas, el color y la intensidad se guardan en 16 bits y cada punto lleva el número de su escaneo como ID de fuente. PLY y E57 se convierten a LAZ, con *Abrir* en el programa o con `easylidar import`. También se leen ASCII `x y z` y, entre los vectores, shapefile y **GeoJSON**.
+Las **nubes** admitidas son LAS/LAZ (incluido **COPC**, que además se lee solo en la parte que hace falta), **PLY** (ASCII o binario) y **E57**, el formato de intercambio de los escáneres terrestres y móviles. En E57 cada escaneo se coloca con su pose, las coordenadas esféricas se pasan a cartesianas, el color y la intensidad se guardan en 16 bits y cada punto lleva el número de su escaneo como ID de fuente. PLY y E57 se convierten a LAZ, con *Abrir* en el programa o con `hipso import`. También se leen ASCII `x y z` y, entre los vectores, shapefile y **GeoJSON**.
 
 Entre los **rásteres**, el **GeoTIFF** se lee también en sus variantes Cloud Optimized y BigTIFF, y el ASCII grid. El **JPEG 2000** (`.jp2`, `.j2k`, `.j2c`) es la forma en que vienen las bandas de **Sentinel-2**, y se lee con código propio en Rust, sin librerías externas: se admiten la georreferencia GMLJP2 (la de Sentinel-2) y GeoJP2, las bandas de 8 a 16 bits y el color de las imágenes TCI. Solo se decodifican **las teselas de la ventana pedida**, y se usan las vistas reducidas que el propio archivo lleva (cada nivel divide el tamaño por dos), de modo que abrir una banda de 10 m es inmediato. Los valores salen tal cual vienen (en Sentinel-2, el número digital; el 0 es 'sin dato' pero no se enmascara).
 
@@ -610,21 +610,21 @@ La **escritura** se produce al guardar una capa vectorial (o una capa nueva) con
 
 ### Formatos que se escriben
 
-Se escriben LAS/LAZ, **COPC** (*Guardar como COPC* o `easylidar copc`), GeoTIFF y shapefile, **GeoPackage** (guardando una capa con extensión `.gpkg`), **GeoJSON**, CSV y PNG. Para el GeoTIFF, *Mosaico*, *Crear multibanda*, *Igualar rásteres* y `easylidar cog` escriben **Cloud Optimized GeoTIFF**, con teselas de 512 y vistas reducidas con todos los directorios al principio del archivo, y `cog` acepta también imágenes de varias bandas, de cualquier tamaño. El GeoJSON se obtiene guardando una capa con esa extensión, o con `easylidar geojson` para convertir entre shapefile y GeoJSON, y lleva el sistema de coordenadas en el miembro `crs`.
+Se escriben LAS/LAZ, **COPC** (*Guardar como COPC* o `hipso copc`), GeoTIFF y shapefile, **GeoPackage** (guardando una capa con extensión `.gpkg`), **GeoJSON**, CSV y PNG. Para el GeoTIFF, *Mosaico*, *Crear multibanda*, *Igualar rásteres* y `hipso cog` escriben **Cloud Optimized GeoTIFF**, con teselas de 512 y vistas reducidas con todos los directorios al principio del archivo, y `cog` acepta también imágenes de varias bandas, de cualquier tamaño. El GeoJSON se obtiene guardando una capa con esa extensión, o con `hipso geojson` para convertir entre shapefile y GeoJSON, y lleva el sistema de coordenadas en el miembro `crs`.
 
 Los archivos que están **solo en la nube** (OneDrive, iCloud) y no se han descargado no se pueden leer, y el programa lo indica; hay que descargarlos antes.
 
 ### Sistemas de coordenadas
 
-Si lo que se combina está en sistemas distintos (nubes entre sí, con el MDT, con rásteres o con parcelas y muestras en shapefile o GeoJSON), EasyLiDAR **lo pasa al sistema de la primera nube** y lo dice en el informe: '"mdt.tif" estaba en ETRS89 / UTM 29N (EPSG:25829) y se ha pasado a ETRS89 / UTM 30N (EPSG:25830)'. Las nubes y los rásteres se convierten en copias temporales (que se borran al acabar) y las parcelas en memoria, y si todo está ya en un sistema no se hace nada. Las transformaciones son las de PROJ, con las mallas del IGN y del ICGC para ED50 a ETRS89 (Península, Baleares y Cataluña) y el geoide EGM08-REDNAP incluidos en el programa.
+Si lo que se combina está en sistemas distintos (nubes entre sí, con el MDT, con rásteres o con parcelas y muestras en shapefile o GeoJSON), HIPSO **lo pasa al sistema de la primera nube** y lo dice en el informe: '"mdt.tif" estaba en ETRS89 / UTM 29N (EPSG:25829) y se ha pasado a ETRS89 / UTM 30N (EPSG:25830)'. Las nubes y los rásteres se convierten en copias temporales (que se borran al acabar) y las parcelas en memoria, y si todo está ya en un sistema no se hace nada. Las transformaciones son las de PROJ, con las mallas del IGN y del ICGC para ED50 a ETRS89 (Península, Baleares y Cataluña) y el geoide EGM08-REDNAP incluidos en el programa.
 
-**Solo cambian X e Y**, y las alturas se conservan. Entre husos, un ráster mantiene su celda (por ejemplo 1 m) y se interpola, y si sus valores son enteros (clases) se toma el vecino más cercano. Una nube convertida cuesta una pasada sobre ella, de modo que para trabajar mucho con ella conviene convertirla una vez con `easylidar reproject nube.laz -o nube_25830.laz --to 25830` (también vale para rásteres; con `--from` se indica el sistema de un archivo que no lo declara).
+**Solo cambian X e Y**, y las alturas se conservan. Entre husos, un ráster mantiene su celda (por ejemplo 1 m) y se interpola, y si sus valores son enteros (clases) se toma el vecino más cercano. Una nube convertida cuesta una pasada sobre ella, de modo que para trabajar mucho con ella conviene convertirla una vez con `hipso reproject nube.laz -o nube_25830.laz --to 25830` (también vale para rásteres; con `--from` se indica el sistema de un archivo que no lo declara).
 
 Los límites son los siguientes. Las imágenes de varias bandas y las herramientas de imágenes grandes (*Apilar*, *Mosaico*, *Igualar rásteres*) exigen el mismo sistema y se niegan si no lo es. No se convierten nubes desde o hacia grados. ED50 en Canarias no está definido y no debe usarse. Si un archivo no declara su sistema, no se puede comprobar y el resultado lleva un aviso, y ETRS89 y WGS 84 del mismo huso se consideran equivalentes y solo avisan (difieren en torno a un metro). En la lista de capas, un ⚠ marca la nube o la capa cuyo sistema no coincide con el de la primera nube.
 
 ## 11. Rendimiento y memoria
 
-El rendimiento de EasyLiDAR descansa en una decisión de diseño, que consiste en no cargar nunca la nube entera, y todo lo que sigue es una consecuencia de ella.
+El rendimiento de HIPSO descansa en una decisión de diseño, que consiste en no cargar nunca la nube entera, y todo lo que sigue es una consecuencia de ella.
 
 Las nubes grandes no se cargan enteras: la vista dibuja una muestra (*Puntos en pantalla*) y los procesos leen en flujo. Un LAZ que necesita varias pasadas se descomprime una vez a un archivo temporal que se borra al terminar, y por eso hay que dejar espacio libre en el disco temporal (la nube sin comprimir). El tamaño de tesela y el búfer se ajustan en *Teselas y rendimiento*, y la memoria es aproximadamente (núcleos × tesela). Con teselas de 250 m y 30 m de búfer, un equipo de 16 GB trabaja sin problema con nubes de cualquier tamaño.
 
@@ -648,19 +648,19 @@ El ejemplo siguiente usa la línea de comandos en PowerShell (en Linux y macOS e
 
 ```
 $hojas = Get-ChildItem hojas\*.laz
-easylidar info $hojas
-easylidar classify $hojas --ground csf --noise isolated
-easylidar dtm $hojas --surface tin --cell 1
-easylidar dsm $hojas --method tin --cell 0.5
-easylidar chm $hojas --cell 0.5 --method pitfree
-easylidar metrics $hojas --cell 20 --strata
+hipso info $hojas
+hipso classify $hojas --ground csf --noise isolated
+hipso dtm $hojas --surface tin --cell 1
+hipso dsm $hojas --method tin --cell 0.5
+hipso chm $hojas --cell 0.5 --method pitfree
+hipso metrics $hojas --cell 20 --strata
 ```
 
 Los comandos que reciben varias hojas dan un resultado por hoja. Para paralelizar entre máquinas, se reparten las hojas en lotes y se lanza un proceso por lote y por carpeta de resultados.
 
 ## 13. Encadenar un flujo de inventario por área (ABA)
 
-El enfoque por área (*area-based approach*, ABA) modela una variable de inventario (volumen, área basimétrica, biomasa, altura dominante…) con las métricas LiDAR de **parcelas de campo** y aplica el modelo a toda la superficie, celda a celda. El orden de los pasos no es arbitrario, porque cada uno fija una condición que el siguiente necesita, y con EasyLiDAR se encadena en siete.
+El enfoque por área (*area-based approach*, ABA) modela una variable de inventario (volumen, área basimétrica, biomasa, altura dominante…) con las métricas LiDAR de **parcelas de campo** y aplica el modelo a toda la superficie, celda a celda. El orden de los pasos no es arbitrario, porque cada uno fija una condición que el siguiente necesita, y con HIPSO se encadena en siete.
 
 En el primer paso se **preparan las hojas**: se abre una hoja de prueba y se revisa *Información* (proyección, densidad, clases, fecha de captura). Si falta la proyección, se usa *Asignar proyección*, y si las coberturas son de densidades distintas, *Adelgazar nube* las lleva a una densidad común. El segundo paso es **clasificar** (ruido y suelo), o usar la clase 2 de la entrega, y **generar el MDT** de cada hoja. El tercero obtiene las **métricas de las parcelas de campo** con *Recortar parcelas*, con el archivo de parcelas (o con centros y radio), en modo **solo métricas**. Da una capa con un polígono por parcela y todas las métricas de *Métricas de rodal* (7.3), con el número de parcela, y opcionalmente una nube por parcela para revisarlas. Debe dejarse marcado *Alturas sobre el suelo*, porque las métricas de las parcelas y las de toda la superficie tienen que calcularse igual.
 
@@ -672,56 +672,56 @@ Hay tres cautelas finales. Las parcelas y la cobertura LiDAR deben ser de fechas
 
 ## 14. Línea de comandos
 
-`easylidar` hace lo mismo que la interfaz, por lotes, y con `--help` se ve la lista completa de comandos y de opciones.
+`hipso` hace lo mismo que la interfaz, por lotes, y con `--help` se ve la lista completa de comandos y de opciones.
 
 ```
-easylidar info nube.laz
-easylidar thin nube.laz --method density --density 1
-easylidar classify nube.laz --ground csf --noise isolated --buildings --vegetation
-easylidar dtm nube.laz --cell 1 --surface tin
-easylidar dsm nube.laz --cell 0.5 --method tin
-easylidar chm nube.laz --cell 0.5 --method pitfree
-easylidar terrain mdt.tif --product slope --percent
-easylidar terrain mdt.tif --product streams --threshold 10000
-easylidar terrain mdt.tif --product viewshed --observer 504000 4405000 --max-distance 2000
-easylidar metrics nube.laz
-easylidar trees chm.tif --method silva --crowns
-easylidar obia chm.tif --cloud nube.laz --roughness 2 --scale 8 --rules reglas.txt
-easylidar obia chm.tif --cloud nube.laz --samples muestras.shp --class-field clase
-easylidar obia chm.tif --cloud nube.laz --scale 12 --min-cells 200 --kmeans 4 --strata --plots 30
-easylidar clip nube.laz --regions parcelas.geojson --mode each
-easylidar metrics nube.laz --cell 20 --structure
-easylidar change chm_2019.tif chm_2024.tif --years 5 --stands rodales.shp --trees
-easylidar corridor nube_clasificada.laz --dtm mdt.tif --min-distance 4
-easylidar import escaneo.ply --epsg 25830 -o escaneo.laz
-easylidar import escaneo_tls.e57 --epsg 25830
-easylidar colorize nube.laz --image ortofoto.tif
-easylidar intensity nube.laz --trajectory trayectoria.txt
-easylidar intensity nube.laz --altitude 3200 --exponent 2
-easylidar copc nube.laz
-easylidar dtm nube.laz --cell 1 --breaklines bordes_camino.shp
-easylidar geojson capa.shp
-easylidar cog chm.tif
-easylidar --results-dir D:/resultados chm nube.laz --dtm mdt.tif
-easylidar cubicar parcela_tls.laz --csv --tree-clouds --log-length 0.5 --top-diameter 0.07
-easylidar cubicar parcela_tls.laz --csv --stem-classes --max-gap 4 --lost-top-share 0.65
-easylidar dedup nube.laz --also class,gps
-easylidar compare nube2.laz --reference nube1.laz --distance 0.5
-easylidar fit nube2.laz --reference nube1.laz
-easylidar swath vuelo.laz --cell 1
-easylidar stack r.tif g.tif b.tif nir.tif -o multibanda.tif
-easylidar mosaic a.tif b.tif -o mosaico.tif --overlap mean
-easylidar mosaic orto1.tif orto2.tif -o orto.tif --compress jpeg --quality 85
-easylidar cog ortofoto.tif
-easylidar align chm.tif mdt.tif ortofoto.tif
-easylidar render nube.laz --view 3d -o vista.png --color class
-easylidar export nube.laz -o puntos.csv --items x,y,z,class --header
-easylidar export nube.laz --normalize --dtm mdt.tif -o altura.laz
+hipso info nube.laz
+hipso thin nube.laz --method density --density 1
+hipso classify nube.laz --ground csf --noise isolated --buildings --vegetation
+hipso dtm nube.laz --cell 1 --surface tin
+hipso dsm nube.laz --cell 0.5 --method tin
+hipso chm nube.laz --cell 0.5 --method pitfree
+hipso terrain mdt.tif --product slope --percent
+hipso terrain mdt.tif --product streams --threshold 10000
+hipso terrain mdt.tif --product viewshed --observer 504000 4405000 --max-distance 2000
+hipso metrics nube.laz
+hipso trees chm.tif --method silva --crowns
+hipso obia chm.tif --cloud nube.laz --roughness 2 --scale 8 --rules reglas.txt
+hipso obia chm.tif --cloud nube.laz --samples muestras.shp --class-field clase
+hipso obia chm.tif --cloud nube.laz --scale 12 --min-cells 200 --kmeans 4 --strata --plots 30
+hipso clip nube.laz --regions parcelas.geojson --mode each
+hipso metrics nube.laz --cell 20 --structure
+hipso change chm_2019.tif chm_2024.tif --years 5 --stands rodales.shp --trees
+hipso corridor nube_clasificada.laz --dtm mdt.tif --min-distance 4
+hipso import escaneo.ply --epsg 25830 -o escaneo.laz
+hipso import escaneo_tls.e57 --epsg 25830
+hipso colorize nube.laz --image ortofoto.tif
+hipso intensity nube.laz --trajectory trayectoria.txt
+hipso intensity nube.laz --altitude 3200 --exponent 2
+hipso copc nube.laz
+hipso dtm nube.laz --cell 1 --breaklines bordes_camino.shp
+hipso geojson capa.shp
+hipso cog chm.tif
+hipso --results-dir D:/resultados chm nube.laz --dtm mdt.tif
+hipso cubicar parcela_tls.laz --csv --tree-clouds --log-length 0.5 --top-diameter 0.07
+hipso cubicar parcela_tls.laz --csv --stem-classes --max-gap 4 --lost-top-share 0.65
+hipso dedup nube.laz --also class,gps
+hipso compare nube2.laz --reference nube1.laz --distance 0.5
+hipso fit nube2.laz --reference nube1.laz
+hipso swath vuelo.laz --cell 1
+hipso stack r.tif g.tif b.tif nir.tif -o multibanda.tif
+hipso mosaic a.tif b.tif -o mosaico.tif --overlap mean
+hipso mosaic orto1.tif orto2.tif -o orto.tif --compress jpeg --quality 85
+hipso cog ortofoto.tif
+hipso align chm.tif mdt.tif ortofoto.tif
+hipso render nube.laz --view 3d -o vista.png --color class
+hipso export nube.laz -o puntos.csv --items x,y,z,class --header
+hipso export nube.laz --normalize --dtm mdt.tif -o altura.laz
 ```
 
 ## 15. Atajos
 
-Los atajos están también en **Ayuda → Atajos de teclado**.
+Los atajos están también en **Inicio → Atajos de teclado**.
 
 | Atajo | Acción |
 |---|---|
@@ -744,9 +744,9 @@ Los problemas más frecuentes tienen causas identificables, y cada uno se descri
 
 Si **el volumen de las copas sale absurdo** (cientos de miles de m³) o las alturas son enormes, se ha usado como superficie el ráster de copas, que guarda números de árbol, en vez del CHM. En *Volumen sobre MDT* hay que elegir el CHM (el programa ya no confunde ambos al buscarlos solo). Si **un MDT o un CHM antiguo es un rectángulo con valores inventados** fuera de la nube, se calculó con una versión anterior; los rásteres nuevos siguen el contorno de la nube, y basta regenerarlos. El mensaje **'No hay MDT de esta nube'** se resuelve generando antes el MDT con la herramienta MDT.
 
-Si el informe de *Dendrometría* avisa de muchos árboles `TRUNCADO`, el tronco se perdió antes de llegar al diámetro en punta, casi siempre por el hueco máximo sin medir (véase el capítulo 7.3, donde se explica cómo subirlo y cómo estimar la altura comercial). Si **la nube no se ve completa**, se sube *Puntos en pantalla* en *Vista → Ventanas* (grupo *Carga de puntos*) y se pulsa *Aplicar*. Si **los diámetros de los árboles salen vacíos**, hay que comprobar que la nube tenga suelo (o marcar que ya está normalizada) y que la franja de búsqueda esté dentro de la altura de los troncos. Si **el mosaico de imágenes dice que los sistemas son distintos**, se pasan los rásteres al mismo sistema con `easylidar reproject` antes de unirlos. Un **resultado a medias tras detener un proceso** se borra solo, y si queda algún archivo, se borra a mano.
+Si el informe de *Dendrometría* avisa de muchos árboles `TRUNCADO`, el tronco se perdió antes de llegar al diámetro en punta, casi siempre por el hueco máximo sin medir (véase el capítulo 7.3, donde se explica cómo subirlo y cómo estimar la altura comercial). Si **la nube no se ve completa**, se sube *Puntos en pantalla* en *Vista → Ventanas* (grupo *Carga de puntos*) y se pulsa *Aplicar*. Si **los diámetros de los árboles salen vacíos**, hay que comprobar que la nube tenga suelo (o marcar que ya está normalizada) y que la franja de búsqueda esté dentro de la altura de los troncos. Si **el mosaico de imágenes dice que los sistemas son distintos**, se pasan los rásteres al mismo sistema con `hipso reproject` antes de unirlos. Un **resultado a medias tras detener un proceso** se borra solo, y si queda algún archivo, se borra a mano.
 
-Cuando **la interfaz va lenta o a saltos**, lo primero es saber qué usa para dibujar. Con una tarjeta gráfica moderna usa **wgpu** (DirectX 12, Vulkan o Metal). Con un controlador antiguo (por ejemplo una Intel HD de 2015, que no llega a DirectX 12), wgpu solo ofrece un adaptador **por software**, que dibuja con el procesador y va muy lento, y el programa elige entonces **OpenGL**. Para ver lo que detecta se ejecuta `easylidar-gui --gpu-info`. Para medir los fotogramas por segundo con una nube, `easylidar-gui nube.laz --bench` (cuenta 8 s y sale). Para forzar uno, se usa la variable de entorno `EASYLIDAR_RENDERER` con `glow` (OpenGL) o `wgpu`.
+Cuando **la interfaz va lenta o a saltos**, lo primero es saber qué usa para dibujar. Con una tarjeta gráfica moderna usa **wgpu** (DirectX 12, Vulkan o Metal). Con un controlador antiguo (por ejemplo una Intel HD de 2015, que no llega a DirectX 12), wgpu solo ofrece un adaptador **por software**, que dibuja con el procesador y va muy lento, y el programa elige entonces **OpenGL**. Para ver lo que detecta se ejecuta `hipso-gui --gpu-info`. Para medir los fotogramas por segundo con una nube, `hipso-gui nube.laz --bench` (cuenta 8 s y sale). Para forzar uno, se usa la variable de entorno `HIPSO_RENDERER` con `glow` (OpenGL) o `wgpu`.
 
 ## 17. Bibliografía
 
@@ -857,7 +857,7 @@ Las comparaciones con otros programas (FUSION, MCC-LIDAR, lidR) están en `docs/
 
 ## 18. Acerca de
 
-**EasyLiDAR** · Procesamiento y edición de nubes LiDAR para forestales.
+**HIPSO** · Procesamiento y edición de nubes LiDAR para forestales.
 Autor: Julio M. Sevilla.
 Contacto: julio@jsevilla.es · https://es.linkedin.com/in/juliomsevilla
 

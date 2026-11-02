@@ -1,4 +1,4 @@
-# Iconos de EasyLiDAR
+# Iconos de HIPSO
 
 SVG propios, dibujados desde cero (no derivan de arcskin, QGIS ni Esri).
 

@@ -1,6 +1,6 @@
 [package]
 name = "hipso-gui"
-description = "EasyLiDAR desktop app"
+description = "HIPSO desktop app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

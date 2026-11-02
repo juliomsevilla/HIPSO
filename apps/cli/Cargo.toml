@@ -1,6 +1,6 @@
 [package]
 name = "hipso-cli"
-description = "EasyLiDAR command line"
+description = "HIPSO command line"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

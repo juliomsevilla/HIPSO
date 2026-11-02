@@ -1,10 +1,10 @@
-EasyLiDAR
-EasyLiDAR. Copyright (c) 2026 Julio M. Sevilla. Distributed under the EasyLiDAR free-use licence (see LICENSE).
+HIPSO
+HIPSO. Copyright (c) 2026 Julio M. Sevilla. Distributed under the HIPSO free-use licence (see LICENSE).
 The Apache-2.0 text, which applies to the parts that follow the project below, is in licenses/Apache-2.0.txt.
 
-EasyLiDAR was written from scratch, with one exception: the coordinate-system engine in
+HIPSO was written from scratch, with one exception: the coordinate-system engine in
 crates/crs, described first below, adapts source code and data that are licensed for reuse. Of the
-other programs below, no source code is included; they are credited because EasyLiDAR follows their
+other programs below, no source code is included; they are credited because HIPSO follows their
 published methods or documented behaviour, or because its structure builds on a sister project.
 
 - terrio, Qiusheng Wu (MIT, licenses/MIT-terrio.txt): the projections, EPSG and ESRI tables, WKT and
@@ -30,7 +30,7 @@ published methods or documented behaviour, or because its structure builds on a 
 - RustGIS (Apache-2.0): the LAS reader's approach, the layered architecture and the look of the
   interface.
 - FUSION / LDV, R. J. McGaughey, USDA Forest Service (public domain): the documented output formats of its
-  ground filter, canopy model, grid metrics and clipping tools, which EasyLiDAR's results are compatible
+  ground filter, canopy model, grid metrics and clipping tools, which HIPSO's results are compatible
   with and were compared against by testing.
 - MCC-LIDAR, Green Code LLC (Apache-2.0): the multiscale curvature classification of Evans and
   Hudak (2007) and its documented parameters.
@@ -47,7 +47,7 @@ published methods or documented behaviour, or because its structure builds on a 
   (windows over missing neighbours, units), checked against an independent implementation.
 - WhiteboxTools, John Lindsay (MIT): inspiration for the choice of utilities (thinning, point
   statistics, tiling, contours).
-- Map tiles of the base map are not part of EasyLiDAR: they are fetched while the base map is on
+- Map tiles of the base map are not part of HIPSO: they are fetched while the base map is on
   from OpenStreetMap (© OpenStreetMap contributors, ODbL, https://www.openstreetmap.org/copyright;
   the tile servers' terms are at https://operations.osmfoundation.org/policies/tiles/) and from the
   IGN (ortophoto PNOA and base map © Instituto Geográfico Nacional, CC BY 4.0 scne.es). The credit

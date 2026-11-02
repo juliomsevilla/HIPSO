@@ -1,6 +1,6 @@
-# EasyLiDAR · Referencia de la línea de comandos y de los formatos
+# HIPSO · Referencia de la línea de comandos y de los formatos
 
-Texto de referencia con todos los comandos de `easylidar`, las rutas de resultados y los formatos de salida. La guía de uso de la interfaz es `MANUAL.md`.
+Texto de referencia con todos los comandos de `hipso`, las rutas de resultados y los formatos de salida. La guía de uso de la interfaz es `MANUAL.md`.
 
 Herramientas forestales LiDAR (LAS/LAZ) en Rust puro para Windows, Linux y macOS. Línea de comandos e interfaz gráfica.
 
@@ -13,17 +13,17 @@ Ofrece un flujo de trabajo forestal con salidas compatibles con el formato de FU
 ## Uso
 
 ```sh
-easylidar-gui                                # interfaz gráfica (acepta un .tif/.asc o nubes como argumento)
-easylidar info nube.laz
-easylidar classify nube.laz -o clasif.laz --noise isolated --ground csf --buildings
-easylidar dtm nube.laz -o mdt.tif                                    # en streaming
-easylidar dtm clasif.laz -o mdt.tif --ground classes --surface tin   # TIN de la clase 2, por teselas
-easylidar chm nube.laz --dtm mdt.tif -o chm.tif --method pitfree --cell 0.5
-easylidar metrics nube.laz --dtm mdt.tif -o metricas.csv --intensity --strata
-easylidar trees chm.tif --method silva --crowns --crowns-shp --field inventario.txt
-easylidar clip nube.laz --regions parcelas.shp --mode each          # PolyClipData
-easylidar render nube.laz --view 3d -o vista.png --color class      # imagen del visor
-easylidar export nube.laz -o puntos.csv --items x,y,z,class --header
+hipso-gui                                # interfaz gráfica (acepta un .tif/.asc o nubes como argumento)
+hipso info nube.laz
+hipso classify nube.laz -o clasif.laz --noise isolated --ground csf --buildings
+hipso dtm nube.laz -o mdt.tif                                    # en streaming
+hipso dtm clasif.laz -o mdt.tif --ground classes --surface tin   # TIN de la clase 2, por teselas
+hipso chm nube.laz --dtm mdt.tif -o chm.tif --method pitfree --cell 0.5
+hipso metrics nube.laz --dtm mdt.tif -o metricas.csv --intensity --strata
+hipso trees chm.tif --method silva --crowns --crowns-shp --field inventario.txt
+hipso clip nube.laz --regions parcelas.shp --mode each          # PolyClipData
+hipso render nube.laz --view 3d -o vista.png --color class      # imagen del visor
+hipso export nube.laz -o puntos.csv --items x,y,z,class --header
 ```
 
 **Ráster y vectorial.** Además de las nubes se cargan imágenes multibanda (GeoTIFF, JPEG 2000 como las bandas de Sentinel-2, PNG/JPEG con archivo de coordenadas, ENVI) como fondo, con composiciones de bandas (color natural, falso color infrarrojo…) y índices espectrales (NDVI, GNDVI, NDWI, EVI, SAVI, NDMI, NBR, VARI, ExG o una expresión propia sobre las bandas); el índice sale como capa ráster y se guarda en GeoTIFF. *Igualar rásteres* (`align`) pone varios rásteres sobre las celdas de uno de referencia, para que coincidan celda a celda; exige el mismo sistema de coordenadas. Se pueden crear capas vectoriales de puntos, líneas y áreas (*Nueva capa*), digitalizar en la capa activa, editar su tabla de atributos y guardarlas como shapefile con la proyección de la nube; las tablas de atributos de cualquier capa vectorial cargada se pueden ver y editar.
@@ -96,7 +96,7 @@ Métodos disponibles:
   - Resultados: CSV, ráster de copas, polígonos de copa y ápices en shapefile, y una copia de la nube con `treeID` por punto (`--cloud`).
   - Comprobación con inventario de campo (`--field`): acertados, falsos positivos, omitidos, exhaustividad, precisión y error de altura.
 
-`easylidar <comando> --help` lista todos los parámetros.
+`hipso <comando> --help` lista todos los parámetros.
 
 ## Validación
 
@@ -111,7 +111,7 @@ Métodos disponibles:
 
 ## Rendimiento
 
-| Nube de 6,9 M de puntos, 4 núcleos | EasyLiDAR | lidR 4.3 (R) |
+| Nube de 6,9 M de puntos, 4 núcleos | HIPSO | lidR 4.3 (R) |
 |---|---|---|
 | Suelo CSF | 26 s · 176 MB | 620 s |
 | MDT por TIN | 5 s · 142 MB | 46 s |
@@ -119,7 +119,7 @@ Métodos disponibles:
 | Métricas | 4 s · 48 MB | 10 s |
 | Árboles | 0,4 s · 57 MB | 25 s |
 
-| Nube de 27,8 M de puntos | FUSION | EasyLiDAR (LAS) | EasyLiDAR (LAZ) |
+| Nube de 27,8 M de puntos | FUSION | HIPSO (LAS) | HIPSO (LAZ) |
 |---|---|---|---|
 | MDT | 125 s · 649 MB | 17 s · 96 MB | 25 s · 98 MB |
 | CHM | 31 s · 83 MB | 11 s · 76 MB | 12 s · 77 MB |
@@ -139,7 +139,7 @@ Ver [docs/DISTRIBUCION.md](docs/DISTRIBUCION.md): ZIP portable, compilación par
 ## Compilar
 
 ```sh
-cargo build --release      # target/release/easylidar y easylidar-gui
+cargo build --release      # target/release/hipso y hipso-gui
 cargo test
 ```
 
@@ -148,12 +148,12 @@ Requiere Rust 1.90 o superior. No hay dependencias de C.
 | Crate | Función |
 |---|---|
 | `crates/core` | Motor: lectura y escritura LAS/LAZ, lector JPEG 2000 propio (`jp2/`), teselado, filtros, rejillas y GeoTIFF, métricas, árboles, recorte, visor (`view`) y jobs |
-| `apps/cli` | `easylidar` (línea de comandos) |
-| `apps/gui` | `easylidar-gui` (eframe/egui) |
+| `apps/cli` | `hipso` (línea de comandos) |
+| `apps/gui` | `hipso-gui` (eframe/egui) |
 
 ## Interfaz gráfica
 
-`easylidar-gui` es un visor de nubes con el aspecto de RustGIS (cinta de opciones, panel de capas y de información, paleta de comandos con Ctrl+K, tema oscuro y claro) y las herramientas de proceso a un clic.
+`hipso-gui` es un visor de nubes con el aspecto de RustGIS (cinta de opciones, panel de capas y de información, paleta de comandos con Ctrl+K, tema oscuro y claro) y las herramientas de proceso a un clic.
 
 - **Abrir:** LAS, LAZ, PLY y E57 (convertidos a LAZ) y ASCII XYZ; *Recientes* con los diez últimos archivos y los diálogos en la última carpeta usada; ráster GeoTIFF/JP2/ASC y shapefile como referencia. Arrastrar y soltar. Una decimación (puntos máximos) mantiene la nube en memoria; se carga en segundo plano.
 - **Ventanas:** planta, perfil y 3D, solas o combinadas. El 3D sigue la extensión de la planta.
@@ -177,7 +177,7 @@ Las imágenes se leen **por ventana y nivel de pirámide**: se usan las vistas r
 - Combina selecciones: nueva, añadir (Mayús), restar (Alt), intersecar (Ctrl), invertir (Ctrl+I) y todo (Ctrl+A). Un filtro de atributos (clases, elevación, intensidad, tipo de retorno) restringe lo que se selecciona, o selecciona por atributos sin región.
 - Elimina (Supr) o cambia la clase de la selección. Deshacer y rehacer (Ctrl+Z, Ctrl+Y), con un historial visible. Los puntos seleccionados se pintan en cian.
 - Guardar crea un archivo nuevo (nunca sobrescribe el original). Los cambios son reglas: en pantalla se aplican a los puntos que se ven, y al guardar se aplican a **todos** los puntos del archivo en una sola pasada por todos los núcleos, así que el resultado es exacto aunque la nube esté decimada y la memoria no crece. En el borde de un polígono, unos pocos puntos pueden contarse distinto en pantalla (coordenadas decimales en f32) que en el archivo; el archivo es el exacto.
-- Por línea de comandos: `easylidar edit nube.laz --regions zonas.shp --class 5 --set-class 7`.
+- Por línea de comandos: `hipso edit nube.laz --regions zonas.shp --class 5 --set-class 7`.
 
 No se leen los formatos Imagine ni GeoSAR.
 
@@ -199,4 +199,4 @@ Ver [docs/LICENCIAS.md](docs/LICENCIAS.md), `NOTICE` y `THIRD_PARTY_LICENSES.md`
 
 ## Manual y licencia
 
-El manual de uso está en `docs/MANUAL.md` y dentro del programa (Ayuda → Manual, o F1). EasyLiDAR es de uso gratuito: ver `LICENSE`; los componentes de terceros están en `NOTICE` y `THIRD_PARTY_LICENSES.md`.
+El manual de uso está en `docs/MANUAL.md` y dentro del programa (Inicio → Manual, o F1). HIPSO es de uso gratuito: ver `LICENSE`; los componentes de terceros están en `NOTICE` y `THIRD_PARTY_LICENSES.md`.

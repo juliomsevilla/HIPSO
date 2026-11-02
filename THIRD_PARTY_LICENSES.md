@@ -1,6 +1,6 @@
 # Componentes de terceros
 
-RustLidar enlaza estas bibliotecas de Rust. Todas se distribuyen con licencias permisivas que permiten el uso comercial y exigen conservar sus avisos de copyright y el texto de la licencia. Los textos completos están en el repositorio de cada una y se incluyen en las distribuciones binarias (generados con `cargo about generate`).
+HIPSO enlaza estas bibliotecas de Rust. Todas se distribuyen con licencias permisivas que permiten el uso comercial y exigen conservar sus avisos de copyright y el texto de la licencia. Los textos completos están en el repositorio de cada una y se incluyen en las distribuciones binarias (generados con `cargo about generate`).
 
 `jpeg-encoder` se basa en parte en el trabajo del Independent JPEG Group (licencia IJG): «this software is based in part on the work of the Independent JPEG Group».
 
