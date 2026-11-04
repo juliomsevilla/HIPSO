@@ -1639,13 +1639,150 @@ pub const CAPTURE_FIELD: &str = "captura";
 
 /// Records with polygon geometry written one at a time, so a table with a row per grid cell
 /// never sits in memory. Column types come from the first row: whole numbers, decimals or text.
+/// The `.dbf` of a table written straight, record by record: fixed-width fields, as the format
+/// says. (A generic writer builds a map of values for each record, which for a table with a row
+/// per grid cell and dozens of columns takes far longer than writing the bytes.)
+struct DbfOut {
+    out: std::io::BufWriter<std::fs::File>,
+    /// Width and decimals of every field, in order.
+    fields: Vec<(usize, usize, bool)>,
+    count: u32,
+    buf: Vec<u8>,
+}
+
+impl DbfOut {
+    /// `columns`: name (up to 10 bytes), whether it is a number, width, decimals.
+    fn create(path: &Path, columns: &[(String, bool, usize, usize)]) -> Result<Self> {
+        use std::io::Write;
+        let mut out = std::io::BufWriter::with_capacity(1 << 20, std::fs::File::create(path)?);
+        let rec_len: usize = 1 + columns.iter().map(|c| c.2).sum::<usize>();
+        let head_len = 32 + 32 * columns.len() + 1;
+        let (y, m, d) = today();
+        let mut h = vec![0u8; 32];
+        h[0] = 0x03;
+        h[1] = (y - 1900) as u8;
+        h[2] = m as u8;
+        h[3] = d as u8;
+        h[8..10].copy_from_slice(&(head_len as u16).to_le_bytes());
+        h[10..12].copy_from_slice(&(rec_len as u16).to_le_bytes());
+        h[29] = 0xF0;
+        out.write_all(&h)?;
+        for (name, numeric, width, dec) in columns {
+            let mut f = [0u8; 32];
+            let b = name.as_bytes();
+            f[..b.len().min(10)].copy_from_slice(&b[..b.len().min(10)]);
+            f[11] = if *numeric { b'N' } else { b'C' };
+            f[16] = *width as u8;
+            f[17] = *dec as u8;
+            out.write_all(&f)?;
+        }
+        out.write_all(&[0x0D])?;
+        Ok(Self {
+            out,
+            fields: columns.iter().map(|c| (c.2, c.3, c.1)).collect(),
+            count: 0,
+            buf: Vec::with_capacity(rec_len),
+        })
+    }
+
+    /// Adds a record: one value per field (numbers as text to parse, an empty one is blank).
+    fn push<'a>(&mut self, values: impl Iterator<Item = &'a str>) -> Result<()> {
+        use std::io::Write;
+        self.buf.clear();
+        self.buf.push(b' ');
+        for (&(width, dec, numeric), v) in self.fields.iter().zip(values) {
+            let at = self.buf.len();
+            if numeric && plain_number(v, width, dec) {
+                // already written the way the field wants it: the text itself, right-aligned
+                self.buf.resize(at + width - v.len(), b' ');
+                self.buf.extend_from_slice(v.as_bytes());
+            } else if numeric {
+                let text = match v.parse::<f64>() {
+                    Ok(x) if x.is_finite() => {
+                        let mut t = format!("{x:.dec$}");
+                        // a number that does not fit loses decimals before it loses digits
+                        let mut d = dec;
+                        while t.len() > width && d > 0 {
+                            d -= 1;
+                            t = format!("{x:.d$}");
+                        }
+                        t
+                    }
+                    _ => String::new(),
+                };
+                let t = text.as_bytes();
+                let t = &t[..t.len().min(width)];
+                self.buf.resize(at + width - t.len(), b' ');
+                self.buf.extend_from_slice(t);
+            } else {
+                let mut end = v.len().min(width);
+                while !v.is_char_boundary(end) {
+                    end -= 1;
+                }
+                self.buf.extend_from_slice(&v.as_bytes()[..end]);
+                self.buf.resize(at + width, b' ');
+            }
+        }
+        self.out.write_all(&self.buf)?;
+        self.count += 1;
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<()> {
+        use std::io::{Seek, SeekFrom, Write};
+        self.out.write_all(&[0x1A])?;
+        self.out.flush()?;
+        let mut f = self.out.into_inner().map_err(|e| Error::Io(e.into_error()))?;
+        f.seek(SeekFrom::Start(4))?;
+        f.write_all(&self.count.to_le_bytes())?;
+        Ok(())
+    }
+}
+
+/// Whether `v` is a plain decimal number (`-12`, `0.0038`) with at most `dec` decimals that fits
+/// in `width`: it can be written as it is, without being read as a float and formatted again
+/// (which is what takes the time when a table has millions of rows).
+fn plain_number(v: &str, width: usize, dec: usize) -> bool {
+    let b = v.as_bytes();
+    if b.is_empty() || b.len() > width {
+        return false;
+    }
+    let digits = b.strip_prefix(b"-").unwrap_or(b);
+    let (int, frac) = match digits.iter().position(|c| *c == b'.') {
+        Some(k) => (&digits[..k], Some(&digits[k + 1..])),
+        None => (digits, None),
+    };
+    !int.is_empty()
+        && int.iter().all(u8::is_ascii_digit)
+        && frac.is_none_or(|f| !f.is_empty() && f.len() <= dec && f.iter().all(u8::is_ascii_digit))
+        // "-0" and "-0.0" would read back as negative zero: let the formatter decide
+        && !(b[0] == b'-' && int == b"0")
+}
+
+/// Today's date (year, month, day), from the clock.
+fn today() -> (i64, i64, i64) {
+    let days = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| (d.as_secs() / 86_400) as i64);
+    // civil date from days since 1970 (Howard Hinnant's algorithm)
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (yoe + era * 400 + i64::from(m <= 2), m, d)
+}
+
 pub struct PolyTable {
-    w: shapefile::Writer<std::io::BufWriter<std::fs::File>>,
+    shp: shapefile::ShapeWriter<std::io::BufWriter<std::fs::File>>,
+    dbf: DbfOut,
     names: Vec<String>,
     /// Value of the extra `captura` column, the capture date of the LiDAR data: blank unless the
     /// caller gives it. `None` when a column of the data is the capture date already.
     capture: Option<String>,
-    kinds: Vec<FieldKind>,
     path: std::path::PathBuf,
     prj: Option<String>,
 }
@@ -1655,7 +1792,7 @@ impl PolyTable {
     pub fn create(
         path: &Path,
         columns: &[String],
-        first_row: &[String],
+        first_row: &[impl AsRef<str>],
         prj: Option<&str>,
     ) -> Result<Self> {
         // a `Date` column of the data is the capture date: one date field, not two
@@ -1674,36 +1811,34 @@ impl PolyTable {
         let kinds: Vec<FieldKind> = columns
             .iter()
             .enumerate()
-            .map(|(k, _)| match first_row.get(k).map(|v| v.trim()) {
+            .map(|(k, _)| match first_row.get(k).map(|v| v.as_ref().trim()) {
                 Some(v) if v.parse::<i64>().is_ok() => FieldKind::Int,
                 Some(v) if v.parse::<f64>().is_ok() => FieldKind::Float,
                 _ => FieldKind::Text,
             })
             .collect();
-        let mut b = TableWriterBuilder::new();
-        for ((short, _), kind) in named.iter().zip(&kinds) {
-            let n = FieldName::try_from(short.as_str())
-                .map_err(|e| Error::Param(format!("field '{short}': {e}")))?;
-            b = match kind {
-                FieldKind::Int => b.add_numeric_field(n, 12, 0),
-                FieldKind::Float => b.add_numeric_field(n, 18, 4),
-                FieldKind::Text => b.add_character_field(n, 50),
-            };
-        }
+        let mut cols: Vec<(String, bool, usize, usize)> = named
+            .iter()
+            .zip(&kinds)
+            .map(|((short, _), kind)| match kind {
+                FieldKind::Int => (short.clone(), true, 12, 0),
+                FieldKind::Float => (short.clone(), true, 18, 4),
+                FieldKind::Text => (short.clone(), false, 50, 0),
+            })
+            .collect();
         // every polygon says when its LiDAR data were captured; blank when that is not known
         let capture = (!named
             .iter()
             .any(|(s, _)| s.eq_ignore_ascii_case(CAPTURE_FIELD)))
         .then(String::new);
         if capture.is_some() {
-            let n = FieldName::try_from(CAPTURE_FIELD)
-                .map_err(|e| Error::Param(format!("field '{CAPTURE_FIELD}': {e}")))?;
-            b = b.add_character_field(n, 24);
+            cols.push((CAPTURE_FIELD.to_string(), false, 24, 0));
         }
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             std::fs::create_dir_all(dir)?;
         }
-        let w = shapefile::Writer::from_path(path, b).map_err(shp_open_err(path))?;
+        let shp = shapefile::ShapeWriter::from_path(path).map_err(shp_open_err(path))?;
+        let dbf = DbfOut::create(&path.with_extension("dbf"), &cols)?;
         if named.iter().any(|(s, l)| s != l) {
             let mut text = String::from("campo\tsignificado\n");
             for (s, l) in &named {
@@ -1715,10 +1850,10 @@ impl PolyTable {
             std::fs::write(path.with_file_name(format!("{stem}_campos.txt")), text)?;
         }
         Ok(Self {
-            w,
+            shp,
+            dbf,
             capture,
             names: named.into_iter().map(|n| n.0).collect(),
-            kinds,
             path: path.to_path_buf(),
             prj: prj.map(str::to_string),
         })
@@ -1733,31 +1868,28 @@ impl PolyTable {
         self
     }
 
-    fn stamp_record(&self, rec: &mut dbase::Record) {
-        if let Some(t) = &self.capture {
-            rec.insert(
-                CAPTURE_FIELD.to_string(),
-                FieldValue::Character(Some(t.clone())),
-            );
-        }
+    /// Writes the attributes of a record: the row's values, then the capture date.
+    fn attributes<S: AsRef<str>>(&mut self, row: &[S]) -> Result<()> {
+        let names = &self.names;
+        let capture = self.capture.as_deref();
+        let values = names
+            .iter()
+            .enumerate()
+            .map(|(k, name)| {
+                let v = row.get(k).map_or("", |v| v.as_ref().trim());
+                // `NA` is how the text tables say the capture date is not known
+                if name.eq_ignore_ascii_case(CAPTURE_FIELD) && v.eq_ignore_ascii_case("na") {
+                    ""
+                } else {
+                    v
+                }
+            })
+            .chain(capture);
+        self.dbf.push(values)
     }
 
     /// Adds a record: its rings (each an outer ring) and one value per column.
-    pub fn push(&mut self, rings: &[Vec<[f64; 2]>], row: &[String]) -> Result<()> {
-        let mut rec = dbase::Record::default();
-        for (k, name) in self.names.iter().enumerate() {
-            let mut v = row.get(k).map_or("", |v| v.trim());
-            // `NA` is how the text tables say the capture date is not known
-            if name.eq_ignore_ascii_case(CAPTURE_FIELD) && v.eq_ignore_ascii_case("na") {
-                v = "";
-            }
-            let value = match self.kinds[k] {
-                FieldKind::Text => FieldValue::Character(Some(truncate(v, 50))),
-                _ => FieldValue::Numeric(v.parse::<f64>().ok()),
-            };
-            rec.insert(name.clone(), value);
-        }
-        self.stamp_record(&mut rec);
+    pub fn push<S: AsRef<str>>(&mut self, rings: &[Vec<[f64; 2]>], row: &[S]) -> Result<()> {
         let parts: Vec<PolygonRing<ShpPoint>> = rings
             .iter()
             .filter(|r| r.len() >= 3)
@@ -1781,9 +1913,10 @@ impl PolyTable {
         if parts.is_empty() {
             return Ok(());
         }
-        self.w
-            .write_shape_and_record(&shapefile::Polygon::with_rings(parts), &rec)
-            .map_err(shp_err)
+        self.shp
+            .write_shape(&shapefile::Polygon::with_rings(parts))
+            .map_err(shp_err)?;
+        self.attributes(row)
     }
 
     /// Adds a record made of outer rings and the holes cut in them (rings of any orientation:
@@ -1792,22 +1925,8 @@ impl PolyTable {
         &mut self,
         outers: &[Vec<[f64; 2]>],
         holes: &[Vec<[f64; 2]>],
-        row: &[String],
+        row: &[impl AsRef<str>],
     ) -> Result<()> {
-        let mut rec = dbase::Record::default();
-        for (k, name) in self.names.iter().enumerate() {
-            let mut v = row.get(k).map_or("", |v| v.trim());
-            // `NA` is how the text tables say the capture date is not known
-            if name.eq_ignore_ascii_case(CAPTURE_FIELD) && v.eq_ignore_ascii_case("na") {
-                v = "";
-            }
-            let value = match self.kinds[k] {
-                FieldKind::Text => FieldValue::Character(Some(truncate(v, 50))),
-                _ => FieldValue::Numeric(v.parse::<f64>().ok()),
-            };
-            rec.insert(name.clone(), value);
-        }
-        self.stamp_record(&mut rec);
         let oriented = |r: &Vec<[f64; 2]>, clockwise: bool| -> Option<Vec<ShpPoint>> {
             if r.len() < 3 {
                 return None;
@@ -1841,13 +1960,15 @@ impl PolyTable {
                 .filter_map(|r| oriented(r, false))
                 .map(PolygonRing::Inner),
         );
-        self.w
-            .write_shape_and_record(&shapefile::Polygon::with_rings(parts), &rec)
-            .map_err(shp_err)
+        self.shp
+            .write_shape(&shapefile::Polygon::with_rings(parts))
+            .map_err(shp_err)?;
+        self.attributes(row)
     }
 
     pub fn finish(self) -> Result<()> {
-        drop(self.w);
+        drop(self.shp);
+        self.dbf.finish()?;
         write_prj(&self.path, self.prj.as_deref())
     }
 }
@@ -1875,7 +1996,7 @@ pub fn metrics_csv_to_shp(
     let mut n = 0;
     for line in lines {
         let line = line?;
-        let row: Vec<String> = line.split(',').map(str::to_string).collect();
+        let row: Vec<&str> = line.split(',').collect();
         let key = (
             row.get(ir).and_then(|v| v.parse().ok()).unwrap_or(0),
             row.get(ic).and_then(|v| v.parse().ok()).unwrap_or(0),

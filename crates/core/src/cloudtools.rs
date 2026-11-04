@@ -83,9 +83,33 @@ fn dup_key(r: &Reader, rec: &[u8], f: DupFields) -> u64 {
     h.finish()
 }
 
+/// How many passes [`remove_duplicates`] makes over the keys of `points` points: the table of
+/// distinct points takes about 40 bytes a point (with the room a hash table keeps), and it may
+/// take a third of the memory of the machine. `HIPSO_DEDUP_PARTS` forces a number (to test).
+fn dup_parts(points: u64) -> u64 {
+    if let Some(k) = std::env::var("HIPSO_DEDUP_PARTS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        return k.max(1);
+    }
+    let mem = crate::copc_cache::total_memory().unwrap_or(8 << 30);
+    ((points as f64 * 40.0) / (mem as f64 / 3.0)).ceil().max(1.0) as u64
+}
+
+/// The part of the keys (of `parts`) a key belongs to.
+#[inline]
+fn dup_part(key: u64, parts: u64) -> u64 {
+    (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32) % parts
+}
+
 /// Writes `input` without its duplicate points: one point is kept from each set of duplicates,
-/// or none with `delete_all`. Returns (points read, points removed). Memory: 16 bytes per
-/// distinct point.
+/// or none with `delete_all`. Returns (points read, points removed).
+///
+/// Memory: a table of the distinct points of one part of the keys, and a bit for every point of
+/// the cloud. When the table of all the points would not fit in memory the keys are split in
+/// parts, one pass over the cloud for each, so a cloud of billions of points is cleaned with the
+/// memory of a few million.
 pub fn remove_duplicates(
     input: &Path,
     output: &Path,
@@ -99,29 +123,79 @@ pub fn remove_duplicates(
     }
     let r = Reader::open(input)?.for_passes()?;
     let rec_len = usize::from(r.header.record_len);
+    let parts = dup_part_count(&r);
+    // a bit for each point: set when the point goes
+    let mut gone: Vec<u64> = if parts > 1 {
+        vec![0; (r.header.count as usize).div_ceil(64)]
+    } else {
+        Vec::new()
+    };
+    for part in 0..if parts > 1 { parts } else { 0 } {
+        crate::check_cancel()?;
+        let mut count: FxMap<u64, u8> = FxMap::default();
+        r.scan_raw(|bytes| {
+            for rec in bytes.chunks_exact(rec_len) {
+                let k = dup_key(&r, rec, fields);
+                if dup_part(k, parts) == part {
+                    let c = count.entry(k).or_insert(0);
+                    *c = c.saturating_add(1);
+                }
+            }
+            Ok(())
+        })?;
+        let mut i = 0usize;
+        r.scan_raw(|bytes| {
+            for rec in bytes.chunks_exact(rec_len) {
+                let k = dup_key(&r, rec, fields);
+                if dup_part(k, parts) == part {
+                    let keep = match count.get_mut(&k) {
+                        Some(c) if delete_all => *c <= 1,
+                        Some(c) if *c > 0 => {
+                            *c = 0;
+                            true
+                        }
+                        _ => false,
+                    };
+                    if !keep {
+                        gone[i / 64] |= 1 << (i % 64);
+                    }
+                }
+                i += 1;
+            }
+            Ok(())
+        })?;
+    }
+    // the single-part case keeps its table for the writing pass
     let mut count: FxMap<u64, u8> = FxMap::default();
-    r.scan_raw(|bytes| {
-        for rec in bytes.chunks_exact(rec_len) {
-            let c = count.entry(dup_key(&r, rec, fields)).or_insert(0);
-            *c = c.saturating_add(1);
-        }
-        Ok(())
-    })?;
+    if parts == 1 {
+        r.scan_raw(|bytes| {
+            for rec in bytes.chunks_exact(rec_len) {
+                let c = count.entry(dup_key(&r, rec, fields)).or_insert(0);
+                *c = c.saturating_add(1);
+            }
+            Ok(())
+        })?;
+    }
     crate::paths::ensure_parent(output)?;
     let mut w = Writer::create(output, &r)?;
     let (mut read, mut removed) = (0u64, 0u64);
+    let mut i = 0usize;
     r.scan_raw(|bytes| {
         for rec in bytes.chunks_exact(rec_len) {
             read += 1;
-            let k = dup_key(&r, rec, fields);
-            let keep = match count.get_mut(&k) {
-                Some(c) if delete_all => *c <= 1,
-                Some(c) if *c > 0 => {
-                    *c = 0;
-                    true
+            let keep = if parts > 1 {
+                gone[i / 64] & (1 << (i % 64)) == 0
+            } else {
+                match count.get_mut(&dup_key(&r, rec, fields)) {
+                    Some(c) if delete_all => *c <= 1,
+                    Some(c) if *c > 0 => {
+                        *c = 0;
+                        true
+                    }
+                    _ => false,
                 }
-                _ => false,
             };
+            i += 1;
             if keep {
                 w.write(rec)?;
             } else {
@@ -132,6 +206,10 @@ pub fn remove_duplicates(
     })?;
     w.finish()?;
     Ok((read, removed))
+}
+
+fn dup_part_count(r: &Reader) -> u64 {
+    dup_parts(r.header.count)
 }
 
 // ----------------------------------------------------------------------------- comparing

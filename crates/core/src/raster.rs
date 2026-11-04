@@ -47,7 +47,7 @@ pub fn read_image(path: &Path) -> Result<Image> {
     if let Some(l) = crate::rasterfmt::load(path)? {
         return Ok(l.image);
     }
-    let mut d = Decoder::new(BufReader::new(crate::open_file(path)?)).map_err(tiff_err)?;
+    let mut d = Decoder::new(BufReader::new(crate::open_file(path)?)).map(|d| d.with_limits(tiff::decoder::Limits::unlimited())).map_err(tiff_err)?;
     let (w, h) = d.dimensions().map_err(tiff_err)?;
     let scale = d
         .get_tag_f64_vec(Tag::ModelPixelScaleTag)

@@ -13,8 +13,13 @@ use crate::{Error, Result};
 /// The value written for empty cells.
 pub const NODATA: f32 = -9999.0;
 
-/// Most cells one grid may hold (4 bytes each: 2 GiB).
-const MAX_CELLS: usize = 1 << 29;
+/// Most cells one grid may hold (4 bytes each). The memory of the machine sets the real limit
+/// (see [`Grid::new`]): a mosaic of hundreds of sheets has hundreds of millions of cells.
+const MAX_CELLS: usize = 1 << 32;
+
+/// The share of the machine's memory one grid may take: the tools that read a grid make
+/// others as big (the result, the neighbourhood), so a grid over this would swap the machine.
+const MEMORY_SHARE: f64 = 0.3;
 
 /// A grid of `cols` x `rows` square cells; row 0 is the northernmost. Empty cells hold NaN.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,11 +42,17 @@ impl Grid {
                 "una rejilla necesita una celda positiva y una extensión (celda {cell})"
             )));
         }
+        let (x0, y0, cols, rows) = Self::covering_dims(b, cell);
+        Self::new(x0, y0, cell, cols, rows)
+    }
+
+    /// The corner and size of [`Grid::covering`], without making the grid.
+    pub fn covering_dims(b: [f64; 4], cell: f64) -> (f64, f64, usize, usize) {
         let x0 = (b[0] / cell).floor() * cell;
         let y0 = (b[1] / cell).floor() * cell;
         let cols = ((b[2] - x0) / cell).floor() as usize + 1;
         let rows = ((b[3] - y0) / cell).floor() as usize + 1;
-        Self::new(x0, y0, cell, cols, rows)
+        (x0, y0, cols, rows)
     }
 
     pub fn new(x0: f64, y0: f64, cell: f64, cols: usize, rows: usize) -> Result<Self> {
@@ -53,6 +64,17 @@ impl Grid {
                     "una rejilla de {cols} x {rows} es demasiado grande: usa una celda mayor o divide la zona"
                 ))
             })?;
+        static MEMORY: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+        if let Some(mem) = *MEMORY.get_or_init(crate::copc_cache::total_memory)
+            && n as f64 * 4.0 > mem as f64 * MEMORY_SHARE
+        {
+            return Err(Error::Param(format!(
+                "una rejilla de {cols} x {rows} ({} millones de celdas, {:.1} GB) no cabe en la memoria de este equipo ({:.0} GB): usa una celda mayor o divide la zona",
+                n / 1_000_000,
+                n as f64 * 4.0 / 1e9,
+                mem as f64 / 1e9
+            )));
+        }
         Ok(Self {
             x0,
             y0,
@@ -350,7 +372,7 @@ impl Grid {
     /// Reads a north-up 32-bit float GeoTIFF such as [`Grid::write_tiff`] writes.
     pub fn read_tiff(path: &Path) -> Result<Self> {
         use tiff::decoder::{Decoder, DecodingResult};
-        let mut d = Decoder::new(BufReader::new(crate::open_file(path)?)).map_err(tiff_err)?;
+        let mut d = Decoder::new(BufReader::new(crate::open_file(path)?)).map(|d| d.with_limits(tiff::decoder::Limits::unlimited())).map_err(tiff_err)?;
         let (w, h) = d.dimensions().map_err(tiff_err)?;
         let scale = d
             .get_tag_f64_vec(Tag::ModelPixelScaleTag)

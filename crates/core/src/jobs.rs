@@ -32,6 +32,15 @@ pub fn info(paths: &[PathBuf]) -> Result<String> {
             sum.bounds[4]
         ));
     }
+    if !sum.failed.is_empty() {
+        out.push(format!(
+            "AVISO: {} archivo(s) no se pudieron leer y no cuentan en el total:",
+            sum.failed.len()
+        ));
+        for (p, e) in &sum.failed {
+            out.push(format!("  {}: {e}", p.display()));
+        }
+    }
     Ok(out.join(
         "
 ",
