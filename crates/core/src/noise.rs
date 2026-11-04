@@ -101,46 +101,78 @@ pub fn isolated(pts: &[Point], p: &NoiseParams) -> Vec<bool> {
         .collect()
 }
 
-/// Extended local minimum for low noise: the points are binned in square cells of `cell`
-/// metres; in each cell a point is low noise when its height is below the cell's mean by more
-/// than `threshold` standard deviations. The mean and deviation are worked out again without the
-/// points flagged so far, until none is added (at most 10 rounds), so a few deep outliers do not
-/// hide themselves by inflating the deviation. Cells with fewer than 4 valid points are left
-/// alone. A variant of the extended local minimum that takes the cell's own distribution of
-/// heights as the reference, which needs no neighbours.
-pub fn elm(pts: &[Point], cell: f64, threshold: f64) -> Vec<bool> {
+/// Extended local minimum for low noise. The points are binned in square cells of `cell` metres
+/// and the lowest point of each cell is its local minimum. That point is low noise when it lies
+/// at least `drop` metres under the lower quartile of the heights of its own cell (it stands
+/// apart from what is above it; a burst of up to a quarter of the cell's points is caught too)
+/// and also at least `drop` metres under the median of the minima of the cells around
+/// it (it is not simply where the ground is low, as in a gully, or a cell whose ground returns
+/// are missing). The flagged points are left out and the lowest point of each cell is looked
+/// for again, until nothing more is flagged (at most 20 rounds), so a burst of low points in
+/// one cell is taken off layer by layer. A cell needs at least four points and four neighbours
+/// with points to be judged; those at the edge of the data are left alone.
+pub fn elm(pts: &[Point], cell: f64, drop: f64) -> Vec<bool> {
     let mut out = vec![false; pts.len()];
-    if !(cell > 0.0) || !(threshold > 0.0) {
+    if !(cell > 0.0) || !(drop > 0.0) {
         return out;
     }
-    let mut cells: CellMap<Vec<u32>> = CellMap::default();
+    let mut cells: CellMap<((i64, i64), Vec<u32>)> = CellMap::default();
     for (i, p) in pts.iter().enumerate() {
         if p.is_noise() {
             continue;
         }
         let (cx, cy) = ((p.x / cell).floor() as i64, (p.y / cell).floor() as i64);
-        cells.entry(key(cx, cy, 0)).or_default().push(i as u32);
+        cells.entry(key(cx, cy, 0)).or_insert(((cx, cy), Vec::new())).1.push(i as u32);
     }
-    for members in cells.values() {
-        let mut live: Vec<u32> = members.clone();
-        for _ in 0..10 {
-            if live.len() < 4 {
-                break;
+    // each cell's points with the lowest last, so that the next minimum is the next point
+    let mut at: Vec<(i64, i64)> = Vec::new();
+    let mut members: Vec<Vec<u32>> = Vec::new();
+    for (xy, mut m) in cells.into_values() {
+        m.sort_unstable_by(|&a, &b| pts[b as usize].z.total_cmp(&pts[a as usize].z));
+        at.push(xy);
+        members.push(m);
+    }
+    let index: CellMap<usize> = at.iter().enumerate().map(|(i, &(x, y))| (key(x, y, 0), i)).collect();
+    let z_of = |i: u32| pts[i as usize].z;
+    for _ in 0..20 {
+        let mut flagged = Vec::new();
+        for (c, &(x, y)) in at.iter().enumerate() {
+            let m = &members[c];
+            let n = m.len();
+            if n < 4 {
+                continue;
             }
-            let n = live.len() as f64;
-            let mean = live.iter().map(|&i| pts[i as usize].z).sum::<f64>() / n;
-            let var = live.iter().map(|&i| (pts[i as usize].z - mean).powi(2)).sum::<f64>() / n;
-            let limit = mean - threshold * var.sqrt();
-            let before = live.len();
-            live.retain(|&i| {
-                let low = pts[i as usize].z < limit;
-                if low {
-                    out[i as usize] = true;
+            let z1 = z_of(m[n - 1]);
+            if z_of(m[n - 1 - n / 4]) - z1 < drop {
+                continue;
+            }
+            let mut around: Vec<f64> = Vec::with_capacity(8);
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    if (dx, dy) != (0, 0)
+                        && let Some(&j) = index.get(&key(x + dx, y + dy, 0))
+                        && let Some(&i) = members[j].last()
+                    {
+                        around.push(z_of(i));
+                    }
                 }
-                !low
-            });
-            if live.len() == before {
-                break;
+            }
+            if around.len() < 4 {
+                continue;
+            }
+            around.sort_unstable_by(f64::total_cmp);
+            let k = around.len();
+            let median = if k % 2 == 1 { around[k / 2] } else { (around[k / 2 - 1] + around[k / 2]) / 2.0 };
+            if median - z1 >= drop {
+                flagged.push(c);
+            }
+        }
+        if flagged.is_empty() {
+            break;
+        }
+        for c in flagged {
+            if let Some(i) = members[c].pop() {
+                out[i as usize] = true;
             }
         }
     }
@@ -283,12 +315,12 @@ mod tests {
         for k in 0..3 {
             pts.push(pt(5.0 + f64::from(k), 5.0, 80.0));
         }
-        let low = elm(&pts, 20.0, 2.0);
+        let low = elm(&pts, 5.0, 3.0);
         assert!(low[800] && low[801] && low[802]);
         assert!(low[..800].iter().all(|n| !n));
         // a plain slope inside one cell is not noise at a generous threshold
         let slope: Vec<Point> = (0..400).map(|i| pt(f64::from(i % 20) * 0.9, f64::from(i / 20), f64::from(i % 20) * 0.1)).collect();
-        assert!(elm(&slope, 20.0, 2.0).iter().all(|n| !n));
+        assert!(elm(&slope, 20.0, 3.0).iter().all(|n| !n));
     }
 
     #[test]

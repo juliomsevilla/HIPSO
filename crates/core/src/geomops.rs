@@ -1,4 +1,5 @@
-//! Operations on polygon layers: validity check and repair, buffer, dissolve and union.
+//! Operations on polygon layers: validity check and repair, buffer, dissolve, union and
+//! intersection, and the cut and attach edits of single polygons.
 //!
 //! Geometry comes from the `geo` crate's algorithms (OGC validity rules; repair after Ledoux,
 //! Arroyo Ohori and Meijers 2014; boolean operations; buffer). A layer keeps its attribute
@@ -251,22 +252,38 @@ pub fn dissolve(layer: &PolyLayer, field: Option<&str>) -> Result<PolyLayer> {
     Ok(PolyLayer { features, prj: layer.prj.clone() })
 }
 
+/// The extents of a layer's features (not finite for a feature with no geometry) and an index
+/// over them, so that the features near a window are found without looking at all of them.
+fn index_of(layer: &PolyLayer) -> (Vec<[f64; 4]>, crate::rtree::RTree) {
+    let boxes: Vec<[f64; 4]> = layer
+        .features
+        .iter()
+        .map(|f| f.geom.bounding_rect().map_or([f64::NAN; 4], |r| [r.min().x, r.min().y, r.max().x, r.max().y]))
+        .collect();
+    let tree = crate::rtree::RTree::new(&boxes);
+    (boxes, tree)
+}
+
+/// The features of the indexed layer whose extent meets that of `g`, in layer order.
+fn near(tree: &crate::rtree::RTree, g: &MultiPolygon<f64>) -> Vec<usize> {
+    let Some(r) = g.bounding_rect() else { return Vec::new() };
+    let mut hits = tree.query([r.min().x, r.min().y, r.max().x, r.max().y]);
+    hits.sort_unstable();
+    hits
+}
+
 /// The union of two layers as an overlay: pieces in both (with the attributes of both, those of
 /// `b` after a `b_` prefix), in `a` only and in `b` only. Pieces with no area are dropped.
 pub fn union(a: &PolyLayer, b: &PolyLayer) -> Result<PolyLayer> {
     require_valid(a, "la unión")?;
     require_valid(b, "la unión")?;
-    let bbox = |g: &MultiPolygon<f64>| g.bounding_rect();
-    let overlaps = |x: &MultiPolygon<f64>, y: &MultiPolygon<f64>| match (bbox(x), bbox(y)) {
-        (Some(p), Some(q)) => p.min().x <= q.max().x && q.min().x <= p.max().x && p.min().y <= q.max().y && q.min().y <= p.max().y,
-        _ => false,
-    };
+    let ((_, tree_a), (_, tree_b)) = (index_of(a), index_of(b));
     let eps = 1e-9;
     let mut features = Vec::new();
     let prefixed = |f: &Feature| -> Vec<(String, String)> { f.attrs.iter().map(|(k, v)| (format!("b_{k}"), v.clone())).collect() };
     for fa in &a.features {
         let mut rest = fa.geom.clone();
-        for fb in b.features.iter().filter(|fb| overlaps(&fa.geom, &fb.geom)) {
+        for fb in near(&tree_b, &fa.geom).into_iter().map(|j| &b.features[j]) {
             let both = fa.geom.intersection(&fb.geom);
             if both.unsigned_area() > eps {
                 let mut attrs = fa.attrs.clone();
@@ -281,7 +298,7 @@ pub fn union(a: &PolyLayer, b: &PolyLayer) -> Result<PolyLayer> {
     }
     for fb in &b.features {
         let mut rest = fb.geom.clone();
-        for fa in a.features.iter().filter(|fa| overlaps(&fa.geom, &fb.geom)) {
+        for fa in near(&tree_a, &fb.geom).into_iter().map(|i| &a.features[i]) {
             rest = rest.difference(&fa.geom);
         }
         if rest.unsigned_area() > eps {
@@ -289,6 +306,67 @@ pub fn union(a: &PolyLayer, b: &PolyLayer) -> Result<PolyLayer> {
         }
     }
     Ok(PolyLayer { features, prj: a.prj.clone().or_else(|| b.prj.clone()) })
+}
+
+/// The intersection of two layers: only the pieces that lie in both, with the attributes of
+/// both (those of `b` after a `b_` prefix). Pieces with no area are dropped.
+pub fn intersect(a: &PolyLayer, b: &PolyLayer) -> Result<PolyLayer> {
+    require_valid(a, "la intersección")?;
+    require_valid(b, "la intersección")?;
+    let (_, tree_b) = index_of(b);
+    let mut features = Vec::new();
+    for fa in &a.features {
+        for fb in near(&tree_b, &fa.geom).into_iter().map(|j| &b.features[j]) {
+            let both = fa.geom.intersection(&fb.geom);
+            if both.unsigned_area() > 1e-9 {
+                let mut attrs = fa.attrs.clone();
+                attrs.extend(fb.attrs.iter().map(|(k, v)| (format!("b_{k}"), v.clone())));
+                features.push(Feature { geom: both, attrs });
+            }
+        }
+    }
+    Ok(PolyLayer { features, prj: a.prj.clone().or_else(|| b.prj.clone()) })
+}
+
+/// The rings of a multipolygon as closed parts: for each polygon its outer ring, then its holes.
+pub fn parts_of(m: &MultiPolygon<f64>) -> Vec<Vec<[f64; 2]>> {
+    let ring = |l: &LineString<f64>| l.0.iter().map(|c| [c.x, c.y]).collect::<Vec<_>>();
+    m.0.iter().flat_map(|p| std::iter::once(ring(p.exterior())).chain(p.interiors().iter().map(ring))).collect()
+}
+
+/// Cuts a polygon feature (its parts) with a line that starts and ends outside it: the pieces on
+/// each side of the line, each as parts. One piece when the line does not split it.
+pub fn cut_by_line(parts: &[Vec<[f64; 2]>], line: &[[f64; 2]]) -> Vec<Vec<Vec<[f64; 2]>>> {
+    let poly = multipolygon_of(parts);
+    let whole = || vec![parts.to_vec()];
+    let Some(r) = poly.bounding_rect() else { return whole() };
+    if line.len() < 2 {
+        return whole();
+    }
+    // the line is thickened to a sliver that splits the polygon, and each piece grows back to
+    // the line by the same amount
+    let eps = (r.width().hypot(r.height()) * 1e-7).max(f64::MIN_POSITIVE);
+    let ls = LineString::new(line.iter().map(|p| Coord { x: p[0], y: p[1] }).collect());
+    let cut = ls.buffer(eps);
+    let rest = poly.difference(&cut);
+    let pieces: Vec<GPoly<f64>> = rest.0.into_iter().filter(|p| p.unsigned_area() > eps * eps).collect();
+    if pieces.len() < 2 {
+        return whole();
+    }
+    pieces
+        .into_iter()
+        .map(|p| parts_of(&MultiPolygon::new(vec![p]).buffer(eps).intersection(&poly)))
+        .collect()
+}
+
+/// A new polygon drawn over existing ones, without what is already covered: the parts of
+/// `ring` minus `others`. Empty when nothing is left.
+pub fn attach(ring: &[[f64; 2]], others: &[&[Vec<[f64; 2]>]]) -> Vec<Vec<[f64; 2]>> {
+    let mut m = multipolygon_of(&[ring.to_vec()]);
+    for o in others {
+        m = m.difference(&multipolygon_of(o));
+    }
+    if m.unsigned_area() <= 1e-9 { Vec::new() } else { parts_of(&m) }
 }
 
 #[cfg(test)]
@@ -379,6 +457,38 @@ mod tests {
         let both = u.features.iter().find(|f| f.attrs.len() == 2).unwrap();
         assert!((both.geom.unsigned_area() - 50.0).abs() < 1e-6);
         assert_eq!(both.attrs[1].0, "b_k");
+    }
+
+    #[test]
+    fn intersect_keeps_only_the_common_pieces() {
+        let a = layer(vec![feat(vec![sq(0.0, 0.0, 10.0)], &[("a", "1")])]);
+        let b = layer(vec![feat(vec![sq(5.0, 0.0, 10.0)], &[("k", "x")]), feat(vec![sq(50.0, 0.0, 5.0)], &[("k", "y")])]);
+        let r = intersect(&a, &b).unwrap();
+        assert_eq!(r.features.len(), 1);
+        assert!((r.features[0].geom.unsigned_area() - 50.0).abs() < 1e-6);
+        assert_eq!(r.features[0].attrs[1].0, "b_k");
+    }
+
+    #[test]
+    fn a_line_cuts_a_polygon_in_two_that_add_up() {
+        let square = sq(0.0, 0.0, 10.0);
+        let pieces = cut_by_line(&[square.clone()], &[[5.0, -3.0], [5.0, 13.0]]);
+        assert_eq!(pieces.len(), 2);
+        let areas: Vec<f64> = pieces.iter().map(|p| multipolygon_of(p).unsigned_area()).collect();
+        assert!((areas[0] + areas[1] - 100.0).abs() < 1e-3, "{areas:?}");
+        assert!((areas[0] - 50.0).abs() < 1e-3);
+        // a line that stays outside leaves the polygon whole
+        assert_eq!(cut_by_line(&[square], &[[20.0, 0.0], [20.0, 10.0]]).len(), 1);
+    }
+
+    #[test]
+    fn a_polygon_drawn_over_another_keeps_only_the_new_ground() {
+        let old = vec![sq(0.0, 0.0, 10.0)];
+        let drawn = vec![[5.0, 5.0], [5.0, 15.0], [15.0, 15.0], [15.0, 5.0]];
+        let parts = attach(&drawn, &[&old]);
+        assert!((multipolygon_of(&parts).unsigned_area() - 75.0).abs() < 1e-6);
+        // drawn inside the old one there is nothing left
+        assert!(attach(&sq(2.0, 2.0, 3.0), &[&old]).is_empty());
     }
 
     #[test]

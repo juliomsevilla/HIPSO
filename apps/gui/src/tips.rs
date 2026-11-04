@@ -10,6 +10,13 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Abrir" => {
             "Abre nubes de puntos (LAS/LAZ), rásteres, imágenes y capas vectoriales; se añaden a lo que ya está abierto (Ctrl+O)."
         }
+        "Añadir nubes y capas" => {
+            "Añade nubes de puntos (LAS/LAZ), rásteres, imágenes y capas vectoriales a lo que ya está abierto (Ctrl+O)."
+        }
+        "Seleccionar" => "Selecciona elementos de la capa con un clic o arrastrando un rectángulo; pulsa de nuevo para dejar de seleccionar.",
+        "Geoprocesos" => {
+            "Operaciones con capas de polígonos: estadística zonal, validar, reparar, búfer, disolver, unión e intersección."
+        }
         "Información" => {
             "Muestra las características de las nubes abiertas: puntos, densidad, clases, coordenadas y avisos."
         }
@@ -35,14 +42,14 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Igualar rásteres" => {
             "Pone varios rásteres con la misma rejilla, proyección y tamaño de celda."
         }
+        "Operaciones ráster" => {
+            "Tamizar un ráster de clases, medir la distancia a unas celdas y rellenar celdas vacías."
+        }
         "Reproyectar" => {
             "Pasa nubes y rásteres a otro sistema de coordenadas y cambia la referencia vertical de las alturas."
         }
         "Vector" => {
             "Estadística zonal de un ráster por polígono, y validar, reparar, ampliar, disolver o unir capas de polígonos."
-        }
-        "Carreteras\ny vías" | "Carreteras y vías" => {
-            "Extrae los ejes de carreteras y pistas, con su anchura, del suelo clasificado."
         }
         "Tema" => "Cambia entre el tema claro y el oscuro.",
         "Registro" => "Muestra lo que se ha hecho, los errores y el avance de los procesos largos.",
@@ -95,7 +102,7 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Métricas por celda" => "Métricas de altura y densidad de la vegetación por celda.",
         "Segmentar individuos" => "Detecta los individuos y sus copas en un modelo de alturas.",
         "OBIA" => "Agrupa el modelo de alturas en objetos y los clasifica.",
-        "Modelos de transición" => {
+        "Modelos lineales" => {
             "Relaciona una variable de campo con las métricas LiDAR de las unidades de muestreo y la valida."
         }
         "Cambio de la cubierta vegetal" => {
@@ -105,10 +112,10 @@ pub fn tip(label: &str) -> Option<&'static str> {
             "Conductores, apoyos y vegetación en riesgo de las líneas eléctricas."
         }
         "Extraer muestras" => "Corta las nubes por unidades de muestreo y calcula sus métricas.",
-        "Métodos de masa" => {
-            "Inventario por área con nubes aéreas (ALS): métricas por celda, extracción de muestras y modelos de transición."
+        "Recortar con polígonos" => {
+            "Recorta las nubes con los polígonos de una capa: una nube por polígono o una sola ajustada al perímetro de todos, con búfer opcional."
         }
-        "Medición de troncos (TLS)" => {
+        "Medición de troncos" => {
             "Inventario con nubes de escáner terrestre (TLS): mide los troncos, estima su volumen y clasifica troncos y ramas."
         }
         // Ayuda

@@ -1,5 +1,5 @@
 //! Vector (Capas vectoriales): statistics of a raster inside polygons, as a polygon layer with
-//! new fields, and operations on polygon layers (check, repair, buffer, dissolve, union).
+//! new fields, and operations on polygon layers (check, repair, buffer, dissolve, union, intersect).
 
 use super::*;
 use hipso_core::{geomops, grid::Grid, paths, vector, zonal};
@@ -12,10 +12,11 @@ pub enum Op {
     Buffer,
     Dissolve,
     Union,
+    Intersect,
 }
 
 impl Op {
-    const ALL: [Op; 6] = [Op::Zonal, Op::Validate, Op::Repair, Op::Buffer, Op::Dissolve, Op::Union];
+    const ALL: [Op; 7] = [Op::Zonal, Op::Validate, Op::Repair, Op::Buffer, Op::Dissolve, Op::Union, Op::Intersect];
 
     fn name(self) -> &'static str {
         match self {
@@ -25,6 +26,7 @@ impl Op {
             Op::Buffer => "Búfer (ampliar o reducir)",
             Op::Dissolve => "Disolver (unir polígonos por un campo)",
             Op::Union => "Unión de dos capas",
+            Op::Intersect => "Intersección de dos capas",
         }
     }
 
@@ -35,6 +37,7 @@ impl Op {
             Op::Repair => "Repara los polígonos no válidos con la regla par-impar (un lazo se convierte en dos partes, los bordes repetidos se cancelan). Los válidos no se tocan y la tabla de atributos se conserva.",
             Op::Buffer => "Amplía cada polígono la distancia indicada (negativa: lo reduce), con esquinas redondeadas. La distancia va en las unidades de la capa: metros en un sistema proyectado, grados en uno geográfico.",
             Op::Dissolve => "Une los polígonos que comparten el valor de un campo (o todos, si no eliges campo). El campo «n» cuenta cuántos se unieron.",
+            Op::Intersect => "Se queda solo con las piezas que están en las dos capas, con los campos de ambas (los de la segunda precedidos por «b_»). Lo que solo está en una de ellas se descarta.",
             Op::Union => "Superpone dos capas: da las piezas que están en las dos (con los campos de ambas, los de la segunda precedidos por «b_»), solo en la primera y solo en la segunda.",
         }
     }
@@ -158,9 +161,10 @@ impl App {
                         });
                     });
                 }
-                let label = if t.op == Op::Union { "Primera capa" } else { "Polígonos" };
+                let two = matches!(t.op, Op::Union | Op::Intersect);
+                let label = if two { "Primera capa" } else { "Polígonos" };
                 pick_vector(&mut t.layer, ui, label, &vectors);
-                if t.op == Op::Union {
+                if two {
                     pick_vector(&mut t.second, ui, "Segunda capa", &vectors);
                 }
                 match t.op {
@@ -185,12 +189,12 @@ impl App {
                     }
                     _ => {}
                 }
-                if matches!(t.op, Op::Buffer | Op::Dissolve | Op::Union) {
+                if matches!(t.op, Op::Buffer | Op::Dissolve | Op::Union | Op::Intersect) {
                     ui.checkbox(&mut t.repair_first, "Reparar antes los polígonos no válidos");
                 }
                 let ready = t.layer.is_some()
                     && (t.op != Op::Zonal || t.raster.is_some())
-                    && (t.op != Op::Union || t.second.is_some());
+                    && (!two || t.second.is_some());
                 ui.horizontal(|ui| {
                     if ui.add_enabled(ready && self.running.is_none(), egui::Button::new("▶ Ejecutar")).clicked() {
                         go = true;
@@ -225,6 +229,7 @@ impl App {
                     Op::Buffer => "buffer",
                     Op::Dissolve => "disuelto",
                     Op::Union => "union",
+                    Op::Intersect => "interseccion",
                     Op::Validate => unreachable!(),
                 };
                 let out = paths::unique(&paths::product(&layer, tag, "shp"));
@@ -264,6 +269,15 @@ impl App {
                             let r = geomops::union(&l, &b)?;
                             let n = r.features.len();
                             (r, format!("{n} piezas"))
+                        }
+                        Op::Intersect => {
+                            let mut b = geomops::read_polygons(second.as_deref().expect("segunda"))?;
+                            if repair {
+                                b = geomops::make_valid(&b)?.0;
+                            }
+                            let r = geomops::intersect(&l, &b)?;
+                            let n = r.features.len();
+                            (r, format!("{n} piezas en las dos capas"))
                         }
                         Op::Validate => unreachable!(),
                     };

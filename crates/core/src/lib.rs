@@ -60,7 +60,6 @@ pub mod rasterfmt;
 pub mod rasterops;
 pub mod rastertools;
 pub mod reproject;
-pub mod roads;
 pub mod rtree;
 pub mod rules;
 pub mod sheets;

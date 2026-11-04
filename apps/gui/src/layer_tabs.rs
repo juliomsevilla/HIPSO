@@ -10,7 +10,7 @@ use crate::symbology::{RAMPS, SymKind, Symbology};
 pub fn tabs_for(kind: Option<&RefKind>) -> &'static [&'static str] {
     match kind {
         Some(RefKind::Vector(_)) => &["Simbología", "Edición vectorial"],
-        Some(_) => &["Ráster"],
+        Some(_) => &["Simbología"],
         None => &[],
     }
 }
@@ -253,6 +253,7 @@ impl App {
 
     fn vector_edit_tab(&mut self, ui: &mut egui::Ui, t: &Tokens, k: usize) {
         self.active = Some(k);
+        let mut toggle: Option<Nav> = None;
         let (has_sel, can_undo, can_redo, dirty) =
             self.active_vec().map_or((false, false, false, false), |v| {
                 (
@@ -294,49 +295,21 @@ impl App {
                 }
             });
         });
-        ribbon::group(ui, t, "Geoprocesos", |ui| {
-            use crate::vector_ui::Op;
-            let path = self.refs.get(k).map(|r| r.path.clone());
-            let mut pick = None;
-            ui.vertical(|ui| {
-                for (icon, label, op) in [
-                    ("@zonal", "Estadística zonal", Op::Zonal),
-                    ("@validate", "Validar polígonos", Op::Validate),
-                    ("@repair", "Reparar polígonos", Op::Repair),
-                ] {
-                    if ribbon::small_button(ui, t, icon, label, self.vt.open && self.vt.op == op).clicked() {
-                        pick = Some(op);
-                    }
-                }
-            });
-            ui.vertical(|ui| {
-                for (icon, label, op) in [
-                    ("@buffer", "Búfer", Op::Buffer),
-                    ("@dissolve", "Disolver", Op::Dissolve),
-                    ("@union", "Unión de capas", Op::Union),
-                ] {
-                    if ribbon::small_button(ui, t, icon, label, self.vt.open && self.vt.op == op).clicked() {
-                        pick = Some(op);
-                    }
-                }
-            });
-            if let Some(op) = pick {
-                self.vt.op = op;
-                self.vt.layer = path;
-                self.vt.report.clear();
-                self.vt.open = true;
-            }
-        });
         ribbon::group(ui, t, "Herramientas", |ui| {
             for (icon, name, n) in [
                 ("@pencil", "Digitalizar", Nav::Digitize),
-                ("@selrect", "Seleccionar", Nav::VecSelect),
                 ("@vertex", "Vértices", Nav::VecVertex),
                 ("@move", "Mover", Nav::VecMove),
             ] {
-                if ribbon::big_button(ui, t, icon, name, self.nav == n).clicked() {
-                    self.nav = n;
-                    self.dig_draft.clear();
+                if ribbon::big_button(ui, t, icon, name, self.nav == n)
+                    .on_hover_text(if self.nav == n {
+                        "Pulsa de nuevo para terminar de editar."
+                    } else {
+                        "Pulsa para empezar a editar."
+                    })
+                    .clicked()
+                {
+                    toggle = Some(n);
                 }
             }
             ui.vertical(|ui| {
@@ -344,6 +317,9 @@ impl App {
             });
         });
         ribbon::group(ui, t, "Selección", |ui| {
+            if ribbon::big_button(ui, t, "@selrect", "Seleccionar", self.nav == Nav::VecSelect).clicked() {
+                toggle = Some(Nav::VecSelect);
+            }
             ui.vertical(|ui| {
                 if ribbon::small_button(ui, t, "@selall", "Seleccionar todo", false).clicked()
                     && let Some(v) = self.active_vec_mut()
@@ -391,6 +367,9 @@ impl App {
                 self.vec_undo(true);
             }
         });
+        if let Some(n) = toggle {
+            self.toggle_edit_tool(n);
+        }
     }
 
     fn image_tab(&mut self, ui: &mut egui::Ui, t: &Tokens, ctx: &egui::Context, k: usize) {

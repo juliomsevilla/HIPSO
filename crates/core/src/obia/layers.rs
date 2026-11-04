@@ -128,6 +128,127 @@ fn mean_of(count: &[u32], sum: Option<&[f32]>) -> Vec<f32> {
     }
 }
 
+/// Fills each empty (NaN) cell with the value of the nearest cell that has one, when that is at
+/// most `max` cells away; farther cells stay empty. The nearest cell is found by two sweeps over
+/// the lattice that carry the best seed along, so the cost is linear and does not depend on
+/// `max`.
+pub fn fill_empty(lat: &Lattice, data: &mut [f32], max: usize) {
+    let (cols, rows) = (lat.cols, lat.rows);
+    if max == 0 || data.len() != cols * rows || cols == 0 {
+        return;
+    }
+    let mut seed = vec![u32::MAX; data.len()];
+    for (s, (i, v)) in seed.iter_mut().zip(data.iter().enumerate()) {
+        if !v.is_nan() {
+            *s = i as u32;
+        }
+    }
+    let d2 = |i: usize, s: u32| -> u64 {
+        if s == u32::MAX {
+            return u64::MAX;
+        }
+        let (x, y, sx, sy) = ((i % cols) as i64, (i / cols) as i64, (s as usize % cols) as i64, (s as usize / cols) as i64);
+        ((x - sx) * (x - sx) + (y - sy) * (y - sy)) as u64
+    };
+    let sweep = |seed: &mut Vec<u32>, order: &mut dyn Iterator<Item = usize>, back: bool| {
+        for i in order {
+            let (x, y) = (i % cols, i / cols);
+            let mut best = seed[i];
+            let mut best_d = d2(i, best);
+            let try_nb = |j: usize, best: &mut u32, best_d: &mut u64| {
+                let s = seed[j];
+                let d = d2(i, s);
+                if d < *best_d {
+                    (*best, *best_d) = (s, d);
+                }
+            };
+            if !back {
+                if x > 0 {
+                    try_nb(i - 1, &mut best, &mut best_d);
+                }
+                if y > 0 {
+                    try_nb(i - cols, &mut best, &mut best_d);
+                    if x > 0 {
+                        try_nb(i - cols - 1, &mut best, &mut best_d);
+                    }
+                    if x + 1 < cols {
+                        try_nb(i - cols + 1, &mut best, &mut best_d);
+                    }
+                }
+            } else {
+                if x + 1 < cols {
+                    try_nb(i + 1, &mut best, &mut best_d);
+                }
+                if y + 1 < rows {
+                    try_nb(i + cols, &mut best, &mut best_d);
+                    if x + 1 < cols {
+                        try_nb(i + cols + 1, &mut best, &mut best_d);
+                    }
+                    if x > 0 {
+                        try_nb(i + cols - 1, &mut best, &mut best_d);
+                    }
+                }
+            }
+            seed[i] = best;
+        }
+    };
+    sweep(&mut seed, &mut (0..data.len()), false);
+    sweep(&mut seed, &mut (0..data.len()).rev(), true);
+    let limit = (max as u64) * (max as u64);
+    let values: Vec<f32> = data.to_vec();
+    for (i, v) in data.iter_mut().enumerate() {
+        if v.is_nan() && seed[i] != u32::MAX && d2(i, seed[i]) <= limit {
+            *v = values[seed[i] as usize];
+        }
+    }
+}
+
+/// The mean of a layer in the square window of `radius` cells around each cell (clipped at the
+/// borders, empty cells left out). A cell with no value in its window stays empty. This evens
+/// out the cell-to-cell noise of statistics made from few points.
+pub fn local_mean(lat: &Lattice, data: &[f32], radius: usize) -> Vec<f32> {
+    let (cols, rows) = (lat.cols, lat.rows);
+    let r = radius.max(1);
+    if data.len() != cols * rows || cols == 0 {
+        return data.to_vec();
+    }
+    // horizontal sums, then vertical ones, of the values and of how many there are
+    let mut hs = vec![0f64; data.len()];
+    let mut hc = vec![0u32; data.len()];
+    hs.par_chunks_mut(cols)
+        .zip(hc.par_chunks_mut(cols))
+        .zip(data.par_chunks(cols))
+        .for_each(|((s, c), row)| {
+            for x in 0..cols {
+                let (lo, hi) = (x.saturating_sub(r), (x + r).min(cols - 1));
+                let (mut t, mut n) = (0f64, 0u32);
+                for v in &row[lo..=hi] {
+                    if !v.is_nan() {
+                        t += f64::from(*v);
+                        n += 1;
+                    }
+                }
+                s[x] = t;
+                c[x] = n;
+            }
+        });
+    let mut out = vec![f32::NAN; data.len()];
+    out.par_chunks_mut(cols).enumerate().for_each(|(y, row)| {
+        let (lo, hi) = (y.saturating_sub(r), (y + r).min(rows - 1));
+        for (x, o) in row.iter_mut().enumerate() {
+            let (mut t, mut n) = (0f64, 0u32);
+            for yy in lo..=hi {
+                t += hs[yy * cols + x];
+                n += hc[yy * cols + x];
+            }
+            if n > 0 {
+                *o = (t / f64::from(n)) as f32;
+            }
+        }
+    });
+    out
+}
+
 /// The standard deviation of a layer in the square window of `radius` cells around each cell
 /// (clipped at the borders, empty cells left out): a roughness measure that tells a crown, whose
 /// height varies from cell to cell, from a roof or a lawn. Two running-sum passes, so the cost
@@ -223,6 +344,29 @@ pub fn local_std(lat: &Lattice, data: &[f32], radius: usize) -> Vec<f32> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn empty_cells_take_the_nearest_value_within_the_distance() {
+        let lat = Lattice { x0: 0.0, y0: 0.0, cell: 1.0, cols: 6, rows: 1 };
+        let mut d = vec![1.0, f32::NAN, f32::NAN, f32::NAN, f32::NAN, 9.0];
+        fill_empty(&lat, &mut d, 2);
+        assert_eq!(d, vec![1.0, 1.0, 1.0, 9.0, 9.0, 9.0]);
+        // too far from any value: stays empty
+        let mut e = vec![1.0, f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN];
+        fill_empty(&lat, &mut e, 2);
+        assert!(e[3].is_nan() && e[2] == 1.0);
+    }
+
+    #[test]
+    fn the_local_mean_leaves_out_empty_cells() {
+        let lat = Lattice { x0: 0.0, y0: 0.0, cell: 1.0, cols: 3, rows: 3 };
+        let mut d = vec![f32::NAN; 9];
+        d[4] = 6.0;
+        d[0] = 2.0;
+        let m = local_mean(&lat, &d, 1);
+        // the centre sees both values; the far corner sees only the centre
+        assert!((m[4] - 4.0).abs() < 1e-6 && (m[8] - 6.0).abs() < 1e-6);
+    }
+
     use super::*;
 
     fn lat(cols: usize, rows: usize) -> Lattice {

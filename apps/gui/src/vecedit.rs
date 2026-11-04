@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::layers::{VecLayer, dist_to_segment};
+use std::collections::HashMap;
 
 /// A comparison for selecting by attribute.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -75,6 +76,15 @@ pub struct VecEditState {
     last_row: Option<usize>,
     /// The cell being typed in: feature, field and its text on entering.
     cell_old: Option<(usize, usize, String)>,
+    /// The cell being edited: feature and field.
+    editing: Option<(usize, usize)>,
+    /// Width of every column of the table of each layer (index 0 is the row number).
+    col_w: HashMap<usize, Vec<f32>>,
+    /// Field the table is sorted by and whether it goes up.
+    sort: Option<(usize, bool)>,
+    /// The order of the rows for `sort_key` (layer, sort, number of rows).
+    order: Vec<usize>,
+    sort_key: Option<(usize, Option<(usize, bool)>, usize)>,
 }
 
 impl Default for VecEditState {
@@ -91,6 +101,11 @@ impl Default for VecEditState {
             only_selected: false,
             last_row: None,
             cell_old: None,
+            editing: None,
+            col_w: HashMap::new(),
+            sort: None,
+            order: Vec::new(),
+            sort_key: None,
         }
     }
 }
@@ -175,9 +190,14 @@ impl App {
             None => "Digitalizar: crea una capa (Nueva capa) o elige una capa vectorial en el panel de capas".to_string(),
             Some(view::GeomKind::Point) => "Digitalizar puntos: clic = añadir un punto".to_string(),
             Some(k) => format!(
-                "Digitalizar {}: clic = vértice ({} puestos) · botón derecho, doble clic o Intro = terminar · Retroceso = quitar el último · Esc = cancelar",
+                "Digitalizar {}: clic = vértice ({} puestos) · botón derecho, doble clic o Intro = terminar · Retroceso = quitar el último · Esc = cancelar{}",
                 if k == view::GeomKind::Line { "líneas" } else { "áreas" },
-                self.dig_draft.len()
+                self.dig_draft.len(),
+                if k == view::GeomKind::Polygon {
+                    " · Adosar: empieza y termina dentro de un área · Cortar: empieza y termina fuera atravesándola"
+                } else {
+                    ""
+                }
             ),
         }
     }
@@ -240,6 +260,9 @@ impl App {
         if d.len() >= 2 && d.last() == d.get(d.len() - 2) {
             d.pop();
         }
+        if kind == view::GeomKind::Polygon && self.polygon_edit(&d) {
+            return;
+        }
         match kind {
             view::GeomKind::Line if d.len() >= 2 => self.add_feature(vec![d]),
             view::GeomKind::Polygon if d.len() >= 3 => {
@@ -250,6 +273,71 @@ impl App {
         }
     }
 
+    /// A line drawn on an area layer can edit the areas instead of making a new one: starting and
+    /// ending inside the same area, it adds the ground it covers outside it as a new area next to
+    /// it; starting and ending outside the areas, it cuts the ones it crosses. Returns whether it
+    /// did either.
+    fn polygon_edit(&mut self, d: &[[f64; 2]]) -> bool {
+        use hipso_core::geomops;
+        let (Some(first), Some(last)) = (d.first().copied(), d.last().copied()) else {
+            return false;
+        };
+        let Some(v) = self.active_vec() else {
+            return false;
+        };
+        let at = |p: [f64; 2]| v.feature_at(p[0], p[1], 0.0);
+        let (fi, li) = (at(first), at(last));
+        let b = d.iter().fold([f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY], |b, p| {
+            [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])]
+        });
+        let near = v.in_window(b);
+        if d.len() >= 3 && fi.is_some() && fi == li {
+            let others: Vec<&[Vec<[f64; 2]>]> = near.iter().map(|&i| v.data.features[i].parts.as_slice()).collect();
+            let parts = geomops::attach(d, &others);
+            if parts.is_empty() {
+                return false;
+            }
+            self.add_feature(parts);
+            self.log("Polígono nuevo adosado al existente.");
+            return true;
+        }
+        if fi.is_none() && li.is_none() && d.len() >= 2 {
+            let cuts: Vec<(usize, Vec<Vec<Vec<[f64; 2]>>>)> = near
+                .iter()
+                .filter_map(|&i| {
+                    let pieces = geomops::cut_by_line(&v.data.features[i].parts, d);
+                    (pieces.len() >= 2).then_some((i, pieces))
+                })
+                .collect();
+            if cuts.is_empty() {
+                return false;
+            }
+            let Some(v) = self.active_vec_mut() else {
+                return false;
+            };
+            v.push_undo();
+            let mut made = 0;
+            for (i, pieces) in cuts {
+                let mut it = pieces.into_iter();
+                if let Some(first) = it.next() {
+                    v.data.features[i].parts = first;
+                    v.update_feature(i);
+                }
+                for parts in it {
+                    let k = v.push_feature(parts);
+                    v.data.text[k] = v.data.text[i].clone();
+                    v.data.num[k] = v.data.num[i].clone();
+                    made += 1;
+                }
+            }
+            v.selected.clear();
+            v.reclassify();
+            self.log(format!("Polígono cortado: {made} parte(s) nueva(s)."));
+            return true;
+        }
+        false
+    }
+
     fn add_feature(&mut self, parts: Vec<Vec<[f64; 2]>>) {
         let Some(v) = self.active_vec_mut() else {
             return;
@@ -258,6 +346,91 @@ impl App {
         let i = v.push_feature(parts);
         v.selected.clear();
         v.selected.insert(i);
+    }
+
+    /// Switches an editing tool on or off. Switching one off ends the editing session of the
+    /// layer: if it changed, the user is asked what to do with the changes.
+    pub fn toggle_edit_tool(&mut self, n: Nav) {
+        self.dig_draft.clear();
+        if self.nav == n {
+            self.end_edit_session();
+            return;
+        }
+        if n != Nav::VecSelect
+            && let Some(v) = self.active_vec_mut()
+            && v.edit_base.is_none()
+        {
+            v.edit_base = Some((v.data.clone(), v.dirty));
+            v.edit_touched = false;
+        }
+        self.nav = n;
+    }
+
+    /// Leaves the editing tools; asks about the changes if there are any.
+    pub fn end_edit_session(&mut self) {
+        let was = self.nav;
+        self.nav = Nav::Zoom;
+        self.dig_draft.clear();
+        let Some(k) = self.active else { return };
+        let touched = self.active_vec().is_some_and(|v| v.edit_touched);
+        if matches!(was, Nav::Digitize | Nav::VecVertex | Nav::VecMove) && touched {
+            self.edit_confirm = Some((k, was));
+        } else if let Some(v) = self.active_vec_mut() {
+            v.edit_base = None;
+        }
+    }
+
+    /// The question asked when an editing tool is switched off after changes.
+    pub fn edit_confirm_window(&mut self, ctx: &egui::Context) {
+        let Some((k, tool)) = self.edit_confirm else { return };
+        let Some(r) = self.refs.get(k) else {
+            self.edit_confirm = None;
+            return;
+        };
+        let name = r.name.clone();
+        let (mut save, mut discard, mut keep, mut back) = (false, false, false, false);
+        egui::Window::new("Cambios en la capa")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label(format!("Has modificado la capa «{name}» en esta sesión de edición."));
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    save = ui.button("Guardar").clicked();
+                    discard = ui.button("Descartar los cambios").clicked();
+                    keep = ui.button("Dejar sin guardar").on_hover_text("Los cambios siguen en la capa, marcada con *").clicked();
+                    back = ui.button("Seguir editando").clicked();
+                });
+            });
+        if back {
+            self.nav = tool;
+            self.edit_confirm = None;
+        } else if save {
+            self.save_layer(k, false);
+            if let Some(RefKind::Vector(v)) = self.refs.get_mut(k).map(|r| &mut r.kind) {
+                v.edit_base = None;
+            }
+            self.edit_confirm = None;
+        } else if discard {
+            if let Some(RefKind::Vector(v)) = self.refs.get_mut(k).map(|r| &mut r.kind)
+                && let Some((data, dirty)) = v.edit_base.take()
+            {
+                v.data = data;
+                v.undo.clear();
+                v.redo.clear();
+                v.selected.clear();
+                v.rebuild();
+                v.reclassify();
+                v.dirty = dirty;
+            }
+            self.edit_confirm = None;
+        } else if keep {
+            if let Some(RefKind::Vector(v)) = self.refs.get_mut(k).map(|r| &mut r.kind) {
+                v.edit_base = None;
+            }
+            self.edit_confirm = None;
+        }
     }
 
     pub fn clear_selection(&mut self) {
@@ -704,6 +877,7 @@ impl App {
             self.table_layer = None;
             return;
         }
+        let t = self.tokens();
         let mut ed = std::mem::take(&mut self.vedit);
         let mut new_field = std::mem::take(&mut self.table_new_field);
         let name = self.refs[k].name.clone();
@@ -712,191 +886,351 @@ impl App {
         let RefKind::Vector(v) = &mut self.refs[k].kind else {
             return;
         };
+        const ROW_H: f32 = 22.0;
+        const HEAD_H: f32 = 28.0;
+        const NUM_W: f32 = 56.0;
         egui::Window::new(format!("Tabla de atributos · {name}"))
             .open(&mut open)
-            .default_size([720.0, 420.0])
+            .default_size([760.0, 460.0])
+            .min_size([360.0, 220.0])
+            .resizable(true)
             .show(ctx, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(format!(
-                        "{} elementos · {} seleccionados · {} campos",
-                        v.data.features.len(),
-                        v.selected.len(),
-                        v.data.fields.len()
-                    ));
-                    ui.checkbox(&mut ed.only_selected, "Solo seleccionados");
-                });
+                // ---- the toolbar
                 ui.horizontal_wrapped(|ui| {
                     if ui.button("Seleccionar todo").clicked() {
                         v.selected = (0..v.data.features.len()).collect();
                     }
                     if ui.button("Invertir").clicked() {
-                        v.selected = (0..v.data.features.len())
-                            .filter(|i| !v.selected.contains(i))
-                            .collect();
+                        v.selected = (0..v.data.features.len()).filter(|i| !v.selected.contains(i)).collect();
                     }
                     if ui.button("Limpiar").clicked() {
                         v.selected.clear();
                     }
-                    if ui.button("Zoom a la selección").clicked() {
+                    if ui.add_enabled(!v.selected.is_empty(), egui::Button::new("Zoom a la selección")).clicked() {
                         zoom = true;
                     }
-                    if ui.button("Eliminar seleccionados").clicked() {
+                    if ui.add_enabled(!v.selected.is_empty(), egui::Button::new("Eliminar")).on_hover_text("Elimina los elementos seleccionados").clicked() {
                         delete = true;
                     }
-                    if ui
-                        .add_enabled(!v.undo.is_empty(), egui::Button::new("Deshacer"))
-                        .clicked()
-                    {
+                    ui.separator();
+                    if ui.add_enabled(!v.undo.is_empty(), egui::Button::new("↶")).on_hover_text("Deshacer").clicked() {
                         undo = 1;
                     }
-                    if ui
-                        .add_enabled(!v.redo.is_empty(), egui::Button::new("Rehacer"))
-                        .clicked()
-                    {
+                    if ui.add_enabled(!v.redo.is_empty(), egui::Button::new("↷")).on_hover_text("Rehacer").clicked() {
                         undo = 2;
                     }
-                    if ui.button("Guardar").clicked() {
+                    if ui.add_enabled(v.dirty, egui::Button::new("Guardar")).clicked() {
                         save = true;
                     }
-                });
-                if !v.data.fields.is_empty() {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label("Seleccionar por atributo:");
+                    ui.separator();
+                    ui.menu_button("Seleccionar por atributo", |ui| {
+                        if v.data.fields.is_empty() {
+                            ui.label("La capa no tiene campos");
+                            return;
+                        }
                         ed.q_field = ed.q_field.min(v.data.fields.len() - 1);
-                        egui::ComboBox::from_id_salt("q_field")
-                            .width(110.0)
-                            .selected_text(v.data.fields[ed.q_field].clone())
-                            .show_ui(ui, |ui| {
-                                for (c, f) in v.data.fields.iter().enumerate() {
-                                    ui.selectable_value(&mut ed.q_field, c, f);
+                        ui.horizontal(|ui| {
+                            egui::ComboBox::from_id_salt("q_field")
+                                .width(110.0)
+                                .selected_text(v.data.fields[ed.q_field].clone())
+                                .show_ui(ui, |ui| {
+                                    for (c, f) in v.data.fields.iter().enumerate() {
+                                        ui.selectable_value(&mut ed.q_field, c, f);
+                                    }
+                                });
+                            egui::ComboBox::from_id_salt("q_op")
+                                .width(70.0)
+                                .selected_text(ed.q_op.name())
+                                .show_ui(ui, |ui| {
+                                    for o in Op::ALL {
+                                        ui.selectable_value(&mut ed.q_op, o, o.name());
+                                    }
+                                });
+                            ui.add(egui::TextEdit::singleline(&mut ed.q_value).desired_width(90.0));
+                        });
+                        ui.horizontal(|ui| {
+                            for (label, mode) in [("Nueva selección", 0u8), ("Añadir", 1), ("Dentro de la selección", 2)] {
+                                if ui.button(label).clicked() {
+                                    v.select_by(ed.q_field, ed.q_op, &ed.q_value, mode);
+                                    ui.close();
                                 }
-                            });
-                        egui::ComboBox::from_id_salt("q_op")
-                            .width(70.0)
-                            .selected_text(ed.q_op.name())
-                            .show_ui(ui, |ui| {
-                                for o in Op::ALL {
-                                    ui.selectable_value(&mut ed.q_op, o, o.name());
-                                }
-                            });
-                        ui.add(egui::TextEdit::singleline(&mut ed.q_value).desired_width(90.0));
-                        for (label, mode) in [
-                            ("Nueva selección", 0u8),
-                            ("Añadir", 1),
-                            ("Dentro de la selección", 2),
-                        ] {
-                            if ui.button(label).clicked() {
-                                v.select_by(ed.q_field, ed.q_op, &ed.q_value, mode);
                             }
+                        });
+                    });
+                    ui.menu_button("Añadir campo", |ui| {
+                        ui.add(egui::TextEdit::singleline(&mut new_field).hint_text("nombre del campo").desired_width(130.0));
+                        if ui.button("Añadir").clicked() && !new_field.trim().is_empty() {
+                            v.push_undo();
+                            v.data.fields.push(new_field.trim().to_string());
+                            for row in &mut v.data.text {
+                                row.push(String::new());
+                            }
+                            for row in &mut v.data.num {
+                                row.push(f64::NAN);
+                            }
+                            new_field.clear();
+                            v.dirty = true;
+                            ui.close();
                         }
                     });
-                }
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut new_field)
-                            .hint_text("nuevo campo")
-                            .desired_width(110.0),
-                    );
-                    if ui.button("Añadir campo").clicked() && !new_field.trim().is_empty() {
-                        v.push_undo();
-                        v.data.fields.push(new_field.trim().to_string());
-                        for row in &mut v.data.text {
-                            row.push(String::new());
-                        }
-                        for row in &mut v.data.num {
-                            row.push(f64::NAN);
-                        }
-                        new_field.clear();
-                        v.dirty = true;
-                    }
+                    ui.checkbox(&mut ed.only_selected, "Solo seleccionados");
                 });
-                ui.separator();
+                ui.add_space(2.0);
+                // ---- the order of the rows
+                let nfields = v.data.fields.len();
+                if ed.sort.is_some_and(|(c, _)| c >= nfields) {
+                    ed.sort = None;
+                }
+                let key = (k, ed.sort, v.data.features.len());
+                if ed.sort_key != Some(key) {
+                    let mut order: Vec<usize> = (0..v.data.features.len()).collect();
+                    if let Some((c, up)) = ed.sort {
+                        let text = |i: usize| v.data.text.get(i).and_then(|r| r.get(c)).map_or("", String::as_str);
+                        let num = |i: usize| v.data.num.get(i).and_then(|r| r.get(c)).copied().unwrap_or(f64::NAN);
+                        let numeric = order.iter().take(200).all(|&i| num(i).is_finite() || text(i).is_empty());
+                        order.sort_by(|&a, &b| {
+                            let o = if numeric {
+                                num(a).partial_cmp(&num(b)).unwrap_or_else(|| num(a).is_nan().cmp(&num(b).is_nan()))
+                            } else {
+                                text(a).to_lowercase().cmp(&text(b).to_lowercase())
+                            };
+                            if up { o } else { o.reverse() }
+                        });
+                    }
+                    ed.order = order;
+                    ed.sort_key = Some(key);
+                }
                 let rows: Vec<usize> = if ed.only_selected {
-                    let mut s: Vec<usize> = v.selected.iter().copied().collect();
-                    s.sort_unstable();
-                    s
+                    ed.order.iter().copied().filter(|i| v.selected.contains(i)).collect()
                 } else {
-                    (0..v.data.features.len()).collect()
+                    ed.order.clone()
                 };
-                let fields = v.data.fields.clone();
+                // ---- the columns: their widths are kept for the layer, and fitted to the content
+                let widths = ed.col_w.entry(k).or_default();
+                widths.resize(nfields + 1, 0.0);
+                widths[0] = NUM_W;
+                for c in 0..nfields {
+                    if widths[c + 1] <= 0.0 {
+                        let longest = v
+                            .data
+                            .text
+                            .iter()
+                            .take(200)
+                            .filter_map(|r| r.get(c))
+                            .map(|s| s.chars().count())
+                            .max()
+                            .unwrap_or(0)
+                            .max(v.data.fields[c].chars().count() + 3);
+                        widths[c + 1] = (longest as f32 * 7.0 + 18.0).clamp(64.0, 260.0);
+                    }
+                }
+                let total_w: f32 = widths.iter().sum();
+                let total_h = HEAD_H + rows.len() as f32 * ROW_H;
+                let mut resized: Option<(usize, f32)> = None;
+                let mut fit: Option<usize> = None;
+                let mut sort_click: Option<usize> = None;
+                let mut start_edit: Option<(usize, usize)> = None;
+                let mut row_click: Option<(usize, bool, bool)> = None;
                 egui::ScrollArea::both()
                     .auto_shrink([false, false])
-                    .show_rows(ui, 22.0, rows.len() + 1, |ui, range| {
-                        egui::Grid::new(("table", k))
-                            .striped(true)
-                            .min_col_width(60.0)
-                            .show(ui, |ui| {
-                                ui.label(egui::RichText::new("#").strong());
-                                for f in &fields {
-                                    ui.label(egui::RichText::new(f).strong());
-                                }
-                                ui.end_row();
-                                for r in range {
-                                    if r == 0 {
-                                        continue;
-                                    }
-                                    let i = rows[r - 1];
-                                    let on = v.selected.contains(&i);
-                                    let resp = ui.selectable_label(on, format!("{}", i + 1));
-                                    if resp.clicked() {
-                                        let (shift, cmd) = ui.input(|inp| {
-                                            (inp.modifiers.shift, inp.modifiers.command)
-                                        });
-                                        if shift && let Some(a) = ed.last_row {
-                                            let (lo, hi) = (a.min(i), a.max(i));
-                                            v.selected.extend(lo..=hi);
-                                        } else if cmd {
-                                            if !v.selected.remove(&i) {
-                                                v.selected.insert(i);
-                                            }
-                                        } else {
-                                            v.selected.clear();
-                                            v.selected.insert(i);
-                                        }
-                                        ed.last_row = Some(i);
-                                    }
-                                    for c in 0..fields.len() {
-                                        let Some(cell) =
-                                            v.data.text.get_mut(i).and_then(|row| row.get_mut(c))
-                                        else {
-                                            continue;
-                                        };
-                                        let before = cell.clone();
-                                        let rr = ui.add(
-                                            egui::TextEdit::singleline(cell).desired_width(100.0),
-                                        );
-                                        if rr.gained_focus() {
+                    .show_viewport(ui, |ui, view| {
+                        let (area, _) = ui.allocate_exact_size(Vec2::new(total_w, total_h), Sense::hover());
+                        let painter = ui.painter_at(ui.clip_rect());
+                        let first = (((view.min.y - HEAD_H) / ROW_H).floor().max(0.0)) as usize;
+                        let last = (((view.max.y - HEAD_H) / ROW_H).ceil().max(0.0) as usize + 1).min(rows.len());
+                        let mut xs = vec![area.left()];
+                        for w in widths.iter() {
+                            xs.push(xs.last().copied().unwrap_or(0.0) + w);
+                        }
+                        for r in first..last {
+                            let i = rows[r];
+                            let y = area.top() + HEAD_H + r as f32 * ROW_H;
+                            let row_rect = Rect::from_min_size(Pos2::new(area.left(), y), Vec2::new(total_w, ROW_H));
+                            let on = v.selected.contains(&i);
+                            let fill = if on {
+                                t.selection
+                            } else if r % 2 == 1 {
+                                t.hover.gamma_multiply(0.45)
+                            } else {
+                                Color32::TRANSPARENT
+                            };
+                            painter.rect_filled(row_rect, 0.0, fill);
+                            // row number: click selects the row
+                            let num_rect = Rect::from_min_max(row_rect.min, Pos2::new(xs[1], y + ROW_H));
+                            let nr = ui.interact(num_rect, ui.id().with(("tn", i)), Sense::click());
+                            painter.rect_filled(num_rect, 0.0, t.header);
+                            painter.text(
+                                Pos2::new(xs[1] - 8.0, y + ROW_H / 2.0),
+                                Align2::RIGHT_CENTER,
+                                format!("{}", i + 1),
+                                FontId::proportional(11.5),
+                                if on { t.accent } else { t.weak },
+                            );
+                            if nr.clicked() {
+                                let (shift, cmd) = ui.input(|inp| (inp.modifiers.shift, inp.modifiers.command));
+                                row_click = Some((i, shift, cmd));
+                            }
+                            for c in 0..nfields {
+                                let cell = Rect::from_min_max(Pos2::new(xs[c + 1], y), Pos2::new(xs[c + 2], y + ROW_H));
+                                if ed.editing == Some((i, c)) {
+                                    let Some(text) = v.data.text.get_mut(i).and_then(|row| row.get_mut(c)) else { continue };
+                                    let before = text.clone();
+                                    let resp = ui.put(cell.shrink2(Vec2::new(1.0, 0.0)), egui::TextEdit::singleline(text).margin(Vec2::new(5.0, 2.0)));
+                                    if resp.changed() {
+                                        let after = v.data.text[i][c].clone();
+                                        let val = after.trim().replace(',', ".").parse().unwrap_or(f64::NAN);
+                                        // the undo point is the cell as it was on entering it
+                                        if ed.cell_old.as_ref().is_none_or(|o| o.0 != i || o.1 != c) {
+                                            let mut snap = v.data.clone();
+                                            snap.text[i][c] = before.clone();
+                                            snap.num[i][c] = before.trim().replace(',', ".").parse().unwrap_or(f64::NAN);
+                                            v.undo.push(snap);
+                                            v.redo.clear();
+                                            v.edit_touched = true;
                                             ed.cell_old = Some((i, c, before));
                                         }
-                                        if rr.changed() {
-                                            let after = v.data.text[i][c].clone();
-                                            let val = after.trim().parse().unwrap_or(f64::NAN);
-                                            // the undo point is the cell as it was on entering it
-                                            if let Some((_, _, old)) =
-                                                ed.cell_old.take().filter(|o| o.0 == i && o.1 == c)
-                                            {
-                                                let mut snap = v.data.clone();
-                                                snap.num[i][c] =
-                                                    old.trim().parse().unwrap_or(f64::NAN);
-                                                snap.text[i][c] = old;
-                                                v.undo.push(snap);
-                                                v.redo.clear();
-                                            }
-                                            if let Some(x) =
-                                                v.data.num.get_mut(i).and_then(|row| row.get_mut(c))
-                                            {
-                                                *x = val;
-                                            }
-                                            v.dirty = true;
-                                            if v.sym.field == Some(c) || v.labels.field == Some(c) {
-                                                v.reclassify();
-                                            }
+                                        if let Some(x) = v.data.num.get_mut(i).and_then(|row| row.get_mut(c)) {
+                                            *x = val;
+                                        }
+                                        v.dirty = true;
+                                        if ed.sort.is_some_and(|(sc, _)| sc == c) {
+                                            ed.sort_key = None;
+                                        }
+                                        if v.sym.field == Some(c) || v.labels.field == Some(c) {
+                                            v.reclassify();
                                         }
                                     }
-                                    ui.end_row();
+                                    if resp.lost_focus() {
+                                        ed.editing = None;
+                                        ed.cell_old = None;
+                                    } else if !resp.has_focus() {
+                                        resp.request_focus();
+                                    }
+                                    continue;
                                 }
-                            });
+                                let cr = ui.interact(cell, ui.id().with(("tc", i, c)), Sense::click());
+                                if cr.double_clicked() {
+                                    start_edit = Some((i, c));
+                                } else if cr.clicked() {
+                                    let (shift, cmd) = ui.input(|inp| (inp.modifiers.shift, inp.modifiers.command));
+                                    row_click = Some((i, shift, cmd));
+                                }
+                                let text = v.data.text.get(i).and_then(|row| row.get(c)).map_or("", String::as_str);
+                                let numeric = v.data.num.get(i).and_then(|row| row.get(c)).is_some_and(|x| x.is_finite());
+                                let clip = painter.with_clip_rect(cell.shrink2(Vec2::new(0.0, 0.0)).intersect(ui.clip_rect()));
+                                clip.text(
+                                    if numeric { Pos2::new(cell.right() - 6.0, y + ROW_H / 2.0) } else { Pos2::new(cell.left() + 6.0, y + ROW_H / 2.0) },
+                                    if numeric { Align2::RIGHT_CENTER } else { Align2::LEFT_CENTER },
+                                    text,
+                                    FontId::proportional(12.0),
+                                    t.text,
+                                );
+                            }
+                            // grid lines
+                            painter.line_segment([Pos2::new(row_rect.left(), y + ROW_H), Pos2::new(row_rect.right(), y + ROW_H)], Stroke::new(1.0, t.border.gamma_multiply(0.5)));
+                        }
+                        for x in &xs[1..] {
+                            painter.line_segment(
+                                [Pos2::new(*x, area.top() + HEAD_H), Pos2::new(*x, area.bottom())],
+                                Stroke::new(1.0, t.border.gamma_multiply(0.5)),
+                            );
+                        }
+                        // ---- the header stays at the top of the view
+                        let top = area.top() + view.min.y;
+                        let head = Rect::from_min_size(Pos2::new(area.left(), top), Vec2::new(total_w, HEAD_H));
+                        painter.rect_filled(head, 0.0, t.header);
+                        painter.line_segment([head.left_bottom(), head.right_bottom()], Stroke::new(1.0, t.border));
+                        for c in 0..nfields {
+                            let cell = Rect::from_min_max(Pos2::new(xs[c + 1], top), Pos2::new(xs[c + 2], top + HEAD_H));
+                            let hr = ui.interact(cell.with_max_x(cell.right() - 6.0), ui.id().with(("th", c)), Sense::click());
+                            if hr.hovered() {
+                                painter.rect_filled(cell, 0.0, t.hover);
+                            }
+                            if hr.clicked() {
+                                sort_click = Some(c);
+                            }
+                            let arrow = match ed.sort {
+                                Some((sc, up)) if sc == c => {
+                                    if up { " ▲" } else { " ▼" }
+                                }
+                                _ => "",
+                            };
+                            painter.with_clip_rect(cell.intersect(ui.clip_rect())).text(
+                                Pos2::new(cell.left() + 6.0, top + HEAD_H / 2.0),
+                                Align2::LEFT_CENTER,
+                                format!("{}{arrow}", v.data.fields[c]),
+                                FontId::proportional(12.0),
+                                t.text,
+                            );
+                            // the right edge drags to resize; a double click fits the content
+                            let handle = Rect::from_min_max(Pos2::new(cell.right() - 4.0, top), Pos2::new(cell.right() + 4.0, top + HEAD_H));
+                            let hd = ui.interact(handle, ui.id().with(("tr", c)), Sense::click_and_drag());
+                            if hd.hovered() || hd.dragged() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);
+                                painter.line_segment([Pos2::new(cell.right(), top + 3.0), Pos2::new(cell.right(), top + HEAD_H - 3.0)], Stroke::new(2.0, t.accent));
+                            }
+                            if hd.double_clicked() {
+                                fit = Some(c);
+                            } else if hd.dragged() {
+                                resized = Some((c, (cell.width() + hd.drag_delta().x).max(36.0)));
+                            }
+                        }
+                        painter.text(
+                            Pos2::new(xs[1] - 8.0, top + HEAD_H / 2.0),
+                            Align2::RIGHT_CENTER,
+                            "#",
+                            FontId::proportional(12.0),
+                            t.weak,
+                        );
                     });
+                if let Some((c, w)) = resized
+                    && let Some(slot) = ed.col_w.get_mut(&k).and_then(|ws| ws.get_mut(c + 1))
+                {
+                    *slot = w;
+                }
+                if let Some(c) = fit
+                    && let Some(slot) = ed.col_w.get_mut(&k).and_then(|ws| ws.get_mut(c + 1))
+                {
+                    *slot = 0.0;
+                }
+                if let Some(c) = sort_click {
+                    ed.sort = match ed.sort {
+                        Some((sc, true)) if sc == c => Some((c, false)),
+                        Some((sc, false)) if sc == c => None,
+                        _ => Some((c, true)),
+                    };
+                }
+                if let Some((i, shift, cmd)) = row_click {
+                    ed.editing = None;
+                    if shift && let Some(a) = ed.last_row {
+                        let (lo, hi) = (a.min(i), a.max(i));
+                        v.selected.extend(lo..=hi);
+                    } else if cmd {
+                        if !v.selected.remove(&i) {
+                            v.selected.insert(i);
+                        }
+                    } else {
+                        v.selected.clear();
+                        v.selected.insert(i);
+                    }
+                    ed.last_row = Some(i);
+                }
+                if let Some(cell) = start_edit {
+                    ed.editing = Some(cell);
+                    ed.cell_old = None;
+                }
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} de {} elementos seleccionados · {} campos{}",
+                        v.selected.len(),
+                        v.data.features.len(),
+                        nfields,
+                        if v.dirty { " · cambios sin guardar" } else { "" }
+                    ))
+                    .size(11.5)
+                    .color(t.weak),
+                );
             });
         let sel_bounds = v.selection_bounds();
         match undo {
@@ -907,6 +1241,9 @@ impl App {
                 v.redo();
             }
             _ => {}
+        }
+        if undo != 0 || delete {
+            ed.sort_key = None;
         }
         if delete && !v.selected.is_empty() {
             v.push_undo();

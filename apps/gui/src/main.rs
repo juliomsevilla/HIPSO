@@ -6,9 +6,9 @@
 mod aba_plots;
 mod aba_ui;
 mod align_ui;
+mod rasterops_ui;
 mod reproject_ui;
 mod vector_ui;
-mod roads_ui;
 mod backstage;
 mod basemap;
 mod brand;
@@ -324,11 +324,11 @@ enum Action {
     Obia,
     Align,
     Reproject,
+    RasterOps,
     VectorOps,
     Change,
     Model,
     Corridor,
-    Roads,
     ClearMarks,
     ToggleTheme,
     NorthUp,
@@ -353,6 +353,10 @@ struct App {
     tab: usize,
     nav: Nav,
     layout: Layout,
+    /// Where the dividers between the views are, as fractions of the space: the height of the
+    /// plan over the profile, the width of the plan beside the other two and the height of the
+    /// profile over the 3D view.
+    split: [f32; 3],
     side: Side,
     show_log: bool,
     /// A field to colour the next vector layer by, once (for screenshots).
@@ -402,6 +406,10 @@ struct App {
     sel_layer: Option<usize>,
     img_jobs: Vec<rs::ImageJob>,
     dig_draft: Vec<[f64; 2]>,
+    /// The layer whose editing session just ended with changes, and the tool that was on.
+    edit_confirm: Option<(usize, Nav)>,
+    /// The ribbon was on the vector editing tab the last time it was drawn.
+    on_edit_tab: bool,
     new_layer: Option<layers::NewLayerDlg>,
     /// A GeoPackage with several tables: which of them to open.
     gpkg_pick: Option<(PathBuf, Vec<(String, bool)>)>,
@@ -416,6 +424,9 @@ struct App {
     line_weight: f32,
     measure: Vec<[f64; 3]>,
     query: Option<usize>,
+    /// What the query tool found at the point it was last used: the point and the card of text
+    /// it shows, which stays until it is closed or a click finds nothing.
+    query_card: Option<([f64; 3], Vec<String>)>,
     density: Option<String>,
     drag_start: Option<Pos2>,
     cursor_map: Option<(f64, f64)>,
@@ -434,8 +445,8 @@ struct App {
     ot: obia_ui::ObiaTool,
     at: align_ui::AlignTool,
     rp: reproject_ui::ReprojectTool,
+    ro: rasterops_ui::RasterOpsTool,
     vt: vector_ui::VectorTool,
-    rd: roads_ui::RoadTool,
     ct: change_ui::ChangeTool,
     mo: aba_ui::ModelTool,
     co: corridor_ui::CorridorTool,
@@ -482,6 +493,7 @@ impl Default for App {
             tab: 0,
             nav: Nav::Zoom,
             layout: Layout::Plan,
+            split: [0.64, 0.56, 0.5],
             side: Side::Layers,
             auto_categorize: None,
             hide_log: false,
@@ -534,6 +546,8 @@ impl Default for App {
             sel_layer: None,
             img_jobs: Vec::new(),
             dig_draft: Vec::new(),
+            edit_confirm: None,
+            on_edit_tab: false,
             new_layer: None,
             gpkg_pick: None,
             table_layer: None,
@@ -545,6 +559,7 @@ impl Default for App {
             line_weight: 2.0,
             measure: Vec::new(),
             query: None,
+            query_card: None,
             density: None,
             drag_start: None,
             cursor_map: None,
@@ -565,8 +580,8 @@ impl Default for App {
             ot: obia_ui::ObiaTool::default(),
             at: align_ui::AlignTool::default(),
             rp: reproject_ui::ReprojectTool::default(),
+            ro: rasterops_ui::RasterOpsTool::default(),
             vt: vector_ui::VectorTool::default(),
-            rd: roads_ui::RoadTool::default(),
             ct: change_ui::ChangeTool::default(),
             mo: aba_ui::ModelTool::default(),
             co: corridor_ui::CorridorTool::default(),
@@ -590,6 +605,24 @@ impl Default for App {
 }
 
 /// Area and perimeter of the measured points taken as a closed polygon (three points or more).
+/// A small × at the top right corner of a card drawn on the map; true when it is clicked.
+fn close_button(ui: &mut egui::Ui, painter: &egui::Painter, card: Rect, id: &str) -> bool {
+    let r = Rect::from_center_size(card.right_top() + Vec2::new(-11.0, 11.0), Vec2::splat(16.0));
+    let resp = ui.interact(r, egui::Id::new(id), Sense::click());
+    let col = if resp.hovered() { Color32::WHITE } else { Color32::from_gray(170) };
+    if resp.hovered() {
+        painter.rect_filled(r, 3.0, Color32::from_white_alpha(40));
+    }
+    let c = r.center();
+    for (a, b) in [((-3.5, -3.5), (3.5, 3.5)), ((-3.5, 3.5), (3.5, -3.5))] {
+        painter.line_segment(
+            [c + Vec2::new(a.0, a.1), c + Vec2::new(b.0, b.1)],
+            Stroke::new(1.5, col),
+        );
+    }
+    resp.on_hover_text("Cerrar").clicked()
+}
+
 fn polygon_text(pts: &[[f64; 3]]) -> String {
     if pts.len() < 3 {
         return String::new();
@@ -825,11 +858,11 @@ impl App {
                     Some("obia") => Action::Obia,
                     Some("align") => Action::Align,
                     Some("reproject") => Action::Reproject,
+                    Some("rasterops") => Action::RasterOps,
                     Some("vector") => Action::VectorOps,
                     Some("change") => Action::Change,
                     Some("model") => Action::Model,
                     Some("corridor") => Action::Corridor,
-                    Some("roads") => Action::Roads,
                     Some("classes") => Action::Classes,
                     Some("about") => Action::About,
                     Some("manual") => Action::Manual,
@@ -997,9 +1030,9 @@ impl App {
                 menus: vec![],
                 columns: vec![
                     vec![
-                        other("ℹ", "Información", false, Action::Info),
                         tool("@crs", "Asignar proyección", ToolId::Crs),
                         tool("@export", "Exportar puntos", ToolId::Export),
+                        tool("@clip", "Recortar con polígonos", ToolId::ClipPoly),
                     ],
                     vec![
                         tool("@thin", "Adelgazar nube", ToolId::Thin),
@@ -1009,7 +1042,6 @@ impl App {
                     vec![
                         tool("@colorize", "Colorear con imagen", ToolId::Colorize),
                         tool("@intensity", "Normalizar intensidad", ToolId::Intensity),
-                        tool("@copc", "Guardar como COPC", ToolId::Copc),
                     ],
                 ],
             },
@@ -1040,41 +1072,37 @@ impl App {
                         Action::Terrain,
                     ),
                     tool("@volume", "Volumen sobre MDT", ToolId::Volume),
-                ]],
-            },
-            Group {
-                caption: "ALS",
-                icon: "@metrics",
-                big: vec![],
-                menus: vec![ribbon::Menu {
-                    icon: "@metrics",
-                    label: "Métodos\nde masa",
-                    items: vec![
-                        tool("@metrics", "Métricas por celda", ToolId::Metrics),
-                        tool("@clip", "Extraer muestras", ToolId::Clip),
-                        other(
-                            "@model",
-                            "Modelos de transición",
-                            self.mo.open,
-                            Action::Model,
-                        ),
-                    ],
-                }],
-                columns: vec![vec![
-                    tool("@segment", "Segmentar individuos", ToolId::Trees),
                     other(
                         "@change",
                         "Cambio de la cubierta vegetal",
                         self.ct.open,
                         Action::Change,
                     ),
+                ]],
+            },
+            Group {
+                caption: "ALS",
+                icon: "@metrics",
+                big: vec![
+                    tool("@clip", "Extraer\nmuestras", ToolId::Clip),
+                    tool("@metrics", "Métricas\npor celda", ToolId::Metrics),
+                    other(
+                        "@model",
+                        "Modelos\nlineales",
+                        self.mo.open,
+                        Action::Model,
+                    ),
+                ],
+                menus: vec![],
+                columns: vec![vec![
+                    tool("@segment", "Segmentar individuos", ToolId::Trees),
                     other("@obia", "Análisis por objetos", self.ot.open, Action::Obia),
                 ]],
             },
             Group {
                 caption: "TLS",
                 icon: "@tree",
-                big: vec![tool("@tree", "Medición de troncos (TLS)", ToolId::Tls)],
+                big: vec![tool("@tree", "Medición\nde troncos", ToolId::Tls)],
                 menus: vec![],
                 columns: vec![],
             },
@@ -1088,7 +1116,6 @@ impl App {
                         self.co.open,
                         Action::Corridor,
                     ),
-                    other("@road", "Carreteras\ny vías", self.rd.open, Action::Roads),
                 ],
                 menus: vec![],
                 columns: vec![],
@@ -1160,6 +1187,16 @@ impl App {
             ));
         }
         self.run_info(ctx);
+    }
+
+    /// The report of the Información tab: the clouds, then the other layers.
+    fn info_full(&mut self) -> String {
+        let layers = self.layers_report();
+        match (self.info_text.is_empty(), layers.is_empty()) {
+            (_, true) => self.info_text.clone(),
+            (true, false) => layers,
+            (false, false) => format!("{}\n\n{layers}", self.info_text),
+        }
     }
 
     fn run_info(&mut self, ctx: &egui::Context) {
@@ -1290,6 +1327,7 @@ impl App {
                             }
                         }
                     }
+                    self.conform_to_undeclared_cloud(s.bounds);
                     // layers that were opened before the cloud are moved to its system now
                     for q in std::mem::take(&mut self.pending_conform) {
                         if self.crs_move(&q).is_some() {
@@ -1757,11 +1795,11 @@ impl App {
             Action::Obia => self.ot.open = true,
             Action::Align => self.at.open = true,
             Action::Reproject => self.rp.open = true,
+            Action::RasterOps => self.ro.open = true,
             Action::VectorOps => self.vt.open = true,
             Action::Change => self.ct.open = true,
             Action::Model => self.mo.open = true,
             Action::Corridor => self.co.open = true,
-            Action::Roads => self.rd.open = true,
             Action::ClearMarks => {
                 self.measure.clear();
                 self.density = None;
@@ -1834,6 +1872,10 @@ impl App {
                 Action::Reproject,
             ),
             (
+                "Operaciones ráster: tamizar, proximidad y relleno de huecos",
+                Action::RasterOps,
+            ),
+            (
                 "Capas vectoriales: estadística zonal, validar, búfer, disolver, unión",
                 Action::VectorOps,
             ),
@@ -1850,16 +1892,12 @@ impl App {
                 Action::Change,
             ),
             (
-                "Modelos de transición (regresión de una variable de campo sobre las métricas LiDAR de las unidades de muestreo)",
+                "Modelos lineales (regresión de una variable de campo sobre las métricas LiDAR de las unidades de muestreo)",
                 Action::Model,
             ),
             (
                 "Corredores eléctricos (conductores, postes y vegetación en riesgo)",
                 Action::Corridor,
-            ),
-            (
-                "Carreteras y vías (ejes y anchura a partir del suelo clasificado)",
-                Action::Roads,
             ),
             (
                 "Editar: seleccionar con rectángulo",
@@ -1878,7 +1916,7 @@ impl App {
             ("Clasificar puntos", Action::Tool(ToolId::Classify)),
             ("Asignar sistema de coordenadas", Action::Tool(ToolId::Crs)),
             ("Adelgazar nube (decimar)", Action::Tool(ToolId::Thin)),
-            ("Medición de troncos (TLS)", Action::Tool(ToolId::Tls)),
+            ("Medición de troncos", Action::Tool(ToolId::Tls)),
             ("Volúmenes respecto al MDT", Action::Tool(ToolId::Volume)),
             ("Quitar puntos duplicados", Action::Tool(ToolId::Dups)),
             ("Alturas sobre el suelo", Action::Tool(ToolId::Hag)),
@@ -1890,8 +1928,7 @@ impl App {
                 "Normalizar la intensidad por distancia",
                 Action::Tool(ToolId::Intensity),
             ),
-            ("Guardar como COPC", Action::Tool(ToolId::Copc)),
-            ("Comparar nubes (cambios)", Action::Tool(ToolId::Compare)),
+                        ("Comparar nubes (cambios)", Action::Tool(ToolId::Compare)),
             ("Ajustar una nube a otra", Action::Tool(ToolId::Fit)),
             ("Separación entre pasadas", Action::Tool(ToolId::Swath)),
             ("Calcular MDT", Action::Tool(ToolId::Dtm)),
@@ -2011,6 +2048,23 @@ impl App {
                     self.backstage = false;
                 }
                 self.tab = tab;
+                // the editing tools start off whenever the editing tab is opened
+                let on_edit = self.tab == FIRST_EXTRA + 1
+                    && matches!(
+                        self.sel_layer.and_then(|k| self.refs.get(k)).map(|r| &r.kind),
+                        Some(RefKind::Vector(_))
+                    );
+                if on_edit
+                    && !self.on_edit_tab
+                    && matches!(
+                        self.nav,
+                        Nav::Digitize | Nav::VecSelect | Nav::VecVertex | Nav::VecMove
+                    )
+                {
+                    self.nav = Nav::Zoom;
+                    self.dig_draft.clear();
+                }
+                self.on_edit_tab = on_edit;
             });
         if self.backstage {
             return;
@@ -2030,7 +2084,7 @@ impl App {
                     .show(ui, |ui| {
                         ui.horizontal(|ui| match self.tab {
                             0 => {
-                                ribbon::group(ui, &t, "Proyecto", |ui| {
+                                ribbon::group(ui, &t, "Archivo", |ui| {
                                     if ribbon::big_button(ui, &t, "@save", "Guardar\nproyecto", false)
                                         .on_hover_text("Guarda qué nubes y capas están abiertas y cómo se ve (archivo .hipso).")
                                         .clicked()
@@ -2042,9 +2096,8 @@ impl App {
                                     {
                                         self.act(ctx, Action::OpenProject);
                                     }
-                                });
-                                ribbon::group(ui, &t, "Archivo", |ui| {
-                                    if ribbon::big_button(ui, &t, "@adddata", "Abrir", false).clicked()
+                                    if ribbon::big_button(ui, &t, "@adddata", "Añadir nubes\ny capas", false)
+                                        .clicked()
                                     {
                                         self.act(ctx, Action::Open);
                                     }
@@ -2078,11 +2131,6 @@ impl App {
                                         if let Some(f) = reopen {
                                             self.open_files(ctx, vec![f]);
                                         }
-                                        if ribbon::small_button(ui, &t, "ℹ", "Información", false)
-                                            .clicked()
-                                        {
-                                            self.act(ctx, Action::Info);
-                                        }
                                         if ribbon::small_button(ui, &t, "✖", "Cerrar todo", false)
                                             .clicked()
                                         {
@@ -2107,30 +2155,17 @@ impl App {
                                     {
                                         self.act(ctx, Action::LayerTable);
                                     }
-                                    ui.vertical(|ui| {
-                                        if ribbon::small_button(
-                                            ui,
-                                            &t,
-                                            "@pencil",
-                                            "Digitalizar",
-                                            self.nav == Nav::Digitize,
-                                        )
-                                        .clicked()
-                                        {
-                                            self.act(ctx, Action::Nav(Nav::Digitize));
-                                        }
-                                        if ribbon::small_button(
-                                            ui,
-                                            &t,
-                                            "@save",
-                                            "Guardar capa",
-                                            false,
-                                        )
-                                        .clicked()
-                                        {
-                                            self.act(ctx, Action::SaveLayer);
-                                        }
-                                    });
+                                    if ribbon::big_button(
+                                        ui,
+                                        &t,
+                                        "@zonal",
+                                        "Geoprocesos",
+                                        self.vt.open,
+                                    )
+                                    .clicked()
+                                    {
+                                        self.act(ctx, Action::VectorOps);
+                                    }
                                 });
                                 ribbon::group(ui, &t, "Ráster", |ui| {
                                     if ribbon::big_button(
@@ -2178,6 +2213,8 @@ impl App {
                                         {
                                             self.act(ctx, Action::RasterTool(1));
                                         }
+                                    });
+                                    ui.vertical(|ui| {
                                         if ribbon::small_button(
                                             ui,
                                             &t,
@@ -2203,13 +2240,13 @@ impl App {
                                         if ribbon::small_button(
                                             ui,
                                             &t,
-                                            "@zonal",
-                                            "Vector",
-                                            self.vt.open,
+                                            "@stack",
+                                            "Operaciones ráster",
+                                            self.ro.open,
                                         )
                                         .clicked()
                                         {
-                                            self.act(ctx, Action::VectorOps);
+                                            self.act(ctx, Action::RasterOps);
                                         }
                                     });
                                 });
@@ -2270,7 +2307,7 @@ impl App {
                                         if ribbon::small_button(
                                             ui,
                                             &t,
-                                            "@full",
+                                            "@relink",
                                             "Refrescar 3D",
                                             false,
                                         )
@@ -2542,7 +2579,12 @@ impl App {
                                         )
                                         .clicked()
                                         {
-                                            self.act(ctx, Action::Nav(Nav::Measure));
+                                            let to = if self.nav == Nav::Measure {
+                                                Nav::Zoom
+                                            } else {
+                                                Nav::Measure
+                                            };
+                                            self.act(ctx, Action::Nav(to));
                                         }
                                         ui.horizontal(|ui| {
                                         if ribbon::small_button(
@@ -2642,29 +2684,31 @@ ui.menu_button("⚙", |ui| {
                             }
                             if ui
                                 .add_enabled(
-                                    !self.info_text.is_empty(),
+                                    !(self.info_text.is_empty() && self.refs.is_empty()),
                                     egui::Button::new("⧉ Copiar todo"),
                                 )
                                 .on_hover_text("Copia todo el informe al portapapeles")
                                 .clicked()
                             {
-                                ctx.copy_text(self.info_text.clone());
+                                let all = self.info_full();
+                                ctx.copy_text(all);
                                 self.log("Información copiada al portapapeles.");
                             }
                         });
+                        let full = self.info_full();
                         egui::ScrollArea::both()
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
                                 ui.add(
                                     egui::Label::new(
-                                        egui::RichText::new(&self.info_text).monospace().size(11.5),
+                                        egui::RichText::new(&full).monospace().size(11.5),
                                     )
                                     .selectable(true)
                                     .wrap_mode(egui::TextWrapMode::Extend),
                                 )
                                 .context_menu(|ui| {
                                     if ui.button("Copiar todo").clicked() {
-                                        ctx.copy_text(self.info_text.clone());
+                                        ctx.copy_text(full.clone());
                                         ui.close();
                                     }
                                 });
@@ -2844,7 +2888,7 @@ ui.menu_button("⚙", |ui| {
                     Layout::Plan => (Some(full), None, None),
                     Layout::View3d => (None, None, Some(full)),
                     Layout::PlanProfile => {
-                        let h = full.height() * 0.64;
+                        let h = full.height() * self.split[0];
                         (
                             Some(Rect::from_min_size(
                                 full.min,
@@ -2858,8 +2902,8 @@ ui.menu_button("⚙", |ui| {
                         )
                     }
                     Layout::All => {
-                        let w = full.width() * 0.56;
-                        let h = full.height() * 0.5;
+                        let w = full.width() * self.split[1];
+                        let h = full.height() * self.split[2];
                         (
                             Some(Rect::from_min_size(
                                 full.min,
@@ -2885,8 +2929,49 @@ ui.menu_button("⚙", |ui| {
                 if let Some(r) = d3 {
                     self.view_3d(ui, ctx, r);
                 }
+                self.dividers(ui, full);
                 self.sync_views();
             });
+    }
+
+    /// The bars between the views, to drag to resize them when two or more are showing.
+    fn dividers(&mut self, ui: &mut egui::Ui, full: Rect) {
+        let t = self.tokens();
+        let bar = |ui: &mut egui::Ui, id: &str, r: Rect, vertical: bool| -> Option<Pos2> {
+            let resp = ui.interact(r, ui.id().with(id), Sense::drag());
+            if resp.hovered() || resp.dragged() {
+                ui.ctx().set_cursor_icon(if vertical {
+                    egui::CursorIcon::ResizeHorizontal
+                } else {
+                    egui::CursorIcon::ResizeVertical
+                });
+                ui.painter().rect_filled(r, 0.0, t.accent.gamma_multiply(0.5));
+            }
+            resp.dragged().then(|| resp.interact_pointer_pos()).flatten()
+        };
+        let frac = |v: f32, lo: f32, hi: f32| v.clamp(lo, hi);
+        match self.layout {
+            Layout::PlanProfile => {
+                let y = full.top() + full.height() * self.split[0];
+                let r = Rect::from_min_max(Pos2::new(full.left(), y - 4.0), Pos2::new(full.right(), y + 1.0));
+                if let Some(p) = bar(ui, "split_h", r, false) {
+                    self.split[0] = frac((p.y - full.top()) / full.height().max(1.0), 0.15, 0.85);
+                }
+            }
+            Layout::All => {
+                let x = full.left() + full.width() * self.split[1];
+                let y = full.top() + full.height() * self.split[2];
+                let rv = Rect::from_min_max(Pos2::new(x - 4.0, full.top()), Pos2::new(x + 1.0, full.bottom()));
+                let rh = Rect::from_min_max(Pos2::new(x + 1.0, y - 4.0), Pos2::new(full.right(), y + 1.0));
+                if let Some(p) = bar(ui, "split_v", rv, true) {
+                    self.split[1] = frac((p.x - full.left()) / full.width().max(1.0), 0.2, 0.8);
+                }
+                if let Some(p) = bar(ui, "split_r", rh, false) {
+                    self.split[2] = frac((p.y - full.top()) / full.height().max(1.0), 0.15, 0.85);
+                }
+            }
+            _ => {}
+        }
     }
 
     fn frame_title(&self, ui: &egui::Ui, rect: Rect, title: &str) {
@@ -3077,6 +3162,26 @@ ui.menu_button("⚙", |ui| {
                     self.query = store
                         .as_ref()
                         .and_then(|s| view::nearest_point(s, &self.style, m.0, m.1, tol));
+                    self.query_card = self.query.zip(store.as_ref()).and_then(|(i, store)| {
+                        (i < store.len()).then(|| {
+                            let p = store.xyz(i);
+                            let class = store.class[i];
+                            (
+                                p,
+                                vec![
+                                    format!("X {:.2}   Y {:.2}   Z {:.2}", p[0], p[1], p[2]),
+                                    format!("Clase {class} · {}", inspect::class_name(class)),
+                                    format!(
+                                        "Intensidad {}   Retorno {} de {}   Fuente {}",
+                                        store.intensity[i],
+                                        store.ret[i] & 15,
+                                        store.ret[i] >> 4,
+                                        store.src[i]
+                                    ),
+                                ],
+                            )
+                        })
+                    });
                     self.ident = self.identify(m.0, m.1, tol);
                 }
             }
@@ -3311,51 +3416,61 @@ ui.menu_button("⚙", |ui| {
             }
             if self.measure.len() >= 2 {
                 let l = self.measure[self.measure.len() - 1];
-                let pos = m2s(self, l[0], l[1]) + Vec2::new(8.0, -8.0);
+                let pos = m2s(self, l[0], l[1]) + Vec2::new(10.0, -10.0);
                 let q = self.measure[self.measure.len() - 2];
                 let dz = if l[2].is_nan() || q[2].is_nan() {
                     f64::NAN
                 } else {
                     l[2] - q[2]
                 };
-                painter.text(
-                    pos,
-                    Align2::LEFT_BOTTOM,
+                let mut lines = vec![
                     format!(
-                        "{:.2} m (último tramo)   total {:.2} m   3D {:.2} m   Δz {}{}",
+                        "Último tramo {:.2} m   Total {:.2} m",
                         (l[0] - q[0]).hypot(l[1] - q[1]),
-                        total,
+                        total
+                    ),
+                    format!(
+                        "3D {:.2} m   Δz {}",
                         total3,
                         if dz.is_nan() {
                             "—".into()
                         } else {
                             format!("{dz:+.2} m")
-                        },
-                        polygon_text(&self.measure)
+                        }
                     ),
-                    FontId::proportional(12.0),
-                    Color32::from_rgb(120, 255, 120),
+                ];
+                let area = polygon_text(&self.measure);
+                if !area.is_empty() {
+                    lines.push(area.trim_start_matches(|c: char| c == ' ' || c == '|').trim().to_string());
+                }
+                let size = Vec2::new(
+                    lines
+                        .iter()
+                        .map(|l| painter.layout_no_wrap(l.clone(), FontId::proportional(12.0), Color32::WHITE).size().x)
+                        .fold(0.0, f32::max)
+                        + 16.0,
+                    lines.len() as f32 * 17.0 + 10.0,
                 );
+                // beside the last point, kept inside the view
+                let mut at = pos - Vec2::new(0.0, size.y);
+                at.x = at.x.min(rect.right() - size.x - 6.0).max(rect.left() + 6.0);
+                at.y = at.y.max(rect.top() + 6.0).min(rect.bottom() - size.y - 6.0);
+                let card = Rect::from_min_size(at, size);
+                painter.rect_filled(card, 4.0, Color32::from_black_alpha(190));
+                for (k, l) in lines.iter().enumerate() {
+                    painter.text(
+                        card.min + Vec2::new(8.0, 5.0 + k as f32 * 17.0),
+                        Align2::LEFT_TOP,
+                        l,
+                        FontId::proportional(12.0),
+                        Color32::from_rgb(120, 255, 120),
+                    );
+                }
             }
         }
-        if let (Some(i), Some(store)) = (self.query, &store)
-            && i < store.len()
-        {
-            let p = store.xyz(i);
+        if let Some((p, lines)) = self.query_card.clone() {
             let c = m2s(self, p[0], p[1]);
             painter.circle_stroke(c, 7.0, Stroke::new(2.0, Color32::WHITE));
-            let class = store.class[i];
-            let lines = [
-                format!("X {:.2}   Y {:.2}   Z {:.2}", p[0], p[1], p[2]),
-                format!("Clase {class} · {}", inspect::class_name(class)),
-                format!(
-                    "Intensidad {}   Retorno {} de {}   Fuente {}",
-                    store.intensity[i],
-                    store.ret[i] & 15,
-                    store.ret[i] >> 4,
-                    store.src[i]
-                ),
-            ];
             let box_rect = Rect::from_min_size(
                 rect.left_top() + Vec2::new(10.0, 46.0),
                 Vec2::new(330.0, 62.0),
@@ -3370,6 +3485,10 @@ ui.menu_button("⚙", |ui| {
                     Color32::WHITE,
                 );
             }
+            if close_button(ui, &painter, box_rect, "query_card_x") {
+                self.query_card = None;
+                self.query = None;
+            }
         }
         if let (Some(a), Some(p), true) = (
             self.drag_start,
@@ -3381,7 +3500,11 @@ ui.menu_button("⚙", |ui| {
             painter.rect_stroke(r, 0.0, Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
             painter.rect_filled(r, 0.0, t.accent.gamma_multiply(0.15));
         }
-        self.paint_ident(&painter, rect);
+        if let Some(b) = self.paint_ident(&painter, rect)
+            && close_button(ui, &painter, b, "ident_card_x")
+        {
+            self.ident.clear();
+        }
         let hint = self.vec_tool_hint();
         if let Some(hint) = hint {
             painter.text(
@@ -4110,6 +4233,10 @@ ui.menu_button("⚙", |ui| {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // the drawing of the measure tool goes away with the tool
+        if self.nav != Nav::Measure && !self.measure.is_empty() {
+            self.measure.clear();
+        }
         // `--bench`: draws as fast as it can; after 6 s (the cloud is loaded) it counts the frames of
         // 8 s, prints them with the renderer and exits
         if let Some((start, frames)) = &mut self.bench {
@@ -4216,6 +4343,12 @@ impl eframe::App for App {
             _ => (first_cloud, Vec::new()),
         };
         self.tools.set_selection_note(sel.as_ref().filter(|_| processing).map(|s| format!("Hay {} puntos seleccionados: el proceso se aplica solo a ellos (se crea {} archivo(s) «…_sel»).", s.2, s.1.len())));
+        self.tools.vectors = self
+            .refs
+            .iter()
+            .filter(|r| matches!(r.kind, RefKind::Vector(_)))
+            .map(|r| (r.name.clone(), r.path.clone()))
+            .collect();
         if let Some(mut l) = self.tools.window(&ctx, &t, &inputs, &aois, busy, &mut log) {
             if let (Some(s), true) = (&sel, !pairs.is_empty()) {
                 let (ops, inner) = (s.3.clone(), l.task);
@@ -4255,6 +4388,7 @@ impl eframe::App for App {
         }
         self.palette_window(&ctx);
         self.new_layer_window(&ctx);
+        self.edit_confirm_window(&ctx);
         self.gpkg_window(&ctx);
         self.table_window(&ctx);
         self.rs_window(&ctx);
@@ -4263,8 +4397,8 @@ impl eframe::App for App {
         self.obia_window(&ctx);
         self.align_window(&ctx);
         self.reproject_window(&ctx);
+        self.rasterops_window(&ctx);
         self.vector_window(&ctx);
-        self.roads_window(&ctx);
         self.change_window(&ctx);
         self.model_window(&ctx);
         self.corridor_window(&ctx);

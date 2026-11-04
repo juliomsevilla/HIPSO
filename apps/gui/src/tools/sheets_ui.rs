@@ -56,6 +56,12 @@ pub struct State {
     pub clouds: u8,
     pub vector: bool,
     pub exclusive: bool,
+    /// Split multipart features into one unit per part.
+    pub split_parts: bool,
+    /// Metrics to write; all of them when `metrics_all`.
+    pub metrics_all: bool,
+    pub metrics_pick: Vec<String>,
+    pub metrics_find: String,
     /// The user pressed Stop in a tool window.
     pub stop: bool,
     pub sel_note: Option<String>,
@@ -97,6 +103,10 @@ impl Default for State {
             clouds: 0,
             vector: true,
             exclusive: false,
+            split_parts: false,
+            metrics_all: true,
+            metrics_pick: Vec::new(),
+            metrics_find: String::new(),
             stop: false,
             sel_note: None,
         }
@@ -617,6 +627,10 @@ impl Tools {
                     ui.label("Solo las unidades de muestreo con CAMPO=VALOR");
                     ui.add(egui::TextEdit::singleline(&mut self.s2.where_).desired_width(110.0));
                 });
+                ui.checkbox(
+                    &mut self.s2.split_parts,
+                    "Partir las multipartes: una unidad de muestreo por cada parte (nombre_p1, nombre_p2…)",
+                );
             }
             PlotSource::Generate => {
                 if self.s2.square {
@@ -704,6 +718,7 @@ impl Tools {
         );
         if self.s2.vector {
             self.formats_row(ui);
+            self.metrics_picker(ui);
         }
         ui.horizontal(|ui| {
             ui.label("Nubes recortadas");
@@ -753,6 +768,62 @@ impl Tools {
                 &mut self.s2.exclusive,
                 true,
                 "se asignan solo a la primera unidad de muestreo que los contiene (la primera del archivo)",
+            );
+        });
+    }
+
+    /// Which metrics of each sampling unit are written: all, or the ones ticked.
+    fn metrics_picker(&mut self, ui: &mut egui::Ui) {
+        let s = &mut self.s2;
+        egui::CollapsingHeader::new(if s.metrics_all {
+            "Métricas: todas".to_string()
+        } else {
+            format!("Métricas: {} elegidas", s.metrics_pick.len())
+        })
+        .id_salt("metrics_picker")
+        .show(ui, |ui| {
+            ui.checkbox(&mut s.metrics_all, "Todas las métricas");
+            if s.metrics_all {
+                return;
+            }
+            let names = hipso_core::metrics::sample_header(2.0);
+            ui.horizontal(|ui| {
+                ui.label("Buscar");
+                ui.add(egui::TextEdit::singleline(&mut s.metrics_find).desired_width(140.0));
+                if ui.button("Marcar las visibles").clicked() {
+                    let f = s.metrics_find.to_lowercase();
+                    for n in names.iter().filter(|n| n.to_lowercase().contains(&f)) {
+                        if !s.metrics_pick.contains(n) {
+                            s.metrics_pick.push(n.clone());
+                        }
+                    }
+                }
+                if ui.button("Quitar todas").clicked() {
+                    s.metrics_pick.clear();
+                }
+            });
+            let f = s.metrics_find.to_lowercase();
+            egui::ScrollArea::vertical()
+                .max_height(160.0)
+                .id_salt("metrics_picker_list")
+                .show(ui, |ui| {
+                    for n in names.iter().filter(|n| n.to_lowercase().contains(&f)) {
+                        let mut on = s.metrics_pick.contains(n);
+                        if ui.checkbox(&mut on, n).changed() {
+                            if on {
+                                s.metrics_pick.push(n.clone());
+                            } else {
+                                s.metrics_pick.retain(|m| m != n);
+                            }
+                        }
+                    }
+                });
+            ui.label(
+                egui::RichText::new(
+                    "La tabla lleva solo las columnas marcadas, en el orden en que las marcaste; el nombre, el área y la fecha de captura van siempre.",
+                )
+                .size(11.0)
+                .weak(),
             );
         });
     }
@@ -1057,6 +1128,9 @@ impl Tools {
                 };
                 match vector::read_regions(Path::new(s.file.trim()), &opts) {
                     Ok(mut list) => {
+                        if s.split_parts {
+                            list = list.iter().flat_map(|r| r.split_parts()).collect();
+                        }
                         if let Some((f, v)) = s.where_.split_once('=') {
                             list.retain(|r| {
                                 r.attrs.iter().any(|(k, val)| {
@@ -1245,6 +1319,10 @@ impl Tools {
             }
         }
         job.exclusive = self.s2.exclusive;
+        if self.s2.vector && !self.s2.metrics_all && self.s2.metrics_pick.is_empty() {
+            log.push("Marca al menos una métrica, o elige «Todas las métricas».".into());
+            return None;
+        }
         if self.s2.vector {
             let base = paths::unique(&paths::product(&first, "muestras_metricas", "shp"));
             let formats = self.formats();
@@ -1257,6 +1335,7 @@ impl Tools {
                 csv: base,
                 heightbreak: 2.0,
                 min_height: 0.0,
+                only: if self.s2.metrics_all { Vec::new() } else { self.s2.metrics_pick.clone() },
             });
         }
         Some(Launch {

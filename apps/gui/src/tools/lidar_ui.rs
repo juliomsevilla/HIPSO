@@ -1,6 +1,6 @@
 //! The point-cloud tools beyond the forestry chain: thinning, duplicates, comparison of two
 //! clouds, alignment, swath separation, colouring from an image, intensity normalised for range,
-//! COPC and the extra classifiers.
+//! clipping with polygons and the extra classifiers.
 //! Each loaded cloud is a sheet and gets its own result, like the other tools.
 
 use std::collections::HashMap;
@@ -58,6 +58,13 @@ pub struct State {
     /// exponent and the reference range (0: the mean range).
     pub int_mode: usize,
     pub int_traj: String,
+    /// Clipping with a polygon layer: the layer, one cloud per polygon, the field that names
+    /// them, the buffer and whether a point goes to the first polygon only.
+    pub cp_layer: String,
+    pub cp_per_record: bool,
+    pub cp_name_field: String,
+    pub cp_buffer: f64,
+    pub cp_exclusive: bool,
     pub int_alt: f64,
     pub int_exp: f64,
     pub int_ref: f64,
@@ -105,6 +112,11 @@ impl Default for State {
             col_keep: false,
             int_mode: 0,
             int_traj: String::new(),
+            cp_layer: String::new(),
+            cp_per_record: true,
+            cp_name_field: String::new(),
+            cp_buffer: 0.0,
+            cp_exclusive: false,
             int_alt: 3000.0,
             int_exp: 2.0,
             int_ref: 0.0,
@@ -522,10 +534,87 @@ impl Tools {
         );
     }
 
-    pub fn copc_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
-        let _ = &self.lx;
-        ui.label(egui::RichText::new("Reescribe cada nube como COPC (Cloud Optimized Point Cloud): un LAZ normal, que lee cualquier programa, cuyos bloques son los nodos de un octree. Así un visor o un servidor (QGIS, visores web) lee solo la zona y el detalle que necesita, y se publica en internet sin servidor especial. Se conservan todos los atributos; los formatos 0 a 3 pasan a 6 o 7, como pide el formato. Se escribe una copia nueva (….copc.laz).").color(t.weak).size(11.0));
-        ui.label(egui::RichText::new("La nube se guarda entera en memoria mientras se ordena (unos 40 bytes por punto): para nubes de cientos de millones de puntos, divídelas antes en teselas.").color(t.weak).size(11.0));
+    pub fn clip_poly_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        let loaded = self.vectors.clone();
+        let s = &mut self.lx;
+        ui.label(egui::RichText::new("Recorta la nube (o las nubes) con los polígonos de una capa: se queda lo que cae dentro. Con varios polígonos puedes obtener una nube por cada uno o una sola ajustada al perímetro de todos. El búfer deja una zona de seguridad alrededor del perímetro (negativo: lo estrecha). Se escribe una copia nueva (…_recorte…); la original no cambia.").color(t.weak).size(11.0));
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.label("Capa de polígonos");
+            ui.add(egui::TextEdit::singleline(&mut s.cp_layer).desired_width(260.0));
+            if ui.button("…").clicked()
+                && let Some(p) = pick_file("Polígonos", &["shp", "geojson", "json", "gpkg"])
+            {
+                s.cp_layer = p.display().to_string();
+            }
+            ui.menu_button("De las capas cargadas", |ui| {
+                for (name, path) in &loaded {
+                    if ui.button(name).clicked() {
+                        s.cp_layer = path.display().to_string();
+                        ui.close();
+                    }
+                }
+                if loaded.is_empty() {
+                    ui.label("No hay capas vectoriales cargadas");
+                }
+            });
+        });
+        ui.horizontal(|ui| {
+            ui.radio_value(&mut s.cp_per_record, true, "Una nube por cada polígono");
+            ui.radio_value(&mut s.cp_per_record, false, "Una sola nube ajustada al perímetro de todos");
+        });
+        if s.cp_per_record {
+            ui.horizontal(|ui| {
+                ui.label("Campo con el nombre de cada archivo");
+                ui.add(egui::TextEdit::singleline(&mut s.cp_name_field).desired_width(110.0));
+                ui.label(egui::RichText::new("vacío: número de polígono").color(t.weak).size(11.0));
+            });
+        }
+        num(ui, "Búfer sobre el perímetro (m)", &mut s.cp_buffer, -10000.0..=10000.0, 0.5);
+        ui.checkbox(&mut s.cp_exclusive, "Un punto va solo al primer polígono que lo contiene (si se solapan)");
+    }
+
+    pub fn build_clip_poly(&mut self, inputs: &[PathBuf], log: &mut Vec<String>) -> Option<Launch> {
+        use hipso_core::clip::{ClipJob, ClipMode};
+        let first = inputs.first()?.clone();
+        let s = &self.lx;
+        let layer = PathBuf::from(s.cp_layer.trim());
+        if !layer.is_file() {
+            log.push("Elige la capa de polígonos.".into());
+            return None;
+        }
+        let opts = vector::ReadOptions {
+            name_field: (!s.cp_name_field.trim().is_empty()).then(|| s.cp_name_field.trim().to_string()),
+            ..Default::default()
+        };
+        let mut regions = match vector::read_regions(&layer, &opts) {
+            Ok(r) => r,
+            Err(e) => {
+                log.push(format!("Recortar: {e}"));
+                return None;
+            }
+        };
+        regions.retain(|r| matches!(r.shape, Shape2::Polygon(_)));
+        if regions.is_empty() {
+            log.push("Recortar: la capa no tiene polígonos.".into());
+            return None;
+        }
+        if s.cp_buffer != 0.0 {
+            regions = regions.iter().map(|r| r.buffered(s.cp_buffer)).collect();
+        }
+        let ext = Self::lx_ext(&first);
+        let out = paths::unique(&paths::product(&first, "recorte", &ext));
+        let mut job = ClipJob::new(inputs.to_vec(), regions, out.clone());
+        job.mode = if s.cp_per_record { ClipMode::PerRegion } else { ClipMode::Merge };
+        job.exclusive = s.cp_exclusive && s.cp_per_record;
+        job.regions_source = Some(layer);
+        let per = s.cp_per_record;
+        Some(Launch {
+            label: ToolId::ClipPoly.title().to_string(),
+            task: Box::new(move || jobs::clip(&job)),
+            show: if per { vec![] } else { vec![out.clone()] },
+            outputs: if per { vec![] } else { vec![out] },
+        })
     }
 
     pub fn hag_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
@@ -734,7 +823,7 @@ impl Tools {
             1,
             format!("AOI dibujadas ({}): un volumen por AOI", aois.len()),
         );
-        ui.radio_value(&mut s.vol_regions, 2, "Polígonos de un archivo vectorial");
+        ui.radio_value(&mut s.vol_regions, 2, "Polígonos de un archivo vectorial (el resultado es la capa con los volúmenes en su tabla)");
         if s.vol_regions == 2 {
             ui.horizontal(|ui| {
                 ui.add(egui::TextEdit::singleline(&mut s.vol_file).desired_width(330.0));
@@ -807,6 +896,29 @@ impl Tools {
                 regions: regions.clone(),
                 min_height: s.vol_min,
                 sheet: paths::stem(p),
+            });
+        }
+        // polygons from a file get their volumes in the attribute table of a copy of the layer;
+        // drawn areas and the whole raster, in a table
+        if s.vol_regions == 2 {
+            let source = PathBuf::from(s.vol_file.trim());
+            let outs: Vec<PathBuf> = inputs
+                .iter()
+                .map(|p| paths::unique(&paths::product(p, "volumen", "shp")))
+                .collect();
+            let (jobs2, outs2) = (jobs, outs.clone());
+            let task: Task = Box::new(move || {
+                let mut lines = Vec::new();
+                for (job, out) in jobs2.iter().zip(&outs2) {
+                    lines.push(volume::run_layer(job, &source, out)?);
+                }
+                Ok(lines.join("\n"))
+            });
+            return Some(Launch {
+                label: ToolId::Volume.title().to_string(),
+                task,
+                show: outs.clone(),
+                outputs: outs,
             });
         }
         let output = paths::unique(&paths::product(&inputs[0], "volumen", "csv"));
@@ -970,34 +1082,6 @@ impl Tools {
                             reference: (r > 0.0).then_some(r),
                             inputs: pairs,
                         })
-                    }),
-                    outputs,
-                )
-            }
-            ToolId::Copc => {
-                let outs: HashMap<PathBuf, PathBuf> = inputs
-                    .iter()
-                    .map(|p| {
-                        let stem = paths::stem(p);
-                        let stem = stem.strip_suffix(".copc").unwrap_or(&stem).to_string();
-                        (
-                            p.clone(),
-                            paths::unique(&paths::results_dir(p).join(format!("{stem}.copc.laz"))),
-                        )
-                    })
-                    .collect();
-                let outputs: Vec<PathBuf> = outs.values().cloned().collect();
-                (
-                    Box::new(move || {
-                        let mut lines = Vec::new();
-                        for p in &inputs_v {
-                            hipso_core::check_cancel()?;
-                            let out = outs.get(p).cloned().unwrap_or_default();
-                            let format = hipso_core::las::Reader::open(p)?.header.format;
-                            let r = hipso_core::copc_write::write(p, &out)?;
-                            lines.push(hipso_core::copc_write::describe(&r, format, &out));
-                        }
-                        Ok(lines.join("\n"))
                     }),
                     outputs,
                 )

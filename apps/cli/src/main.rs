@@ -449,10 +449,11 @@ struct StepArgs {
     #[arg(long, default_value_t = 4.0)]
     noise_step_z: f64,
     /// Noise (elm): cell side in metres
-    #[arg(long, default_value_t = 20.0)]
+    #[arg(long, default_value_t = 10.0)]
     elm_cell: f64,
-    /// Noise (elm): standard deviations below the cell's mean that make a low point
-    #[arg(long, default_value_t = 1.0)]
+    /// Noise (elm): metres a cell's lowest point must lie under the next point of its cell and
+    /// under the lowest points of the cells around it to be low noise
+    #[arg(long, default_value_t = 3.0)]
     elm_threshold: f64,
     /// Noise: most other points around a point still called isolated
     #[arg(long, default_value_t = 5)]
@@ -835,6 +836,13 @@ enum Cmd {
         /// Layers made from the clouds: intensidad, retornos, suelo, densidad
         #[arg(long, value_delimiter = ',', default_value = "intensidad,retornos")]
         cloud_layers: Vec<String>,
+        /// Empty cells of the layers made from the clouds take the value of the nearest cell that
+        /// has one, up to this many cells away (0: they stay empty and leave holes)
+        #[arg(long, default_value_t = 3)]
+        cloud_fill: usize,
+        /// Average those layers over a window of this radius in cells (0: no)
+        #[arg(long, default_value_t = 1)]
+        cloud_smooth: usize,
         /// Adds the local roughness of the first raster over a window of this many cells (0: no)
         #[arg(long, default_value_t = 0)]
         roughness: usize,
@@ -1211,6 +1219,9 @@ enum Cmd {
         /// Metrics: only returns above this height
         #[arg(long, default_value_t = 0.0)]
         minht: f64,
+        /// Metrics: the columns to write, by name (`Elev P90,Elev mean,Int mean`); default: all
+        #[arg(long, value_delimiter = ',')]
+        metrics_columns: Vec<String>,
     },
     /// Join, filter, normalise or convert clouds in one pass (LAS or LAZ by the output extension)
     Filter {
@@ -1701,6 +1712,18 @@ enum Cmd {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Intersection of two polygon layers: only the pieces in both (attributes of both, the
+    /// second layer's prefixed `b_`)
+    Intersect {
+        first: PathBuf,
+        second: PathBuf,
+        /// Repair invalid polygons first
+        #[arg(long)]
+        make_valid: bool,
+        /// Shapefile; default: <results>/<first>_interseccion.shp
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
     /// Remove small patches of a class raster: connected cells of one value with fewer cells than
     /// --threshold take the value of their largest neighbouring patch
     Sieve {
@@ -1745,36 +1768,6 @@ enum Cmd {
         #[arg(long, default_value_t = 0)]
         smoothing: usize,
         /// GeoTIFF; default: <results>/<input>_relleno.tif
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-    },
-    /// Road network from a cloud with classified ground: passable ground (ground share, slope,
-    /// intensity) thinned to centre lines with the width of the road, as a polyline shapefile
-    Roads {
-        /// Cloud (LAS/LAZ) with the ground classified (class 2)
-        input: PathBuf,
-        /// Cell of the road mask, metres
-        #[arg(long, default_value_t = 1.0)]
-        cell: f64,
-        /// Smallest share of ground returns in a road cell (0-1)
-        #[arg(long, default_value_t = 0.5)]
-        ground_share: f64,
-        /// Steepest slope of a road, percent
-        #[arg(long, default_value_t = 15.0)]
-        max_slope: f64,
-        /// Range of the mean intensity of the ground in a road cell
-        #[arg(long, num_args = 2, value_names = ["MIN", "MAX"])]
-        intensity: Option<Vec<f64>>,
-        /// Narrowest road (m)
-        #[arg(long, default_value_t = 2.0)]
-        min_width: f64,
-        /// Shortest road (m)
-        #[arg(long, default_value_t = 20.0)]
-        min_length: f64,
-        /// Remove branches ending in a tip shorter than this (m)
-        #[arg(long, default_value_t = 6.0)]
-        spur: f64,
-        /// Shapefile of lines; default: <results>/<input>_viales.shp
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
@@ -2321,6 +2314,8 @@ fn run(cmd: Cmd) -> Result<()> {
             rasters,
             cloud,
             cloud_layers,
+            cloud_fill,
+            cloud_smooth,
             roughness,
             method,
             scale,
@@ -2398,6 +2393,8 @@ fn run(cmd: Cmd) -> Result<()> {
                 clouds: cloud,
                 cloud_layers: layers,
                 filter: hipso_core::filter::Filter::default(),
+                cloud_fill,
+                cloud_smooth,
                 roughness,
                 segment: hipso_core::obia::segment::SegmentParams {
                     method: seg_method,
@@ -2771,6 +2768,7 @@ fn run(cmd: Cmd) -> Result<()> {
             above,
             minht,
             metrics_format,
+            metrics_columns,
         } => {
             use hipso_core::clip::{ClipJob, ClipMode, SampleMetrics};
             use hipso_core::filter::{ClassSel, Filter, ReturnSel};
@@ -2973,6 +2971,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 csv,
                 heightbreak: above,
                 min_height: minht,
+                only: metrics_columns,
             });
             let text = jobs::clip(&job)?;
             match layout_note {
@@ -3666,6 +3665,28 @@ fn run(cmd: Cmd) -> Result<()> {
             geomops::write_polygons(&r, &out)?;
             format!("{} piezas -> {}{warn}", r.features.len(), out.display())
         }
+        Cmd::Intersect {
+            first,
+            second,
+            make_valid,
+            output,
+        } => {
+            use hipso_core::geomops;
+            let (mut a, mut b) = (geomops::read_polygons(&first)?, geomops::read_polygons(&second)?);
+            if make_valid {
+                a = geomops::make_valid(&a)?.0;
+                b = geomops::make_valid(&b)?.0;
+            }
+            let (ea, eb) = (hipso_core::crs::epsg_of(&first), hipso_core::crs::epsg_of(&second));
+            let warn = match (ea, eb) {
+                (Some(x), Some(y)) if x != y => format!("\naviso: las capas están en EPSG:{x} y EPSG:{y}: reproyecta antes"),
+                _ => String::new(),
+            };
+            let r = geomops::intersect(&a, &b)?;
+            let out = out_path(output, &first, "interseccion", "shp");
+            geomops::write_polygons(&r, &out)?;
+            format!("{} piezas -> {}{warn}", r.features.len(), out.display())
+        }
         Cmd::Sieve {
             input,
             threshold,
@@ -3725,34 +3746,6 @@ fn run(cmd: Cmd) -> Result<()> {
                 before - after,
                 out.display()
             )
-        }
-        Cmd::Roads {
-            input,
-            cell,
-            ground_share,
-            max_slope,
-            intensity,
-            min_width,
-            min_length,
-            spur,
-            output,
-        } => {
-            use hipso_core::roads::{self, RoadParams};
-            let p = RoadParams {
-                cell,
-                min_ground_share: ground_share,
-                max_slope,
-                intensity: intensity.and_then(|v| Some((*v.first()?, *v.get(1)?))),
-                min_width,
-                min_length,
-                spur_length: spur,
-                ..Default::default()
-            };
-            let lines = roads::extract_file(&input, &p)?;
-            let out = out_path(output, &input, "viales", "shp");
-            roads::write_lines(&lines, &out, hipso_core::crs::epsg_of(&input))?;
-            let km: f64 = lines.iter().map(|l| l.length).sum::<f64>() / 1000.0;
-            format!("{} tramos, {km:.2} km -> {}", lines.len(), out.display())
         }
         Cmd::Dedup {
             inputs,

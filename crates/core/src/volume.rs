@@ -224,6 +224,54 @@ pub fn run_all(jobs: &[VolumeJob], output: &Path) -> Result<String> {
     Ok(summary(&rows, output))
 }
 
+/// The names of the volume fields of a polygon layer, in the order of [`VolumeRow`] values.
+pub const LAYER_FIELDS: [&str; 7] = ["Area_m2", "Vol_sobre", "Vol_bajo", "Vol_neto", "H_media", "H_max", "Sin_MDT"];
+
+/// Measures the volumes of the polygons in the file `source` and writes them as a polygon
+/// layer: the polygons with their own attributes plus the volume fields (a field of the layer
+/// with the same name is replaced). One line about the result.
+pub fn run_layer(job: &VolumeJob, source: &Path, output: &Path) -> Result<String> {
+    use crate::geomops::{self, Feature, PolyLayer};
+    crate::check_cancel()?;
+    let surface = Grid::read(&job.surface)?;
+    let dtm;
+    let reference = match &job.reference {
+        ReferenceSource::Zero => Reference::Zero,
+        ReferenceSource::Level(l) => Reference::Level(*l),
+        ReferenceSource::Dtm(p) => {
+            dtm = Grid::read(p)?;
+            Reference::Dtm(&dtm)
+        }
+    };
+    let rows = volumes(&surface, reference, &job.regions, job.min_height)?;
+    if rows.len() != job.regions.len() {
+        return Err(Error::Param("las filas de volumen no corresponden a los polígonos".into()));
+    }
+    let num = |v: f64| if v.is_finite() { format!("{v:.3}") } else { String::new() };
+    let features = job
+        .regions
+        .iter()
+        .zip(&rows)
+        .map(|(region, r)| {
+            let mut attrs: Vec<(String, String)> = region
+                .attrs
+                .iter()
+                .filter(|(k, _)| !LAYER_FIELDS.iter().any(|f| f.eq_ignore_ascii_case(k)))
+                .cloned()
+                .collect();
+            let values = [num(r.area), num(r.above), num(r.below), num(r.net()), num(r.mean_h), num(r.max_h), r.no_reference.to_string()];
+            attrs.extend(LAYER_FIELDS.iter().map(|f| f.to_string()).zip(values));
+            Feature { geom: geomops::multipolygon_of(&geomops::rings_of(region)), attrs }
+        })
+        .collect();
+    let prj = std::fs::read_to_string(source.with_extension("prj"))
+        .ok()
+        .or_else(|| crate::crs::epsg_of(source).and_then(vector::prj_for_epsg));
+    crate::paths::ensure_parent(output)?;
+    geomops::write_polygons(&PolyLayer { features, prj }, output)?;
+    Ok(summary(&rows, output))
+}
+
 /// One line about a set of rows.
 pub fn summary(rows: &[VolumeRow], out: &Path) -> String {
     let (above, below, area): (f64, f64, f64) = rows.iter().fold((0.0, 0.0, 0.0), |a, r| {
@@ -317,6 +365,37 @@ mod tests {
         let rows = volumes(&grid(1.0)?, Reference::Dtm(&small), &[], 0.0)?;
         assert!(rows[0].no_reference > 0);
         assert!(rows[0].area < 64.0);
+        Ok(())
+    }
+
+    #[test]
+    fn the_volumes_of_a_polygon_file_land_in_its_table() -> Result<()> {
+        use crate::geomops::{self, Feature, PolyLayer};
+        let dir = std::env::temp_dir().join(format!("hp_vol_layer_{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let surf = dir.join("chm.tif");
+        grid(5.0)?.write_tiff(&surf, None)?;
+        let src = dir.join("zonas.shp");
+        let sq = |x: f64| vec![[x, 0.0], [x, 4.0], [x + 4.0, 4.0], [x + 4.0, 0.0]];
+        let layer = PolyLayer {
+            features: vec![
+                Feature { geom: geomops::multipolygon_of(&[sq(0.0)]), attrs: vec![("zona".into(), "A".into())] },
+                Feature { geom: geomops::multipolygon_of(&[sq(4.0)]), attrs: vec![("zona".into(), "B".into())] },
+            ],
+            prj: None,
+        };
+        geomops::write_polygons(&layer, &src)?;
+        let regions = read_regions(&src)?;
+        let job = VolumeJob { surface: surf, reference: ReferenceSource::Zero, regions, min_height: 0.0, sheet: "h".into() };
+        let out = dir.join("zonas_volumen.shp");
+        run_layer(&job, &src, &out)?;
+        let back = geomops::read_polygons(&out)?;
+        assert_eq!(back.features.len(), 2);
+        let get = |i: usize, k: &str| back.features[i].attrs.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        assert_eq!(get(0, "zona").as_deref(), Some("A"));
+        // 4 cells of 4 m² at 5 m
+        assert_eq!(get(0, "Vol_sobre").and_then(|v| v.parse::<f64>().ok()), Some(80.0));
+        std::fs::remove_dir_all(&dir)?;
         Ok(())
     }
 

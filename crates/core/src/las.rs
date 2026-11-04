@@ -795,6 +795,17 @@ impl Reader {
         self
     }
 
+    /// This reader with `bits` set in the global encoding of the files written from it (bit 4:
+    /// the coordinate system is WKT).
+    pub fn with_global_encoding_bits(mut self, bits: u16) -> Self {
+        self.meta.global_encoding |= bits;
+        if let Some(b) = self.head.get_mut(6..8) {
+            let v = u16::from_le_bytes([b[0], b[1]]) | bits;
+            b.copy_from_slice(&v.to_le_bytes());
+        }
+        self
+    }
+
     /// This reader with another coordinate offset: files written from it store their points
     /// relative to `offset`, as data moved to another coordinate system needs.
     pub fn with_offset(mut self, offset: [f64; 3]) -> Self {
@@ -1368,6 +1379,26 @@ pub fn epsg_record_with_vertical(epsg: u16, vertical: Option<u16>) -> Vec<u8> {
     rec[18..20].copy_from_slice(&34735u16.to_le_bytes());
     rec[20..22].copy_from_slice(&(data.len() as u16).to_le_bytes());
     rec[22..22 + 14].copy_from_slice(b"GeoKeyDirector");
+    rec.extend_from_slice(&data);
+    rec
+}
+
+/// The compound WKT of a horizontal and a vertical EPSG code (`COMPD_CS[…]`).
+pub fn compound_wkt(horizontal: u16, vertical: u16) -> Option<String> {
+    hipso_crs::SpatialRef::parse(&format!("EPSG:{horizontal}+{vertical}"))
+        .ok()
+        .and_then(|s| s.to_wkt())
+}
+
+/// The OGC WKT record (2112) of a LAS 1.4 file, as raw bytes: the text ends with a NUL.
+pub fn wkt_record(wkt: &str) -> Vec<u8> {
+    let mut data = wkt.as_bytes().to_vec();
+    data.push(0);
+    let mut rec = vec![0u8; 54];
+    rec[2..17].copy_from_slice(b"LASF_Projection");
+    rec[18..20].copy_from_slice(&2112u16.to_le_bytes());
+    rec[20..22].copy_from_slice(&(data.len() as u16).to_le_bytes());
+    rec[22..22 + 7].copy_from_slice(b"OGC WKT");
     rec.extend_from_slice(&data);
     rec
 }

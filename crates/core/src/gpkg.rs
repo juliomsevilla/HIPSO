@@ -56,12 +56,20 @@ fn epsg_of_srs(db: &Db, srs_id: i64) -> Option<u16> {
         t.column("organization")?,
         t.column("organization_coordsys_id")?,
     );
-    t.rows
-        .iter()
-        .find(|r| r[id].as_i64() == Some(srs_id))
-        .filter(|r| r[org].display().eq_ignore_ascii_case("EPSG"))
-        .and_then(|r| r[code].as_i64())
-        .and_then(|c| u16::try_from(c).ok())
+    let row = t.rows.iter().find(|r| r[id].as_i64() == Some(srs_id))?;
+    if row[org].display().eq_ignore_ascii_case("EPSG")
+        && let Some(c) = row[code].as_i64().and_then(|c| u16::try_from(c).ok())
+    {
+        return Some(c);
+    }
+    // a system with its own id (OpenStreetMap extracts use 100000 for «WGS 84 (CRS84)») is
+    // told by its definition
+    let def = t.column("definition").map(|d| row[d].display())?;
+    if def.contains("CRS84") || def.starts_with("GEOGCS[\"WGS 84\"") {
+        return Some(4326);
+    }
+    // the horizontal part of a compound system
+    crate::las::epsg_from_wkt(&def)
 }
 
 /// The EPSG code the first feature table of a GeoPackage declares.

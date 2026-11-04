@@ -44,6 +44,11 @@ pub struct VecLayer {
     pub dirty: bool,
     pub undo: Vec<view::VectorData>,
     pub redo: Vec<view::VectorData>,
+    /// The data as it was when an editing tool was switched on, and whether `dirty` was set
+    /// then: what discarding the changes of the session goes back to.
+    pub edit_base: Option<(view::VectorData, bool)>,
+    /// A change was made since the editing session began.
+    pub edit_touched: bool,
     pub geom: Geom,
     /// Changes with the geometry: what a picture of the layer is made for.
     pub rev: u64,
@@ -146,6 +151,8 @@ impl VecLayer {
             dirty: false,
             undo: Vec::new(),
             redo: Vec::new(),
+            edit_base: None,
+            edit_touched: false,
             geom: Geom::default(),
             rev: 0,
             raster: Default::default(),
@@ -344,6 +351,7 @@ impl VecLayer {
 
     /// Remembers the data before a change, so that it can be undone.
     pub fn push_undo(&mut self) {
+        self.edit_touched = true;
         let keep = if self.data.features.len() > 50_000 {
             3
         } else {
@@ -558,6 +566,49 @@ impl App {
         }
     }
 
+    /// The systems tried for a cloud that declares none: the UTM zones of ETRS89 (Europe) and
+    /// then those of WGS 84, north and south.
+    fn guess_list() -> Vec<u16> {
+        (25828..=25838).chain(32601..=32660).chain(32701..=32760).collect()
+    }
+
+    /// A cloud that declares no system and a layer that does, and that does not fall where the
+    /// cloud is: the system the cloud is probably in, judged by where the layer would lie.
+    pub fn assume_move(&mut self, from: Option<u16>, bounds: [f64; 4], cloud: [f64; 6]) -> Option<(u16, u16)> {
+        let from = from?;
+        if self.clouds.is_empty() || self.project_crs().is_some() {
+            return None;
+        }
+        let b = cloud;
+        let to = hipso_core::reproject::guess_system(bounds, from, [b[0], b[1], b[3], b[4]], &Self::guess_list())?;
+        (hipso_core::crs::relation(from, to) == hipso_core::crs::Relation::Different)
+            .then_some((from, to))
+    }
+
+    /// Layers opened before a cloud that declares no system follow the same guess.
+    pub fn conform_to_undeclared_cloud(&mut self, cloud: [f64; 6]) {
+        if self.project_crs().is_some() {
+            return;
+        }
+        for k in 0..self.refs.len() {
+            let path = self.refs[k].path.clone();
+            let RefKind::Vector(v) = &self.refs[k].kind else { continue };
+            let bounds = v.data.bounds;
+            let from = self.crs_of(&path);
+            if let Some((from, to)) = self.assume_move(from, bounds, cloud) {
+                let name = self.refs[k].name.clone();
+                let RefKind::Vector(v) = &mut self.refs[k].kind else { continue };
+                if hipso_core::reproject::vector_data(&mut v.data, from, to).is_ok() {
+                    v.rebuild();
+                    self.plan_fit = true;
+                    self.log(format!(
+                        "La nube no declara su sistema de coordenadas: «{name}» (EPSG:{from}) se ha pasado a EPSG:{to}, que es donde cae sobre la nube. Si no es el de la nube, asígnaselo en Procesar > Asignar proyección."
+                    ));
+                }
+            }
+        }
+    }
+
     pub fn add_vector(&mut self, p: &Path) {
         if p.extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("gpkg"))
@@ -612,11 +663,23 @@ impl App {
         match read {
             Ok(mut data) => {
                 let own = table.and_then(|t| hipso_core::gpkg::epsg_of_table(p, t));
-                if let Some((from, to)) = if own.is_some() {
+                let layer_crs = own.or_else(|| self.crs_of(p));
+                let mut moved = if own.is_some() {
                     self.crs_move_from(p, own)
                 } else {
                     self.crs_move(p)
-                } {
+                };
+                if moved.is_none() {
+                    let cloud = self.store.as_ref().map(|s| s.bounds);
+                    moved = cloud.and_then(|c| self.assume_move(layer_crs, data.bounds, c));
+                    if let Some((from, to)) = moved {
+                        self.log(format!(
+                            "La nube no declara su sistema de coordenadas: «{}» está en EPSG:{from} y no cae sobre ella; se pasa a EPSG:{to}, donde sí cae. Si no es el de la nube, asígnaselo en Procesar > Asignar proyección.",
+                            p.display()
+                        ));
+                    }
+                }
+                if let Some((from, to)) = moved {
                     let started = std::time::Instant::now();
                     self.log(format!(
                         "«{}» está en {}, distinto del de la nube ({}): se pasa a él al cargar.",
@@ -1094,9 +1157,64 @@ impl App {
         out
     }
 
-    pub fn paint_ident(&self, painter: &egui::Painter, rect: Rect) {
+    /// What is known of every layer that is not a cloud: kind, size, system and extent.
+    pub fn layers_report(&mut self) -> String {
+        let mut out = Vec::new();
+        for k in 0..self.refs.len() {
+            let path = self.refs[k].path.clone();
+            let system = self
+                .crs_of(&path)
+                .map_or("sin declarar".to_string(), hipso_core::crs::name);
+            let r = &self.refs[k];
+            let mut l = vec![format!("{}", r.name)];
+            let ext = |b: [f64; 4]| format!("X {:.2} a {:.2} · Y {:.2} a {:.2}", b[0], b[2], b[1], b[3]);
+            match &r.kind {
+                RefKind::Vector(v) => {
+                    let kind = match v.kind {
+                        view::GeomKind::Point => "puntos",
+                        view::GeomKind::Line => "líneas",
+                        view::GeomKind::Polygon => "polígonos",
+                    };
+                    l.push(format!("  Capa vectorial de {kind} · {} elementos · {} vértices", v.data.features.len(), v.geom.nverts));
+                    l.push(format!("  Campos: {}", if v.data.fields.is_empty() { "ninguno".to_string() } else { v.data.fields.join(", ") }));
+                    l.push(format!("  Extensión: {}", ext(v.data.bounds)));
+                }
+                RefKind::Raster { grid, .. } => {
+                    let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+                    for v in grid.data.iter().filter(|v| v.is_finite()) {
+                        lo = lo.min(*v);
+                        hi = hi.max(*v);
+                    }
+                    l.push(format!("  Ráster de una banda · {} × {} celdas de {} m", grid.cols, grid.rows, grid.cell));
+                    l.push(format!("  Valores: {lo:.3} a {hi:.3}"));
+                    l.push(format!(
+                        "  Extensión: {}",
+                        ext([grid.x0, grid.y0, grid.x0 + grid.cols as f64 * grid.cell, grid.y0 + grid.rows as f64 * grid.cell])
+                    ));
+                }
+                RefKind::Image(il) => {
+                    if let Some(f) = il.pyr.levels.first() {
+                        l.push(format!("  Imagen de {} bandas · {} × {} píxeles de {} m", il.pyr.bands, f.cols, f.rows, il.pyr.cell));
+                        l.push(format!(
+                            "  Extensión: {}",
+                            ext([il.pyr.x0, il.pyr.y_top - f64::from(f.rows) * il.pyr.cell, il.pyr.x0 + f64::from(f.cols) * il.pyr.cell, il.pyr.y_top])
+                        ));
+                    }
+                }
+            }
+            l.push(format!("  Sistema: {system}"));
+            if !r.path.as_os_str().is_empty() {
+                l.push(format!("  Archivo: {}", r.path.display()));
+            }
+            out.push(l.join("\n"));
+        }
+        out.join("\n\n")
+    }
+
+    /// Draws the card of what the query tool found on the layers; returns its place.
+    pub fn paint_ident(&self, painter: &egui::Painter, rect: Rect) -> Option<Rect> {
         if self.ident.is_empty() {
-            return;
+            return None;
         }
         let h = 8.0 + self.ident.len() as f32 * 15.0;
         let b = Rect::from_min_size(
@@ -1113,6 +1231,7 @@ impl App {
                 Color32::WHITE,
             );
         }
+        Some(b)
     }
 
     /// The areas of the visible polygon layers, for the tools that cut with polygons.
@@ -1144,60 +1263,6 @@ impl App {
     }
 
     // ------------------------------------------------------------------------ layers pane
-
-    /// The layers pane, in the manner of a GIS: the last layer is on top, each row has its
-    /// visibility box, its symbol and its name (cut to fit); the context menu holds the actions.
-    /// Opacity and colours of the selected layer, close at hand; the rest is in its ribbon tab.
-    pub fn layer_quick(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, k: usize) {
-        let r = &mut self.refs[k];
-        ui.add(egui::Label::new(egui::RichText::new(&r.name).strong().size(12.0)).truncate());
-        ui.horizontal(|ui| {
-            ui.label("Opacidad");
-            ui.add(egui::Slider::new(&mut r.opacity, 0.0..=1.0).show_value(false));
-            ui.label(format!("{:.0} %", r.opacity * 100.0));
-        });
-        let open_tab = match &mut r.kind {
-            RefKind::Vector(v) => {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(if v.kind == view::GeomKind::Point {
-                        "Color"
-                    } else {
-                        "Trazo"
-                    });
-                    egui::color_picker::color_edit_button_srgb(ui, &mut v.color);
-                    if v.kind == view::GeomKind::Polygon {
-                        ui.label("Relleno");
-                        egui::color_picker::color_edit_button_srgb(ui, &mut v.fill);
-                    }
-                });
-                // the classes of graduated and unique-value symbology, each colour editable
-                if v.sym.kind != SymKind::Single {
-                    egui::CollapsingHeader::new("Clases")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            let labels = v.sym.legend(v.color);
-                            for (c, (text, _)) in v.sym.colors.iter_mut().zip(labels).take(30) {
-                                ui.horizontal(|ui| {
-                                    egui::color_picker::color_edit_button_srgb(ui, c);
-                                    ui.add(
-                                        egui::Label::new(egui::RichText::new(text).size(11.5))
-                                            .truncate(),
-                                    );
-                                });
-                            }
-                        });
-                }
-                ui.button("Simbología y etiquetas…").clicked()
-            }
-            RefKind::Raster { .. } | RefKind::Image(_) => {
-                ui.button("Simbología del ráster…").clicked()
-            }
-        };
-        let _ = ctx;
-        if open_tab {
-            self.tab = FIRST_EXTRA;
-        }
-    }
 
     /// The drawing order, from the bottom: the layers under the point clouds, the clouds as one
     /// item, and the layers over them.

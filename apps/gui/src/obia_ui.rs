@@ -17,6 +17,10 @@ pub struct ObiaTool {
     /// Intensity, returns, ground share, density.
     pub cloud: [bool; 4],
     pub roughness: usize,
+    /// Cells without points in the cloud layers: filled from the nearest cell up to this many
+    /// cells away, and averaged over this radius.
+    pub cloud_fill: usize,
+    pub cloud_smooth: usize,
     pub mask: bool,
     pub scale: f64,
     pub shape: f64,
@@ -56,6 +60,8 @@ impl Default for ObiaTool {
             extra: Vec::new(),
             cloud: [true, true, false, false],
             roughness: 2,
+            cloud_fill: 3,
+            cloud_smooth: 1,
             mask: false,
             scale: 8.0,
             shape: 0.1,
@@ -168,6 +174,18 @@ impl App {
                             for (k, (_, name)) in CLOUD_LAYERS.iter().enumerate() {
                                 ui.checkbox(&mut t.cloud[k], *name);
                             }
+                        });
+                        ui.add_enabled_ui(!clouds.is_empty(), |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("Rellenar celdas sin puntos hasta");
+                                ui.add(NumField::new(&mut t.cloud_fill).range(0.0..=50.0).suffix(" celdas"));
+                                ui.label(egui::RichText::new("evita huecos entre los objetos (0 = no)").color(weak).size(11.0));
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Suavizar con radio");
+                                ui.add(NumField::new(&mut t.cloud_smooth).range(0.0..=20.0).suffix(" celdas"));
+                                ui.label(egui::RichText::new("reduce el ruido sal y pimienta (0 = no)").color(weak).size(11.0));
+                            });
                         });
                         ui.horizontal(|ui| {
                             ui.label("Rugosidad del CHM (radio, 0 = no)");
@@ -376,6 +394,8 @@ if t.autorun && ready && self.running.is_none() {
                     .map(|((l, _), _)| *l)
                     .collect(),
                 filter: Filter::default(),
+                cloud_fill: t.cloud_fill,
+                cloud_smooth: t.cloud_smooth,
                 roughness: t.roughness,
                 segment: SegmentParams {
                     method,
