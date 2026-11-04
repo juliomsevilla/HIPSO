@@ -1890,7 +1890,7 @@ impl Fitted {
         let m = &self.model;
         let n = self.plots.len();
         let mut s = String::new();
-        let _ = writeln!(s, "MODELO DE TRANSICIÓN (regresión lineal múltiple)");
+        let _ = writeln!(s, "MODELO LINEAL (regresión lineal múltiple)");
         let _ = writeln!(s, "Variable a estimar: {} · {n} muestras", m.response);
         let _ = writeln!(
             s,

@@ -581,13 +581,24 @@ fn trees_run(j: &TreesJob) -> Result<String> {
     let mut lines = vec![format!("{} individuos: {}", list.len(), written.join(", "))];
     if let Some(path) = &j.crowns {
         paths::ensure_parent(path)?;
-        let mut r = g.like();
-        for (v, id) in r.data.iter_mut().zip(&ids) {
-            if *id > 0 {
-                *v = *id as f32;
+        // a 32-bit float holds whole numbers exactly up to 2^24 and every viewer reads it; past
+        // that the numbers go in an integer raster, which keeps them all
+        if ids.iter().copied().max().unwrap_or(0) > 1 << 24 {
+            let labels = crate::obia::Labels {
+                lat: crate::obia::Lattice::of(&g),
+                count: ids.iter().copied().max().unwrap_or(0),
+                ids: ids.clone(),
+            };
+            labels.write_tiff(path, Grid::read_epsg(&j.chm).or(epsg))?;
+        } else {
+            let mut r = g.like();
+            for (v, id) in r.data.iter_mut().zip(&ids) {
+                if *id > 0 {
+                    *v = *id as f32;
+                }
             }
+            r.write_tiff(path, None)?;
         }
-        r.write_tiff(path, None)?;
         lines.push(format!("  individuos (ráster): {}", path.display()));
     }
     if let Some(path) = &j.crowns_shp {

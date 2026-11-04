@@ -34,6 +34,9 @@ pub struct SampleMetrics {
     pub heightbreak: f64,
     /// Only returns above this height count (minimum height).
     pub min_height: f64,
+    /// The metrics to write, by the name of their column (`Elev P90`, `Int mean`…); empty:
+    /// all of them. A name that is not a column is an error that lists the valid ones.
+    pub only: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -492,7 +495,26 @@ fn write_metrics(m: &SampleMetrics, job: &ClipJob, rows: &[(usize, Vec<String>)]
     };
     let mut rows: Vec<&(usize, Vec<String>)> = rows.iter().collect();
     rows.sort_by_key(|r| r.0);
-    let head = metrics::sample_header(m.heightbreak);
+    let all = metrics::sample_header(m.heightbreak);
+    // the columns asked for, in the order asked for (all, in their own order, when none is)
+    let keep: Vec<usize> = if m.only.is_empty() {
+        (0..all.len()).collect()
+    } else {
+        m.only
+            .iter()
+            .map(|name| {
+                all.iter().position(|c| c.eq_ignore_ascii_case(name.trim())).ok_or_else(|| {
+                    Error::Param(format!(
+                        "«{}» no es una métrica; las hay así: {}",
+                        name.trim(),
+                        all.join(", ")
+                    ))
+                })
+            })
+            .collect::<Result<_>>()?
+    };
+    let head: Vec<String> = keep.iter().map(|&k| all[k].clone()).collect();
+    let pick = |row: &[String]| -> Vec<String> { keep.iter().map(|&k| row[k].clone()).collect() };
     let f = m.formats.fixed();
     if f.csv {
         let path = crate::paths::swap_ext(&m.csv, "csv");
@@ -505,7 +527,7 @@ fn write_metrics(m: &SampleMetrics, job: &ClipJob, rows: &[(usize, Vec<String>)]
                 "{},{:.2},{},{date}",
                 r.name.replace(',', " "),
                 r.area(),
-                row.join(",")
+                pick(row).join(",")
             )?;
         }
         out.flush()?;
@@ -527,7 +549,7 @@ fn write_metrics(m: &SampleMetrics, job: &ClipJob, rows: &[(usize, Vec<String>)]
     for (k, row) in &rows {
         let r = &job.regions[*k];
         let mut values = vec![r.name.clone(), format!("{:.2}", r.area())];
-        values.extend(row.iter().cloned());
+        values.extend(pick(row));
         values.push(date.clone());
         let rings: Vec<Vec<[f64; 2]>> = match &r.shape {
             crate::vector::Shape2::Polygon(p) => p.rings.clone(),
@@ -647,6 +669,32 @@ mod tests {
     }
 
     #[test]
+    fn only_the_metrics_asked_for_are_written() -> Result<()> {
+        let dir = tmp("only")?;
+        let input = cloud(&dir)?;
+        let mut job = ClipJob::new(vec![input], vec![circle("A", 1025.0, 2025.0, 10.0)], dir.join("out/plot.las"));
+        job.mode = ClipMode::MetricsOnly;
+        let metrics = |only: &[&str]| SampleMetrics {
+            csv: dir.join("out/m.csv"),
+            formats: crate::paths::Formats { vector: false, csv: true },
+            heightbreak: 2.0,
+            min_height: -1e9,
+            only: only.iter().map(|s| s.to_string()).collect(),
+        };
+        job.metrics = Some(metrics(&["Elev P90", "elev mean", "Int mean"]));
+        run(&job)?;
+        let csv = std::fs::read_to_string(dir.join("out/m.csv"))?;
+        let mut lines = csv.lines();
+        assert_eq!(lines.next(), Some("Muestra,Area,Elev P90,Elev mean,Int mean,Date"));
+        assert_eq!(lines.next().map(|l| l.split(',').count()), Some(6));
+        job.metrics = Some(metrics(&["Nada"]));
+        let e = run(&job).unwrap_err().to_string();
+        assert!(e.contains("no es una métrica") && e.contains("Elev P90"), "{e}");
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
     fn each_region_gets_its_own_file_and_metrics() -> Result<()> {
         let dir = tmp("each")?;
         let input = cloud(&dir)?;
@@ -664,6 +712,7 @@ mod tests {
             },
             heightbreak: 2.0,
             min_height: -1e9,
+            only: Vec::new(),
         });
         let r = run(&job)?;
         assert_eq!(r.files.len(), 2);

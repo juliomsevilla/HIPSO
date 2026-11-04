@@ -725,13 +725,6 @@ impl App {
                 // ---- the base map: the last row, under everything it is drawn beneath
                 ui.add_space(4.0);
                 self.basemap_row(ui, ctx, &t);
-                // ---- the properties of what is selected
-                if let Some(k) = self.sel_layer.filter(|k| *k < self.refs.len()) {
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-                    self.layer_quick(ui, ctx, k);
-                }
             });
         ui.ctx().data_mut(|d| {
             match sel_cloud {

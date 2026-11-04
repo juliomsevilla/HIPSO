@@ -63,7 +63,8 @@ pub enum ToolId {
     Hag,
     Colorize,
     Intensity,
-    Copc,
+    /// Cut the clouds with a polygon layer.
+    ClipPoly,
 }
 
 impl ToolId {
@@ -75,10 +76,10 @@ impl ToolId {
             ToolId::Metrics => "Métricas por celda",
             ToolId::Trees => "Segmentación de individuos",
             ToolId::Clip => "Muestras: extracción y métricas",
-            ToolId::Export => "Exportar puntos (LAZ / ASCII / shapefile)",
+            ToolId::Export => "Exportar puntos (LAZ / COPC / ASCII / shapefile)",
             ToolId::Crs => "Asignar sistema de coordenadas",
             ToolId::Thin => "Adelgazar nube (decimar)",
-            ToolId::Tls => "Medición de troncos (TLS)",
+            ToolId::Tls => "Medición de troncos",
             ToolId::Dups => "Quitar puntos duplicados",
             ToolId::Compare => "Comparar nubes (cambios)",
             ToolId::Fit => "Ajustar una nube a otra",
@@ -87,7 +88,7 @@ impl ToolId {
             ToolId::Hag => "Alturas sobre el suelo",
             ToolId::Colorize => "Colorear la nube con una imagen (RGB)",
             ToolId::Intensity => "Normalizar la intensidad por distancia",
-            ToolId::Copc => "Guardar como COPC (nube optimizada para la nube)",
+            ToolId::ClipPoly => "Recortar nubes con una capa de polígonos",
         }
     }
 }
@@ -273,6 +274,7 @@ enum NoiseChoice {
     None,
     Isolated,
     Sor,
+    Elm,
 }
 
 #[allow(dead_code)]
@@ -296,6 +298,8 @@ pub struct Tools {
     np: NoiseParams,
     sor_k: usize,
     sor_m: f64,
+    elm_cell: f64,
+    elm_drop: f64,
     buildings: bool,
     ex_veg: bool,
     ex_wire: bool,
@@ -369,6 +373,8 @@ pub struct Tools {
     out_trees: OutPath,
     out_clip: OutPath,
     out_export: OutPath,
+    /// The vector layers that are loaded: name and file, for the tools that take polygons.
+    pub vectors: Vec<(String, PathBuf)>,
     in_dtm_chm: FoundPath,
     in_dtm_metrics: FoundPath,
     in_dtm_clip: FoundPath,
@@ -395,6 +401,8 @@ impl Default for Tools {
             np: NoiseParams::default(),
             sor_k: 10,
             sor_m: 3.0,
+            elm_cell: 10.0,
+            elm_drop: 3.0,
             buildings: false,
             ex_veg: false,
             ex_wire: false,
@@ -459,6 +467,7 @@ impl Default for Tools {
             out_trees: OutPath::default(),
             out_clip: OutPath::default(),
             out_export: OutPath::default(),
+            vectors: Vec::new(),
             in_dtm_chm: FoundPath::default(),
             in_dtm_metrics: FoundPath::default(),
             in_dtm_clip: FoundPath::default(),
@@ -520,7 +529,7 @@ fn axelsson_fields(ui: &mut egui::Ui, p: &mut AxelssonParams) {
     );
 }
 
-fn num(
+pub fn num(
     ui: &mut egui::Ui,
     label: &str,
     v: &mut f64,
@@ -592,6 +601,10 @@ impl Tools {
                     k: self.sor_k,
                     m: self.sor_m,
                 }),
+                NoiseChoice::Elm => Some(Noise::Elm {
+                    cell: self.elm_cell,
+                    threshold: self.elm_drop,
+                }),
             },
             ground: match self.ground {
                 GroundChoice::Fusion => Ground::Fusion(self.gp.clone()),
@@ -655,6 +668,7 @@ impl Tools {
             NoiseChoice::None => "",
             NoiseChoice::Isolated => "_aislados",
             NoiseChoice::Sor => "_sor",
+            NoiseChoice::Elm => "_elm",
         };
         let bld = format!(
             "{}{}",
@@ -715,10 +729,14 @@ impl Tools {
             "export"
         };
         self.out_export
-            .auto(paths::product(input, tag, Self::EX_EXT[self.ex_fmt.min(3)]));
+            .auto(paths::product(
+                input,
+                if self.ex_fmt == 4 { "optimizada" } else { tag },
+                Self::EX_EXT[self.ex_fmt.min(4)],
+            ));
     }
 
-    const EX_EXT: [&'static str; 4] = ["laz", "las", "csv", "shp"];
+    const EX_EXT: [&'static str; 5] = ["laz", "las", "csv", "shp", "copc.laz"];
 
     fn seg_name(&self) -> &'static str {
         match self.crown.method {
@@ -817,7 +835,7 @@ impl Tools {
                             ToolId::Hag => self.hag_form(ui, t),
                             ToolId::Colorize => self.colorize_form(ui, t),
                             ToolId::Intensity => self.intensity_form(ui, t),
-                            ToolId::Copc => self.copc_form(ui, t),
+                            ToolId::ClipPoly => self.clip_poly_form(ui, t),
                             ToolId::Compare => self.compare_form(ui, t),
                             ToolId::Fit => self.fit_form(ui, t),
                             ToolId::Swath => self.swath_form(ui, t),
@@ -1025,6 +1043,11 @@ impl Tools {
                 "Puntos aislados (celdas 3×3×3)",
             );
             ui.radio_value(&mut self.noise, NoiseChoice::Sor, "Estadístico (SOR)");
+            ui.radio_value(
+                &mut self.noise,
+                NoiseChoice::Elm,
+                "Puntos bajos (ELM)",
+            );
             match self.noise {
                 NoiseChoice::Isolated => {
                     num(ui, "Celda xy", &mut self.np.step_xy, 0.1..=50.0, 0.1);
@@ -1035,6 +1058,17 @@ impl Tools {
                     num(ui, "Vecinos (k)", &mut k, 2.0..=100.0, 1.0);
                     self.sor_k = k as usize;
                     num(ui, "Desviaciones (m)", &mut self.sor_m, 0.5..=10.0, 0.1);
+                }
+                NoiseChoice::Elm => {
+                    num(ui, "Celda", &mut self.elm_cell, 1.0..=100.0, 0.5);
+                    num(ui, "Bajada mínima (m)", &mut self.elm_drop, 0.5..=50.0, 0.1);
+                    ui.label(
+                        egui::RichText::new(
+                            "Marca como ruido el punto más bajo de una celda que queda esa distancia por debajo del resto de su celda y de las vecinas.",
+                        )
+                        .small()
+                        .weak(),
+                    );
                 }
                 NoiseChoice::None => {}
             }
@@ -1341,7 +1375,7 @@ impl Tools {
     fn export_form(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label("Formato");
-            for (k, n) in ["LAZ", "LAS", "Texto (ASCII)", "Shapefile 3D"]
+            for (k, n) in ["LAZ", "LAS", "Texto (ASCII)", "Shapefile 3D", "COPC"]
                 .iter()
                 .enumerate()
             {
@@ -1351,6 +1385,15 @@ impl Tools {
                 }
             }
         });
+        if self.ex_fmt == 4 {
+            ui.label(
+                egui::RichText::new("COPC (Cloud Optimized Point Cloud): un LAZ normal, que lee cualquier programa, cuyos bloques son los nodos de un octree. Así un visor o un servidor (QGIS, visores web) lee solo la zona y el detalle que necesita, y se publica en internet sin servidor especial. Se conservan todos los atributos; los formatos 0 a 3 pasan a 6 o 7, como pide el formato. La nube se guarda entera en memoria mientras se ordena (unos 40 bytes por punto): para nubes de cientos de millones de puntos, divídelas antes en teselas.")
+                    .size(11.0)
+                    .weak(),
+            );
+            self.out_export.row(ui, "Salida", || save_as("laz", "puntos"));
+            return;
+        }
         ui.checkbox(
             &mut self.ex_norm,
             "Normalizar: alturas sobre el suelo (cada nube menos su MDT)",
@@ -1366,7 +1409,7 @@ impl Tools {
             );
         }
         self.out_export.row(ui, "Salida", || {
-            save_as(Self::EX_EXT[self.ex_fmt.min(3)], "puntos")
+            save_as(Self::EX_EXT[self.ex_fmt.min(4)], "puntos")
         });
         if self.ex_fmt == 2 {
             ui.label("Columnas (en este orden):");
@@ -1443,10 +1486,10 @@ impl Tools {
             | ToolId::Fit
             | ToolId::Swath
             | ToolId::Colorize
-            | ToolId::Intensity
-            | ToolId::Copc => {
+            | ToolId::Intensity => {
                 return self.build_lidar(tool, inputs, log);
             }
+            ToolId::ClipPoly => return self.build_clip_poly(inputs, log),
             _ => {}
         }
         let out = match tool {
@@ -1492,7 +1535,7 @@ impl Tools {
             | ToolId::Swath
             | ToolId::Colorize
             | ToolId::Intensity
-            | ToolId::Copc
+            | ToolId::ClipPoly
             | ToolId::Volume
             | ToolId::Clip => return None,
             ToolId::Trees => {
@@ -1639,7 +1682,33 @@ impl Tools {
                         }
                     }
                 }
-                if self.ex_fmt != 2 {
+                if self.ex_fmt == 4 {
+                    let inputs = inputs.clone();
+                    (
+                        Box::new(move || {
+                            let mut lines = Vec::new();
+                            for (k, i) in inputs.iter().enumerate() {
+                                hipso_core::check_cancel()?;
+                                let o = if inputs.len() > 1 {
+                                    output.with_file_name(format!(
+                                        "{}_{}.copc.laz",
+                                        paths::stem(&output)
+                                            .strip_suffix(".copc")
+                                            .unwrap_or(&paths::stem(&output)),
+                                        k + 1
+                                    ))
+                                } else {
+                                    output.clone()
+                                };
+                                let format = hipso_core::las::Reader::open(i)?.header.format;
+                                let r = hipso_core::copc_write::write(i, &o)?;
+                                lines.push(hipso_core::copc_write::describe(&r, format, &o));
+                            }
+                            Ok(lines.join("\n"))
+                        }),
+                        vec![],
+                    )
+                } else if self.ex_fmt != 2 {
                     let ext = Self::EX_EXT[self.ex_fmt.min(3)];
                     let to_cloud = self.ex_fmt < 2;
                     (

@@ -1,4 +1,4 @@
-//! Modelos de transición (Inventario de la vegetación): regression of a field variable on the metrics of
+//! Modelos lineales (Inventario de la vegetación): regression of a field variable on the metrics of
 //! the plots, its validation, and the map of the variable.
 
 use super::*;
@@ -255,7 +255,7 @@ impl App {
         let weak = self.tokens().weak;
         let mut open = true;
         let mut go = false;
-        egui::Window::new("Modelos de transición")
+        egui::Window::new("Modelos lineales")
             .open(&mut open)
             .default_width(620.0)
             .show(ctx, |ui| {
@@ -303,7 +303,7 @@ impl App {
                     .max_height((ctx.content_rect().height() - 200.0).max(220.0))
                     .show(ui, |ui| {
                 ui.label(
-                    egui::RichText::new("Un modelo de transición relaciona una variable medida en campo (volumen, área basimétrica, biomasa…) con las métricas LiDAR de las mismas unidades de muestreo y, si se quiere, dibuja su mapa. Se ajusta una regresión lineal y se valida dejando fuera una unidad de muestreo cada vez, repitiendo la elección de métricas: esa es la cifra de error que cabe esperar en unidades de muestreo nuevas. Hacen falta al menos unas 20 unidades de muestreo; con menos, el resultado es muy inestable.")
+                    egui::RichText::new("Un modelo lineal relaciona una variable medida en campo (volumen, área basimétrica, biomasa…) con las métricas LiDAR de las mismas unidades de muestreo y, si se quiere, dibuja su mapa. Se ajusta una regresión lineal y se valida dejando fuera una unidad de muestreo cada vez, repitiendo la elección de métricas: esa es la cifra de error que cabe esperar en unidades de muestreo nuevas. Hacen falta al menos unas 20 unidades de muestreo; con menos, el resultado es muy inestable.")
                         .color(weak)
                         .size(11.0),
                 );
@@ -552,7 +552,7 @@ impl App {
             self.start(
                 ctx,
                 Launch {
-                    label: "Modelos de transición".to_string(),
+                    label: "Modelos lineales".to_string(),
                     task,
                     show,
                     outputs,

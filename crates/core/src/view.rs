@@ -1729,6 +1729,7 @@ pub fn read_vector(path: &Path) -> Result<VectorData> {
     };
     for shape in rd.iter_shapes() {
         let shape = shape.map_err(|e| Error::Format(e.to_string()))?;
+        let is_polygon = matches!(shape, Shape::Polygon(_) | Shape::PolygonZ(_) | Shape::PolygonM(_));
         let parts: Vec<Vec<[f64; 2]>> = match shape {
             Shape::Point(p) => vec![vec![[p.x, p.y]]],
             Shape::PointZ(p) => vec![vec![[p.x, p.y]]],
@@ -1767,9 +1768,8 @@ pub fn read_vector(path: &Path) -> Result<VectorData> {
             _ => Vec::new(),
         };
         v.points |= parts.len() == 1 && parts[0].len() == 1;
-        v.polygons |= parts
-            .first()
-            .is_some_and(|r| r.len() >= 3 && r.first() == r.last());
+        // by the type of the shape: a line that closes on itself is not a polygon
+        v.polygons |= is_polygon;
         for q in parts.iter().flatten() {
             v.bounds = [
                 v.bounds[0].min(q[0]),

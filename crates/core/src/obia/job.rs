@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use super::attributes::{Canopy, attributes_with};
 use super::classify::{self, Classified, ForestParams};
-use super::layers::{CloudLayer, cloud_layers, local_std};
+use super::layers::{CloudLayer, cloud_layers, fill_empty, local_mean, local_std};
 use super::segment::{SegmentParams, segment};
 use super::strata;
 use super::vectorize::write_polygons;
@@ -56,6 +56,13 @@ pub struct ObiaJob {
     pub clouds: Vec<PathBuf>,
     pub cloud_layers: Vec<CloudLayer>,
     pub filter: Filter,
+    /// Cells without points in the layers made from the clouds take the value of the nearest
+    /// cell that has one, up to this many cells away (0: they stay empty and leave a hole in
+    /// the objects).
+    pub cloud_fill: usize,
+    /// Those layers are averaged over a window of this radius in cells, which evens out the
+    /// noise of cells with only a few points (0: not).
+    pub cloud_smooth: usize,
     /// Adds the local roughness of the first raster over a window of this many cells around each
     /// cell (0: no).
     pub roughness: usize,
@@ -153,7 +160,11 @@ pub fn obia(j: &ObiaJob) -> Result<String> {
         }
     }
     if !clouds.is_empty() && !j.cloud_layers.is_empty() {
-        for l in cloud_layers(&clouds, &lat, &j.cloud_layers, &j.filter)? {
+        for mut l in cloud_layers(&clouds, &lat, &j.cloud_layers, &j.filter)? {
+            fill_empty(&lat, &mut l.data, j.cloud_fill);
+            if j.cloud_smooth > 0 {
+                l.data = local_mean(&lat, &l.data, j.cloud_smooth);
+            }
             stack.push(&l.name, l.data)?;
         }
     }
@@ -364,6 +375,8 @@ mod tests {
             clouds: Vec::new(),
             cloud_layers: Vec::new(),
             filter: Filter::default(),
+            cloud_fill: 3,
+            cloud_smooth: 1,
             roughness: 2,
             segment: SegmentParams {
                 method: Method::Merge(MergeParams {
@@ -412,6 +425,8 @@ mod crs_tests {
             clouds: Vec::new(),
             cloud_layers: Vec::new(),
             filter: Filter::default(),
+            cloud_fill: 3,
+            cloud_smooth: 1,
             roughness: 0,
             segment: SegmentParams {
                 method: Method::Merge(MergeParams::default()),
@@ -483,6 +498,8 @@ mod strata_tests {
             clouds: Vec::new(),
             cloud_layers: Vec::new(),
             filter: Filter::default(),
+            cloud_fill: 3,
+            cloud_smooth: 1,
             roughness: 0,
             segment: SegmentParams {
                 method: Method::Merge(MergeParams {

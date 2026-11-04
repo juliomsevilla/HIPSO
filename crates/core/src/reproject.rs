@@ -163,20 +163,25 @@ pub fn cloud_with(
         round((y0 + y1) / 2.0),
         r.header.offset[2],
     ];
-    let out = Reader::open(src)?
-        .with_projection(
-            &las::epsg_record_with_vertical(
-                to,
-                match vertical.output {
-                    Some(VerticalRef::Epsg(v)) => Some(v),
-                    _ => None,
-                },
-            ),
-            1,
-            Some(to),
-            None,
-        )
-        .with_offset(offset);
+    // LAS 1.4 point formats 6 and above carry the system as WKT, which holds the compound
+    // system; the older formats declare the vertical reference in the GeoTIFF keys
+    let vertical_code = match vertical.output {
+        Some(VerticalRef::Epsg(v)) => Some(v),
+        _ => None,
+    };
+    let compound = vertical_code
+        .filter(|_| r.header.format >= 6)
+        .and_then(|v| las::compound_wkt(to, v));
+    let out = Reader::open(src)?;
+    let out = match compound {
+        Some(wkt) => {
+            // bit 4 of the global encoding: the coordinate system is WKT
+            out.with_projection(&las::wkt_record(&wkt), 1, Some(to), Some(wkt))
+                .with_global_encoding_bits(0x10)
+        }
+        None => out.with_projection(&las::epsg_record_with_vertical(to, vertical_code), 1, Some(to), None),
+    }
+    .with_offset(offset);
     let mut out = out;
     out.header.vertical_epsg = match vertical.output {
         Some(VerticalRef::Epsg(v)) => Some(v),
@@ -376,6 +381,35 @@ pub fn grid_if_needed(g: &Grid, from: Option<u16>, to: Option<u16>) -> Result<Op
         }
         _ => Ok(None),
     }
+}
+
+/// The system a cloud that declares none is probably in, from where a layer of a known system
+/// lies: `None` when the layer already overlaps the cloud as it is (they share a system), else
+/// the first of `candidates` in which the layer does overlap it. Bounds are min x, min y,
+/// max x, max y.
+pub fn guess_system(layer: [f64; 4], from: u16, target: [f64; 4], candidates: &[u16]) -> Option<u16> {
+    let overlap = |a: [f64; 4], b: [f64; 4]| a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
+    if !layer.iter().all(|v| v.is_finite()) || overlap(layer, target) {
+        return None;
+    }
+    let pts = [
+        (layer[0], layer[1]),
+        (layer[2], layer[1]),
+        (layer[2], layer[3]),
+        (layer[0], layer[3]),
+        ((layer[0] + layer[2]) / 2.0, (layer[1] + layer[3]) / 2.0),
+    ];
+    candidates.iter().copied().find(|&c| {
+        let Ok(t) = transformer(from, c) else { return false };
+        let moved: Vec<(f64, f64)> = pts.iter().filter_map(|p| t.transform(p.0, p.1).ok()).collect();
+        if moved.len() < pts.len() {
+            return false;
+        }
+        let b = moved.iter().fold([f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY], |b, p| {
+            [b[0].min(p.0), b[1].min(p.1), b[2].max(p.0), b[3].max(p.1)]
+        });
+        overlap(b, target)
+    })
 }
 
 /// Moves the vertices of a vector layer to the system `to`; the bounds are worked out again.
@@ -688,6 +722,18 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    #[test]
+    fn a_layer_in_degrees_is_placed_over_a_cloud_with_no_system() {
+        // a layer around Santiago (ETRS89 geographic) and a tile in UTM 29N
+        let layer = [-8.6, 42.8, -8.5, 42.9];
+        let tile = [530_000.0, 4_745_000.0, 540_000.0, 4_755_000.0];
+        assert_eq!(guess_system(layer, 4258, tile, &[25829, 25830]), Some(25829));
+        // already over the cloud as it is: nothing to do
+        assert_eq!(guess_system(tile, 25829, tile, &[25829, 25830]), None);
+        // nowhere near it
+        assert_eq!(guess_system([10.0, 50.0, 11.0, 51.0], 4258, tile, &[25829, 25830]), None);
+    }
+
     fn dir(tag: &str) -> Result<PathBuf> {
         let d = std::env::temp_dir().join(format!("rl_reproj_{tag}_{}", std::process::id()));
         std::fs::create_dir_all(&d)?;
@@ -759,6 +805,76 @@ mod tests {
         })?;
         w.finish()?;
         std::fs::remove_file(plain)?;
+        Ok(())
+    }
+
+    /// A LAS 1.4 file of point format 6, without a projection, with the points.
+    fn write_las14(path: &Path, pts: &[[f64; 3]]) -> Result<()> {
+        let mut h = vec![0u8; 375];
+        h[..4].copy_from_slice(b"LASF");
+        h[24] = 1;
+        h[25] = 4;
+        h[94..96].copy_from_slice(&375u16.to_le_bytes());
+        h[96..100].copy_from_slice(&375u32.to_le_bytes());
+        h[104] = 6;
+        h[105..107].copy_from_slice(&30u16.to_le_bytes());
+        h[247..255].copy_from_slice(&(pts.len() as u64).to_le_bytes());
+        let off = [(pts[0][0] / 1000.0).floor() * 1000.0, (pts[0][1] / 1000.0).floor() * 1000.0, 0.0];
+        for k in 0..3 {
+            h[131 + 8 * k..139 + 8 * k].copy_from_slice(&0.001f64.to_le_bytes());
+            h[155 + 8 * k..163 + 8 * k].copy_from_slice(&off[k].to_le_bytes());
+        }
+        let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+        for p in pts {
+            for k in 0..3 {
+                lo[k] = lo[k].min(p[k]);
+                hi[k] = hi[k].max(p[k]);
+            }
+        }
+        for (k, v) in [hi[0], lo[0], hi[1], lo[1], hi[2], lo[2]].iter().enumerate() {
+            h[179 + 8 * k..187 + 8 * k].copy_from_slice(&v.to_le_bytes());
+        }
+        for p in pts {
+            let mut rec = [0u8; 30];
+            for k in 0..3 {
+                let q = ((p[k] - off[k]) / 0.001).round() as i32;
+                rec[4 * k..4 * k + 4].copy_from_slice(&q.to_le_bytes());
+            }
+            rec[14] = 1 | (1 << 4);
+            h.extend_from_slice(&rec);
+        }
+        std::fs::write(path, h)?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_las_14_cloud_gets_the_compound_system_as_wkt() -> Result<()> {
+        let d = dir("compound")?;
+        let (plain, src, dst) = (d.join("p.las"), d.join("a.las"), d.join("b.las"));
+        write_las14(&plain, &[[440_295.0, 4_474_235.0, 700.0], [440_395.0, 4_474_335.0, 710.0]])?;
+        let r = Reader::open(&plain)?.with_projection(&las::epsg_record(25830), 1, Some(25830), None);
+        let mut w = Writer::create(&src, &r)?;
+        Reader::open(&plain)?.scan_raw(|b| {
+            for rec in b.as_chunks::<30>().0 {
+                w.write(rec)?;
+            }
+            Ok(())
+        })?;
+        w.finish()?;
+        let v = Vertical {
+            input: Some(VerticalRef::Ellipsoidal),
+            output: Some(VerticalRef::Epsg(5782)),
+        };
+        cloud_with(&src, &dst, 25830, 25830, v, Policy::STRICT)?;
+        let out = Reader::open(&dst)?;
+        assert_eq!(out.header.format, 6);
+        assert_eq!((out.header.epsg, out.header.vertical_epsg), (Some(25830), Some(5782)));
+        let wkt = out.meta.wkt.clone().unwrap_or_default();
+        assert!(wkt.starts_with("COMPD_CS["), "{wkt}");
+        // the WKT bit of the global encoding is set, and no GeoTIFF keys are left
+        assert_eq!(out.meta.global_encoding & 0x10, 0x10);
+        assert!(out.projection_records().0.windows(14).all(|w| w != b"GeoKeyDirector"));
+        std::fs::remove_dir_all(&d)?;
         Ok(())
     }
 
