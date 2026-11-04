@@ -215,8 +215,164 @@ pub fn compute(g: &Grid, job: &TerrainJob) -> Result<Grid> {
     })
 }
 
+/// Rasters with more cells than this are worked in strips (see [`run_streamed`]).
+const STREAM_CELLS: u64 = 32_000_000;
+
+/// Rows of margin a strip needs to give, cell by cell, what the whole raster would: the products
+/// that look only at the neighbourhood of a cell. `None` for those that need the whole raster
+/// (flow, depressions, basins, visibility).
+fn halo(job: &TerrainJob, cell: f64) -> Option<usize> {
+    match job.product {
+        Product::Slope
+        | Product::Aspect
+        | Product::Hillshade
+        | Product::PlanCurvature
+        | Product::ProfileCurvature
+        | Product::Curvature
+        | Product::Roughness
+        | Product::Ruggedness => Some(1),
+        Product::Position => Some((job.radius / cell).round().max(1.0) as usize + 1),
+        _ => None,
+    }
+}
+
+/// The product of a raster of any size, in strips of rows with the margin the product needs: only
+/// a strip is in memory (its tiles decoded on all cores) and its result is written as soon as it
+/// is made, so a raster of billions of cells takes the memory of a few million. The result is the
+/// same as working the raster whole.
+fn run_streamed(job: &TerrainJob, pyr: &crate::pyramid::Pyramid, margin: usize) -> Result<String> {
+    use crate::tiled::{Compression, Spec};
+    let e = pyr.extent();
+    let cell = pyr.cell;
+    let (cols, rows) = (
+        ((e[2] - e[0]) / cell).round() as usize,
+        ((e[3] - e[1]) / cell).round() as usize,
+    );
+    if pyr.bands != 1 {
+        return Err(Error::Param("el análisis del terreno necesita un ráster de una banda".into()));
+    }
+    let nodata = pyr.nodata();
+    // a strip (and its margin) takes a share of the memory of the machine: 33 million cells in
+    // one of 16 GB, 134 million in one of 64 GB, so that a big machine works in fewer, longer strips
+    let budget = crate::copc_cache::total_memory().map_or(24_000_000, |m| (m / 512).clamp(16_000_000, 256_000_000));
+    let step = (budget as usize / cols.max(1)).clamp(64, 16_384).max(margin * 8);
+    crate::paths::ensure_parent(&job.output)?;
+    let spec = Spec {
+        cols,
+        rows,
+        bands: 1,
+        dtype: crate::rastertools::Dtype::F32,
+        cell,
+        x0: e[0],
+        top: e[3],
+        epsg: pyr.epsg,
+        nodata: crate::grid::NODATA,
+        compression: Compression::Deflate,
+        nearest: false,
+        bigtiff: false,
+    };
+    let (mut lo, mut hi, mut n) = (f32::INFINITY, f32::NEG_INFINITY, 0u64);
+    let started = std::time::Instant::now();
+    crate::progress::begin(rows as u64);
+    crate::tiled::write(&job.output, spec, step, |r0, r1| {
+        crate::progress::advance((r1 - r0) as u64);
+        let (w0, w1) = (r0.saturating_sub(margin), (r1 + margin).min(rows));
+        // a quarter of a cell inside the strip, so that the pixel boundaries are the right ones
+        let q = cell * 0.25;
+        let win = [
+            e[0] + q,
+            e[3] - w1 as f64 * cell + q,
+            e[2] - q,
+            e[3] - w0 as f64 * cell - q,
+        ];
+        let mut img = pyr.read(0, win)?;
+        if img.cols != cols || img.rows != w1 - w0 {
+            return Err(Error::Format(format!(
+                "la franja leída mide {} x {} y se esperaba {} x {}",
+                img.cols,
+                img.rows,
+                cols,
+                w1 - w0
+            )));
+        }
+        let mut data = std::mem::take(&mut img.bands[0]);
+        for v in &mut data {
+            if !v.is_finite() || nodata.is_some_and(|nd| *v == nd) {
+                *v = f32::NAN;
+            }
+        }
+        let g = Grid {
+            x0: img.x0,
+            y0: img.y0,
+            cell,
+            cols,
+            rows: w1 - w0,
+            data,
+        };
+        let out = compute(&g, job)?;
+        let core = &out.data[(r0 - w0) * cols..(r1 - w0) * cols];
+        for v in core.iter().filter(|v| !v.is_nan()) {
+            lo = lo.min(*v);
+            hi = hi.max(*v);
+            n += 1;
+        }
+        Ok(core.to_vec())
+    })?;
+    Ok(if n == 0 {
+        format!("{}: sin celdas con valor", job.product.name())
+    } else {
+        format!(
+            "{}: {n} celdas, de {lo:.4} a {hi:.4}, por franjas de {step} filas en {:.0} s -> {}",
+            job.product.name(),
+            started.elapsed().as_secs_f64(),
+            job.output.display()
+        )
+    })
+}
+
 /// Reads the input, computes the product and writes it as a GeoTIFF beside the input's system.
 pub fn run(job: &TerrainJob) -> Result<String> {
+    if let Ok(pyr) = crate::pyramid::Pyramid::open(&job.input)
+        && pyr.bands == 1
+        && let Some(margin) = halo(job, pyr.cell)
+    {
+        let e = pyr.extent();
+        let cells = (((e[2] - e[0]) / pyr.cell) * ((e[3] - e[1]) / pyr.cell)) as u64;
+        // HIPSO_STREAM=1 forces the strips, =0 forbids them (to compare the two ways)
+        let forced = std::env::var("HIPSO_STREAM").ok();
+        if match forced.as_deref() {
+            Some("0") => false,
+            Some(_) => true,
+            None => cells > STREAM_CELLS,
+        } {
+            return run_streamed(job, &pyr, margin);
+        }
+    }
+    if matches!(
+        job.product,
+        Product::FillDepth
+            | Product::FlowAccumulation
+            | Product::Wetness
+            | Product::Streams
+            | Product::Subbasins
+    ) && let Ok(pyr) = crate::pyramid::Pyramid::open(&job.input)
+        && let Some(mem) = crate::copc_cache::total_memory()
+    {
+        // these follow the water across the whole raster: it is held in memory, with the
+        // directions, the order and the result (measured: 16 bytes a cell). Say it before reading
+        let e = pyr.extent();
+        let cells = ((e[2] - e[0]) / pyr.cell) * ((e[3] - e[1]) / pyr.cell);
+        let need = cells * 20.0;
+        if need > mem as f64 * 0.7 {
+            return Err(Error::Param(format!(
+                "{} sobre {:.0} millones de celdas necesita unos {:.0} GB de memoria (este equipo tiene {:.0} GB): el agua se sigue por todo el ráster a la vez. Usa una celda mayor o divide la zona en cuencas",
+                job.product.name().to_lowercase(),
+                cells / 1e6,
+                need / 1e9,
+                mem as f64 / 1e9
+            )));
+        }
+    }
     let g = Grid::read(&job.input)?;
     let out = compute(&g, job)?;
     crate::paths::ensure_parent(&job.output)?;
@@ -598,6 +754,54 @@ mod tests {
         let g = Grid::new(0.0, 0.0, 0.00001, 4, 4)?;
         let job = TerrainJob::new("a".into(), "b".into(), Product::Slope);
         assert!(compute(&g, &job).is_err());
+        Ok(())
+    }
+
+    /// A raster worked in strips gives, cell by cell, what the whole raster gives.
+    #[test]
+    fn strips_give_the_same_cells_as_the_whole_raster() -> Result<()> {
+        let dir = std::env::temp_dir().join(format!("hipso_strips_{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        // a hilly surface with a hole, 300 x 200 cells: several strips of 64 rows
+        let mut g = Grid::new(1000.0, 5000.0, 2.0, 300, 200)?;
+        for r in 0..g.rows {
+            for c in 0..g.cols {
+                let (x, y) = (c as f32, r as f32);
+                g.data[r * g.cols + c] = 100.0 + 8.0 * (x / 17.0).sin() + 6.0 * (y / 11.0).cos() + x * 0.05;
+            }
+        }
+        for r in 90..96 {
+            for c in 140..150 {
+                g.data[r * g.cols + c] = f32::NAN;
+            }
+        }
+        let input = dir.join("dem.tif");
+        g.write_tiff(&input, Some(25830))?;
+        let pyr = crate::pyramid::Pyramid::open(&input)?;
+        for product in [
+            Product::Slope,
+            Product::Aspect,
+            Product::Hillshade,
+            Product::Curvature,
+            Product::Roughness,
+            Product::Position,
+        ] {
+            let mut job = TerrainJob::new(input.clone(), dir.join("out.tif"), product);
+            job.radius = 6.0;
+            let whole = compute(&Grid::read(&input)?, &job)?;
+            let margin = halo(&job, 2.0).unwrap();
+            run_streamed(&job, &pyr, margin)?;
+            let strips = Grid::read(&job.output)?;
+            assert_eq!((strips.cols, strips.rows), (whole.cols, whole.rows));
+            for (a, b) in whole.data.iter().zip(&strips.data) {
+                assert!(
+                    (a.is_nan() && b.is_nan()) || a == b,
+                    "{}: {a} {b}",
+                    product.name()
+                );
+            }
+        }
+        std::fs::remove_dir_all(&dir)?;
         Ok(())
     }
 }

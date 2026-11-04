@@ -311,6 +311,7 @@ mod tests {
         }
         // the overviews are in the file, and every directory comes before the first tile
         let mut d = Decoder::new(std::io::BufReader::new(std::fs::File::open(&path)?))
+            .map(|d| d.with_limits(tiff::decoder::Limits::unlimited()))
             .map_err(|e| Error::Format(e.to_string()))?;
         let mut sizes = vec![d.dimensions().map_err(|e| Error::Format(e.to_string()))?];
         while d.more_images() {

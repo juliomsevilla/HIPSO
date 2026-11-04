@@ -918,7 +918,7 @@ impl Layer {
     /// the two are at about the same depth (within 4 % of the depth range of the image). So the
     /// gap between two scan lines closes, while the space between a trunk and the canopy behind
     /// it, or the edge of a cloud, is left as it is. Linear in the pixels.
-    fn fill_gaps(&mut self, r: usize) {
+    fn fill_gaps(&mut self, r: usize, any_depth: bool) {
         use rayon::prelude::*;
         use std::sync::atomic::Ordering::Relaxed;
         fn depth(v: u64) -> f32 {
@@ -968,7 +968,10 @@ impl Layer {
         if !(hi > lo) {
             return;
         }
-        let tol = (hi - lo) * 0.04;
+        // `any_depth`: the points are sparser than the pixels (a sample, or a zoom beyond the
+        // detail), so the holes come from the sampling, not from the scene: close them whatever
+        // the depth, taking the higher side
+        let tol = if any_depth { f32::INFINITY } else { (hi - lo) * 0.04 };
         rows(&mut buf, w, r, tol);
         let mut t = vec![EMPTY; w * h];
         for y in 0..h {
@@ -1074,6 +1077,7 @@ fn par_points(
     n: usize,
     step: usize,
     fill: usize,
+    any_depth: bool,
     edl: f32,
     f: impl Fn(&Layer, usize) + Sync + Send,
 ) {
@@ -1085,7 +1089,7 @@ fn par_points(
         .with_min_len(8192)
         .for_each(|k| f(&layer, k * step));
     if fill > 0 {
-        layer.fill_gaps(fill);
+        layer.fill_gaps(fill, any_depth);
     }
     if edl > 0.0 {
         layer.shade_edl(edl);
@@ -1116,6 +1120,9 @@ fn dot(st: &Style, px_per_unit: f64) -> i64 {
     ((st.spacing * px_per_unit * 0.9).ceil() as i64).clamp(st.point_size.max(1) as i64, 24)
 }
 
+/// Average spacing, in pixels, from which the plan view takes the holes for sampling gaps.
+const SPARSE_PX: f64 = 0.5;
+
 /// The plan view, highest point on top.
 pub fn render_plan(s: &PointStore, v: &Plan, w: usize, h: usize, st: &Style) -> Image {
     let mut img = canvas(w, h, st);
@@ -1125,7 +1132,10 @@ pub fn render_plan(s: &PointStore, v: &Plan, w: usize, h: usize, st: &Style) -> 
     // direction), unless the points are far denser than the pixels
     let gap_px = st.spacing * v.scale;
     let fill = if st.fill && st.thin <= 1 && gap_px >= 0.3 && s.airborne() {
-        (gap_px * 2.0).ceil().clamp(2.0, 8.0) as usize
+        // the average spacing hides the thin parts (overlaps of strips, shadows): when the points are
+        // sparser than the pixels the reach is wider, as the holes are not all of the average size
+        let k = if gap_px >= SPARSE_PX { 4.0 } else { 2.0 };
+        (gap_px * k).ceil().clamp(2.0, 8.0) as usize
     } else {
         0
     };
@@ -1134,6 +1144,7 @@ pub fn render_plan(s: &PointStore, v: &Plan, w: usize, h: usize, st: &Style) -> 
         s.len(),
         st.thin.max(1),
         fill,
+        gap_px >= SPARSE_PX,
         edl_of(st),
         |l, i| {
             let px = ((f64::from(s.x[i]) + s.origin[0] - v.cx) * v.scale + w as f64 / 2.0).floor();
@@ -1376,7 +1387,7 @@ pub fn render_3d_with(
     }
     // as in the plan view: the gaps between points close up to twice their spacing on screen
     if st.fill && thin <= 1 && gap_px >= 0.3 && airborne {
-        layer.fill_gaps((gap_px * 2.0).ceil().clamp(2.0, 8.0) as usize);
+        layer.fill_gaps((gap_px * 2.0).ceil().clamp(2.0, 8.0) as usize, false);
     }
     if edl_of(st) > 0.0 && thin <= 1 {
         layer.shade_edl(st.edl);
@@ -2046,6 +2057,41 @@ mod tests {
         assert!(none.is_empty());
         let _ = std::fs::remove_file(&path);
         Ok(())
+    }
+
+    #[test]
+    fn sparse_points_leave_no_holes_whatever_their_height() {
+        // a regular sample, canopy and ground alternating 30 m apart in height: the dots (2 px)
+        // are 6 px apart, and the holes must close although the heights are far
+        let mut s = PointStore {
+            origin: [0.0; 3],
+            area: 60.0 * 60.0,
+            ..PointStore::default()
+        };
+        for i in 0..20 {
+            for j in 0..20 {
+                s.x.push(i as f32 * 3.0);
+                s.y.push(j as f32 * 3.0);
+                s.z.push(if (i + j) % 2 == 0 { 0.0 } else { 30.0 });
+                s.intensity.push(0);
+                s.ret.push(1);
+                s.class.push(1);
+                s.src.push(0);
+                s.scan.push(5);
+                s.file.push(0);
+            }
+        }
+        let mut st = Style::fit(&s);
+        st.fill = true;
+        st.spacing = 3.0;
+        let v = Plan { cx: 28.0, cy: 28.0, scale: 2.0 };
+        let img = render_plan(&s, &v, 80, 80, &st);
+        let bg = [st.background[0], st.background[1], st.background[2]];
+        let empty = (20..60)
+            .flat_map(|y| (20..60).map(move |x| (x, y)))
+            .filter(|&(x, y)| img.rgba[(y * 80 + x) * 4 + 3] == 0 || img.rgba[(y * 80 + x) * 4..(y * 80 + x) * 4 + 3] == bg)
+            .count();
+        assert_eq!(empty, 0);
     }
 
     #[test]

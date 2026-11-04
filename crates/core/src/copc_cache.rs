@@ -151,6 +151,27 @@ fn bytes_needed(points: u64, mem: u64) -> u64 {
     }
 }
 
+/// Bytes free on the volume that holds `folder` (or the nearest folder that exists), when it can
+/// be told.
+pub fn free_bytes(folder: &Path) -> Option<u64> {
+    let mut at = folder;
+    while !at.exists() {
+        at = at.parent()?;
+    }
+    let out = std::process::Command::new("df")
+        .arg("-k")
+        .arg(at)
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    // the line of the volume: filesystem, 1K-blocks, used, available, ...
+    let kb: u64 = text.lines().nth(1)?.split_whitespace().nth(3)?.parse().ok()?;
+    Some(kb * 1024)
+}
+
+/// Free space that is left alone when copies are made: the machine has to go on working.
+const KEEP_FREE: u64 = 8 << 30;
+
 /// Makes the copy of `src` in the cache unless there is one; returns its path. It is written
 /// under another name and renamed when done, so a copy that exists is a whole one.
 pub fn ensure(src: &Path) -> Result<PathBuf> {
@@ -167,6 +188,18 @@ pub fn ensure(src: &Path) -> Result<PathBuf> {
         )));
     }
     let out = path_for(src);
+    // a copy takes about 1.3 times the size of the cloud: never fill the disk with the cache
+    let need = (std::fs::metadata(src).map_or(0, |m| m.len()) as f64 * 1.4) as u64;
+    if let Some(free) = out.parent().and_then(free_bytes)
+        && free < need + KEEP_FREE
+    {
+        return Err(crate::Error::Param(format!(
+            "no hay espacio en el disco de la caché para la copia de detalle ({:.1} GB libres, hacen falta {:.1} GB y se dejan {} GB libres): libera espacio o apunta HIPSO_CACHE_DIR a otro disco",
+            free as f64 / 1e9,
+            need as f64 / 1e9,
+            KEEP_FREE >> 30
+        )));
+    }
     let part = out.with_extension("part");
     let r = crate::copc_write::write(src, &part);
     match r {

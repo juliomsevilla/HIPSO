@@ -484,13 +484,29 @@ pub struct Summary {
     pub points: u64,
     pub bounds: [f64; 6],
     pub density: f64,
+    /// Files that could not be read, with the reason (a truncated file, say): the others are
+    /// reported all the same.
+    pub failed: Vec<(PathBuf, String)>,
 }
 
 pub fn inspect_many(paths: &[PathBuf]) -> Result<Summary> {
-    let files = paths
-        .iter()
-        .map(|p| inspect(p))
-        .collect::<Result<Vec<_>>>()?;
+    let mut files = Vec::new();
+    let mut failed = Vec::new();
+    for p in paths {
+        match inspect(p) {
+            Ok(f) => files.push(f),
+            // one file alone: its own error; among many, the bad ones are listed and the rest go on
+            Err(e) if paths.len() == 1 || matches!(e, crate::Error::Cancelled) => return Err(e),
+            Err(e) => failed.push((p.clone(), e.to_string())),
+        }
+    }
+    if files.is_empty() && !failed.is_empty() {
+        return Err(crate::Error::Param(format!(
+            "ningún archivo se pudo leer; el primero, {}: {}",
+            failed[0].0.display(),
+            failed[0].1
+        )));
+    }
     let points = files.iter().map(|f| f.points_read).sum();
     let mut bounds = [
         f64::INFINITY,
@@ -517,6 +533,7 @@ pub fn inspect_many(paths: &[PathBuf]) -> Result<Summary> {
         } else {
             0.0
         },
+        failed,
     })
 }
 

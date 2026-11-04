@@ -2645,7 +2645,17 @@ fn run(cmd: Cmd) -> Result<()> {
             // images of several bands or of whole numbers (photographs, satellite scenes,
             // classes) are rewritten as a stream, whatever their size
             let pyr = hipso_core::pyramid::Pyramid::open(&input).ok();
-            if let Some(p) = pyr.filter(|p| p.bands > 1 || p.bits <= 16) {
+            // (a big raster of floats too: it never has to fit in memory; HIPSO_STREAM=0 forbids it)
+            let big = |p: &hipso_core::pyramid::Pyramid| {
+                let e = p.extent();
+                let cells = ((e[2] - e[0]) / p.cell) * ((e[3] - e[1]) / p.cell);
+                match std::env::var("HIPSO_STREAM").ok().as_deref() {
+                    Some("0") => false,
+                    Some(_) => true,
+                    None => cells > 32e6,
+                }
+            };
+            if let Some(p) = pyr.filter(|p| p.bands > 1 || p.bits <= 16 || big(p)) {
                 use hipso_core::rastertools::{RasterJob, Resample, Source, stack};
                 let mut job = RasterJob::new(
                     vec![Source {
@@ -2655,6 +2665,10 @@ fn run(cmd: Cmd) -> Result<()> {
                     output,
                 );
                 job.nodata = p.nodata().unwrap_or(0.0);
+                if p.bits > 16 {
+                    // floats: the value of the empty cells must not be averaged into the overviews
+                    job.src_nodata = p.nodata();
+                }
                 job.compression = tiles.compression();
                 if nearest {
                     job.resample = Resample::Nearest;

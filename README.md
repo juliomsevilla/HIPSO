@@ -1,3 +1,4 @@
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/brand/hipso-logo-completo-blanco.svg">
@@ -10,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/juliomsevilla/HIPSO/releases/latest"><img alt="Descargar" src="https://img.shields.io/badge/descargar-v0.7.1-ff8a1f?style=for-the-badge"></a>
+  <a href="https://github.com/juliomsevilla/HIPSO/releases/latest"><img alt="Descargar" src="https://img.shields.io/badge/descargar-v0.7.2-ff8a1f?style=for-the-badge"></a>
   <img alt="Plataformas" src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-555?style=for-the-badge">
   <img alt="Gratuito" src="https://img.shields.io/badge/uso-gratuito-2e7d32?style=for-the-badge">
 </p>
@@ -141,16 +142,40 @@ hipso compare nube2.laz --reference nube1.laz --distance 0.5
 - Fuera de España los geoides y las mallas de datum se buscan en `HIPSO_GRID_DIR`, `PROJ_DATA` o `PROJ_LIB`, o se descargan con `HIPSO_NETWORK=ON`.
 - Las imágenes de varias bandas y las herramientas de imágenes grandes (*Apilar*, *Mosaico* de imágenes, *Igualar rásteres*) exigen el mismo sistema, y las nubes no se pasan desde o hacia grados.
 
----
+## Rendimiento
+
+Banco de pruebas: **598 teselas del PNOA** (6.865 millones de puntos, 41 GB de LAZ) en dos husos UTM, solapadas entre sí, en un Mac con M4 de 10 núcleos y 16 GB de memoria.
+
+**De las teselas a los productos**, una orden por producto:
+
+| Tarea | Tiempo | Memoria máxima |
+|---|---|---|
+| MDT 1 m de las 598 teselas y mosaico (622 millones de celdas, con las de otro huso pasadas al vuelo) | 23 min | 2,7 GB |
+| CHM 1 m y mosaico | 22 min | 0,9 GB |
+| Métricas por celda de 15 m | 16 min | 0,95 GB |
+
+La memoria no crece con el número de teselas: cada una se procesa por separado, y si alguna está dañada se salta, se nombra y el resto sigue.
+
+**Sobre ese mosaico de 622 millones de celdas, frente a terra** (R, 1.9.11, mismo equipo y mismo disco):
+
+| Operación | terra | HIPSO | Memoria de HIPSO |
+|---|---|---|---|
+| Pendiente | 26,6 s | **13,9 s** | 1,3 GB |
+| Sombreado | 86,2 s | **11,5 s** | 1,3 GB |
+| Reproyección entre husos | 137,7 s | **40,1 s** | 2,0 GB |
+
+Los rásteres grandes se trabajan **por franjas con margen**: la memoria depende de la franja y no del tamaño del ráster, y el resultado es idéntico, celda a celda, al de leerlo entero. El tamaño de la franja se ajusta a la memoria del equipo, así que en una máquina de 64 GB el mismo programa trabaja con franjas cuatro veces mayores.
 
 ## Licencia
 
 HIPSO es *freeware* propietario: de **uso gratuito**, también para trabajo profesional y comercial. No se puede modificar, desmontar, descompilar ni someter a ingeniería inversa, ni vender ni redistribuir salvo en su paquete original y gratis. Las condiciones están en [`LICENSE`](LICENSE). Los componentes de terceros conservan sus licencias ([`NOTICE`](NOTICE), [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md), [`licenses/`](licenses)).
 
-### Aviso
 
-HIPSO está construido en algunas partes con [Claude](https://www.anthropic.com/claude), un modelo de IA de Anthropic, bajo dirección y revisión humanas. Sus resultados se contrastan con otros programas libres como FUSION, lidR, WhiteboxTools y GeoLibre, pero compruébalos para tu propio uso y, por favor, avisa de cualquier cosa que parezca incorrecta.
 
 ## Autoría y contacto
 
 Se agradecen las sugerencias y los fallos comunicados en [Issues](https://github.com/juliomsevilla/HIPSO/issues). La licencia no permite modificar ni redistribuir el programa. Los errores se irán corrigiendo en la medida de lo posible.
+
+## Aviso
+
+HIPSO está construido en algunas partes con [Claude](https://www.anthropic.com/claude), un modelo de IA de Anthropic, bajo dirección y revisión humanas. Sus resultados se contrastan con otros programas libres como FUSION, lidR, WhiteboxTools y GeoLibre, pero compruébalos para tu propio uso y, por favor, avisa de cualquier cosa que parezca incorrecta.

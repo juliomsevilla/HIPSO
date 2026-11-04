@@ -5,9 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::grid::Grid;
 use crate::jobs::{self, ChmJob, ClassifyJob, DsmJob, DtmJob, MetricsJob};
-use crate::las::Reader;
 use crate::pipeline::{Steps, Tiling};
 use crate::{Error, Result};
 
@@ -20,60 +18,109 @@ pub enum Overlap {
     First,
 }
 
-/// Joins rasters on the same cell lattice into one.
-pub fn mosaic(paths: &[PathBuf], output: &Path, how: Overlap, epsg: Option<u16>) -> Result<()> {
+/// Joins rasters on the same cell size into one. It is made in strips of rows: only the strip
+/// being written and the sheets that touch it are in memory, so a mosaic of hundreds of sheets
+/// (hundreds of millions of cells) needs no more memory than a few sheets do. Sheets in another
+/// coordinate system are moved to the one of the first before they are joined.
+pub fn mosaic(paths: &[PathBuf], output: &Path, how: Overlap, _epsg: Option<u16>) -> Result<()> {
+    use crate::rastertools::{self, RasterJob, Source};
+    if paths.is_empty() {
+        return Err(Error::Param("no hay nada que unir".into()));
+    }
     let unified = crate::crs::unify(paths, false)?;
     let paths = unified.all(paths);
-    let grids: Vec<Grid> = paths.iter().map(|p| Grid::read(p)).collect::<Result<_>>()?;
-    let first = grids
-        .first()
-        .ok_or_else(|| Error::Param("no hay nada que unir".into()))?;
-    let cell = first.cell;
-    if grids.iter().any(|g| (g.cell - cell).abs() > cell * 1e-6) {
-        return Err(Error::Param(
-            "las hojas tienen celdas distintas: no se pueden unir".into(),
-        ));
-    }
-    let x0 = grids.iter().map(|g| g.x0).fold(f64::INFINITY, f64::min);
-    let y0 = grids.iter().map(|g| g.y0).fold(f64::INFINITY, f64::min);
-    let x1 = grids
-        .iter()
-        .map(|g| g.x0 + g.cols as f64 * cell)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let y1 = grids
-        .iter()
-        .map(|g| g.y0 + g.rows as f64 * cell)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let (cols, rows) = (
-        ((x1 - x0) / cell).round() as usize,
-        ((y1 - y0) / cell).round() as usize,
+    let mut job = RasterJob::new(
+        paths
+            .into_iter()
+            .map(|path| Source {
+                path,
+                bands: Vec::new(),
+            })
+            .collect(),
+        output.to_path_buf(),
     );
-    let mut out = Grid::new(x0, y0, cell, cols, rows)?;
-    for g in &grids {
-        let c0 = ((g.x0 - x0) / cell).round() as usize;
-        // rows count from the north
-        let r0 = ((y1 - (g.y0 + g.rows as f64 * cell)) / cell).round() as usize;
-        for r in 0..g.rows {
-            for c in 0..g.cols {
-                let v = g.data[r * g.cols + c];
-                if v.is_nan() {
-                    continue;
-                }
-                let Some(d) = out.data.get_mut((r0 + r) * cols + c0 + c) else {
-                    continue;
-                };
-                if d.is_nan() || (how == Overlap::Max && v > *d) {
-                    *d = v;
-                }
+    job.overlap = match how {
+        Overlap::Max => rastertools::Overlap::Max,
+        Overlap::First => rastertools::Overlap::First,
+    };
+    job.nodata = crate::grid::NODATA;
+    rastertools::mosaic(&job)?;
+    Ok(())
+}
+
+/// Runs `work` on every sheet. A sheet that fails (a truncated file, say) is noted and the rest
+/// go on, so that hours of work are not lost for one bad file; only a cancel stops the run. Gives
+/// the lines of the sheets that went well and the sheets that failed, with the reason.
+fn each_sheet<T>(
+    inputs: &[PathBuf],
+    mut work: impl FnMut(&Path) -> Result<(String, T)>,
+) -> Result<(Vec<String>, Vec<T>, Vec<String>)> {
+    let (mut lines, mut done, mut failed) = (Vec::new(), Vec::new(), Vec::new());
+    for (k, input) in inputs.iter().enumerate() {
+        crate::check_cancel()?;
+        match work(input) {
+            Ok((line, t)) => {
+                lines.push(format!("[{}/{}] {}", k + 1, inputs.len(), line));
+                done.push(t);
+            }
+            Err(Error::Cancelled) => return Err(Error::Cancelled),
+            Err(e) => {
+                let m = format!("[{}/{}] {}: ERROR: {e}", k + 1, inputs.len(), input.display());
+                eprintln!("{m}");
+                failed.push(m);
             }
         }
     }
-    crate::paths::ensure_parent(output)?;
-    out.write_tiff(output, epsg)
+    Ok((lines, done, failed))
 }
 
-fn epsg_of(p: &Path) -> Option<u16> {
-    Reader::open(p).ok().and_then(|r| r.header.epsg)
+/// The result of a sheet's job; a failure takes away the output it left half written, which would
+/// pass for a good one (and be read by the next step).
+fn or_clean<T>(r: Result<T>, output: &Path) -> Result<T> {
+    if r.is_err() {
+        let _ = std::fs::remove_file(output);
+        // a shapefile is several files: the rest of this one go too
+        if output.extension().is_some_and(|e| e.eq_ignore_ascii_case("shp")) {
+            let stem = crate::paths::stem(output);
+            for ext in ["dbf", "shx", "prj", "cpg"] {
+                let _ = std::fs::remove_file(output.with_extension(ext));
+            }
+            let _ = std::fs::remove_file(output.with_file_name(format!("{stem}_campos.txt")));
+        }
+    }
+    r
+}
+
+/// Ends a run over sheets: the failures, if any, make it an error once everything that could be
+/// done is done.
+fn close_run(mut lines: Vec<String>, failed: Vec<String>, total: usize) -> Result<String> {
+    if failed.is_empty() {
+        return Ok(lines.join("\n"));
+    }
+    lines.extend(failed.iter().cloned());
+    Err(Error::Param(format!(
+        "{} de {} hojas no se pudieron procesar (el resto está hecho):\n{}",
+        failed.len(),
+        total,
+        failed.join("\n")
+    )))
+}
+
+/// The joined raster of the sheets that went well, when asked for and there is more than one.
+fn join_done(
+    files: &mut Vec<PathBuf>,
+    lines: &mut Vec<String>,
+    mosaic_to: Option<&Path>,
+    how: Overlap,
+    what: &str,
+) -> Result<()> {
+    if let Some(m) = mosaic_to.filter(|_| files.len() > 1) {
+        crate::check_cancel()?;
+        mosaic(files, m, how, None)?;
+        lines.push(format!("mosaico de {} {what}: {}", files.len(), m.display()));
+        files.push(m.to_path_buf());
+    }
+    Ok(())
 }
 
 /// Classifies every sheet separately; each gets the path `out_for` gives it.
@@ -83,24 +130,16 @@ pub fn classify_each(
     steps: &Steps,
     tiling: &Tiling,
 ) -> Result<String> {
-    let mut lines = Vec::new();
-    for (k, input) in inputs.iter().enumerate() {
-        crate::check_cancel()?;
+    let (lines, _, failed) = each_sheet(inputs, |input| {
         let job = ClassifyJob {
-            inputs: vec![input.clone()],
+            inputs: vec![input.to_path_buf()],
             output: out_for(input),
             steps: steps.clone(),
             tiling: tiling.clone(),
         };
-        lines.push(format!(
-            "[{}/{}] {}: {}",
-            k + 1,
-            inputs.len(),
-            input.display(),
-            jobs::classify(&job)?
-        ));
-    }
-    Ok(lines.join("\n"))
+        Ok((format!("{}: {}", input.display(), or_clean(jobs::classify(&job), &job.output)?), ()))
+    })?;
+    close_run(lines, failed, inputs.len())
 }
 
 /// One DTM per sheet; with `mosaic_to`, also one joined DTM. Returns the summary and the files.
@@ -110,29 +149,16 @@ pub fn dtm_each(
     out_for: &dyn Fn(&Path) -> PathBuf,
     mosaic_to: Option<&Path>,
 ) -> Result<(String, Vec<PathBuf>)> {
-    let (mut lines, mut files) = (Vec::new(), Vec::new());
-    for (k, input) in inputs.iter().enumerate() {
-        crate::check_cancel()?;
+    let (mut lines, mut files, failed) = each_sheet(inputs, |input| {
         let job = DtmJob {
-            inputs: vec![input.clone()],
+            inputs: vec![input.to_path_buf()],
             output: out_for(input),
             ..base.clone()
         };
-        lines.push(format!("[{}/{}] {}", k + 1, inputs.len(), jobs::dtm(&job)?));
-        files.push(job.output);
-    }
-    if let Some(m) = mosaic_to.filter(|_| files.len() > 1) {
-        crate::check_cancel()?;
-        mosaic(
-            &files,
-            m,
-            Overlap::First,
-            inputs.first().and_then(|p| epsg_of(p)),
-        )?;
-        lines.push(format!("mosaico de {} MDT: {}", files.len(), m.display()));
-        files.push(m.to_path_buf());
-    }
-    Ok((lines.join("\n"), files))
+        Ok((or_clean(jobs::dtm(&job), &job.output)?, job.output))
+    })?;
+    join_done(&mut files, &mut lines, mosaic_to, Overlap::First, "MDT")?;
+    Ok((close_run(lines, failed, inputs.len())?, files))
 }
 
 /// One DSM per sheet; optionally a joined DSM.
@@ -142,29 +168,16 @@ pub fn dsm_each(
     out_for: &dyn Fn(&Path) -> PathBuf,
     mosaic_to: Option<&Path>,
 ) -> Result<(String, Vec<PathBuf>)> {
-    let (mut lines, mut files) = (Vec::new(), Vec::new());
-    for (k, input) in inputs.iter().enumerate() {
-        crate::check_cancel()?;
+    let (mut lines, mut files, failed) = each_sheet(inputs, |input| {
         let job = DsmJob {
-            input: input.clone(),
+            input: input.to_path_buf(),
             output: out_for(input),
             ..base.clone()
         };
-        lines.push(format!("[{}/{}] {}", k + 1, inputs.len(), jobs::dsm(&job)?));
-        files.push(job.output);
-    }
-    if let Some(m) = mosaic_to.filter(|_| files.len() > 1) {
-        crate::check_cancel()?;
-        mosaic(
-            &files,
-            m,
-            Overlap::Max,
-            inputs.first().and_then(|p| epsg_of(p)),
-        )?;
-        lines.push(format!("mosaico de {} MDS: {}", files.len(), m.display()));
-        files.push(m.to_path_buf());
-    }
-    Ok((lines.join("\n"), files))
+        Ok((or_clean(jobs::dsm(&job), &job.output)?, job.output))
+    })?;
+    join_done(&mut files, &mut lines, mosaic_to, Overlap::Max, "MDS")?;
+    Ok((close_run(lines, failed, inputs.len())?, files))
 }
 
 /// One CHM per sheet, each over the DTM `dtm_for` finds for it; optionally a joined CHM.
@@ -175,30 +188,17 @@ pub fn chm_each(
     dtm_for: &dyn Fn(&Path) -> Result<PathBuf>,
     mosaic_to: Option<&Path>,
 ) -> Result<(String, Vec<PathBuf>)> {
-    let (mut lines, mut files) = (Vec::new(), Vec::new());
-    for (k, input) in inputs.iter().enumerate() {
-        crate::check_cancel()?;
+    let (mut lines, mut files, failed) = each_sheet(inputs, |input| {
         let job = ChmJob {
-            input: input.clone(),
+            input: input.to_path_buf(),
             dtm: dtm_for(input)?,
             output: out_for(input),
             ..base.clone()
         };
-        lines.push(format!("[{}/{}] {}", k + 1, inputs.len(), jobs::chm(&job)?));
-        files.push(job.output);
-    }
-    if let Some(m) = mosaic_to.filter(|_| files.len() > 1) {
-        crate::check_cancel()?;
-        mosaic(
-            &files,
-            m,
-            Overlap::Max,
-            inputs.first().and_then(|p| epsg_of(p)),
-        )?;
-        lines.push(format!("mosaico de {} CHM: {}", files.len(), m.display()));
-        files.push(m.to_path_buf());
-    }
-    Ok((lines.join("\n"), files))
+        Ok((or_clean(jobs::chm(&job), &job.output)?, job.output))
+    })?;
+    join_done(&mut files, &mut lines, mosaic_to, Overlap::Max, "CHM")?;
+    Ok((close_run(lines, failed, inputs.len())?, files))
 }
 
 /// Metrics by cell, one result per sheet.
@@ -208,28 +208,22 @@ pub fn metrics_each(
     out_for: &dyn Fn(&Path) -> PathBuf,
     dtm_for: &dyn Fn(&Path) -> Result<PathBuf>,
 ) -> Result<String> {
-    let mut lines = Vec::new();
-    for (k, input) in inputs.iter().enumerate() {
-        crate::check_cancel()?;
+    let (lines, _, failed) = each_sheet(inputs, |input| {
         let job = MetricsJob {
-            input: input.clone(),
+            input: input.to_path_buf(),
             dtm: dtm_for(input)?,
             output: out_for(input),
             ..base.clone()
         };
-        lines.push(format!(
-            "[{}/{}] {}",
-            k + 1,
-            inputs.len(),
-            jobs::metrics(&job)?
-        ));
-    }
-    Ok(lines.join("\n"))
+        Ok((or_clean(jobs::metrics(&job), &job.output)?, ()))
+    })?;
+    close_run(lines, failed, inputs.len())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grid::Grid;
 
     #[test]
     fn mosaic_joins_neighbouring_sheets() -> Result<()> {
@@ -252,5 +246,28 @@ mod tests {
         assert_eq!((m.data[0], m.data[7]), (1.0, 2.0));
         std::fs::remove_dir_all(&dir)?;
         Ok(())
+    }
+
+    #[test]
+    fn a_bad_sheet_does_not_stop_the_others_and_is_named() {
+        let inputs: Vec<PathBuf> = ["a.laz", "bad.laz", "c.laz"].iter().map(PathBuf::from).collect();
+        let mut seen = Vec::new();
+        let (lines, done, failed) = each_sheet(&inputs, |p| {
+            seen.push(p.to_path_buf());
+            if p.ends_with("bad.laz") {
+                Err(Error::Format("el archivo se acaba antes de tiempo".into()))
+            } else {
+                Ok((format!("{} bien", p.display()), p.to_path_buf()))
+            }
+        })
+        .unwrap();
+        assert_eq!(seen.len(), 3);
+        assert_eq!((lines.len(), done.len(), failed.len()), (2, 2, 1));
+        assert!(failed[0].contains("bad.laz") && failed[0].contains("[2/3]"));
+        let e = close_run(lines, failed, 3).unwrap_err().to_string();
+        assert!(e.contains("1 de 3") && e.contains("bad.laz"), "{e}");
+        // a cancel does stop the run
+        let r = each_sheet(&inputs, |_| -> Result<(String, ())> { Err(Error::Cancelled) });
+        assert!(matches!(r, Err(Error::Cancelled)));
     }
 }

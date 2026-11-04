@@ -245,6 +245,19 @@ fn frame_of(job: &RasterJob, ins: &[Opened]) -> Result<Frame> {
 fn sample(img: &Image, b: usize, x: f64, y: f64, cell: f64, how: Resample) -> f32 {
     let top = img.y0 + img.rows as f64 * img.cell;
     let (fx, fy) = ((x - img.x0) / img.cell, (top - y) / img.cell);
+    // same cell and the pixel centre on a source centre (the usual case when sheets or strips of
+    // one grid are joined or rewritten): the source value itself, with no interpolation
+    if (img.cell - cell).abs() <= cell * 1e-9
+        && (fx - fx.floor() - 0.5).abs() < 1e-6
+        && (fy - fy.floor() - 0.5).abs() < 1e-6
+    {
+        let (c, r) = (fx.floor(), fy.floor());
+        return if c < 0.0 || r < 0.0 || c >= img.cols as f64 || r >= img.rows as f64 {
+            f32::NAN
+        } else {
+            img.bands[b][r as usize * img.cols + c as usize]
+        };
+    }
     let at = |c: i64, r: i64| -> f32 {
         if c < 0 || r < 0 || c >= img.cols as i64 || r >= img.rows as i64 {
             f32::NAN

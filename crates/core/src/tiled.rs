@@ -662,6 +662,7 @@ mod tests {
             },
         )?;
         let mut d = tiff::decoder::Decoder::new(BufReader::new(File::open(&path)?))
+            .map(|d| d.with_limits(tiff::decoder::Limits::unlimited()))
             .map_err(|e| Error::Format(e.to_string()))?;
         assert_eq!(
             d.dimensions().map_err(|e| Error::Format(e.to_string()))?,
