@@ -1680,7 +1680,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hipso-cli"
-version = "0.7.2"
+version = "0.7.4"
 dependencies = [
  "clap",
  "hipso-core",
@@ -1688,7 +1688,7 @@ dependencies = [
 
 [[package]]
 name = "hipso-core"
-version = "0.7.2"
+version = "0.7.4"
 dependencies = [
  "delaunator",
  "e57",
@@ -1706,7 +1706,7 @@ dependencies = [
 
 [[package]]
 name = "hipso-crs"
-version = "0.7.2"
+version = "0.7.4"
 dependencies = [
  "geographiclib-rs",
  "rayon",
@@ -1720,7 +1720,7 @@ dependencies = [
 
 [[package]]
 name = "hipso-gui"
-version = "0.7.2"
+version = "0.7.4"
 dependencies = [
  "earcutr",
  "eframe",

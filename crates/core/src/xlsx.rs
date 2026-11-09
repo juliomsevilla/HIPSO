@@ -25,7 +25,7 @@ fn le32(b: &[u8], at: usize) -> Option<usize> {
 }
 
 /// The inflated parts of the zip whose name satisfies `want`, as (name, bytes).
-fn parts(zip: &[u8], want: impl Fn(&str) -> bool) -> Result<Vec<(String, Vec<u8>)>> {
+pub(crate) fn zip_parts(zip: &[u8], want: impl Fn(&str) -> bool) -> Result<Vec<(String, Vec<u8>)>> {
     // the end-of-central-directory record: the last 22+ bytes, signature 0x06054b50
     let lo = zip.len().saturating_sub(22 + 65535);
     let eocd = (lo..zip.len().saturating_sub(21))
@@ -82,7 +82,7 @@ fn parts(zip: &[u8], want: impl Fn(&str) -> bool) -> Result<Vec<(String, Vec<u8>
 }
 
 /// The text with the XML entities decoded.
-fn unescape(s: &str) -> String {
+pub(crate) fn unescape(s: &str) -> String {
     if !s.contains('&') {
         return s.to_string();
     }
@@ -172,7 +172,7 @@ pub fn read(path: &Path) -> Result<Vec<Vec<String>>> {
             ),
         ))
     })?;
-    let found = parts(&zip, |n| {
+    let found = zip_parts(&zip, |n| {
         n == "xl/sharedStrings.xml" || (n.starts_with("xl/worksheets/") && n.ends_with(".xml"))
     })?;
     let strings: Vec<String> = found

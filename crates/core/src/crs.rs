@@ -45,6 +45,7 @@ pub fn epsg_of(path: &Path) -> Option<u16> {
         e if crate::raster::is_raster_ext(e) && e != "asc" => crate::grid::Grid::read_epsg(path),
         "geojson" | "json" => crate::geojson::epsg_hint(path),
         "gpkg" => crate::gpkg::epsg_hint(path),
+        "kml" | "kmz" => Some(4326),
         _ => std::fs::read_to_string(path.with_extension("prj"))
             .ok()
             .and_then(|t| crate::vector::epsg_from_prj(&t)),

@@ -580,7 +580,7 @@ impl Tools {
                     if ui.button("…").clicked()
                         && let Some(p) = pick_file(
                             "Unidades de muestreo",
-                            &["shp", "geojson", "json", "gpkg", "csv", "txt"],
+                            &["shp", "geojson", "json", "gpkg", "kml", "kmz", "csv", "txt"],
                         )
                     {
                         self.s2.file = p.display().to_string();
@@ -692,7 +692,7 @@ impl Tools {
                             .desired_width(220.0),
                     );
                     if ui.button("…").clicked()
-                        && let Some(p) = pick_file("Polígonos", &["shp", "geojson", "json", "gpkg"])
+                        && let Some(p) = pick_file("Polígonos", &["shp", "geojson", "json", "gpkg", "kml", "kmz"])
                     {
                         self.s2.limit = p.display().to_string();
                     }

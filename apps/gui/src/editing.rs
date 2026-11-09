@@ -823,7 +823,6 @@ impl App {
                             );
                         });
                         if ribbon::small_button(ui, &t, "@selrect", "Aislar selección", false)
-                            .on_hover_text("Saca los puntos seleccionados a un archivo «…_sel» y deja solo ese en pantalla, con toda su densidad: para editar un árbol punto a punto.")
                             .clicked()
                         {
                             self.isolate_selection(ctx);

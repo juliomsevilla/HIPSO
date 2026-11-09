@@ -1721,6 +1721,12 @@ pub fn read_vector(path: &Path) -> Result<VectorData> {
     }
     if path
         .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("kml") || e.eq_ignore_ascii_case("kmz"))
+    {
+        return crate::kml::read_vector(path).map(|r| r.0);
+    }
+    if path
+        .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("gpkg"))
     {
         return crate::gpkg::read_layer(path, None).map(|l| crate::geojson::vector_of(l).0);

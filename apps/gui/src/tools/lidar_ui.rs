@@ -543,7 +543,7 @@ impl Tools {
             ui.label("Capa de polígonos");
             ui.add(egui::TextEdit::singleline(&mut s.cp_layer).desired_width(260.0));
             if ui.button("…").clicked()
-                && let Some(p) = pick_file("Polígonos", &["shp", "geojson", "json", "gpkg"])
+                && let Some(p) = pick_file("Polígonos", &["shp", "geojson", "json", "gpkg", "kml", "kmz"])
             {
                 s.cp_layer = p.display().to_string();
             }
@@ -828,7 +828,7 @@ impl Tools {
             ui.horizontal(|ui| {
                 ui.add(egui::TextEdit::singleline(&mut s.vol_file).desired_width(330.0));
                 if ui.button("…").clicked()
-                    && let Some(p) = pick_file("Polígonos", &["shp", "geojson", "json", "gpkg"])
+                    && let Some(p) = pick_file("Polígonos", &["shp", "geojson", "json", "gpkg", "kml", "kmz"])
                 {
                     s.vol_file = p.display().to_string();
                 }

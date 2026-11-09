@@ -2,7 +2,7 @@
 //! new fields, and operations on polygon layers (check, repair, buffer, dissolve, union, intersect).
 
 use super::*;
-use hipso_core::{geomops, grid::Grid, paths, vector, zonal};
+use hipso_core::{geomops, grid::Grid, paths, vecops, vector, zonal};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Op {
@@ -13,10 +13,28 @@ pub enum Op {
     Dissolve,
     Union,
     Intersect,
+    Difference,
+    SymDifference,
+    Centroids,
+    PointOnSurface,
+    SpatialJoin,
 }
 
 impl Op {
-    const ALL: [Op; 7] = [Op::Zonal, Op::Validate, Op::Repair, Op::Buffer, Op::Dissolve, Op::Union, Op::Intersect];
+    const ALL: [Op; 12] = [
+        Op::Zonal,
+        Op::Validate,
+        Op::Repair,
+        Op::Buffer,
+        Op::Dissolve,
+        Op::Union,
+        Op::Intersect,
+        Op::Difference,
+        Op::SymDifference,
+        Op::Centroids,
+        Op::PointOnSurface,
+        Op::SpatialJoin,
+    ];
 
     fn name(self) -> &'static str {
         match self {
@@ -27,6 +45,11 @@ impl Op {
             Op::Dissolve => "Disolver (unir polígonos por un campo)",
             Op::Union => "Unión de dos capas",
             Op::Intersect => "Intersección de dos capas",
+            Op::Difference => "Diferencia de dos capas (quitar lo cubierto por otra)",
+            Op::SymDifference => "Diferencia simétrica de dos capas",
+            Op::Centroids => "Centroides (un punto por elemento)",
+            Op::PointOnSurface => "Puntos en la superficie (un punto dentro de cada elemento)",
+            Op::SpatialJoin => "Unir atributos por localización",
         }
     }
 
@@ -38,6 +61,11 @@ impl Op {
             Op::Buffer => "Amplía cada polígono la distancia indicada (negativa: lo reduce), con esquinas redondeadas. La distancia va en las unidades de la capa: metros en un sistema proyectado, grados en uno geográfico.",
             Op::Dissolve => "Une los polígonos que comparten el valor de un campo (o todos, si no eliges campo). El campo «n» cuenta cuántos se unieron.",
             Op::Intersect => "Se queda solo con las piezas que están en las dos capas, con los campos de ambas (los de la segunda precedidos por «b_»). Lo que solo está en una de ellas se descarta.",
+            Op::Difference => "A la primera capa le quita lo que cubre la segunda; cada pieza que queda conserva los campos de la primera. Los polígonos que quedan cubiertos del todo desaparecen.",
+            Op::SymDifference => "Se queda con lo que está solo en una de las dos capas: lo de la primera con sus campos, lo de la segunda con los suyos precedidos por «b_». Lo que está en las dos se descarta.",
+            Op::Centroids => "Una capa de puntos con el centroide de cada elemento (polígono o línea) y sus mismos atributos. En un polígono cóncavo o con huecos el centroide puede caer fuera: para eso están los puntos en la superficie.",
+            Op::PointOnSurface => "Una capa de puntos con un punto que cae siempre dentro de cada polígono (o sobre cada línea), aunque sea cóncavo o tenga huecos, y con los mismos atributos. Sirve para etiquetar o para extraer valores de un ráster.",
+            Op::SpatialJoin => "Copia a cada elemento de la primera capa campos de los elementos de la segunda que cumplen la relación elegida (por ejemplo, los puntos que caen dentro de cada polígono). Añade siempre «n_coinc» con cuántos coinciden. Con el primero se copian los campos del primer coincidente; con el resumen, la suma y la media de los campos numéricos de todos.",
             Op::Union => "Superpone dos capas: da las piezas que están en las dos (con los campos de ambas, los de la segunda precedidos por «b_»), solo en la primera y solo en la segunda.",
         }
     }
@@ -53,6 +81,8 @@ pub struct VectorTool {
     pub distance: f64,
     pub field: String,
     pub repair_first: bool,
+    pub rel: vecops::Relation,
+    pub join_mode: vecops::JoinMode,
     pub report: String,
 }
 
@@ -68,6 +98,8 @@ impl Default for VectorTool {
             distance: 10.0,
             field: String::new(),
             repair_first: false,
+            rel: vecops::Relation::Intersects,
+            join_mode: vecops::JoinMode::First,
             report: String::new(),
         }
     }
@@ -79,7 +111,7 @@ fn pick_vector(slot: &mut Option<PathBuf>, ui: &mut egui::Ui, label: &str, loade
         ui.label(slot.as_ref().map_or("(sin elegir)".to_string(), |p| paths::stem(p)));
         if ui.button("Archivo…").clicked()
             && let Some(p) = crate::prefs::dialog()
-                .add_filter("Capa de polígonos", &["shp", "geojson", "json", "gpkg"])
+                .add_filter("Capa vectorial", &["shp", "geojson", "json", "gpkg", "kml", "kmz"])
                 .pick_file()
         {
             *slot = Some(p);
@@ -161,8 +193,14 @@ impl App {
                         });
                     });
                 }
-                let two = matches!(t.op, Op::Union | Op::Intersect);
-                let label = if two { "Primera capa" } else { "Polígonos" };
+                let two = matches!(t.op, Op::Union | Op::Intersect | Op::Difference | Op::SymDifference | Op::SpatialJoin);
+                let label = if two {
+                    "Primera capa"
+                } else if matches!(t.op, Op::Centroids | Op::PointOnSurface) {
+                    "Capa"
+                } else {
+                    "Polígonos"
+                };
                 pick_vector(&mut t.layer, ui, label, &vectors);
                 if two {
                     pick_vector(&mut t.second, ui, "Segunda capa", &vectors);
@@ -187,9 +225,29 @@ impl App {
                             ui.add(egui::TextEdit::singleline(&mut t.field).desired_width(120.0));
                         });
                     }
+                    Op::SpatialJoin => {
+                        ui.horizontal(|ui| {
+                            ui.label("Un elemento de la primera capa cumple si…");
+                            egui::ComboBox::from_id_salt("join_rel").selected_text(t.rel.name()).show_ui(ui, |ui| {
+                                for r in vecops::Relation::ALL.into_iter().filter(|r| *r != vecops::Relation::Disjoint) {
+                                    ui.selectable_value(&mut t.rel, r, r.name());
+                                }
+                            });
+                            ui.label("…de la segunda");
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Campos");
+                            ui.radio_value(&mut t.join_mode, vecops::JoinMode::First, "Los del primer coincidente");
+                            ui.radio_value(&mut t.join_mode, vecops::JoinMode::Summary, "Suma y media de los numéricos");
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Prefijo de los campos nuevos");
+                            ui.add(egui::TextEdit::singleline(&mut t.prefix).desired_width(70.0));
+                        });
+                    }
                     _ => {}
                 }
-                if matches!(t.op, Op::Buffer | Op::Dissolve | Op::Union | Op::Intersect) {
+                if matches!(t.op, Op::Buffer | Op::Dissolve | Op::Union | Op::Intersect | Op::Difference | Op::SymDifference) {
                     ui.checkbox(&mut t.repair_first, "Reparar antes los polígonos no válidos");
                 }
                 let ready = t.layer.is_some()
@@ -230,13 +288,33 @@ impl App {
                     Op::Dissolve => "disuelto",
                     Op::Union => "union",
                     Op::Intersect => "interseccion",
+                    Op::Difference => "diferencia",
+                    Op::SymDifference => "difsimetrica",
+                    Op::Centroids => "centroides",
+                    Op::PointOnSurface => "puntos_sup",
+                    Op::SpatialJoin => "unido",
                     Op::Validate => unreachable!(),
                 };
                 let out = paths::unique(&paths::product(&layer, tag, "shp"));
                 let (raster, second) = (t.raster.clone(), t.second.clone());
                 let (prefix, distance, field, repair) = (t.prefix.clone(), t.distance, t.field.trim().to_string(), t.repair_first);
+                let (rel, join_mode) = (t.rel, t.join_mode);
                 let target = out.clone();
                 let task: tools::Task = Box::new(move || {
+                    if matches!(op, Op::Centroids | Op::PointOnSurface | Op::SpatialJoin) {
+                        let (d, k, prj) = vecops::read_layer(&layer)?;
+                        let (result, kind, note) = if op == Op::SpatialJoin {
+                            let (b, kb, _) = vecops::read_layer(second.as_deref().ok_or_else(|| hipso_core::Error::Param("falta la segunda capa".into()))?)?;
+                            let r = vecops::spatial_join(&d, k, &b, kb, rel, join_mode, &prefix)?;
+                            (r, k, format!("{} elementos con los campos de la segunda capa", d.features.len()))
+                        } else {
+                            let r = vecops::representative_points(&d, k, op == Op::PointOnSurface);
+                            let n = r.features.len();
+                            (r, hipso_core::view::GeomKind::Point, format!("{n} puntos"))
+                        };
+                        vector::write_layer(&target, &result, kind, prj.as_deref())?;
+                        return Ok(format!("{note} -> {}", target.display()));
+                    }
                     let mut l = geomops::read_polygons(&layer)?;
                     if repair {
                         l = geomops::make_valid(&l)?.0;
@@ -279,7 +357,16 @@ impl App {
                             let n = r.features.len();
                             (r, format!("{n} piezas en las dos capas"))
                         }
-                        Op::Validate => unreachable!(),
+                        Op::Difference | Op::SymDifference => {
+                            let mut b = geomops::read_polygons(second.as_deref().ok_or_else(|| hipso_core::Error::Param("falta la segunda capa".into()))?)?;
+                            if repair {
+                                b = geomops::make_valid(&b)?.0;
+                            }
+                            let r = if op == Op::Difference { geomops::difference(&l, &b)? } else { geomops::symmetric_difference(&l, &b)? };
+                            let n = r.features.len();
+                            (r, format!("{n} piezas"))
+                        }
+                        Op::Centroids | Op::PointOnSurface | Op::SpatialJoin | Op::Validate => return Ok(String::new()),
                     };
                     geomops::write_polygons(&result, &target)?;
                     Ok(format!("{note} -> {}", target.display()))

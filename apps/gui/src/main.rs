@@ -37,6 +37,7 @@ mod theme;
 mod tips;
 mod tools;
 mod vecedit;
+mod vecmore;
 mod vecraster;
 mod warp;
 
@@ -227,6 +228,7 @@ enum Side {
     Layers,
     Info,
     Edit,
+    Symbology,
 }
 
 /// The background read of a window: what it will send, and the window.
@@ -299,6 +301,7 @@ enum Action {
     ZoomFull,
     ZoomPrev,
     ZoomSel,
+    ZoomLayer,
     SaveProject,
     OpenProject,
     Relink3d,
@@ -409,12 +412,13 @@ struct App {
     /// The layer whose editing session just ended with changes, and the tool that was on.
     edit_confirm: Option<(usize, Nav)>,
     /// The ribbon was on the vector editing tab the last time it was drawn.
-    on_edit_tab: bool,
     new_layer: Option<layers::NewLayerDlg>,
     /// A GeoPackage with several tables: which of them to open.
     gpkg_pick: Option<(PathBuf, Vec<(String, bool)>)>,
     table_layer: Option<usize>,
     vedit: vecedit::VecEditState,
+    /// Dialogs of the vector tools: field calculator, selection by location, GeoPackage rewrite.
+    vm: vecmore::State,
     /// Command line `--vsel-all`: select every feature of the active layer on start.
     select_all_pending: bool,
     /// Command line `--view x,y,scale`: the view to take once everything has loaded.
@@ -547,11 +551,11 @@ impl Default for App {
             img_jobs: Vec::new(),
             dig_draft: Vec::new(),
             edit_confirm: None,
-            on_edit_tab: false,
             new_layer: None,
             gpkg_pick: None,
             table_layer: None,
             vedit: vecedit::VecEditState::default(),
+            vm: vecmore::State::default(),
             select_all_pending: false,
             forced_view: None,
             rs: rs::RsState::default(),
@@ -944,7 +948,7 @@ impl App {
                     self.log(format!("No se pudo abrir {}", p.display()));
                 }
             }
-            "shp" | "geojson" | "json" | "gpkg" => self.add_vector(&p),
+            "shp" | "geojson" | "json" | "gpkg" | "kml" | "kmz" => self.add_vector(&p),
             "e57" => {
                 if self.running.is_some() {
                     self.log("Hay otro proceso en marcha: espera a que termine para abrir el E57.");
@@ -1465,7 +1469,7 @@ impl App {
                 .is_some_and(|n| n.to_string_lossy().ends_with("_troncos"));
             let loadable = !on_demand
                 && (hipso_core::raster::is_raster_ext(&e)
-                    || matches!(e.as_str(), "shp" | "geojson" | "gpkg" | "las" | "laz"));
+                    || matches!(e.as_str(), "shp" | "geojson" | "gpkg" | "kml" | "kmz" | "las" | "laz"));
             if f.is_file() && loadable && !list.contains(f) {
                 list.push(f.clone());
             }
@@ -1686,6 +1690,11 @@ impl App {
                 }
             }
             Action::ZoomSel => self.zoom_selection(),
+            Action::ZoomLayer => {
+                if let Some(k) = self.sel_layer.filter(|k| *k < self.refs.len()) {
+                    self.zoom_to_layer(k);
+                }
+            }
             Action::SaveProject => self.save_project(),
             Action::OpenProject => self.open_project_dialog(ctx),
             Action::Relink3d => self.relink_3d(),
@@ -1745,7 +1754,7 @@ impl App {
             }
             Action::LoadVector => {
                 for p in crate::prefs::dialog()
-                    .add_filter("Capa vectorial", &["shp", "geojson", "json", "gpkg"])
+                    .add_filter("Capa vectorial", &["shp", "geojson", "json", "gpkg", "kml", "kmz"])
                     .pick_files()
                     .unwrap_or_default()
                 {
@@ -1784,7 +1793,7 @@ impl App {
                 }) {
                     Some(k) => {
                         self.sel_layer = Some(k);
-                        self.tab = FIRST_EXTRA;
+                        self.side = Side::Symbology;
                     }
                     None => self.log("No hay imágenes cargadas: abre una con «Abrir»."),
                 }
@@ -1856,7 +1865,7 @@ impl App {
                 "Herramienta: Digitalizar en la capa activa",
                 Action::Nav(Nav::Digitize),
             ),
-            ("Crear capa de puntos, líneas o áreas", Action::NewLayer),
+            ("Crear capa de puntos, líneas o polígonos", Action::NewLayer),
             ("Tabla de atributos", Action::LayerTable),
             ("Guardar la capa activa", Action::SaveLayer),
             ("Composición de bandas", Action::ImageTool(0)),
@@ -2029,16 +2038,10 @@ impl App {
                     .inner_margin(egui::Margin::symmetric(8, 2)),
             )
             .show(ui, |ui| {
-                let extra = layer_tabs::tabs_for(
-                    self.sel_layer
-                        .and_then(|k| self.refs.get(k))
-                        .map(|r| &r.kind),
-                );
-                if self.tab >= FIRST_EXTRA + extra.len() {
+                if self.tab >= FIRST_EXTRA {
                     self.tab = 0;
                 }
-                let mut names = vec!["Archivo", "Vista", "Procesar"];
-                names.extend_from_slice(extra);
+                let names = vec!["Archivo", "Vista", "Procesar"];
                 let mut tab = self.tab;
                 if ribbon::tab_strip(ui, &t, "Inicio", &names, FIRST_EXTRA, &mut tab) {
                     self.backstage = !self.backstage;
@@ -2048,23 +2051,6 @@ impl App {
                     self.backstage = false;
                 }
                 self.tab = tab;
-                // the editing tools start off whenever the editing tab is opened
-                let on_edit = self.tab == FIRST_EXTRA + 1
-                    && matches!(
-                        self.sel_layer.and_then(|k| self.refs.get(k)).map(|r| &r.kind),
-                        Some(RefKind::Vector(_))
-                    );
-                if on_edit
-                    && !self.on_edit_tab
-                    && matches!(
-                        self.nav,
-                        Nav::Digitize | Nav::VecSelect | Nav::VecVertex | Nav::VecMove
-                    )
-                {
-                    self.nav = Nav::Zoom;
-                    self.dig_draft.clear();
-                }
-                self.on_edit_tab = on_edit;
             });
         if self.backstage {
             return;
@@ -2086,7 +2072,6 @@ impl App {
                             0 => {
                                 ribbon::group(ui, &t, "Archivo", |ui| {
                                     if ribbon::big_button(ui, &t, "@save", "Guardar\nproyecto", false)
-                                        .on_hover_text("Guarda qué nubes y capas están abiertas y cómo se ve (archivo .hipso).")
                                         .clicked()
                                     {
                                         self.act(ctx, Action::SaveProject);
@@ -2299,10 +2284,15 @@ impl App {
                                             "Zoom a la selección",
                                             false,
                                         )
-                                        .on_hover_text("Encuadra los puntos seleccionados o los elementos seleccionados de la capa vectorial activa.")
                                         .clicked()
                                         {
                                             self.act(ctx, Action::ZoomSel);
+                                        }
+                                    });
+                                    ui.vertical(|ui| {
+                                        let on_layer = self.sel_layer.is_some_and(|k| k < self.refs.len());
+                                        if ribbon::small_button_on(ui, &t, "@full", "Zoom a la capa", false, on_layer).clicked() {
+                                            self.act(ctx, Action::ZoomLayer);
                                         }
                                         if ribbon::small_button(
                                             ui,
@@ -2311,7 +2301,6 @@ impl App {
                                             "Refrescar 3D",
                                             false,
                                         )
-                                        .on_hover_text("Vuelve a encuadrar la vista 3D en lo que se ve en la planta (útil con capas muy separadas).")
                                         .clicked()
                                         {
                                             self.act(ctx, Action::Relink3d);
@@ -2650,7 +2639,7 @@ ui.menu_button("⚙", |ui| {
                                     });
                                 });
                             }
-                            _ => self.layer_tab(ui, &t, ctx, self.tab),
+                            _ => {}
                         });
                     });
             });
@@ -2659,8 +2648,8 @@ ui.menu_button("⚙", |ui| {
     fn side_panel(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let t = self.tokens();
         egui::Panel::left("side")
-            .default_size(280.0)
-            .size_range(200.0..=520.0)
+            .default_size(350.0)
+            .size_range(300.0..=620.0)
             .resizable(true)
             .frame(
                 egui::Frame::new()
@@ -2669,14 +2658,16 @@ ui.menu_button("⚙", |ui| {
                     .stroke(Stroke::new(1.0, t.border)),
             )
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.selectable_value(&mut self.side, Side::Layers, "Contenido");
                     ui.selectable_value(&mut self.side, Side::Info, "Información");
                     ui.selectable_value(&mut self.side, Side::Edit, "Edición");
+                    ui.selectable_value(&mut self.side, Side::Symbology, "Simbología");
                 });
                 ui.separator();
                 match self.side {
-                    Side::Edit => self.edit_side(ui, ctx),
+                    Side::Edit => self.edit_panel(ui, ctx),
+                    Side::Symbology => self.symbology_panel(ui, ctx),
                     Side::Info => {
                         ui.horizontal(|ui| {
                             if ui.button("↻ Analizar de nuevo").clicked() {
@@ -4389,6 +4380,7 @@ impl eframe::App for App {
         self.palette_window(&ctx);
         self.new_layer_window(&ctx);
         self.edit_confirm_window(&ctx);
+        self.vecmore_windows(&ctx);
         self.gpkg_window(&ctx);
         self.table_window(&ctx);
         self.rs_window(&ctx);
@@ -4430,6 +4422,6 @@ fn progress_text(started: Instant) -> Option<String> {
 /// Extensions of everything the Layers dialog opens.
 fn layer_extensions() -> Vec<&'static str> {
     let mut v = hipso_core::raster::EXTENSIONS.to_vec();
-    v.extend(["shp", "geojson", "json", "gpkg"]);
+    v.extend(["shp", "geojson", "json", "gpkg", "kml", "kmz"]);
     v
 }

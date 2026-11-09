@@ -1,19 +1,10 @@
-//! The contextual ribbon tabs that appear when a layer is selected, as in a desktop GIS:
-//! symbology and labels of a vector layer, its editing tools, and the rendering of a raster.
+//! What the side panel shows for the layer selected in the contents: its editing tools (the
+//! Edición tab) and its symbology and rendering (the Simbología tab).
 
 use super::*;
 use crate::layers::VecLayer;
 use crate::rs::{GridMode, GridStyle, Stretch, render_grid};
 use crate::symbology::{RAMPS, SymKind, Symbology};
-
-/// The names of the contextual tabs for the selected layer.
-pub fn tabs_for(kind: Option<&RefKind>) -> &'static [&'static str] {
-    match kind {
-        Some(RefKind::Vector(_)) => &["Simbología", "Edición vectorial"],
-        Some(_) => &["Simbología"],
-        None => &[],
-    }
-}
 
 fn percent(v: &mut f32, ui: &mut egui::Ui) -> egui::Response {
     ui.add(
@@ -46,27 +37,11 @@ fn ramp_combo(ui: &mut egui::Ui, id: &str, ramp: &mut usize, width: f32) -> bool
 }
 
 impl App {
-    pub fn layer_tab(&mut self, ui: &mut egui::Ui, t: &Tokens, ctx: &egui::Context, tab: usize) {
-        let Some(k) = self.sel_layer.filter(|k| *k < self.refs.len()) else {
-            ui.label("Elige una capa en el panel «Capas».");
-            return;
-        };
-        match (&self.refs[k].kind, tab) {
-            (RefKind::Vector(_), FIRST_EXTRA) => self.vector_symbology(ui, t, k),
-            (RefKind::Vector(_), _) => self.vector_edit_tab(ui, t, k),
-            (RefKind::Image(_), _) => self.image_tab(ui, t, ctx, k),
-            (RefKind::Raster { .. }, _) => self.grid_tab(ui, t, ctx, k),
-        }
-    }
-
     fn vector_symbology(&mut self, ui: &mut egui::Ui, t: &Tokens, k: usize) {
-        let mut zoom = false;
-        let mut table = false;
         let r = &mut self.refs[k];
         let RefLayer {
             opacity,
             kind: RefKind::Vector(v),
-            name,
             ..
         } = r
         else {
@@ -231,26 +206,12 @@ impl App {
                 });
             });
         });
-        ribbon::group(ui, t, "Capa", |ui| {
-            if ribbon::big_button(ui, t, "@full", "Zoom a\nla capa", false).clicked() {
-                zoom = true;
-            }
-            if ribbon::big_button(ui, t, "@table", "Tabla de\natributos", false).clicked() {
-                table = true;
-            }
-            ui.label(egui::RichText::new(&*name).weak());
-        });
         if classify {
             v.reclassify();
         }
-        if zoom {
-            self.zoom_to_layer(k);
-        }
-        if table {
-            self.table_layer = Some(k);
-        }
     }
 
+    /// The tools of editing a vector layer, for the side panel: sections of buttons that wrap.
     fn vector_edit_tab(&mut self, ui: &mut egui::Ui, t: &Tokens, k: usize) {
         self.active = Some(k);
         let mut toggle: Option<Nav> = None;
@@ -263,64 +224,47 @@ impl App {
                     v.dirty,
                 )
             });
+        let polygons = self.active_vec().is_some_and(|v| v.kind == view::GeomKind::Polygon);
         ribbon::group(ui, t, "Capa", |ui| {
-            if ribbon::big_button(ui, t, "@newlayer", "Nueva\ncapa", false).clicked() {
-                self.new_layer = Some(layers::NewLayerDlg::default());
-            }
-            if ribbon::big_button(
-                ui,
-                t,
-                "@save",
-                if dirty { "Guardar *" } else { "Guardar" },
-                dirty,
-            )
-            .clicked()
-            {
-                self.save_layer(k, false);
-            }
-            ui.vertical(|ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ribbon::small_button(ui, t, "@newlayer", "Nueva capa", false).clicked() {
+                    self.new_layer = Some(layers::NewLayerDlg::default());
+                }
+                if ribbon::small_button(ui, t, "@save", if dirty { "Guardar *" } else { "Guardar" }, dirty).clicked() {
+                    self.save_layer(k, false);
+                }
                 if ribbon::small_button(ui, t, "@save", "Guardar como…", false).clicked() {
                     self.save_layer(k, true);
                 }
-                if ribbon::small_button(
-                    ui,
-                    t,
-                    "@table",
-                    "Tabla de atributos",
-                    self.table_layer == Some(k),
-                )
-                .clicked()
-                {
-                    self.table_layer = Some(k);
-                }
             });
         });
-        ribbon::group(ui, t, "Herramientas", |ui| {
-            for (icon, name, n) in [
-                ("@pencil", "Digitalizar", Nav::Digitize),
-                ("@vertex", "Vértices", Nav::VecVertex),
-                ("@move", "Mover", Nav::VecMove),
-            ] {
-                if ribbon::big_button(ui, t, icon, name, self.nav == n)
-                    .on_hover_text(if self.nav == n {
-                        "Pulsa de nuevo para terminar de editar."
-                    } else {
-                        "Pulsa para empezar a editar."
-                    })
-                    .clicked()
-                {
-                    toggle = Some(n);
+        ribbon::group(ui, t, "Edición", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for (icon, name, n) in [
+                    ("@pencil", "Digitalizar", Nav::Digitize),
+                    ("@vertex", "Vértices", Nav::VecVertex),
+                    ("@move", "Mover", Nav::VecMove),
+                ] {
+                    if ribbon::small_button(ui, t, icon, name, self.nav == n).clicked() {
+                        toggle = Some(n);
+                    }
                 }
-            }
-            ui.vertical(|ui| {
-                ui.checkbox(&mut self.vedit.snap, "Ajustar a vértices");
+            });
+            ui.checkbox(&mut self.vedit.snap, "Ajustar a vértices");
+            ui.horizontal_wrapped(|ui| {
+                if ribbon::small_button_on(ui, t, "@undo", "Deshacer", false, can_undo).clicked() {
+                    self.vec_undo(false);
+                }
+                if ribbon::small_button_on(ui, t, "@redo", "Rehacer", false, can_redo).clicked() {
+                    self.vec_undo(true);
+                }
             });
         });
         ribbon::group(ui, t, "Selección", |ui| {
-            if ribbon::big_button(ui, t, "@selrect", "Seleccionar", self.nav == Nav::VecSelect).clicked() {
-                toggle = Some(Nav::VecSelect);
-            }
-            ui.vertical(|ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ribbon::small_button(ui, t, "@selrect", "Seleccionar", self.nav == Nav::VecSelect).clicked() {
+                    toggle = Some(Nav::VecSelect);
+                }
                 if ribbon::small_button(ui, t, "@selall", "Seleccionar todo", false).clicked()
                     && let Some(v) = self.active_vec_mut()
                 {
@@ -336,44 +280,95 @@ impl App {
                 if ribbon::small_button(ui, t, "@deselect", "Limpiar selección", false).clicked() {
                     self.clear_selection();
                 }
-            });
-            ui.vertical(|ui| {
-                if ui
-                    .add_enabled(has_sel, egui::Button::new("Zoom a la selección"))
-                    .clicked()
+                if ribbon::small_button(ui, t, "@locsel", "Seleccionar por localización", false).clicked() {
+                    self.vm.loc = Some(crate::vecmore::LocDlg {
+                        other: None,
+                        rel: hipso_core::vecops::Relation::Intersects,
+                        mode: 0,
+                        msg: String::new(),
+                    });
+                }
+                if ribbon::small_button(ui, t, "@exprsel", "Seleccionar por expresión", false).clicked() {
+                    self.vm.expr = Some(crate::vecmore::ExprDlg { expr: String::new(), mode: 0, msg: String::new() });
+                }
+                if ribbon::small_button_on(ui, t, "@fit", "Zoom a la selección", false, has_sel).clicked()
                     && let Some(b) = self.active_vec().and_then(VecLayer::selection_bounds)
                 {
                     self.zoom_to_bounds(b);
                 }
-                if ui
-                    .add_enabled(has_sel, egui::Button::new("Eliminar seleccionados"))
-                    .clicked()
-                {
-                    self.delete_selected();
-                }
             });
         });
-        ribbon::group(ui, t, "Historial", |ui| {
-            if ui
-                .add_enabled(can_undo, egui::Button::new("↶ Deshacer"))
-                .clicked()
-            {
-                self.vec_undo(false);
-            }
-            if ui
-                .add_enabled(can_redo, egui::Button::new("↷ Rehacer"))
-                .clicked()
-            {
-                self.vec_undo(true);
-            }
+        ribbon::group(ui, t, "Geometría y atributos", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ribbon::small_button_on(ui, t, "@merge", "Unir seleccionados", false, has_sel && polygons).clicked() {
+                    self.merge_selected();
+                }
+                if ribbon::small_button_on(ui, t, "@explode", "Separar partes", false, has_sel).clicked() {
+                    self.explode_selected();
+                }
+                if ribbon::small_button_on(ui, t, "@multipart", "Agrupar en multiparte", false, has_sel).clicked() {
+                    self.gather_selected();
+                }
+                if ribbon::small_button_on(ui, t, "@trash", "Eliminar seleccionados", false, has_sel).clicked() {
+                    self.delete_selected();
+                }
+                if ribbon::small_button(ui, t, "@table", "Tabla de atributos", self.table_layer == Some(k)).clicked() {
+                    self.table_layer = Some(k);
+                }
+                if ribbon::small_button(ui, t, "@calc", "Calculadora de campos", false).clicked() {
+                    self.vm.calc = Some(crate::vecmore::CalcDlg {
+                        field: String::new(),
+                        expr: String::new(),
+                        only_selected: false,
+                        msg: String::new(),
+                    });
+                }
+            });
         });
         if let Some(n) = toggle {
             self.toggle_edit_tool(n);
         }
     }
 
+    /// The Edición tab of the side panel: the tools of the layer selected in the contents (a
+    /// vector layer), else those of editing point clouds.
+    pub fn edit_panel(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let t = self.tokens();
+        let Some(k) = self.sel_layer.filter(|k| *k < self.refs.len()) else {
+            self.edit_side(ui, ctx);
+            return;
+        };
+        if !matches!(self.refs[k].kind, RefKind::Vector(_)) {
+            ui.label("Las capas ráster y de imagen no tienen herramientas de edición. Elige una capa vectorial, o una nube de puntos, en «Contenido».");
+            return;
+        }
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            ribbon::panel_groups(ui, true);
+            self.vector_edit_tab(ui, &t, k);
+            ribbon::panel_groups(ui, false);
+        });
+    }
+
+    /// The Simbología tab of the side panel: how the selected layer is drawn.
+    pub fn symbology_panel(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let t = self.tokens();
+        let Some(k) = self.sel_layer.filter(|k| *k < self.refs.len()) else {
+            ui.label("Elige una capa vectorial, ráster o de imagen en «Contenido» para ver cómo se dibuja.");
+            return;
+        };
+        egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+            ribbon::panel_groups(ui, true);
+            match &self.refs[k].kind {
+                RefKind::Vector(_) => self.vector_symbology(ui, &t, k),
+                RefKind::Image(_) => self.image_tab(ui, &t, ctx, k),
+                RefKind::Raster { .. } => self.grid_tab(ui, &t, ctx, k),
+            }
+            ribbon::panel_groups(ui, false);
+        });
+    }
+
     fn image_tab(&mut self, ui: &mut egui::Ui, t: &Tokens, ctx: &egui::Context, k: usize) {
-        let (mut zoom, mut indices) = (false, false);
+        let mut indices = false;
         let r = &mut self.refs[k];
         let RefLayer {
             opacity,
@@ -389,21 +384,18 @@ impl App {
         ribbon::group(ui, t, "Bandas", |ui| {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
-                    for (label, bands, need) in [
-                        ("Color natural", [0, 1, 2], 3),
-                        ("Infrarrojo", [3, 0, 1], 4),
-                        ("Gris", [0, 0, 0], 1),
+                    for (icon, label, bands, need) in [
+                        ("@image", "Color natural", [0, 1, 2], 3),
+                        ("@tree", "Infrarrojo", [3, 0, 1], 4),
+                        ("@stack", "Gris", [0, 0, 0], 1),
                     ] {
-                        if ui
-                            .add_enabled(
-                                nb >= need,
-                                egui::Button::new(label).selected(il.bands == bands),
-                            )
-                            .clicked()
-                        {
+                        if ribbon::small_button_on(ui, t, icon, label, il.bands == bands, nb >= need).clicked() {
                             il.bands = bands;
                             changed = true;
                         }
+                    }
+                    if ribbon::small_button(ui, t, "@bands", "Índices espectrales", false).clicked() {
+                        indices = true;
                     }
                 });
                 ui.horizontal(|ui| {
@@ -485,7 +477,7 @@ impl App {
                         )
                         .changed();
                 });
-                if ui.button("Restablecer").clicked() {
+                if ribbon::small_button(ui, t, "@clear", "Restablecer", false).clicked() {
                     (il.brightness, il.contrast, il.gamma) = (0.0, 1.0, 1.0);
                     changed = true;
                 }
@@ -507,19 +499,10 @@ impl App {
                 );
                 ui.label(egui::RichText::new(&*name).weak().size(11.0));
             });
-            if ribbon::big_button(ui, t, "@full", "Zoom a\nla capa", false).clicked() {
-                zoom = true;
-            }
-            if ribbon::big_button(ui, t, "@bands", "Índices\nespectrales", false).clicked() {
-                indices = true;
-            }
         });
         if changed {
             let n = name.clone();
             il.restyle(ctx, &n);
-        }
-        if zoom {
-            self.zoom_to_layer(k);
         }
         if indices {
             self.rs.open = true;
@@ -528,7 +511,6 @@ impl App {
     }
 
     fn grid_tab(&mut self, ui: &mut egui::Ui, t: &Tokens, ctx: &egui::Context, k: usize) {
-        let mut zoom = false;
         let r = &mut self.refs[k];
         let RefLayer {
             opacity,
@@ -569,11 +551,11 @@ impl App {
                         .changed();
                 });
                 ui.horizontal(|ui| {
-                    if ui.button("Percentiles 2–98 %").clicked() {
+                    if ribbon::small_button(ui, t, "@hist", "Percentiles 2–98 %", false).clicked() {
                         (style.lo, style.hi) = hipso_core::raster::stretch(&grid.data);
                         changed = true;
                     }
-                    if ui.button("Mín–máx").clicked() {
+                    if ribbon::small_button(ui, t, "@full", "Mín–máx", false).clicked() {
                         let finite = grid.data.iter().copied().filter(|v| v.is_finite());
                         let (lo, hi) = finite.fold((f32::INFINITY, f32::NEG_INFINITY), |a, v| {
                             (a.0.min(v), a.1.max(v))
@@ -638,9 +620,6 @@ impl App {
                 });
                 ui.label(egui::RichText::new(&*name).weak().size(11.0));
             });
-            if ribbon::big_button(ui, t, "@full", "Zoom a\nla capa", false).clicked() {
-                zoom = true;
-            }
         });
         if changed {
             let st: GridStyle = style.clone();
@@ -650,9 +629,6 @@ impl App {
                 &render_grid(grid, &st),
                 egui::TextureOptions::LINEAR,
             );
-        }
-        if zoom {
-            self.zoom_to_layer(k);
         }
     }
 }

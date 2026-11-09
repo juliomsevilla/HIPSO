@@ -701,6 +701,8 @@ pub fn read_regions(path: &Path, opts: &ReadOptions) -> Result<Vec<Region>> {
         read_shapefile(path, opts)
     } else if ext == "geojson" || ext == "json" {
         crate::geojson::read_regions(path, opts)
+    } else if ext == "kml" || ext == "kmz" {
+        crate::kml::read_regions(path, opts)
     } else if ext == "gpkg" {
         crate::geojson::regions_of(&crate::gpkg::read_layer(path, None)?, opts)
     } else {
@@ -2078,6 +2080,12 @@ pub fn write_layer(
                 epsg: prj.and_then(epsg_from_prj),
             }],
         );
+    }
+    if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("kml") || e.eq_ignore_ascii_case("kmz"))
+    {
+        return crate::kml::write_vector(path, d, kind, prj.and_then(epsg_from_prj));
     }
     if path
         .extension()

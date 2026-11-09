@@ -972,6 +972,78 @@ fn rtree_triggers(t: &str, tree: &str) -> Vec<(String, String)> {
     ]
 }
 
+/// What rewriting a GeoPackage with [`replace_table`] would not keep: tables that are not
+/// feature tables nor the standard bookkeeping (styles saved by QGIS, attribute-only tables,
+/// tiles). Empty when nothing is lost.
+pub fn lost_on_rewrite(path: &Path) -> Result<Vec<String>> {
+    use crate::sqlite::Db;
+    let db = Db::open(path)?;
+    let features: Vec<String> = crate::gpkg::layers(path)?.into_iter().map(|l| l.table.to_ascii_lowercase()).collect();
+    let mut lost: Vec<String> = Vec::new();
+    for (kind, name, ..) in db.schema()? {
+        let low = name.to_ascii_lowercase();
+        if kind == "table"
+            && !(low.starts_with("gpkg_") || low.starts_with("rtree_") || low.starts_with("sqlite_") || features.contains(&low))
+            && !lost.contains(&name)
+        {
+            lost.push(name);
+        }
+    }
+    if let Ok(t) = db.table("gpkg_contents")
+        && let (Some(n), Some(d)) = (t.column("table_name"), t.column("data_type"))
+    {
+        for r in &t.rows {
+            let (name, ty) = (r[n].display(), r[d].display());
+            if !ty.eq_ignore_ascii_case("features") && !lost.contains(&name) {
+                lost.push(name);
+            }
+        }
+    }
+    Ok(lost)
+}
+
+/// Saves a layer over its own table of a GeoPackage, keeping the other feature tables: the file
+/// is written again beside the old one and replaces it only when it is complete. A table of
+/// that name that does not exist is added. See [`lost_on_rewrite`] for what is not kept.
+pub fn replace_table(path: &Path, table: &str, data: &VectorData, kind: GeomKind, epsg: Option<u16>) -> Result<()> {
+    struct Owned {
+        name: String,
+        data: VectorData,
+        kind: GeomKind,
+        epsg: Option<u16>,
+    }
+    let mut keep: Vec<Owned> = Vec::new();
+    let mut replaced = false;
+    if path.exists() {
+        for l in crate::gpkg::layers(path)? {
+            if l.table.eq_ignore_ascii_case(table) {
+                keep.push(Owned { name: l.table, data: data.clone(), kind, epsg });
+                replaced = true;
+                continue;
+            }
+            let (d, k, e, skipped) = crate::geojson::vector_of(crate::gpkg::read_layer(path, Some(&l.table))?);
+            if skipped > 0 {
+                return Err(Error::Format(format!(
+                    "la tabla «{}» tiene geometrías de más de un tipo, que HIPSO no conserva al reescribir el GeoPackage; guarda la capa en un archivo nuevo",
+                    l.table
+                )));
+            }
+            keep.push(Owned { name: l.table, data: d, kind: k, epsg: e });
+        }
+    }
+    if !replaced {
+        keep.push(Owned { name: table.to_string(), data: data.clone(), kind, epsg });
+    }
+    let tables: Vec<Table> = keep.iter().map(|o| Table { name: &o.name, data: &o.data, kind: o.kind, epsg: o.epsg }).collect();
+    let file = path.file_name().map_or_else(|| "capa.gpkg".into(), |n| n.to_string_lossy().into_owned());
+    let tmp = path.with_file_name(format!(".{file}.tmp"));
+    let done = write(&tmp, &tables).and_then(|()| std::fs::rename(&tmp, path).map_err(Error::from));
+    if done.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    done
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1035,6 +1107,32 @@ mod tests {
         assert_eq!(back.fields, ["fid", "Nombre", "Area", "Entero"]);
         assert_eq!(back.text[0], ["1", "uno", "96.5", "7"]);
         assert_eq!(back.text[1][3], "8");
+        std::fs::remove_file(&path).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn replacing_one_table_keeps_the_others() -> Result<()> {
+        let path = std::env::temp_dir().join(format!("rl_gpkgw_rep_{}.gpkg", std::process::id()));
+        let (a, b) = (layer(), layer());
+        write(
+            &path,
+            &[
+                Table { name: "uno", data: &a, kind: GeomKind::Polygon, epsg: Some(25830) },
+                Table { name: "dos", data: &b, kind: GeomKind::Polygon, epsg: Some(25830) },
+            ],
+        )?;
+        assert!(lost_on_rewrite(&path)?.is_empty());
+        let mut edited = crate::gpkg::read_vector(&path, Some("uno"))?;
+        edited.features.truncate(1);
+        edited.text.truncate(1);
+        edited.num.truncate(1);
+        replace_table(&path, "uno", &edited, GeomKind::Polygon, Some(25830))?;
+        let names: Vec<String> = crate::gpkg::layers(&path)?.into_iter().map(|l| l.table).collect();
+        assert_eq!(names, ["uno", "dos"]);
+        assert_eq!(crate::gpkg::read_vector(&path, Some("uno"))?.features.len(), 1);
+        assert_eq!(crate::gpkg::read_vector(&path, Some("dos"))?.features.len(), 2);
+        assert!(!path.with_file_name(format!(".{}.tmp", path.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned()))).exists());
         std::fs::remove_file(&path).ok();
         Ok(())
     }

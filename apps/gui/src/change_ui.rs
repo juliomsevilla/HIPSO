@@ -135,7 +135,7 @@ impl App {
                     ui.label("Unidades de gestión");
                     ui.label(t.stands.as_deref().map_or("(opcional)".to_string(), paths::stem));
                     if ui.button("Archivo…").clicked()
-                        && let Some(p) = crate::prefs::dialog().add_filter("Unidades de gestión", &["shp", "geojson", "json", "gpkg"]).pick_file()
+                        && let Some(p) = crate::prefs::dialog().add_filter("Unidades de gestión", &["shp", "geojson", "json", "gpkg", "kml", "kmz"]).pick_file()
                     {
                         t.stands = Some(p);
                     }

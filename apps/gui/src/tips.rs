@@ -13,6 +13,16 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Añadir nubes y capas" => {
             "Añade nubes de puntos (LAS/LAZ), rásteres, imágenes y capas vectoriales a lo que ya está abierto (Ctrl+O)."
         }
+        "Restablecer" => "Vuelve el brillo, el contraste y el gamma a sus valores iniciales.",
+        "Percentiles 2–98 %" => "Ajusta el rango de colores a los percentiles 2 y 98 de los valores, sin contar los extremos.",
+        "Mín–máx" => "Ajusta el rango de colores al valor mínimo y al máximo.",
+        "Unir seleccionados" => "Une los polígonos seleccionados en uno solo, con los atributos del primero; el límite entre los que se tocan desaparece.",
+        "Separar partes" => "Convierte cada parte de un elemento de varias partes en un elemento propio, con los mismos atributos.",
+        "Agrupar en multiparte" => "Junta los elementos seleccionados en uno solo con varias partes, sin unir la geometría.",
+        "Seleccionar por localización" => "Selecciona los elementos que intersectan, están dentro de, contienen, tocan o cruzan a los de otra capa.",
+        "Seleccionar por expresión" => "Selecciona los elementos para los que se cumple una expresión sobre sus campos y su geometría.",
+        "Calculadora de campos" => "Rellena un campo con una expresión sobre los otros campos y la geometría ($area, $length…).",
+        "Eliminar seleccionados" => "Borra de la capa los elementos seleccionados (se puede deshacer).",
         "Seleccionar" => "Selecciona elementos de la capa con un clic o arrastrando un rectángulo; pulsa de nuevo para dejar de seleccionar.",
         "Geoprocesos" => {
             "Operaciones con capas de polígonos: estadística zonal, validar, reparar, búfer, disolver, unión e intersección."
@@ -26,7 +36,7 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Guardar vista" => "Guarda la vista actual como imagen PNG.",
         "Cerrar todo" => "Cierra las nubes y las capas abiertas.",
         "Nueva capa" => {
-            "Crea una capa vectorial vacía (puntos, líneas o áreas) para digitalizar sobre la planta."
+            "Crea una capa vectorial vacía (puntos, líneas o polígonos) para digitalizar sobre la planta."
         }
         "Tabla de atributos" => "Abre la tabla de atributos de la capa vectorial.",
         "Digitalizar" => "Dibuja elementos nuevos en la capa vectorial activa.",

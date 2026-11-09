@@ -63,32 +63,39 @@ fn big_button_body(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: b
 
 /// An 18 px icon beside a label, in a 22 px row.
 pub fn small_button(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: bool) -> Response {
-    let r = small_button_body(ui, t, icon, label, selected);
+    small_button_on(ui, t, icon, label, selected, true)
+}
+
+/// A small button that can be disabled: it is drawn faded and does not answer clicks.
+pub fn small_button_on(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: bool, enabled: bool) -> Response {
+    let r = small_button_body(ui, t, icon, label, selected, enabled);
     match crate::tips::tip(label) {
         Some(tip) => r.on_hover_text(tip),
         None => r,
     }
 }
 
-fn small_button_body(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: bool) -> Response {
+fn small_button_body(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: bool, enabled: bool) -> Response {
     let w = small_width(ui, label);
-    let (rect, r) = ui.allocate_exact_size(Vec2::new(w, 22.0), Sense::click());
+    let sense = if enabled { Sense::click() } else { Sense::hover() };
+    let (rect, r) = ui.allocate_exact_size(Vec2::new(w, 22.0), sense);
     if ui.is_rect_visible(rect) {
         let p = ui.painter();
-        p.rect_filled(rect, 4.0, fill(t, &r, selected));
+        let ink = if enabled { t.text } else { t.weak };
+        p.rect_filled(rect, 4.0, if enabled { fill(t, &r, selected) } else { Color32::TRANSPARENT });
         draw_icon(
             p,
             Pos2::new(rect.left() + 12.0, rect.center().y),
             15.0,
             icon,
-            if selected { t.accent } else { t.text },
+            if selected { t.accent } else { ink },
         );
         p.text(
             Pos2::new(rect.left() + 26.0, rect.center().y),
             Align2::LEFT_CENTER,
             label,
             FontId::proportional(12.0),
-            t.text,
+            ink,
         );
     }
     r
@@ -106,7 +113,7 @@ pub fn small_menu(
 ) -> Response {
     let text = format!("{label}  ▾");
     let r = ui
-        .add_enabled_ui(enabled, |ui| small_button_body(ui, t, icon, &text, false))
+        .add_enabled_ui(enabled, |ui| small_button_body(ui, t, icon, &text, false, true))
         .inner;
     egui::Popup::menu(&r).show(add);
     r
@@ -326,8 +333,24 @@ pub fn tool_button(ui: &mut Ui, t: &Tokens, icon: &str, tip: &str, selected: boo
     r.on_hover_text(tip)
 }
 
+/// Makes [`group`] draw its controls as a collapsing section of a vertical panel (what the side
+/// panel needs) instead of a ribbon group; set it on before the panel and off after.
+pub fn panel_groups(ui: &Ui, on: bool) {
+    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("panel_groups"), on));
+}
+
 /// A group of controls with its caption centred below and a rule after it.
 pub fn group(ui: &mut Ui, t: &Tokens, caption: &str, add: impl FnOnce(&mut Ui)) {
+    if ui.ctx().data(|d| d.get_temp::<bool>(egui::Id::new("panel_groups"))).unwrap_or(false) {
+        egui::CollapsingHeader::new(egui::RichText::new(caption).strong())
+            .id_salt(("panel_group", caption))
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing = Vec2::splat(2.0);
+                add(ui);
+            });
+        return;
+    }
     let r = ui
         .vertical(|ui| {
             // controls start at the top of the group, as in every ribbon: rows of different

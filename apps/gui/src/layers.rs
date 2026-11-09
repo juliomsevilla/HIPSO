@@ -31,7 +31,7 @@ pub struct Geom {
 pub struct VecLayer {
     pub data: view::VectorData,
     pub kind: view::GeomKind,
-    /// Outline colour of lines and areas, colour of points.
+    /// Outline colour of lines and polygons, colour of points.
     pub color: [u8; 3],
     pub fill: [u8; 3],
     pub fill_alpha: f32,
@@ -49,6 +49,11 @@ pub struct VecLayer {
     pub edit_base: Option<(view::VectorData, bool)>,
     /// A change was made since the editing session began.
     pub edit_touched: bool,
+    /// The table of the GeoPackage the layer was read from: saving writes over that table.
+    pub table: Option<String>,
+    /// The system the file was in before the layer was moved to the one of the work, which is
+    /// the one it is written back in when it is saved over its own table.
+    pub file_epsg: Option<u16>,
     pub geom: Geom,
     /// Changes with the geometry: what a picture of the layer is made for.
     pub rev: u64,
@@ -153,6 +158,8 @@ impl VecLayer {
             redo: Vec::new(),
             edit_base: None,
             edit_touched: false,
+            table: None,
+            file_epsg: None,
             geom: Geom::default(),
             rev: 0,
             raster: Default::default(),
@@ -664,6 +671,7 @@ impl App {
             Ok(mut data) => {
                 let own = table.and_then(|t| hipso_core::gpkg::epsg_of_table(p, t));
                 let layer_crs = own.or_else(|| self.crs_of(p));
+                let gpkg_path = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("gpkg"));
                 let mut moved = if own.is_some() {
                     self.crs_move_from(p, own)
                 } else {
@@ -721,7 +729,17 @@ impl App {
                             table.map_or(f.clone(), |t| format!("{f} · {t}"))
                         },
                         path: p.to_path_buf(),
-                        kind: RefKind::Vector(Box::new(VecLayer::new(data, kind))),
+                        kind: RefKind::Vector(Box::new({
+                            let mut vl = VecLayer::new(data, kind);
+                            vl.table = table.map(str::to_string).or_else(|| {
+                                gpkg_path
+                                    .then(|| hipso_core::gpkg::layers(p).ok().and_then(|l| l.into_iter().next()))
+                                    .flatten()
+                                    .map(|l| l.table)
+                            });
+                            vl.file_epsg = layer_crs;
+                            vl
+                        })),
                         visible: true,
                         opacity: 1.0,
                     },
@@ -1234,7 +1252,7 @@ impl App {
         Some(b)
     }
 
-    /// The areas of the visible polygon layers, for the tools that cut with polygons.
+    /// The polygons of the visible polygon layers, for the tools that cut with polygons.
     pub fn polygon_aois(&self) -> Vec<Aoi> {
         let mut out = Vec::new();
         for r in self.refs.iter().filter(|r| r.visible) {
@@ -1403,7 +1421,7 @@ impl App {
             LayerCmd::Edit => {
                 self.sel_layer = Some(k);
                 self.active = Some(k);
-                self.tab = FIRST_EXTRA + 1;
+                self.side = Side::Edit;
             }
             LayerCmd::Save => self.save_layer(k, false),
             LayerCmd::SaveAs => self.save_layer(k, true),
@@ -1487,7 +1505,7 @@ impl App {
                     ui.label("Tipo");
                     ui.radio_value(&mut d.kind, view::GeomKind::Point, "Puntos");
                     ui.radio_value(&mut d.kind, view::GeomKind::Line, "Líneas");
-                    ui.radio_value(&mut d.kind, view::GeomKind::Polygon, "Áreas");
+                    ui.radio_value(&mut d.kind, view::GeomKind::Polygon, "Polígonos");
                 });
                 ui.label("Campos de la tabla");
                 let mut remove = None;
@@ -1547,7 +1565,7 @@ impl App {
             // an empty layer has no extent to fit: the view stays where it is
             self.plan_fit = self.plan_fit && self.refs.len() > 1;
             self.nav = Nav::Digitize;
-            self.tab = FIRST_EXTRA + 1;
+            self.side = Side::Edit;
             self.log(format!(
                 "Capa «{}» creada: digitaliza sobre la planta.",
                 d.name
@@ -1557,16 +1575,68 @@ impl App {
         }
     }
 
-    /// Saves a vector layer as a shapefile with the projection of the cloud: in place when it
-    /// already has a file and `ask` is false.
-    pub fn save_layer(&mut self, k: usize, ask: bool) {
-        // the projection of the cloud, else that of an image on the map
-        let prj = self.store.as_ref().and_then(|s| s.prj.clone()).or_else(|| {
+    /// The projection of the cloud, else that of an image on the map.
+    fn work_prj(&self) -> Option<String> {
+        self.store.as_ref().and_then(|s| s.prj.clone()).or_else(|| {
             self.refs.iter().find_map(|r| match &r.kind {
                 RefKind::Image(il) => il.pyr.epsg.and_then(hipso_core::vector::prj_for_epsg),
                 _ => None,
             })
-        });
+        })
+    }
+
+    /// Writes a layer over its own table of its GeoPackage, in the system the table was in.
+    pub fn save_gpkg_over(&mut self, k: usize) {
+        let (work, prj) = (self.project_crs(), self.work_prj());
+        let work = work.or_else(|| prj.as_deref().and_then(hipso_core::vector::epsg_from_prj));
+        let Some(r) = self.refs.get_mut(k) else { return };
+        let RefKind::Vector(v) = &mut r.kind else { return };
+        let Some(table) = v.table.clone() else { return };
+        let target = v.file_epsg.or(work);
+        let moved = match (work, target) {
+            (Some(w), Some(t)) if hipso_core::crs::relation(w, t) == hipso_core::crs::Relation::Different => {
+                let mut d = v.data.clone();
+                match hipso_core::reproject::vector_data(&mut d, w, t) {
+                    Ok(()) => Some(d),
+                    Err(e) => {
+                        let msg = format!("No se pudo devolver la capa al sistema EPSG:{t} de la tabla: {e}");
+                        self.log(msg);
+                        return;
+                    }
+                }
+            }
+            _ => None,
+        };
+        let res = hipso_core::gpkg_write::replace_table(&r.path, &table, moved.as_ref().unwrap_or(&v.data), v.kind, target);
+        let msg = match res {
+            Ok(()) => {
+                v.dirty = false;
+                format!("Capa guardada en la tabla «{table}» de {}", r.path.display())
+            }
+            Err(e) => format!("No se pudo guardar sobre la tabla «{table}»: {e}"),
+        };
+        self.log(msg);
+    }
+
+    /// Saves a vector layer as a shapefile with the projection of the cloud: in place when it
+    /// already has a file and `ask` is false.
+    pub fn save_layer(&mut self, k: usize, ask: bool) {
+        // a layer read from a GeoPackage is saved over its own table, keeping the other tables
+        if !ask
+            && let Some(RefLayer { path, kind: RefKind::Vector(v), .. }) = self.refs.get(k)
+            && v.table.is_some()
+            && path.is_file()
+            && path.extension().is_some_and(|e| e.eq_ignore_ascii_case("gpkg"))
+        {
+            let path = path.clone();
+            match hipso_core::gpkg_write::lost_on_rewrite(&path) {
+                Ok(lost) if lost.is_empty() => self.save_gpkg_over(k),
+                Ok(lost) => self.vm.gpkg_loss = Some((k, lost)),
+                Err(e) => self.log(format!("No se puede leer el GeoPackage para guardar sobre él: {e}")),
+            }
+            return;
+        }
+        let prj = self.work_prj();
         let dir = self
             .clouds
             .first()
@@ -1584,11 +1654,13 @@ impl App {
         {
             r.path.clone()
         } else {
-            let stem = hipso_core::paths::stem(Path::new(&r.name));
+            let stem = v.table.clone().unwrap_or_else(|| hipso_core::paths::stem(Path::new(&r.name)));
             let Some(p) = crate::prefs::dialog()
                 .add_filter("Shapefile", &["shp"])
                 .add_filter("GeoJSON", &["geojson"])
                 .add_filter("GeoPackage", &["gpkg"])
+                .add_filter("KML", &["kml"])
+                .add_filter("KMZ", &["kmz"])
                 .set_directory(if r.path.parent().is_some_and(|p| p.is_dir()) {
                     r.path.parent().map_or(dir.clone(), Path::to_path_buf)
                 } else {
@@ -1609,6 +1681,17 @@ impl App {
                     .file_name()
                     .map_or(r.name.clone(), |n| n.to_string_lossy().into_owned());
                 v.dirty = false;
+                // the file written is the layer's own now: a GeoPackage has the table of that name
+                v.table = path
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("gpkg"))
+                    .then(|| {
+                        hipso_core::paths::stem(&path)
+                            .chars()
+                            .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+                            .collect()
+                    });
+                v.file_epsg = prj.as_deref().and_then(hipso_core::vector::epsg_from_prj);
                 let msg = if prj.is_some() {
                     format!("Capa guardada: {}", path.display())
                 } else {

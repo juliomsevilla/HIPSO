@@ -281,7 +281,7 @@ impl App {
                                 ui.add(NumField::new(&mut t.trees).range(5.0..=2000.0));
                             });
                             ui.label(
-                                egui::RichText::new("Dibuja polígonos que llenen los objetos de cada clase (Capas → Nueva capa de áreas, con un campo de texto para la clase). Un objeto cuenta como muestra si los polígonos cubren al menos la mitad de sus celdas.")
+                                egui::RichText::new("Dibuja polígonos que llenen los objetos de cada clase (Capas → Nueva capa de polígonos, con un campo de texto para la clase). Un objeto cuenta como muestra si los polígonos cubren al menos la mitad de sus celdas.")
                                     .color(weak)
                                     .size(11.0),
                             );

@@ -327,6 +327,23 @@ fn coord_line(l: &[[f64; 2]]) -> String {
     format!("[{}]", l.iter().map(coords).collect::<Vec<_>>().join(","))
 }
 
+/// The rings of a polygon feature grouped by polygon, each ring turned the way RFC 7946 wants: an
+/// exterior (clockwise in a shapefile) opens a polygon, the counter-clockwise ones that follow
+/// are its holes.
+pub(crate) fn polygons_of(parts: &[Vec<[f64; 2]>]) -> Vec<Vec<Vec<[f64; 2]>>> {
+    let mut polygons: Vec<Vec<Vec<[f64; 2]>>> = Vec::new();
+    for r in parts.iter().filter(|r| r.len() >= 3) {
+        let mut ring = r.clone();
+        let exterior = signed_area(&ring) <= 0.0;
+        ring.reverse();
+        match (exterior, polygons.last_mut()) {
+            (false, Some(last)) => last.push(ring),
+            _ => polygons.push(vec![ring]),
+        }
+    }
+    polygons
+}
+
 /// The geometry of a feature as GeoJSON text. Polygon exteriors come out counter-clockwise and
 /// holes clockwise (RFC 7946); a ring turning the other way than the exterior before it is a hole.
 fn geometry_text(parts: &[Vec<[f64; 2]>], kind: GeomKind) -> String {
@@ -358,20 +375,7 @@ fn geometry_text(parts: &[Vec<[f64; 2]>], kind: GeomKind) -> String {
             ),
         },
         GeomKind::Polygon => {
-            // group the rings: an exterior (clockwise in a shapefile) opens a polygon, the
-            // counter-clockwise ones that follow are its holes
-            let mut polygons: Vec<Vec<Vec<[f64; 2]>>> = Vec::new();
-            for r in parts.iter().filter(|r| r.len() >= 3) {
-                let mut ring = r.clone();
-                let exterior = signed_area(&ring) <= 0.0;
-                // the program keeps exteriors clockwise and holes counter-clockwise; RFC 7946 wants
-                // the opposite
-                ring.reverse();
-                match (exterior, polygons.last_mut()) {
-                    (false, Some(last)) => last.push(ring),
-                    _ => polygons.push(vec![ring]),
-                }
-            }
+            let polygons = polygons_of(parts);
             let poly = |p: &Vec<Vec<[f64; 2]>>| {
                 format!(
                     "[{}]",

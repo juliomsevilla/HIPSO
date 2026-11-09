@@ -328,10 +328,62 @@ pub fn intersect(a: &PolyLayer, b: &PolyLayer) -> Result<PolyLayer> {
     Ok(PolyLayer { features, prj: a.prj.clone().or_else(|| b.prj.clone()) })
 }
 
+/// The features of `a` without what `b` covers; the pieces keep the attributes of `a`. Features
+/// that nothing is left of are dropped.
+pub fn difference(a: &PolyLayer, b: &PolyLayer) -> Result<PolyLayer> {
+    require_valid(a, "la diferencia")?;
+    require_valid(b, "la diferencia")?;
+    let (_, tree_b) = index_of(b);
+    let mut features = Vec::new();
+    for fa in &a.features {
+        let mut rest = fa.geom.clone();
+        for fb in near(&tree_b, &fa.geom).into_iter().map(|j| &b.features[j]) {
+            rest = rest.difference(&fb.geom);
+        }
+        if rest.unsigned_area() > 1e-9 {
+            features.push(Feature { geom: rest, attrs: fa.attrs.clone() });
+        }
+    }
+    Ok(PolyLayer { features, prj: a.prj.clone().or_else(|| b.prj.clone()) })
+}
+
+/// What is in one layer or the other but not in both: what only `a` covers (with its attributes)
+/// and what only `b` covers (with its attributes after a `b_` prefix).
+pub fn symmetric_difference(a: &PolyLayer, b: &PolyLayer) -> Result<PolyLayer> {
+    let mut out = difference(a, b)?;
+    let only_b = difference(b, a)?;
+    out.features.extend(only_b.features.into_iter().map(|mut f| {
+        f.attrs = f.attrs.into_iter().map(|(k, v)| (format!("b_{k}"), v)).collect();
+        f
+    }));
+    Ok(out)
+}
+
+/// The union of the polygons of several features as parts (rings of polygons with their holes).
+/// Slivers and gaps narrower than a millionth of the extent, which edges that should coincide
+/// leave when they do not quite (after a cut, or drawn by hand), are closed, so that the border
+/// between neighbours disappears.
+pub fn merge_parts(sets: &[&[Vec<[f64; 2]>]]) -> Vec<Vec<[f64; 2]>> {
+    let polys: Vec<MultiPolygon<f64>> = sets.iter().map(|s| multipolygon_of(s)).collect();
+    let all = geo::algorithm::bool_ops::unary_union(polys.iter());
+    let tol = tolerance(&all);
+    // the round corners that buffering leaves are straightened out again
+    parts_of(&geo::Simplify::simplify(&all.buffer(tol).buffer(-tol), 2.0 * tol))
+}
+
 /// The rings of a multipolygon as closed parts: for each polygon its outer ring, then its holes.
 pub fn parts_of(m: &MultiPolygon<f64>) -> Vec<Vec<[f64; 2]>> {
-    let ring = |l: &LineString<f64>| l.0.iter().map(|c| [c.x, c.y]).collect::<Vec<_>>();
-    m.0.iter().flat_map(|p| std::iter::once(ring(p.exterior())).chain(p.interiors().iter().map(ring))).collect()
+    // exteriors run clockwise and holes counter-clockwise, as the rest of the program keeps them
+    let ring = |l: &LineString<f64>, exterior: bool| {
+        let mut r: Vec<[f64; 2]> = l.0.iter().map(|c| [c.x, c.y]).collect();
+        if (crate::geojson::signed_area(&r) > 0.0) == exterior {
+            r.reverse();
+        }
+        r
+    };
+    m.0.iter()
+        .flat_map(|p| std::iter::once(ring(p.exterior(), true)).chain(p.interiors().iter().map(|h| ring(h, false))))
+        .collect()
 }
 
 /// Cuts a polygon feature (its parts) with a line that starts and ends outside it: the pieces on
@@ -361,12 +413,34 @@ pub fn cut_by_line(parts: &[Vec<[f64; 2]>], line: &[[f64; 2]]) -> Vec<Vec<Vec<[f
 
 /// A new polygon drawn over existing ones, without what is already covered: the parts of
 /// `ring` minus `others`. Empty when nothing is left.
+///
+/// Ground that the ring and the polygons enclose between them (a pocket the closing side of the
+/// ring leaves behind) is taken too, so that the new polygon meets the others with no gap.
 pub fn attach(ring: &[[f64; 2]], others: &[&[Vec<[f64; 2]>]]) -> Vec<Vec<[f64; 2]>> {
-    let mut m = multipolygon_of(&[ring.to_vec()]);
-    for o in others {
-        m = m.difference(&multipolygon_of(o));
-    }
+    let new = multipolygon_of(&[ring.to_vec()]);
+    let polys: Vec<MultiPolygon<f64>> = others.iter().map(|o| multipolygon_of(o)).collect();
+    let covered = geo::algorithm::bool_ops::unary_union(polys.iter());
+    let tol = tolerance(&new);
+    // slivers between polygons that do not quite touch (after a cut) are part of what is covered,
+    // or the new polygon would fill them as thin spikes along the old borders
+    let slivers = covered.buffer(tol).buffer(-tol).difference(&covered);
+    let covered = covered.union(&MultiPolygon::new(slivers.0.into_iter().filter(|p| p.unsigned_area() > 100.0 * tol * tol).collect()));
+    let pockets = holes_of(&new.union(&covered)).difference(&holes_of(&covered));
+    let pockets = MultiPolygon::new(pockets.0.into_iter().filter(|p| p.unsigned_area() > tol * tol).collect());
+    // what is left of the slivers (notches too small to see) is straightened out
+    let m = geo::Simplify::simplify(&new.union(&pockets).difference(&covered), tol);
     if m.unsigned_area() <= 1e-9 { Vec::new() } else { parts_of(&m) }
+}
+
+/// The holes of a multipolygon as polygons.
+fn holes_of(m: &MultiPolygon<f64>) -> MultiPolygon<f64> {
+    MultiPolygon::new(m.0.iter().flat_map(|p| p.interiors().iter().map(|h| GPoly::new(h.clone(), Vec::new()))).collect())
+}
+
+/// A distance too small to matter on the map (a millionth of its extent), under which two edges
+/// that should coincide are taken as one.
+fn tolerance(m: &MultiPolygon<f64>) -> f64 {
+    m.bounding_rect().map_or(1e-9, |r| (r.width().hypot(r.height()) * 1e-6).max(1e-9))
 }
 
 #[cfg(test)]
@@ -412,6 +486,63 @@ mod tests {
         // the operations refuse invalid input and say what to do
         let e = buffer(&l, 1.0).unwrap_err().to_string();
         assert!(e.contains("make-valid"), "{e}");
+    }
+
+    #[test]
+    fn difference_cuts_away_what_the_other_layer_covers() -> Result<()> {
+        let a = layer(vec![feat(vec![sq(0.0, 0.0, 10.0)], &[("id", "1")]), feat(vec![sq(50.0, 0.0, 5.0)], &[("id", "2")])]);
+        let b = layer(vec![feat(vec![sq(5.0, 0.0, 10.0)], &[("k", "x")]), feat(vec![sq(48.0, -1.0, 20.0)], &[("k", "y")])]);
+        let d = difference(&a, &b)?;
+        assert_eq!(d.features.len(), 1, "the second polygon is covered whole");
+        assert!((d.features[0].geom.unsigned_area() - 50.0).abs() < 1e-6);
+        assert_eq!(d.features[0].attrs, [("id".to_string(), "1".to_string())]);
+        let s = symmetric_difference(&a, &b)?;
+        let area: f64 = s.features.iter().map(|f| f.geom.unsigned_area()).sum();
+        // a only: 50; b only: 100 - 50 (overlap with the first) + (400 - 25) = 425
+        assert!((area - 475.0).abs() < 1e-6, "{area}");
+        assert!(s.features.iter().any(|f| f.attrs.iter().any(|(k, _)| k == "b_k")));
+        Ok(())
+    }
+
+    #[test]
+    fn neighbours_that_do_not_quite_touch_merge_with_no_border_left() {
+        // two squares with a gap of 1e-5 between them, and one with a sliver overlap
+        let (a, b, c) = (vec![sq(0.0, 0.0, 10.0)], vec![sq(10.00001, 0.0, 10.0)], vec![sq(19.99999, 0.0, 10.0)]);
+        let parts = merge_parts(&[&a, &b, &c]);
+        assert_eq!(parts.len(), 1, "one ring: no hole and no second part: {parts:?}");
+        assert!(parts[0].len() <= 12, "no stray vertices: {}", parts[0].len());
+        assert!((multipolygon_of(&parts).unsigned_area() - 300.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn an_attached_polygon_fills_the_pocket_the_closing_side_leaves() {
+        // a U of three polygons, and a ring from inside one arm, over the top, to the other arm
+        let (left, right, floor) = (vec![sq(0.0, 0.0, 10.0)], vec![sq(20.0, 0.0, 10.0)], vec![vec![[0.0, 0.0], [0.0, 2.0], [30.0, 2.0], [30.0, 0.0]]]);
+        let ring = vec![[5.0, 5.0], [5.0, 20.0], [25.0, 20.0], [25.0, 5.0]];
+        let parts = attach(&ring, &[&left, &right, &floor]);
+        let area = multipolygon_of(&parts).unsigned_area();
+        // the gap between the arms up to y = 20 (10 x 18) and the ring above each arm (2 x 50)
+        assert!((area - 280.0).abs() < 1e-6, "{area}");
+    }
+
+    #[test]
+    fn an_attached_polygon_does_not_fill_the_sliver_between_neighbours() {
+        let (a, b) = (vec![sq(0.0, 0.0, 10.0)], vec![sq(10.00001, 0.0, 10.0)]);
+        let ring = vec![[5.0, 5.0], [5.0, 20.0], [15.0, 20.0], [15.0, 5.0]];
+        let parts = attach(&ring, &[&a, &b]);
+        assert_eq!(parts.len(), 1);
+        assert!(parts[0].len() <= 6, "no spike down the sliver: {:?}", parts[0]);
+        assert!((multipolygon_of(&parts).unsigned_area() - 100.0).abs() < 1e-2);
+    }
+
+    #[test]
+    fn merged_polygons_are_one_and_their_rings_are_oriented() {
+        let (a, b, far) = (vec![sq(0.0, 0.0, 10.0)], vec![sq(5.0, 0.0, 10.0)], vec![sq(100.0, 0.0, 4.0)]);
+        let parts = merge_parts(&[&a, &b, &far]);
+        assert_eq!(parts.len(), 2);
+        assert!((multipolygon_of(&parts).unsigned_area() - (150.0 + 16.0)).abs() < 1e-2);
+        // exteriors clockwise, as the program keeps them
+        assert!(parts.iter().all(|r| crate::geojson::signed_area(r) < 0.0));
     }
 
     #[test]

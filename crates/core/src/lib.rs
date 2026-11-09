@@ -24,6 +24,7 @@ pub mod e57;
 pub mod edit;
 pub mod export;
 pub mod extras;
+pub mod fieldcalc;
 pub mod filter;
 pub mod footprint;
 pub mod forest;
@@ -42,6 +43,7 @@ pub mod intensity;
 pub mod jobs;
 pub mod jp2;
 pub mod json;
+pub mod kml;
 pub mod las;
 pub mod markup;
 pub mod mcc;
@@ -74,6 +76,7 @@ pub mod tilemap;
 pub mod tin;
 pub mod tls;
 pub mod trees;
+pub mod vecops;
 pub mod vector;
 pub mod view;
 pub mod viewshed;
@@ -221,7 +224,6 @@ pub(crate) fn check_vector_format(path: &std::path::Path) -> Result<()> {
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
     let name = match ext.as_str() {
-        "kml" | "kmz" => "KML",
         "gml" => "GML",
         "gdb" => "geodatabase de Esri",
         "dxf" | "dwg" => "CAD",

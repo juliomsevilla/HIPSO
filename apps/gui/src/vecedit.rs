@@ -191,10 +191,10 @@ impl App {
             Some(view::GeomKind::Point) => "Digitalizar puntos: clic = añadir un punto".to_string(),
             Some(k) => format!(
                 "Digitalizar {}: clic = vértice ({} puestos) · botón derecho, doble clic o Intro = terminar · Retroceso = quitar el último · Esc = cancelar{}",
-                if k == view::GeomKind::Line { "líneas" } else { "áreas" },
+                if k == view::GeomKind::Line { "líneas" } else { "polígonos" },
                 self.dig_draft.len(),
                 if k == view::GeomKind::Polygon {
-                    " · Adosar: empieza y termina dentro de un área · Cortar: empieza y termina fuera atravesándola"
+                    " · Adosar: empieza y termina dentro de polígonos (uno o varios) · Cortar: atraviesa uno o varios polígonos"
                 } else {
                     ""
                 }
@@ -273,10 +273,10 @@ impl App {
         }
     }
 
-    /// A line drawn on an area layer can edit the areas instead of making a new one: starting and
-    /// ending inside the same area, it adds the ground it covers outside it as a new area next to
-    /// it; starting and ending outside the areas, it cuts the ones it crosses. Returns whether it
-    /// did either.
+    /// A line drawn on a polygon layer can edit the polygons instead of making a new one: starting and
+    /// ending inside polygons (the same or different ones), it adds the ground it covers outside
+    /// them as a new polygon next to all of them; any other line cuts every polygon it splits, one
+    /// or many. Returns whether it did either.
     fn polygon_edit(&mut self, d: &[[f64; 2]]) -> bool {
         use hipso_core::geomops;
         let (Some(first), Some(last)) = (d.first().copied(), d.last().copied()) else {
@@ -291,17 +291,22 @@ impl App {
             [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])]
         });
         let near = v.in_window(b);
-        if d.len() >= 3 && fi.is_some() && fi == li {
+        if d.len() >= 3 && fi.is_some() && li.is_some() {
             let others: Vec<&[Vec<[f64; 2]>]> = near.iter().map(|&i| v.data.features[i].parts.as_slice()).collect();
             let parts = geomops::attach(d, &others);
-            if parts.is_empty() {
-                return false;
+            if !parts.is_empty() {
+                let many = fi != li;
+                self.add_feature(parts);
+                self.log(if many {
+                    "Polígono nuevo adosado a los existentes."
+                } else {
+                    "Polígono nuevo adosado al existente."
+                });
+                return true;
             }
-            self.add_feature(parts);
-            self.log("Polígono nuevo adosado al existente.");
-            return true;
         }
-        if fi.is_none() && li.is_none() && d.len() >= 2 {
+        // any other line cuts every polygon it splits, whatever the polygons its ends are in
+        if d.len() >= 2 {
             let cuts: Vec<(usize, Vec<Vec<Vec<[f64; 2]>>>)> = near
                 .iter()
                 .filter_map(|&i| {
@@ -388,7 +393,7 @@ impl App {
             return;
         };
         let name = r.name.clone();
-        let (mut save, mut discard, mut keep, mut back) = (false, false, false, false);
+        let (mut save, mut save_new, mut discard, mut keep, mut back) = (false, false, false, false, false);
         egui::Window::new("Cambios en la capa")
             .collapsible(false)
             .resizable(false)
@@ -397,7 +402,8 @@ impl App {
                 ui.label(format!("Has modificado la capa «{name}» en esta sesión de edición."));
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    save = ui.button("Guardar").clicked();
+                    save = ui.button("Guardar").on_hover_text("Sobre la capa que has editado (en un GeoPackage, sobre su tabla)").clicked();
+                    save_new = ui.button("Guardar como capa nueva…").clicked();
                     discard = ui.button("Descartar los cambios").clicked();
                     keep = ui.button("Dejar sin guardar").on_hover_text("Los cambios siguen en la capa, marcada con *").clicked();
                     back = ui.button("Seguir editando").clicked();
@@ -406,8 +412,8 @@ impl App {
         if back {
             self.nav = tool;
             self.edit_confirm = None;
-        } else if save {
-            self.save_layer(k, false);
+        } else if save || save_new {
+            self.save_layer(k, save_new);
             if let Some(RefKind::Vector(v)) = self.refs.get_mut(k).map(|r| &mut r.kind) {
                 v.edit_base = None;
             }
