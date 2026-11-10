@@ -71,7 +71,7 @@ struct Ln {
 }
 
 /// A rounded step that gives about `n` ticks over `span`.
-fn nice_step(span: f64, n: f64) -> f64 {
+pub(crate) fn nice_step(span: f64, n: f64) -> f64 {
     let raw = span / n;
     let mag = 10f64.powf(raw.log10().floor());
     let f = raw / mag;
@@ -86,7 +86,7 @@ fn nice_step(span: f64, n: f64) -> f64 {
     }
 }
 
-fn tick_text(v: f64, step: f64) -> String {
+pub(crate) fn tick_text(v: f64, step: f64) -> String {
     let decimals = if step >= 1.0 {
         0
     } else {

@@ -388,6 +388,7 @@ struct App {
     tex_prof: Option<(egui::TextureHandle, u64, f64, f64)>,
     /// The profile reads the points of its region from the files, at full density.
     prof_full: bool,
+    prof_grid: bool,
     prof_data: Option<profile_data::ProfData>,
     prof_job: Option<profile_data::ProfJob>,
     prof_failed: Option<u64>,
@@ -532,6 +533,7 @@ impl Default for App {
             tex_plan: None,
             tex_prof: None,
             prof_full: true,
+            prof_grid: true,
             prof_data: None,
             prof_job: None,
             prof_failed: None,
@@ -2404,6 +2406,10 @@ impl App {
                                             ui.checkbox(&mut self.prof_full, "Sin decimar")
                                                 .on_hover_text("El perfil lee de los archivos los puntos de su caja sin decimar (hasta 6 millones), en segundo plano. Sin esto usa los mismos puntos que la planta y el 3D.");
                                             ui.end_row();
+                                            ui.label("");
+                                            ui.checkbox(&mut self.prof_grid, "Cuadrícula")
+                                                .on_hover_text("Líneas horizontales con las cotas en el lado izquierdo del perfil");
+                                            ui.end_row();
                                         });
                                 });
                                 ribbon::group(ui, &t, "Carga de puntos", |ui| {
@@ -3808,6 +3814,26 @@ ui.menu_button("⚙", |ui| {
                                 / h as f64) as f32,
                     )
                 };
+                if self.prof_grid {
+                    let step = aba_plots::nice_step(hi - lo, 6.0);
+                    let line = Stroke::new(1.0, t.weak.gamma_multiply(0.35));
+                    let mut z = (lo / step).ceil() * step;
+                    while z <= hi {
+                        let y = at(&[0.0, z]).y;
+                        painter.line_segment(
+                            [Pos2::new(rect.min.x, y), Pos2::new(rect.max.x, y)],
+                            line,
+                        );
+                        painter.text(
+                            Pos2::new(rect.min.x + 4.0, y - 1.0),
+                            Align2::LEFT_BOTTOM,
+                            aba_plots::tick_text(z, step),
+                            FontId::proportional(11.0),
+                            t.weak,
+                        );
+                        z += step;
+                    }
+                }
                 const COLORS: [Color32; 4] = [
                     Color32::from_rgb(255, 160, 0),
                     Color32::from_rgb(0, 200, 255),
