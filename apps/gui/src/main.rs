@@ -2403,12 +2403,12 @@ impl App {
                                             );
                                             ui.end_row();
                                             ui.label("");
-                                            ui.checkbox(&mut self.prof_full, "Sin decimar")
-                                                .on_hover_text("El perfil lee de los archivos los puntos de su caja sin decimar (hasta 6 millones), en segundo plano. Sin esto usa los mismos puntos que la planta y el 3D.");
-                                            ui.end_row();
-                                            ui.label("");
-                                            ui.checkbox(&mut self.prof_grid, "Cuadrícula")
-                                                .on_hover_text("Líneas horizontales con las cotas en el lado izquierdo del perfil");
+                                            ui.horizontal(|ui| {
+                                                ui.checkbox(&mut self.prof_full, "Sin decimar")
+                                                    .on_hover_text("El perfil lee de los archivos los puntos de su caja sin decimar (hasta 6 millones), en segundo plano. Sin esto usa los mismos puntos que la planta y el 3D.");
+                                                ui.checkbox(&mut self.prof_grid, "Cuadrícula")
+                                                    .on_hover_text("Líneas horizontales con las cotas en el lado izquierdo del perfil");
+                                            });
                                             ui.end_row();
                                         });
                                 });
