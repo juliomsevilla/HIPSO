@@ -2067,12 +2067,13 @@ impl App {
             )
             .show(ui, |ui| {
                 let busy = self.running.is_some();
+                ribbon::fold_begin(ctx, ui.available_width() - 24.0);
                 egui::ScrollArea::horizontal()
                     .auto_shrink([false, true])
                     .show(ui, |ui| {
                         ui.horizontal(|ui| match self.tab {
                             0 => {
-                                ribbon::group(ui, &t, "Archivo", |ui| {
+                                ribbon::fold_group(ui, &t, "Archivo", "@open", 2, |ui| {
                                     if ribbon::big_button(ui, &t, "@save", "Guardar\nproyecto", false)
                                         .clicked()
                                     {
@@ -2125,7 +2126,7 @@ impl App {
                                         }
                                     });
                                 });
-                                ribbon::group(ui, &t, "Vectorial", |ui| {
+                                ribbon::fold_group(ui, &t, "Vectorial", "@table", 1, |ui| {
                                     if ribbon::big_button(ui, &t, "@newlayer", "Nueva\ncapa", false)
                                         .clicked()
                                     {
@@ -2154,7 +2155,7 @@ impl App {
                                         self.act(ctx, Action::VectorOps);
                                     }
                                 });
-                                ribbon::group(ui, &t, "Ráster", |ui| {
+                                ribbon::fold_group(ui, &t, "Ráster", "@rs", 0, |ui| {
                                     if ribbon::big_button(
                                         ui,
                                         &t,
@@ -2246,7 +2247,7 @@ impl App {
                                 }
                             }
                             1 => {
-                                ribbon::group(ui, &t, "Navegación", |ui| {
+                                ribbon::fold_group(ui, &t, "Navegación", "✋", 5, |ui| {
                                     for (icon, name, n) in
                                         [("🔍", "Zoom", Nav::Zoom), ("✋", "Desplazar", Nav::Pan)]
                                     {
@@ -2320,7 +2321,7 @@ impl App {
                                         }
                                     });
                                 });
-                                ribbon::group(ui, &t, "Ventanas", |ui| {
+                                ribbon::fold_group(ui, &t, "Ventanas", "@stack", 4, |ui| {
                                     ribbon::compact(ui);
                                     egui::Grid::new("rb_windows")
                                         .num_columns(2)
@@ -2379,7 +2380,7 @@ impl App {
                                             ui.end_row();
                                         });
                                 });
-                                ribbon::group(ui, &t, "Perfil", |ui| {
+                                ribbon::fold_group(ui, &t, "Perfil", "@table", 3, |ui| {
                                     ribbon::compact(ui);
                                     egui::Grid::new("rb_profile")
                                         .num_columns(2)
@@ -2412,7 +2413,7 @@ impl App {
                                             ui.end_row();
                                         });
                                 });
-                                ribbon::group(ui, &t, "Carga de puntos", |ui| {
+                                ribbon::fold_group(ui, &t, "Carga de puntos", "@adddata", 2, |ui| {
                                     ribbon::compact(ui);
                                     let status = self.store.as_ref().map_or_else(
                                         || "Aún no hay ninguna nube cargada.".to_string(),
@@ -2450,7 +2451,7 @@ impl App {
                                             ui.end_row();
                                         });
                                 });
-                                ribbon::group(ui, &t, "Visualización", |ui| {
+                                ribbon::fold_group(ui, &t, "Visualización", "@zonal", 1, |ui| {
                                     ribbon::compact(ui);
                                     ui.vertical(|ui| {
                                         let names = [
@@ -2552,7 +2553,7 @@ impl App {
 .on_hover_text("Qué retornos y qué clases se dibujan.");
                                     });
                                 });
-                                ribbon::group(ui, &t, "Herramientas", |ui| {
+                                ribbon::fold_group(ui, &t, "Herramientas", "🔍", 0, |ui| {
                                     for (icon, name, n) in [
                                         ("❓", "Consultar", Nav::Query),
                                         ("@density", "Densidad", Nav::Density),

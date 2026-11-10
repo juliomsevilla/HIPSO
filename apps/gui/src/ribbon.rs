@@ -278,6 +278,61 @@ pub fn adaptive_groups<A: Copy>(
     }
 }
 
+/// Starts a ribbon row whose [`fold_group`]s share `avail` pixels.
+pub fn fold_begin(ctx: &egui::Context, avail: f32) {
+    ctx.data_mut(|d| {
+        d.insert_temp(egui::Id::new("rf_avail"), avail);
+        d.insert_temp(egui::Id::new("rf_used"), 0.0f32);
+    });
+}
+
+/// A [`group`] that folds into one button with a menu holding its controls when the groups
+/// before it leave no room for it and for the `after` groups that follow. Its width is
+/// measured the first time it is drawn whole, so the first frame never folds.
+pub fn fold_group(
+    ui: &mut Ui,
+    t: &Tokens,
+    caption: &str,
+    icon: &str,
+    after: usize,
+    add: impl FnOnce(&mut Ui),
+) {
+    let ctx = ui.ctx().clone();
+    let (wid, avail_id, used_id) = (
+        egui::Id::new(("rf_w", caption)),
+        egui::Id::new("rf_avail"),
+        egui::Id::new("rf_used"),
+    );
+    let (full, avail, used) = ctx.data(|d| {
+        (
+            d.get_temp::<f32>(wid),
+            d.get_temp::<f32>(avail_id).unwrap_or(f32::MAX),
+            d.get_temp::<f32>(used_id).unwrap_or(0.0),
+        )
+    });
+    let label = format!("{caption} ▾");
+    let folded_w = big_width(ui, &label) + 24.0;
+    if full.is_some_and(|w| used + w + after as f32 * folded_w > avail) {
+        group(ui, t, caption, |ui| {
+            let r = big_button_body(ui, t, icon, &label, false);
+            egui::Popup::menu(&r)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| {
+                    ui.horizontal(add);
+                });
+        });
+        ctx.data_mut(|d| d.insert_temp(used_id, used + folded_w));
+        return;
+    }
+    let x0 = ui.cursor().min.x;
+    group(ui, t, caption, add);
+    let w = ui.cursor().min.x - x0;
+    ctx.data_mut(|d| {
+        d.insert_temp(wid, w);
+        d.insert_temp(used_id, used + w);
+    });
+}
+
 /// The spacing of the form controls inside a ribbon group: three rows fit the height of a
 /// group, every control has the same height and the rows line up across groups.
 pub fn compact(ui: &mut Ui) {
