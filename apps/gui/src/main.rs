@@ -2386,28 +2386,28 @@ impl App {
                                         .spacing([8.0, 3.0])
                                         .show(ui, |ui| {
                                             ui.label("Ancho");
-                                            ui.add(
-                                                crate::numfield::NumField::new(&mut self.profile_width)
-                                                    .range(0.5..=1000.0)
-                                                    .speed(0.5)
-                                                    .suffix(" m"),
-                                            )
-                                            .on_hover_text("Ancho de la caja del perfil");
-                                            ui.end_row();
-                                            ui.label("Puntos");
-                                            ribbon::stepper(
-                                                ui,
-                                                "Puntos más pequeños en el perfil (− con el cursor sobre él)",
-                                                "Puntos más grandes en el perfil (+ con el cursor sobre él)",
-                                                |d| self.act(ctx, Action::ProfileSize(d)),
-                                            );
-                                            ui.end_row();
-                                            ui.label("");
                                             ui.horizontal(|ui| {
-                                                ui.checkbox(&mut self.prof_full, "Sin decimar")
-                                                    .on_hover_text("El perfil lee de los archivos los puntos de su caja sin decimar (hasta 6 millones), en segundo plano. Sin esto usa los mismos puntos que la planta y el 3D.");
+                                                ui.add(
+                                                    crate::numfield::NumField::new(&mut self.profile_width)
+                                                        .range(0.5..=1000.0)
+                                                        .speed(0.5)
+                                                        .suffix(" m"),
+                                                )
+                                                .on_hover_text("Ancho de la caja del perfil");
                                                 ui.checkbox(&mut self.prof_grid, "Cuadrícula")
                                                     .on_hover_text("Líneas horizontales con las cotas en el lado izquierdo del perfil");
+                                            });
+                                            ui.end_row();
+                                            ui.label("Puntos");
+                                            ui.horizontal(|ui| {
+                                                ribbon::stepper(
+                                                    ui,
+                                                    "Puntos más pequeños en el perfil (− con el cursor sobre él)",
+                                                    "Puntos más grandes en el perfil (+ con el cursor sobre él)",
+                                                    |d| self.act(ctx, Action::ProfileSize(d)),
+                                                );
+                                                ui.checkbox(&mut self.prof_full, "Sin decimar")
+                                                    .on_hover_text("El perfil lee de los archivos los puntos de su caja sin decimar (hasta 6 millones), en segundo plano. Sin esto usa los mismos puntos que la planta y el 3D.");
                                             });
                                             ui.end_row();
                                         });
