@@ -4012,7 +4012,7 @@ fn run(cmd: Cmd) -> Result<()> {
                             width: ((b[4] - b[1]) / 20.0).max(1.0),
                         },
                     };
-                    view::render_profile(&store, &bx, w, h, &st).0
+                    view::render_profile(&store, &bx, w, h, &st, None).0
                 }
             };
             let first = inputs.first().cloned().unwrap_or_default();

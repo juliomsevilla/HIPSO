@@ -1433,13 +1433,15 @@ impl ProfileBox {
 }
 
 /// The profile: distance along on the horizontal axis, elevation on the vertical one. Returns
-/// the image and the elevation range shown.
+/// the image and the elevation range shown. `extra` is an elevation range (e.g. of a terrain
+/// model drawn over the profile) that the vertical axis must also cover.
 pub fn render_profile(
     s: &PointStore,
     bx: &ProfileBox,
     w: usize,
     h: usize,
     st: &Style,
+    extra: Option<(f64, f64)>,
 ) -> (Image, f64, f64) {
     use rayon::prelude::*;
     let mut img = Image::filled(w, h, st.background);
@@ -1458,7 +1460,7 @@ pub fn render_profile(
             ))
         })
         .collect();
-    if inside.is_empty() {
+    if inside.is_empty() && extra.is_none() {
         return (img, 0.0, 1.0);
     }
     let (zlo, zhi) = inside
@@ -1471,6 +1473,7 @@ pub fn render_profile(
             || (f64::INFINITY, f64::NEG_INFINITY),
             |a, b| (a.0.min(b.0), a.1.max(b.1)),
         );
+    let (zlo, zhi) = extra.map_or((zlo, zhi), |e| (zlo.min(e.0), zhi.max(e.1)));
     let pad = (zhi - zlo).max(1.0) * 0.05;
     let (zlo, zhi) = (zlo - pad, zhi + pad);
     // equal scale on both axes, centred
@@ -2130,8 +2133,11 @@ mod tests {
             b: [110.0, 200.0],
             width: 2.0,
         };
-        let (_, lo, hi) = render_profile(&s, &bx, 80, 40, &Style::fit(&s));
+        let (_, lo, hi) = render_profile(&s, &bx, 80, 40, &Style::fit(&s), None);
         assert!(lo < 1.0 && hi > 5.0 && hi < 9.0, "{lo} {hi}");
+        // a terrain range outside the points widens the vertical axis
+        let (_, lo, hi) = render_profile(&s, &bx, 80, 40, &Style::fit(&s), Some((-50.0, 500.0)));
+        assert!(lo < -50.0 && hi > 500.0, "{lo} {hi}");
     }
 
     #[test]

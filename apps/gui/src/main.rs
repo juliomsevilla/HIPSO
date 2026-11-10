@@ -3657,6 +3657,39 @@ ui.menu_button("⚙", |ui| {
         }
     }
 
+    /// Each visible raster layer sampled along the profile axis: `(name, [[along, z], ..])`,
+    /// with a NaN z where the raster has no data.
+    // ponytail: samples the displayed grid, which `add_grid` decimates above 4096 px a side;
+    // sample the source file if that loses too much detail.
+    fn terrain_profile(&self, bx: &view::ProfileBox) -> Vec<(String, Vec<[f64; 2]>)> {
+        let len = bx.length();
+        if len <= 0.0 {
+            return Vec::new();
+        }
+        let (ux, uy) = ((bx.b[0] - bx.a[0]) / len, (bx.b[1] - bx.a[1]) / len);
+        self.refs
+            .iter()
+            .filter(|r| r.visible)
+            .filter_map(|r| match &r.kind {
+                RefKind::Raster { grid, .. } => Some((&r.name, grid)),
+                _ => None,
+            })
+            .filter_map(|(name, g)| {
+                let n = ((len / (g.cell / 2.0)).ceil() as usize).clamp(2, 4000);
+                let v: Vec<[f64; 2]> = (0..=n)
+                    .map(|i| {
+                        let u = len * i as f64 / n as f64;
+                        let z = g
+                            .sample(bx.a[0] + ux * u, bx.a[1] + uy * u)
+                            .map_or(f64::NAN, f64::from);
+                        [u, z]
+                    })
+                    .collect();
+                v.iter().any(|p| p[1].is_finite()).then(|| (name.clone(), v))
+            })
+            .collect()
+    }
+
     fn profile_view(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, rect: Rect) {
         let t = self.tokens();
         let painter = ui.painter_at(rect);
@@ -3688,7 +3721,15 @@ ui.menu_button("⚙", |ui| {
             let bx = self.profile.unwrap_or(bx);
             self.style.thin = 1;
             self.style.transparent = false;
+            let terrain = self.terrain_profile(&bx);
+            let extra = terrain
+                .iter()
+                .flat_map(|(_, v)| v.iter().map(|p| p[1]).filter(|z| z.is_finite()))
+                .fold(None, |a: Option<(f64, f64)>, z| {
+                    Some(a.map_or((z, z), |a| (a.0.min(z), a.1.max(z))))
+                });
             let key = hash_of((
+                extra.map(|e| (e.0.to_bits(), e.1.to_bits())),
                 self.style_key(),
                 w,
                 h,
@@ -3700,7 +3741,7 @@ ui.menu_button("⚙", |ui| {
                 Arc::as_ptr(&store) as usize,
             ));
             if self.tex_prof.as_ref().is_none_or(|t| t.1 != key) {
-                let (img, lo, hi) = view::render_profile(&store, &bx, w, h, &self.style);
+                let (img, lo, hi) = view::render_profile(&store, &bx, w, h, &self.style, extra);
                 match &mut self.tex_prof {
                     Some((tex, k, l, hh)) => {
                         tex.set(
@@ -3750,6 +3791,44 @@ ui.menu_button("⚙", |ui| {
                     FontId::proportional(11.5),
                     t.weak,
                 );
+            }
+            if let Some((_, _, lo, hi)) = &self.tex_prof {
+                // same transform as `render_profile`, from image pixels to the screen rect
+                let (lo, hi, len) = (*lo, *hi, bx.length().max(1e-9));
+                let k = (w as f64 / len).min(h as f64 / (hi - lo));
+                let (ox, oy) = (
+                    (w as f64 - len * k) / 2.0,
+                    (h as f64 - (hi - lo) * k) / 2.0,
+                );
+                let at = |p: &[f64; 2]| {
+                    Pos2::new(
+                        rect.min.x + ((ox + p[0] * k) * f64::from(rect.width()) / w as f64) as f32,
+                        rect.min.y
+                            + ((h as f64 - oy - (p[1] - lo) * k) * f64::from(rect.height())
+                                / h as f64) as f32,
+                    )
+                };
+                const COLORS: [Color32; 4] = [
+                    Color32::from_rgb(255, 160, 0),
+                    Color32::from_rgb(0, 200, 255),
+                    Color32::from_rgb(255, 80, 200),
+                    Color32::from_rgb(120, 255, 80),
+                ];
+                for (i, (name, v)) in terrain.iter().enumerate() {
+                    let c = COLORS[i % COLORS.len()];
+                    for s in v.windows(2) {
+                        if s[0][1].is_finite() && s[1][1].is_finite() {
+                            painter.line_segment([at(&s[0]), at(&s[1])], Stroke::new(2.0, c));
+                        }
+                    }
+                    painter.text(
+                        rect.right_bottom() + Vec2::new(-8.0, -6.0 - 15.0 * i as f32),
+                        Align2::RIGHT_BOTTOM,
+                        format!("— {name}"),
+                        FontId::proportional(12.0),
+                        c,
+                    );
+                }
             }
             if self.profile_loading() {
                 painter.text(
