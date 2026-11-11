@@ -103,6 +103,9 @@ LAS y LAZ (también **COPC**, leído solo en la parte que hace falta y escrito c
     <td width="50%"><img src="assets/social/14-raster-chm-en-3d.jpg" alt="Modelo de alturas de la vegetación (CHM) como superficie en 3D"></td>
     <td width="50%"><img src="assets/social/15-planta-perfil-3d-nube-y-chm.jpg" alt="Planta, perfil y 3D con una nube de puntos y un CHM; el perfil muestra la línea del CHM sobre los puntos"></td>
   </tr>
+  <tr>
+    <td width="50%" colspan="2"><img src="assets/social/09-cinta-lidar.jpg" alt="Pestaña LiDAR de la cinta de opciones"></td>
+  </tr>
 </table>
 
 <sub>Datos del PNOA LiDAR 2024 (© Instituto Geográfico Nacional, CC BY 4.0) y unidades de muestreo de campo propias.</sub>
