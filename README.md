@@ -104,7 +104,8 @@ LAS y LAZ (también **COPC**, leído solo en la parte que hace falta y escrito c
     <td width="50%"><img src="assets/social/15-planta-perfil-3d-nube-y-chm.jpg" alt="Planta, perfil y 3D con una nube de puntos y un CHM; el perfil muestra la línea del CHM sobre los puntos"></td>
   </tr>
   <tr>
-    <td width="50%" colspan="2"><img src="assets/social/09-cinta-lidar.jpg" alt="Pestaña LiDAR de la cinta de opciones"></td>
+    <td width="50%"><img src="assets/social/08-analisis-de-terreno.jpg" alt="Análisis de terreno: pendiente y curvas de nivel de un MDT"></td>
+    <td width="50%"><img src="assets/social/09-cinta-lidar.jpg" alt="Pestaña LiDAR de la cinta de opciones"></td>
   </tr>
 </table>
 
