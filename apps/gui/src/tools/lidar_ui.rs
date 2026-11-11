@@ -37,6 +37,8 @@ pub struct State {
     pub fit_iter: f64,
     pub fit_stop: f64,
     pub fit_shift: bool,
+    pub fit_plane: bool,
+    pub fit_trim: f64,
     pub sw_cell: f64,
     pub sw_returns: usize,
     pub sw_by_cloud: bool,
@@ -97,6 +99,8 @@ impl Default for State {
             fit_iter: 30.0,
             fit_stop: 0.01,
             fit_shift: false,
+            fit_plane: false,
+            fit_trim: 100.0,
             sw_cell: 1.0,
             sw_returns: 0,
             sw_by_cloud: false,
@@ -690,6 +694,17 @@ impl Tools {
             0.005,
         );
         ui.checkbox(&mut s.fit_shift, "Solo desplazar (sin girar)");
+        ui.checkbox(
+            &mut s.fit_plane,
+            "Punto a plano (mejor en superficies, converge antes)",
+        );
+        num(
+            ui,
+            "Pares que se usan, los más cercanos (%)",
+            &mut s.fit_trim,
+            10.0..=100.0,
+            5.0,
+        );
     }
 
     pub fn swath_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
@@ -1130,6 +1145,8 @@ impl Tools {
                         max_iter: s.fit_iter as usize,
                         stop_dist: s.fit_stop,
                         shift_only: s.fit_shift,
+                        plane: s.fit_plane,
+                        trim: (s.fit_trim / 100.0).clamp(0.1, 1.0),
                     },
                 );
                 let is_cmp = tool == ToolId::Compare;

@@ -688,12 +688,46 @@ pub struct MetricReport {
     pub points: u64,
 }
 
+/// What a sheet of a block needs besides its own points to give the cells at its edge what they
+/// would have if the block were one file.
+#[derive(Default)]
+pub struct Context<'a> {
+    /// Points of the neighbouring sheets near this one: they count in the cells they fall in.
+    pub halo: &'a [crate::las::Point],
+    /// Whether this sheet writes the cell centred on `(x, y)`; each cell of a block is written by
+    /// one sheet only. `None`: all of them.
+    pub owns: Option<&'a (dyn Fn(f64, f64) -> bool + Sync)>,
+}
+
+/// The sheet's own points and then the halo of its neighbours.
+fn scan_with_halo(
+    reader: &Reader,
+    halo: &[crate::las::Point],
+    mut f: impl FnMut(&crate::las::Point),
+) -> Result<()> {
+    reader.scan(&mut f)?;
+    halo.iter().for_each(f);
+    Ok(())
+}
+
 /// Writes the metrics of every cell as CSV, northernmost row first.
 pub fn grid_metrics(
     reader: &Reader,
     dtm: &Grid,
     p: &MetricParams,
     outs: Outputs,
+) -> Result<MetricReport> {
+    grid_metrics_in(reader, dtm, p, outs, &Context::default())
+}
+
+/// [`grid_metrics`] on a sheet of a block: with the points of its neighbours near its edges,
+/// and writing only the cells it owns.
+pub fn grid_metrics_in(
+    reader: &Reader,
+    dtm: &Grid,
+    p: &MetricParams,
+    outs: Outputs,
+    ctx: &Context,
 ) -> Result<MetricReport> {
     let Outputs {
         elevation: out,
@@ -736,21 +770,34 @@ pub fn grid_metrics(
         rows,
     )?;
 
+    // the cells this run writes
+    let owned: Option<Vec<bool>> = ctx.owns.map(|owns| {
+        (0..grid.len())
+            .map(|i| {
+                let (cx, cy) = grid.center(i % cols, i / cols);
+                owns(cx, cy)
+            })
+            .collect()
+    });
+    let is_owned = |i: usize| owned.as_ref().is_none_or(|o| o.get(i).copied().unwrap_or(false));
     let height = |pt: &crate::las::Point| -> Option<(usize, f32)> {
         if pt.is_noise() {
             return None;
         }
         let i = grid.index(pt.x, pt.y)?;
+        if !is_owned(i) {
+            return None;
+        }
         Some((i, pt.z as f32 - dtm.sample(pt.x, pt.y)?))
     };
 
     // Pass 1: points per cell.
     let mut count = vec![0u32; grid.len()];
     let mut report = MetricReport {
-        cells: grid.len(),
+        cells: (0..grid.len()).filter(|&i| is_owned(i)).count(),
         ..Default::default()
     };
-    reader.scan(|pt| {
+    scan_with_halo(reader, ctx.halo, |pt| {
         if let Some((i, _)) = height(pt)
             && let Some(c) = count.get_mut(i)
         {
@@ -810,7 +857,7 @@ pub fn grid_metrics(
         let mut ints = vec![0u16; if with_int { acc } else { 0 }];
         let mut fill = vec![0u32; last_cell - first_cell];
         if acc > 0 {
-            reader.scan(|pt| {
+            scan_with_halo(reader, ctx.halo, |pt| {
                 let Some((i, ht)) = height(pt) else { return };
                 if i < first_cell || i >= last_cell {
                     return;
@@ -853,6 +900,10 @@ pub fn grid_metrics(
                 let mut t = RowText::default();
                 for c in 0..cols {
                     let k = ri * cols + c;
+                    // a cell another sheet of the block writes
+                    if !is_owned(row * cols + k) {
+                        continue;
+                    }
                     let (abs_s, abs_e) = (start[k], start[k + 1]);
                     let (s, e) = (abs_s - base, abs_e - base);
                     let (cx, cy) = grid.center(c, r);

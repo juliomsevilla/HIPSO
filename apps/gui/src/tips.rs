@@ -65,7 +65,6 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Tema claro" | "Tema oscuro" => "Cambia entre el tema claro y el oscuro.",
         "Registro" => "Muestra lo que se ha hecho, los errores y el avance de los procesos largos.",
         // Vista
-        "Norte arriba" => "Gira la vista 3D para que el norte quede arriba.",
         "2D" => "Solo la planta.",
         "2D + perfil" => "La planta y el perfil.",
         "3D" => "Solo la vista 3D.",

@@ -17,6 +17,7 @@ pub struct NumField<'a, N: Numeric> {
     decimals: Option<usize>,
     formatter: Option<Formatter<'a>>,
     parser: Option<Parser<'a>>,
+    width: f32,
 }
 
 impl<'a, N: Numeric> NumField<'a, N> {
@@ -29,7 +30,14 @@ impl<'a, N: Numeric> NumField<'a, N> {
             decimals: None,
             formatter: None,
             parser: None,
+            width: 60.0,
         }
+    }
+
+    /// The width of the box, in points (60 by default).
+    pub fn width(mut self, w: f32) -> Self {
+        self.width = w;
+        self
     }
 
     pub fn range<R: Into<f64> + Copy>(mut self, r: RangeInclusive<R>) -> Self {
@@ -110,7 +118,7 @@ impl<N: Numeric> Widget for NumField<'_, N> {
         let mut r = ui.add(
             TextEdit::singleline(&mut text)
                 .id(id)
-                .desired_width(60.0)
+                .desired_width(self.width)
                 .horizontal_align(egui::Align::RIGHT),
         );
         if r.has_focus() {

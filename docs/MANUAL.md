@@ -55,9 +55,9 @@ Hay además varias ayudas de uso general. **Buscar comando** (Ctrl+K) localiza c
 
 ### 4.1 Ventanas de trabajo
 
-**Vista → Disposición** decide cómo se reparte la pantalla (2D, 2D + perfil, 3D o 2D + perfil + 3D) y reúne también la carga de puntos (*Máx. puntos*, el máximo de millones de puntos en pantalla, y *Aplicar*; la decimación en uso sale en la barra de estado). Los grupos de la pestaña *Vista* siguen el orden de trabajo: primero se dispone la pantalla y después se navega. Son *Disposición*, *Navegación* (*Desplazar*, *Zoom*, *Consultar*, las extensiones, *Zoom anterior* y *Zoom adelante*, *Refrescar 3D* y *Limpiar marcas*), *Herramientas*, *Vista 3D* (*Norte arriba*, *Exageración* y *Enlazar con la planta*), *Visualización* (*Color*, *Rango Z*, *Filtros* y el tamaño de los puntos) y *Perfil* (ancho de la caja, tamaño de sus puntos y *Sin decimar*). Las herramientas van después de la navegación porque actúan sobre lo que esta deja a la vista.
+**Vista → Visualización** es el primer grupo de la pestaña porque vale para todo lo demás: reúne un botón grande *Ventanas* (cómo se reparte la pantalla: 2D, 2D + perfil, 3D o 2D + perfil + 3D) y, a su derecha, *Color* (arriba), *Rango Z* y *Filtros* (en medio), el tamaño de los puntos (− y +) y la carga de puntos (*Máx.*, el máximo de millones de puntos en pantalla: se escribe y con Intro se recargan las nubes; la decimación en uso sale en la barra de estado). Los demás grupos de la pestaña *Vista* siguen el orden de trabajo: primero se navega y después se usan las herramientas. Son *Navegación* (*Desplazar*, *Zoom*, *Consultar*, las extensiones, *Zoom anterior* y *Zoom adelante*, *Refrescar 3D* y *Limpiar marcas*), *Herramientas*, *Vista 3D* (*Exageración* y *Enlazar con la planta*; el norte se pone arriba con doble clic en la brújula de la vista 3D) y *Perfil* (ancho de la caja, tamaño de sus puntos y *Sin decimar*). Las herramientas van después de la navegación porque actúan sobre lo que esta deja a la vista.
 
-| Disposición | Qué muestra |
+| Ventanas | Qué muestra |
 |---|---|
 | 2D | La planta. |
 | 2D + perfil | La planta y, debajo, el perfil de una franja de la nube. |
@@ -109,14 +109,14 @@ El coste está medido con hojas reales de 8 y 9 millones de puntos. Cargar las d
 | Girar con el teclado | Flechas |
 | Acercar con el teclado | Re Pág / Av Pág |
 | Encuadrar todo | Doble clic o tecla Inicio |
-| Norte arriba | Botón *Norte arriba* de *Vista → Vista 3D* |
+| Norte arriba | Doble clic en la brújula de la esquina de la vista 3D, o la tecla N |
 | Exageración vertical | Campo *Exageración* de *Vista → Vista 3D* (de × 0,1 a × 100) |
 
 El acercamiento llega hasta 2 cm del centro de giro, lo suficiente para ver un tronco o una rama punto a punto. Con una herramienta de selección activa el botón izquierdo deja de girar, porque dibuja la selección (véase el capítulo 6), y el giro pasa al botón central; el derecho sigue moviendo y la rueda sigue acercando.
 
 ### 4.4 Colorear los puntos
 
-**Vista → Visualización → Colorear por** permite elegir entre elevación (dos rampas), clasificación, intensidad, número de retorno, ID de fuente, archivo o RGB. Bajo el desplegable están *Rango de elevación…* y *Filtros…*: el primero fija el rango de elevación, y los segundos filtran retornos y eligen las clases visibles. Los puntos se ocultan o se muestran con la casilla de *Nubes de puntos* del panel *Contenido*, y en la planta se ocultan solos mientras el TIN o las curvas de nivel están activos.
+**Vista → Visualización → Color** permite elegir entre elevación (dos rampas), clasificación, intensidad, número de retorno, ID de fuente, archivo o RGB. Junto al menú están *Rango Z* y *Filtros*: el primero fija el rango de elevación, y los segundos filtran retornos y eligen las clases visibles. Los puntos se ocultan o se muestran con la casilla de *Nubes de puntos* del panel *Contenido*, y en la planta se ocultan solos mientras el TIN o las curvas de nivel están activos.
 
 **Vista → Perfil** tiene el *Ancho* de la caja, la *Cuadrícula* de cotas, el *Tamaño* de sus puntos y *Sin decimar*. Los tamaños de punto de 2D/3D (en *Visualización*) y del perfil son independientes: las teclas + y − cambian el del perfil si el cursor está sobre él, y el de la planta y el 3D en cualquier otro caso. La longitud del perfil se ve en el propio perfil.
 
@@ -143,6 +143,8 @@ La **región** es un rectángulo, un círculo, un polígono o un lazo dibujado e
 La **acción** es *Eliminar* o *Asignar clase*, y la lista incluye todas las clases, también las nuevas. **Deshacer** y **Rehacer** son los últimos botones de *Editar* (Ctrl+Z y Ctrl+Y), y el **historial** de ediciones añade una posibilidad que no suele existir en otros programas: cada edición tiene una casilla, y al quitarla se **deshace esa edición sola**, sin tocar las demás; al volver a marcarla se recupera. Una edición posterior que elige por clase ve los puntos tal como están en ese momento. Las ediciones desactivadas no se guardan, y *Descartar todo* vuelve a la nube original.
 
 Al **guardar la nube editada** se escribe un archivo nuevo, y **el original nunca se modifica**. Las ediciones se aplican a todos los puntos del archivo, no solo a los que se ven en pantalla. Cuando hay puntos seleccionados, las herramientas de *LiDAR* trabajan únicamente sobre ellos.
+
+**Pincel y selección sobre o bajo una línea.** Además de las formas, hay dos pinceles (*Pincel redondo* y *Pincel cuadrado*) y dos herramientas de línea para el perfil. Con el pincel se arrastra sobre la planta o el perfil y se selecciona todo lo que el trazo toca; el tamaño se da en píxeles de pantalla (deslizador del panel *Edición*, o las teclas `[` y `]`), de modo que se acerca el zoom para retoques finos y se aleja para pasadas anchas. El trazo se convierte en metros al soltar el botón, y la edición guardada es la misma que se vio. Sirve para quitar un pájaro, un cable suelto o ruido pegado a un tronco sin dibujar un polígono cada vez. *Sobre una línea* y *Bajo una línea* se usan en el perfil: se arrastra para trazar una línea y se selecciona todo lo que queda por encima (o por debajo) a lo largo de ella, dentro de la caja del perfil; es la forma más rápida de limpiar puntos bajos bajo el suelo o ruido alto sobre las copas. Los pinceles y las líneas no funcionan en la vista 3D, donde sigue el lazo con rebanada. Como las demás selecciones, se combinan con Mayús, Alt y Ctrl.
 
 **Seleccionar en la vista 3D.** Mientras haya una herramienta de selección activa (rectángulo, círculo, polígono o lazo), la vista 3D también selecciona, y el trazo se dibuja directamente sobre la pantalla. Aparece aquí una complicación que la planta no tiene: el trazo es un cono de visión que atraviesa toda la escena, de modo que recoge los puntos que caen dentro del dibujo, tanto los de delante como los de detrás. En un tronco rodeado de ramas por todos los lados, eso significa seleccionar también las del lado contrario. La casilla *Rebanada en 3D ±* lo resuelve: limita la selección a una lámina, paralela a la pantalla, de los metros indicados a cada lado del centro de giro (el punto que queda en el medio de la vista al girar). Basta llevar el tronco al centro, fijar 0,5 m y dibujar el lazo para que solo cuenten las ramas próximas al plano del tronco.
 
@@ -246,7 +248,7 @@ Con la densidad del PNOA suele volver solo la **cabeza** del apoyo (una cruceta 
 
 **Comparar nubes (cambios)** escribe los puntos de la nube cargada que están a más de una distancia de todos los de otra nube de referencia, y da la distancia media, el RMS y la compleción. Los puntos de cambio aislados se descartan. Sirve para detectar cortas, cambios de obra o crecimiento entre dos vuelos. Al ser una comparación punto a punto, con densidades muy distintas aparecen falsos cambios, y por ese motivo conviene adelgazar antes a la misma densidad.
 
-**Ajustar nubes** mueve una nube para que encaje con la de referencia mediante el punto más cercano iterativo (ICP; Besl y McKay, 1992), solo desplazando o desplazando y girando, y muestra el desplazamiento y el giro. Resuelve vuelos del mismo sitio con un desfase sistemático. Necesita que ambas nubes se solapen y que tengan estructuras fijas (edificios, terreno), y sobre un bosque que ha cambiado puede ajustar mal.
+**Ajustar nubes** mueve una nube para que encaje con la de referencia mediante el punto más cercano iterativo (ICP; Besl y McKay, 1992), solo desplazando o desplazando y girando, y muestra el desplazamiento y el giro. Resuelve vuelos del mismo sitio con un desfase sistemático. Necesita que ambas nubes se solapen y que tengan estructuras fijas (edificios, terreno), y sobre un bosque que ha cambiado puede ajustar mal. Dos opciones mejoran esos casos. *Punto a plano* (`--plane`) minimiza la distancia al plano tangente del punto de referencia (Chen y Medioni, 1992) en lugar de la distancia al punto: converge en muchas menos iteraciones sobre superficies (terreno, tejados) y no se queda enganchada a la malla de la nube de referencia, aunque en una superficie completamente plana deja sin fijar el deslizamiento a lo largo de ella. *Pares que se usan* (`--trim`, en %) se queda con los pares más cercanos y deja fuera los demás (Chetverikov et al., 2002), de modo que un tramo cambiado (un desprendimiento, una corta, un edificio nuevo) no arrastra el ajuste; con el 100 % se usan todos.
 
 **Entre pasadas** produce un ráster con la diferencia de altura entre pasadas de vuelo (ID de fuente) y el porcentaje de celdas por encima de 8 y 16 cm. Es un control de calidad del vuelo que debe hacerse antes de modelar, puesto que las pasadas desajustadas generan escalones en el MDT y en el CHM.
 
@@ -458,7 +460,7 @@ Se calculan con las mismas alturas que ya se guardan para las demás métricas, 
 
 #### Segmentar individuos
 
-Detecta árboles individuales sobre el **CHM**: sus cimas, su copa y su altura. Con varias nubes cargadas segmenta el CHM de cada una y da un resultado por hoja (si se elige un CHM a mano, solo ese). El proceso tiene cinco pasos. El primero es un **suavizado** opcional del CHM (media, mediana o gauss). El segundo localiza las **cimas**, que son máximos locales en una ventana (fija, o variable según la altura, `a + b · h + c · h²`; circular o cuadrada) por encima de una altura mínima (Popescu y Wynne, 2004). El tercero delimita las **copas** con uno de tres métodos. El cuarto escribe las **salidas**: tabla de árboles (`id`, posición, altura, área y diámetro de copa), puntos de las cimas, polígonos de copa, ráster de identificadores y, si se pide, el `treeID` de cada punto de la nube. El quinto, opcional, es la **evaluación con inventario de campo**: empareja cada árbol medido con la cima más cercana (dentro de una distancia dada) y da aciertos, omisiones, comisiones, exhaustividad, precisión, la medida F y el error de altura (Eysn et al., 2015, plantean este tipo de contraste).
+Detecta árboles individuales sobre el **CHM**: sus cimas, su copa y su altura. Con varias nubes cargadas segmenta el CHM de cada una y da un resultado por hoja (si se elige un CHM a mano, solo ese). Un árbol en el borde entre dos hojas sale en las dos, cada vez cortado, y la hoja que solo tiene su flanco inventa una cima en el borde; con *Cada árbol una sola vez* (`--around` en la línea de comandos) cada hoja busca los árboles sobre su CHM ampliado con lo que tienen las vecinas en un margen (30 m por defecto) y se queda solo con los árboles cuya cima cae en su extensión (el borde oeste y el sur le pertenecen, el este y el norte son de la hoja siguiente), de modo que ninguno se cuenta dos veces ni se corta. Los números `id` son de cada hoja, y un punto de la nube que cae en una copa que es de la vecina queda con `treeID` 0. Las hojas deben tener la misma celda. El proceso tiene cinco pasos. El primero es un **suavizado** opcional del CHM (media, mediana o gauss). El segundo localiza las **cimas**, que son máximos locales en una ventana (fija, o variable según la altura, `a + b · h + c · h²`; circular o cuadrada) por encima de una altura mínima (Popescu y Wynne, 2004). El tercero delimita las **copas** con uno de tres métodos. El cuarto escribe las **salidas**: tabla de árboles (`id`, posición, altura, área y diámetro de copa), puntos de las cimas, polígonos de copa, ráster de identificadores y, si se pide, el `treeID` de cada punto de la nube. El quinto, opcional, es la **evaluación con inventario de campo**: empareja cada árbol medido con la cima más cercana (dentro de una distancia dada) y da aciertos, omisiones, comisiones, exhaustividad, precisión, la medida F y el error de altura (Eysn et al., 2015, plantean este tipo de contraste).
 
 | Método | Cómo funciona | Cuándo es más útil | Ventajas | Problemas |
 |---|---|---|---|---|
@@ -692,15 +694,27 @@ Un vuelo es una colección de cientos o miles de hojas (por ejemplo, las de 2 ×
 
 Cada hoja se procesa por separado y da su propio resultado. Si una hoja falla, el proceso se detiene con el mensaje del error y se borra lo parcial de esa hoja (las hojas ya terminadas se conservan), y no hay límite de hojas porque nunca se mantienen varias en memoria a la vez. Solo se cargan como hojas las que se quieran ver, ya que para procesar no hace falta abrirlas: en la **línea de comandos** se pasa la lista de archivos y no se dibuja nada, y la interfaz sirve para probar los parámetros en una o dos hojas. Antes de lanzar el lote se prueba en una hoja representativa (con relieve, bosque cerrado y claros), donde se elige el método de suelo, el tamaño de celda y las alturas. Como entrada conviene usar LAZ, que pesa unas 5 veces menos y se descomprime en paralelo.
 
-Las salidas llevan el nombre de la hoja (`hoja_mdt_1m_tin.tif`) y van a la carpeta de cada hoja. Una ejecución nueva no sobrescribe, sino que crea `_2`, `_3`…, y para repetir un lote se usa otra carpeta de resultados o se borra lo anterior. Respecto a la **alineación entre hojas**, las celdas de las métricas están alineadas a múltiplos del tamaño de celda: si el lado de la hoja es múltiplo de la celda (2000 m con celdas de 20 m), las celdas de hojas vecinas encajan sin solaparse ni dejar huecos, y si no lo es, las celdas del borde quedan con una parte de los puntos, por lo que hay que ponerles un mínimo de puntos más alto o usar un tamaño de celda divisor del lado de la hoja.
+Las salidas llevan el nombre de la hoja (`hoja_mdt_1m_tin.tif`) y van a la carpeta de cada hoja. Una ejecución nueva no sobrescribe, sino que crea `_2`, `_3`…, y para repetir un lote se usa otra carpeta de resultados o se borra lo anterior. Respecto a la **alineación entre hojas**, los centros de las celdas de las métricas están en múltiplos del tamaño de celda, de modo que el borde de la hoja cae casi siempre a mitad de una celda: esa celda sale en las tablas de las dos hojas, cada una con la mitad de sus puntos, y sus recuentos, percentiles y cobertura no valen. Se resuelve con `--neighbors` (véase *Sin costura en los bordes*), que da a cada celda todos sus puntos y la escribe una sola vez.
 
-El MDT y el CHM pueden dar además un **mosaico** de todas las hojas (casilla o `--mosaic`), y para el resto de rásteres se usa *Mosaico* en Ráster; los mosaicos de miles de hojas se escriben por franjas comprimidas, sin cargar las imágenes enteras. En cuanto a los **bordes**, la clasificación por teselas usa un búfer alrededor de cada tesela *interna* de la hoja, pero en el borde de la hoja no hay vecinos al otro lado. Si los bordes importan (MDT continuo entre hojas), se genera el MDT sobre varias hojas a la vez (se unen y se trocean de nuevo por teselas internas) o se añade un búfer con las hojas vecinas.
+El MDT y el CHM pueden dar además un **mosaico** de todas las hojas (casilla o `--mosaic`), y para el resto de rásteres se usa *Mosaico* en Ráster; los mosaicos de miles de hojas se escriben por franjas comprimidas, sin cargar las imágenes enteras. En cuanto a los **bordes**, la clasificación por teselas usa un búfer alrededor de cada tesela *interna* de la hoja, pero en el borde de la hoja no hay vecinos al otro lado. Para que los bordes salgan como los daría todo el bloque está la opción de las hojas vecinas, que se explica más abajo.
+
+**Antes de lanzar el lote: `hipso catalog`.** Lee solo las cabeceras de las hojas (sin leer ningún punto, así que mil hojas tardan un segundo) y dice si forman un teselado que se pueda procesar: sistema de coordenadas distinto o sin declarar, referencia vertical distinta, hojas idénticas que contarían los puntos dos veces, solapes (y si son tan grandes que parecen pasadas de vuelo y no un teselado), huecos rodeados de hojas, formatos de punto distintos que pierden hora GPS o color, y LAZ sin índice espacial. Acepta archivos o una carpeta, y acaba con código 1 si hay errores (sistemas distintos, hojas repetidas, archivos ilegibles). `--tolerance` (1 m) es lo que pueden solaparse o separarse las hojas sin que cuente.
+
+**Sin costura en los bordes.** Con `--neighbors M` (en la interfaz, *Hojas vecinas hasta (m)*; 0 apaga la opción) en `classify`, `dtm`, `dsm`, `chm` y `metrics`, cada hoja se calcula con las hojas que están a menos de M metros y se queda solo con lo suyo: los bordes salen como los habría dado todo el bloque. Es opcional y cuesta leer también las vecinas (a lo sumo ocho por hoja; la memoria sube lo de una hoja y sus vecinas, no la del vuelo). Qué hace en cada herramienta:
+
+- **Clasificar:** el filtro de suelo, el de ruido y el de edificios ven lo que hay al otro lado del borde (un edificio cortado por el borde no se toma por suelo, ni un pájaro partido en dos por ruido aislado). Solo se clasifican y se escriben los puntos de la hoja. Con M igual al búfer de las teselas (30 m) basta.
+- **MDT, MDS y CHM por triangulación (TIN, IDW, sin huecos):** la triangulación llega más allá del último punto de la hoja, y el resultado se recorta a su extensión. El CHM usa también los MDT de las vecinas para el suelo de sus puntos (si una vecina no tiene MDT, se sigue sin ella).
+- **MDS y CHM por máximo:** el máximo de una celda no depende de las vecinas, así que solo se usa la opción si se rellenan las celdas vacías o se suaviza; sin ellas el resultado sería idéntico y no se lee nada de más.
+- **Métricas:** cada celda es de una sola hoja (la que contiene su centro; en la franja entre dos extensiones, la más cercana) y recibe todos sus puntos, también los de la vecina; el MDT se amplía con los de las vecinas. Se usa al menos una celda de distancia.
+- **Coste medido** (cuatro hojas PNOA de 1 km, 51 millones de puntos, 10 núcleos): sin la opción no cambia nada, y con `--neighbors 30` la memoria es la misma y el tiempo sube una lectura de cada hoja (en un bloque grande es una sola, no una por vecina, porque antes de procesar se cortan de cada hoja las franjas que sus vecinas necesitan): clasificar de 11 s a 14 s, MDT de 6 s a 9 s, MDS por TIN de 6 s a 9,5 s, CHM sin huecos de 6,5 s a 10 s y métricas de 4,5 s a 7 s.
+- **Límite:** en el borde exterior del bloque no hay vecinas, y los huecos rellenados por interpolación allí siguen dependiendo de lo que haya dentro. Las hojas deben estar en el mismo sistema de coordenadas (`hipso catalog` lo comprueba) y no solaparse (un solape cuenta dos veces los puntos).
 
 El ejemplo siguiente usa la línea de comandos en PowerShell (en Linux y macOS es igual, con comodines).
 
 ```
 $hojas = Get-ChildItem hojas\*.laz
 hipso info $hojas
+hipso catalog hojas\
 hipso classify $hojas --ground csf --noise isolated
 hipso dtm $hojas --surface tin --cell 1
 hipso dsm $hojas --method tin --cell 0.5
@@ -758,6 +772,13 @@ hipso fill-nodata mdt.tif --max-distance 50
 hipso clip nube.laz --regions rodales.shp --buffer 10 --mode each --name-field nombre
 hipso classify nube.laz --noise elm
 hipso import escaneo.ply --epsg 25830 -o escaneo.laz
+hipso catalog hojas/ --tolerance 1
+hipso dtm hojas/*.laz --surface tin --neighbors 30
+hipso classify hojas/*.laz --ground csf --neighbors 30
+hipso chm hojas/*.laz --method pitfree --neighbors 30
+hipso metrics hojas/*.laz --cell 20 --neighbors 20
+hipso trees chm_a.tif --around chm_b.tif --around chm_c.tif --margin 30
+hipso fit nube_2.laz --reference nube_1.laz --plane --trim 0.8
 hipso import escaneo_tls.e57 --epsg 25830
 hipso colorize nube.laz --image ortofoto.tif
 hipso intensity nube.laz --trajectory trayectoria.txt
@@ -829,7 +850,7 @@ Referencias de los métodos descritos en este manual.
 
 **Análisis por objetos**
 
-- Baatz, M. y Schäpe, A. (2000). Multiresolution segmentation: an optimization approach for high quality multi-scale image segmentation. En J. Strobl, T. Blaschke y G. Griesebner (eds.), *Angewandte Geographische Informationsverarbeitung XII*, 12–23. Wichmann, Heidelberg.
+- Baatz, M. y Schäpe, A. (2000). Multiresolution segmentation: an optimization approach for high quality multi-scale image segmentation. En J. Strobl, T. Blaschke y G. Griesebner (eds.), *Angewandte Geographische Informationsverarbeitung XII*, 12–23. Wichmann.
 - Blaschke, T. (2010). Object based image analysis for remote sensing. *ISPRS Journal of Photogrammetry and Remote Sensing*, 65(1), 2–16.
 - Arthur, D. y Vassilvitskii, S. (2007). k-means++: the advantages of careful seeding. *Proceedings of the 18th Annual ACM-SIAM Symposium on Discrete Algorithms*, 1027–1035.
 - Breiman, L. (2001). Random forests. *Machine Learning*, 45(1), 5–32.
@@ -878,6 +899,10 @@ Referencias de los métodos descritos en este manual.
 - Roussel, J.-R., Auty, D., Coops, N. C., Tompalski, P., Goodbody, T. R. H., Meador, A. S., Bourdon, J.-F., de Boissieu, F. y Achim, A. (2020). lidR: an R package for analysis of airborne laser scanning (ALS) data. *Remote Sensing of Environment*, 251, 112061.
 - White, J. C., Wulder, M. A., Varhola, A., Vastaranta, M., Coops, N. C., Cook, B. D., Pitt, D. y Woods, M. (2013). A best practices guide for generating forest inventory attributes from airborne laser scanning data using an area-based approach. *The Forestry Chronicle*, 89(6), 722–723.
 
+**Intensidad**
+
+- Höfle, B. y Pfeifer, N. (2007). Correction of laser scanning intensity data: data and model-driven approaches. *ISPRS Journal of Photogrammetry and Remote Sensing*, 62(6), 415–433.
+
 **Estadística de valores raros**
 
 - Leys, C., Ley, C., Klein, O., Bernard, P. y Licata, L. (2013). Detecting outliers: do not use standard deviation around the mean, use absolute deviation around the median. *Journal of Experimental Social Psychology*, 49(4), 764–766.
@@ -886,7 +911,7 @@ Referencias de los métodos descritos en este manual.
 
 **Análisis de terreno**
 
-- Barnes, R., Lehman, C. y Mulla, D. (2014). Priority-flood: an optimal depression-filling and watershed-labeling algorithm for digital elevation models. *Computers & Geosciences*, 62, 159–168.
+- Barnes, R., Lehman, C. y Mulla, D. (2014). Priority-flood: an optimal depression-filling and watershed-labeling algorithm for digital elevation models. *Computers & Geosciences*, 62, 117–127.
 - Beven, K. J. y Kirkby, M. J. (1979). A physically based, variable contributing area model of basin hydrology. *Hydrological Sciences Bulletin*, 24(1), 43–69.
 - Horn, B. K. P. (1981). Hill shading and the reflectance map. *Proceedings of the IEEE*, 69(1), 14–47.
 - O'Callaghan, J. F. y Mark, D. M. (1984). The extraction of drainage networks from digital elevation data. *Computer Vision, Graphics, and Image Processing*, 28(3), 323–344.
@@ -897,7 +922,7 @@ Referencias de los métodos descritos en este manual.
 **Ráster y vectores**
 
 - Douglas, D. H. y Peucker, T. K. (1973). Algorithms for the reduction of the number of points required to represent a digitized line or its caricature. *The Canadian Cartographer*, 10(2), 112–122.
-- Felzenszwalb, P. F. y Huttenlocher, D. P. (2012). Distance transforms of sampled functions. *Theory of Computing*, 8(19), 415–428.
+- Felzenszwalb, P. F. y Huttenlocher, D. P. (2012). Distance transforms of sampled functions. *Theory of Computing*, 8, art. 19, 415–428.
 - Keys, R. G. (1981). Cubic convolution interpolation for digital image processing. *IEEE Transactions on Acoustics, Speech, and Signal Processing*, 29(6), 1153–1160.
 - Ledoux, H., Arroyo Ohori, K. y Meijers, M. (2014). A triangulation-based approach to automatically repair GIS polygons. *Computers & Geosciences*, 66, 121–131.
 - Zhang, T. Y. y Suen, C. Y. (1984). A fast parallel algorithm for thinning digital patterns. *Communications of the ACM*, 27(3), 236–239.
@@ -906,6 +931,8 @@ Referencias de los métodos descritos en este manual.
 
 - ASPRS (2019). *LAS Specification 1.4 – R15*. American Society for Photogrammetry and Remote Sensing.
 - Besl, P. J. y McKay, N. D. (1992). A method for registration of 3-D shapes. *IEEE Transactions on Pattern Analysis and Machine Intelligence*, 14(2), 239–256.
+- Chen, Y. y Medioni, G. (1992). Object modelling by registration of multiple range images. *Image and Vision Computing*, 10(3), 145–155.
+- Chetverikov, D., Svirko, D., Stepanov, D. y Krsek, P. (2002). The trimmed iterative closest point algorithm. *Proceedings of the 16th International Conference on Pattern Recognition*, 3, 545–548.
 - Husch, B., Beers, T. W. y Kershaw, J. A. (2003). *Forest Mensuration* (4.ª ed.). John Wiley & Sons. (Fórmula de Smalian.)
 - Isenburg, M. (2013). LASzip: lossless compression of LiDAR data. *Photogrammetric Engineering & Remote Sensing*, 79(2), 209–217.
 - Liang, X., Kankare, V., Hyyppä, J., Wang, Y., Kukko, A., Haggrén, H., et al. (2016). Terrestrial laser scanning in forest inventories. *ISPRS Journal of Photogrammetry and Remote Sensing*, 115, 63–77.

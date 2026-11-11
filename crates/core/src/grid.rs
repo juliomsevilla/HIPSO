@@ -85,6 +85,21 @@ impl Grid {
         })
     }
 
+    /// The part of this grid inside `[min x, min y, max x, max y]`, on the same cells (the
+    /// ones of a grid made to cover that extent); cells this grid lacks stay empty.
+    pub fn crop(&self, b: [f64; 4]) -> Result<Self> {
+        let mut out = Self::covering(b, self.cell)?;
+        for r in 0..out.rows {
+            for c in 0..out.cols {
+                let (x, y) = out.center(c, r);
+                if let Some(i) = self.index(x, y) {
+                    out.data[r * out.cols + c] = self.data[i];
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// An empty grid with the same cells.
     pub fn like(&self) -> Self {
         Self {
@@ -367,6 +382,44 @@ impl Grid {
             .iter()
             .find(|e| e[0] == 4096 && e[1] == 0 && e[3] != 32767 && e[3] != 0)
             .and_then(|e| u16::try_from(e[3]).ok())
+    }
+
+    /// The extent `[min x, min y, max x, max y]` and the cell size of a north-up GeoTIFF, from
+    /// its header alone.
+    pub fn read_extent(path: &Path) -> Result<([f64; 4], f64)> {
+        use tiff::decoder::Decoder;
+        let mut d = Decoder::new(BufReader::new(crate::open_file(path)?)).map_err(tiff_err)?;
+        let (w, h) = d.dimensions().map_err(tiff_err)?;
+        let scale = d
+            .get_tag_f64_vec(Tag::ModelPixelScaleTag)
+            .map_err(tiff_err)?;
+        let tie = d.get_tag_f64_vec(Tag::ModelTiepointTag).map_err(tiff_err)?;
+        let (Some(&sx), Some(&sy), Some(&tx), Some(&ty)) =
+            (scale.first(), scale.get(1), tie.get(3), tie.get(4))
+        else {
+            return Err(Error::Format(format!(
+                "{}: no es un GeoTIFF (sin escala de píxel ni punto de anclaje)",
+                path.display()
+            )));
+        };
+        Ok(([tx, ty - f64::from(h) * sy, tx + f64::from(w) * sx, ty], sx))
+    }
+
+    /// Copies into the empty cells of this grid the values of `other` that lie on them (each
+    /// cell takes the cell of `other` under its centre).
+    pub fn fill_from(&mut self, other: &Grid) {
+        for r in 0..self.rows {
+            for c in 0..self.cols {
+                let i = r * self.cols + c;
+                if self.data[i].is_finite() {
+                    continue;
+                }
+                let (x, y) = self.center(c, r);
+                if let Some(j) = other.index(x, y) {
+                    self.data[i] = other.data[j];
+                }
+            }
+        }
     }
 
     /// Reads a north-up 32-bit float GeoTIFF such as [`Grid::write_tiff`] writes.

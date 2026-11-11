@@ -107,6 +107,13 @@ fn renderer_name(r: eframe::Renderer) -> &'static str {
 /// The renderer in use, for the diagnostics.
 static RENDERER: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 
+/// The compass of the 3D view: its centre in the corner of the view, and its radius.
+const COMPASS_RADIUS: f32 = 20.0;
+
+fn compass_centre(rect: Rect) -> Pos2 {
+    rect.right_bottom() + Vec2::new(-34.0, -34.0)
+}
+
 fn main() -> eframe::Result {
     if std::env::args().any(|a| a == "--gpu-info") {
         for i in gpu_adapters() {
@@ -188,6 +195,10 @@ enum Nav {
     SelPoly,
     SelLasso,
     SelCircle,
+    SelBrush,
+    SelBrushSq,
+    SelAbove,
+    SelBelow,
 }
 
 impl Nav {
@@ -207,6 +218,10 @@ impl Nav {
             Nav::SelPoly => "Seleccionar con polígono",
             Nav::SelLasso => "Seleccionar con lazo",
             Nav::SelCircle => "Seleccionar con círculo",
+            Nav::SelBrush => "Pincel redondo",
+            Nav::SelBrushSq => "Pincel cuadrado",
+            Nav::SelAbove => "Seleccionar sobre una línea",
+            Nav::SelBelow => "Seleccionar bajo una línea",
         }
     }
 }
@@ -2087,6 +2102,16 @@ impl App {
                 "Editar: seleccionar con círculo",
                 Action::Nav(Nav::SelCircle),
             ),
+            ("Editar: pincel redondo", Action::Nav(Nav::SelBrush)),
+            ("Editar: pincel cuadrado", Action::Nav(Nav::SelBrushSq)),
+            (
+                "Editar: seleccionar sobre una línea (perfil)",
+                Action::Nav(Nav::SelAbove),
+            ),
+            (
+                "Editar: seleccionar bajo una línea (perfil)",
+                Action::Nav(Nav::SelBelow),
+            ),
             ("Información de los datos", Action::Info),
             ("Clasificar puntos", Action::Tool(ToolId::Classify)),
             ("Asignar sistema de coordenadas", Action::Tool(ToolId::Crs)),
@@ -2327,56 +2352,191 @@ impl App {
                                 }
                             }
                             1 => {
-                                ribbon::fold_group(ui, &t, "Disposición", "@layall", 5, |ui| {
-                                    for (k, (icon, name, l)) in [
-                                        ("@lay2d", "2D", Layout::Plan),
-                                        ("@lay2dprof", "2D +\nperfil", Layout::PlanProfile),
-                                        ("@lay3d", "3D", Layout::View3d),
-                                        ("@layall", "2D + perfil\n+ 3D", Layout::All),
-                                    ]
-                                    .into_iter()
-                                    .enumerate()
-                                    {
-                                        if ribbon::big_button(ui, &t, icon, name, self.layout == l)
-                                            .clicked()
-                                        {
-                                            self.act(ctx, Action::Layout(k as u8));
-                                        }
-                                    }
+                                ribbon::fold_group(ui, &t, "Visualización", "@intensity", 4, |ui| {
                                     ribbon::compact(ui);
-                                    let status = self.store.as_ref().map_or_else(
-                                        || "Aún no hay ninguna nube cargada.".to_string(),
-                                        |st| {
-                                            format!(
-                                                "Ahora: 1 de cada {} ({} de {} puntos).",
-                                                st.stride,
-                                                st.len(),
-                                                st.total
-                                            )
-                                        },
-                                    );
-                                    ui.vertical(|ui| {
-                                        ui.horizontal(|ui| {
-                                            ui.label("Máx. puntos");
-                                            ui.add(
-                                                crate::numfield::NumField::new(&mut self.max_points_m)
-                                                    .range(0.5..=200.0)
-                                                    .speed(0.5)
-                                                    .suffix(" M"),
-                                            )
-                                            .on_hover_text(format!("Millones de puntos que se cargan en pantalla; una nube mayor se decima. Pulsa Aplicar para recargar. {status}"));
+                                    // the windows shown: planta, perfil and 3D
+                                    let layouts = [
+                                        ("@lay2d", "2D", Layout::Plan),
+                                        ("@lay2dprof", "2D + perfil", Layout::PlanProfile),
+                                        ("@lay3d", "3D", Layout::View3d),
+                                        ("@layall", "2D + perfil + 3D", Layout::All),
+                                    ];
+                                    let now = layouts
+                                        .iter()
+                                        .find(|l| l.2 == self.layout)
+                                        .unwrap_or(&layouts[0]);
+                                    let mut chosen = None;
+                                    if ribbon::in_folded_popup(ctx) {
+                                        // inside the popup of a folded group a menu has to be a submenu
+                                        ui.menu_button(format!("Ventanas: {}  ▾", now.1), |ui| {
+                                            for (k, (icon, name, l)) in layouts.iter().enumerate() {
+                                                if ribbon::small_button(ui, &t, icon, name, self.layout == *l)
+                                                    .clicked()
+                                                {
+                                                    chosen = Some(k as u8);
+                                                    ui.close();
+                                                }
+                                            }
                                         });
-                                        if ui
-                                            .button("Aplicar")
-                                            .on_hover_text(format!("Vuelve a cargar las nubes con ese máximo. {status}"))
-                                            .clicked()
-                                            && !self.clouds.is_empty()
-                                        {
-                                            self.reload(ctx);
-                                        }
+                                    } else {
+                                        let r = ribbon::big_button_body(
+                                            ui,
+                                            &t,
+                                            now.0,
+                                            &format!("Ventanas\n{} ▾", now.1.replace(" + ", "+")),
+                                            false,
+                                        )
+                                        .on_hover_text("Qué ventanas se ven: planta, perfil y 3D");
+                                        egui::Popup::menu(&r).show(|ui| {
+                                            for (k, (icon, name, l)) in layouts.iter().enumerate() {
+                                                if ribbon::small_button(ui, &t, icon, name, self.layout == *l)
+                                                    .clicked()
+                                                {
+                                                    chosen = Some(k as u8);
+                                                }
+                                            }
+                                        });
+                                    }
+                                    if let Some(k) = chosen {
+                                        self.act(ctx, Action::Layout(k));
+                                    }
+                                    ui.vertical(|ui| {
+                                        let names = [
+                                            ("Elevación (azul-rojo)", ColorBy::Elevation),
+                                            ("Elevación (tierra)", ColorBy::ElevationEarth),
+                                            ("Clasificación", ColorBy::Class),
+                                            ("Intensidad", ColorBy::Intensity),
+                                            ("Retorno", ColorBy::Return),
+                                            ("ID de fuente", ColorBy::Source),
+                                            ("Archivo", ColorBy::File),
+                                            ("RGB", ColorBy::Rgb),
+                                        ];
+                                        let cur = names
+                                            .iter()
+                                            .find(|n| n.1 == self.style.color_by)
+                                            .map_or("Colorear por…", |n| n.0);
+                                        ui.horizontal(|ui| {
+                                        // a menu, not a combo box: when the group is folded into a
+                                        // button its controls live in a popup, which closes when a
+                                        // click lands outside it (as a combo's list does) before the
+                                        // choice is made; submenus are handled by the popup
+                                        ui.menu_button(format!("Color: {cur}  ▾"), |ui| {
+                                            for (name, c) in names {
+                                                if ui
+                                                    .selectable_label(self.style.color_by == c, name)
+                                                    .clicked()
+                                                {
+                                                    self.act(ctx, Action::Color(c));
+                                                    ui.close();
+                                                }
+                                            }
+                                        })
+                                        .response
+                                        .on_hover_text("Atributo con el que se colorean los puntos.");
+                                        });
+
+                                        ui.horizontal(|ui| {
+                                        ui.menu_button("Rango Z  ▾", |ui| {
+                                            let (lo, hi) = self
+                                                .store
+                                                .as_ref()
+                                                .map_or((0.0, 1.0), |s| (s.bounds[2], s.bounds[5]));
+                                            ui.horizontal(|ui| {
+                                                ui.label("Mín");
+                                                if ui
+                                                    .add(
+                                                        crate::numfield::NumField::new(
+                                                            &mut self.style.zmin,
+                                                        )
+                                                        .range(lo - 1000.0..=hi)
+                                                        .speed(0.5),
+                                                    )
+                                                    .changed()
+                                                {
+                                                    self.touch();
+                                                }
+                                                ui.label("Máx");
+                                                if ui
+                                                    .add(
+                                                        crate::numfield::NumField::new(
+                                                            &mut self.style.zmax,
+                                                        )
+                                                        .range(lo..=hi + 1000.0)
+                                                        .speed(0.5),
+                                                    )
+                                                    .changed()
+                                                {
+                                                    self.touch();
+                                                }
+                                            });
+                                            if ui.button("Ajustar a los datos").clicked() {
+                                                self.style.zmin = lo;
+                                                self.style.zmax = hi;
+                                            }
+                                        })
+.response
+.on_hover_text("Rango de elevaciones al que se reparte la rampa de color.");
+                                        ui.menu_button("Filtros  ▾", |ui| {
+                                            for (k, n) in [
+                                                "Primeros retornos",
+                                                "Retornos intermedios",
+                                                "Últimos retornos",
+                                                "Retornos únicos",
+                                            ]
+                                            .iter()
+                                            .enumerate()
+                                            {
+                                                let mut on = self.style.returns & (1 << k) != 0;
+                                                if ui.checkbox(&mut on, *n).changed() {
+                                                    self.style.returns ^= 1 << k;
+                                                }
+                                            }
+                                            ui.separator();
+                                            if ui.button("Clases y colores…").clicked() {
+                                                self.act(ctx, Action::Classes);
+                                            }
+                                        })
+.response
+.on_hover_text("Qué retornos y qué clases se dibujan.");
+                                        });
+                                        ui.horizontal(|ui| {
+                                            ui.label("Puntos");
+                                            ribbon::stepper(
+                                                ui,
+                                                "Puntos más pequeños en la planta y el 3D (−)",
+                                                "Puntos más grandes en la planta y el 3D (+)",
+                                                |d| self.act(ctx, Action::PointSize(d)),
+                                            );
+                                            let status = self.store.as_ref().map_or_else(
+                                                || "Aún no hay ninguna nube cargada.".to_string(),
+                                                |st| {
+                                                    format!(
+                                                        "Ahora: 1 de cada {} ({} de {} puntos).",
+                                                        st.stride,
+                                                        st.len(),
+                                                        st.total
+                                                    )
+                                                },
+                                            );
+                                            ui.label("Máx.");
+                                            // up to 200 million points: five characters
+                                            let r = ui
+                                                .add(
+                                                    crate::numfield::NumField::new(&mut self.max_points_m)
+                                                        .range(0.5..=200.0)
+                                                        .width(50.0)
+                                                        .suffix(" M"),
+                                                )
+                                                .on_hover_text(format!("Millones de puntos que se cargan en pantalla (una nube mayor se decima). Pulsa Intro para recargar las nubes con ese máximo. {status}"));
+                                            let enter = r.lost_focus()
+                                                && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                                            if (r.changed() || enter) && !self.clouds.is_empty() {
+                                                self.reload(ctx);
+                                            }
+                                        });
                                     });
                                 });
-                                ribbon::fold_group(ui, &t, "Navegación", "✋", 4, |ui| {
+                                ribbon::fold_group(ui, &t, "Navegación", "✋", 3, |ui| {
                                     if ribbon::big_button(ui, &t, "✋", "Desplazar", self.nav == Nav::Pan)
                                         .clicked()
                                     {
@@ -2435,7 +2595,7 @@ impl App {
                                         }
                                     });
                                 });
-                                ribbon::fold_group(ui, &t, "Herramientas", "@measure", 3, |ui| {
+                                ribbon::fold_group(ui, &t, "Herramientas", "@measure", 2, |ui| {
                                     ui.vertical(|ui| {
                                         for (icon, name, n) in [
                                             ("@density", "Densidad", Nav::Density),
@@ -2522,12 +2682,7 @@ ui.menu_button("⚙", |ui| {
 
                                     });
                                 });
-                                ribbon::fold_group(ui, &t, "Vista 3D", "@lay3d", 2, |ui| {
-                                    if ribbon::big_button(ui, &t, "@north", "Norte\narriba", false)
-                                        .clicked()
-                                    {
-                                        self.act(ctx, Action::NorthUp);
-                                    }
+                                ribbon::fold_group(ui, &t, "Vista 3D", "@lay3dgear", 1, |ui| {
                                     ribbon::compact(ui);
                                     ui.vertical(|ui| {
                                         ui.horizontal(|ui| {
@@ -2545,120 +2700,7 @@ ui.menu_button("⚙", |ui| {
                                             .on_hover_text("En «2D + perfil + 3D», la vista 3D sigue lo que se ve en la planta.");
                                     });
                                 });
-                                ribbon::fold_group(ui, &t, "Visualización", "@intensity", 1, |ui| {
-                                    ribbon::compact(ui);
-                                    ui.vertical(|ui| {
-                                        let names = [
-                                            ("Elevación (azul-rojo)", ColorBy::Elevation),
-                                            ("Elevación (tierra)", ColorBy::ElevationEarth),
-                                            ("Clasificación", ColorBy::Class),
-                                            ("Intensidad", ColorBy::Intensity),
-                                            ("Retorno", ColorBy::Return),
-                                            ("ID de fuente", ColorBy::Source),
-                                            ("Archivo", ColorBy::File),
-                                            ("RGB", ColorBy::Rgb),
-                                        ];
-                                        let cur = names
-                                            .iter()
-                                            .find(|n| n.1 == self.style.color_by)
-                                            .map_or("Colorear por…", |n| n.0);
-                                        ui.horizontal(|ui| {
-                                        ui.label("Color");
-                                        egui::ComboBox::from_id_salt("colorby")
-                                            .width(150.0)
-                                            .selected_text(cur)
-                                            .show_ui(ui, |ui| {
-                                                for (name, c) in names {
-                                                    if ui
-                                                        .selectable_label(
-                                                            self.style.color_by == c,
-                                                            name,
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        self.act(ctx, Action::Color(c));
-                                                    }
-                                                }
-                                            })
-.response
-.on_hover_text("Atributo con el que se colorean los puntos.");
-                                        });
-                                        ui.horizontal(|ui| {
-                                        ui.menu_button("Rango Z  ▾", |ui| {
-                                            let (lo, hi) = self
-                                                .store
-                                                .as_ref()
-                                                .map_or((0.0, 1.0), |s| (s.bounds[2], s.bounds[5]));
-                                            ui.horizontal(|ui| {
-                                                ui.label("Mín");
-                                                if ui
-                                                    .add(
-                                                        crate::numfield::NumField::new(
-                                                            &mut self.style.zmin,
-                                                        )
-                                                        .range(lo - 1000.0..=hi)
-                                                        .speed(0.5),
-                                                    )
-                                                    .changed()
-                                                {
-                                                    self.touch();
-                                                }
-                                                ui.label("Máx");
-                                                if ui
-                                                    .add(
-                                                        crate::numfield::NumField::new(
-                                                            &mut self.style.zmax,
-                                                        )
-                                                        .range(lo..=hi + 1000.0)
-                                                        .speed(0.5),
-                                                    )
-                                                    .changed()
-                                                {
-                                                    self.touch();
-                                                }
-                                            });
-                                            if ui.button("Ajustar a los datos").clicked() {
-                                                self.style.zmin = lo;
-                                                self.style.zmax = hi;
-                                            }
-                                        })
-.response
-.on_hover_text("Rango de elevaciones al que se reparte la rampa de color.");
-                                        ui.menu_button("Filtros  ▾", |ui| {
-                                            for (k, n) in [
-                                                "Primeros retornos",
-                                                "Retornos intermedios",
-                                                "Últimos retornos",
-                                                "Retornos únicos",
-                                            ]
-                                            .iter()
-                                            .enumerate()
-                                            {
-                                                let mut on = self.style.returns & (1 << k) != 0;
-                                                if ui.checkbox(&mut on, *n).changed() {
-                                                    self.style.returns ^= 1 << k;
-                                                }
-                                            }
-                                            ui.separator();
-                                            if ui.button("Clases y colores…").clicked() {
-                                                self.act(ctx, Action::Classes);
-                                            }
-                                        })
-.response
-.on_hover_text("Qué retornos y qué clases se dibujan.");
-                                        });
-                                        ui.horizontal(|ui| {
-                                            ui.label("Puntos");
-                                            ribbon::stepper(
-                                                ui,
-                                                "Puntos más pequeños en la planta y el 3D (−)",
-                                                "Puntos más grandes en la planta y el 3D (+)",
-                                                |d| self.act(ctx, Action::PointSize(d)),
-                                            );
-                                        });
-                                    });
-                                });
-                                ribbon::fold_group(ui, &t, "Perfil", "@profile", 0, |ui| {
+                                ribbon::fold_group(ui, &t, "Perfil", "@profilegear", 0, |ui| {
                                     ribbon::compact(ui);
                                     egui::Grid::new("rb_profile")
                                         .num_columns(2)
@@ -3193,8 +3235,13 @@ ui.menu_button("⚙", |ui| {
                     );
                 }
             }
-            Nav::Pan => {}
-            Nav::SelRect | Nav::SelPoly | Nav::SelLasso | Nav::SelCircle => {
+            Nav::Pan | Nav::SelAbove | Nav::SelBelow => {}
+            Nav::SelRect
+            | Nav::SelPoly
+            | Nav::SelLasso
+            | Nav::SelCircle
+            | Nav::SelBrush
+            | Nav::SelBrushSq => {
                 if store.is_some() {
                     self.plan_select(ctx, &resp, rect, w, h)
                 }
@@ -3932,7 +3979,7 @@ ui.menu_button("⚙", |ui| {
         let d = resp.drag_delta();
         let o = &mut self.orbit;
         // with a selection tool the left button draws; the middle one turns the scene
-        let selecting = editing::is_select(self.nav);
+        let selecting = editing::is_select_3d(self.nav);
         let left = resp.dragged_by(egui::PointerButton::Primary) && !selecting;
         let turn = selecting && resp.dragged_by(egui::PointerButton::Middle);
         let pan = resp.dragged_by(egui::PointerButton::Secondary)
@@ -3973,7 +4020,15 @@ ui.menu_button("⚙", |ui| {
                 moved = true;
                 ui.ctx().request_repaint();
             }
-            if home || (resp.double_clicked() && !selecting) {
+            // a double click on the compass turns the north up; anywhere else it frames the scene
+            let on_compass = resp.double_clicked()
+                && resp
+                    .interact_pointer_pos()
+                    .is_some_and(|p| (p - compass_centre(resp.rect)).length() <= COMPASS_RADIUS);
+            if on_compass {
+                o.yaw = 0.0;
+                moved = true;
+            } else if home || (resp.double_clicked() && !selecting) {
                 let keep = o.exaggeration;
                 *o = match &store {
                     Some(s) => Orbit::fit_scene(s),
@@ -4231,7 +4286,7 @@ ui.menu_button("⚙", |ui| {
             painter.text(
                 rect.right_top() + Vec2::new(-8.0, 6.0),
                 Align2::RIGHT_TOP,
-                if editing::is_select(self.nav) {
+                if editing::is_select_3d(self.nav) {
                     "izq.: seleccionar · central: girar · der.: mover · rueda: zoom · flechas: girar".to_string()
                 } else if rect.width() > 900.0 {
                     format!(
@@ -4244,14 +4299,22 @@ ui.menu_button("⚙", |ui| {
                 FontId::proportional(11.0),
                 t.weak,
             );
-            if has_cloud && editing::is_select(self.nav) {
+            if has_cloud && editing::is_select_3d(self.nav) {
                 self.view3d_select(ctx, &painter, &resp, rect, w, h);
             }
-            // north arrow
-            let c = rect.right_bottom() + Vec2::new(-34.0, -34.0);
+            // north arrow: a double click on it puts the north up
+            let c = compass_centre(rect);
             let (s, co) = self.orbit.yaw.sin_cos();
             let tip = c + Vec2::new(-(s as f32), -(co as f32)) * 18.0;
-            painter.circle_stroke(c, 20.0, Stroke::new(1.0, t.weak));
+            painter.circle_stroke(c, COMPASS_RADIUS, Stroke::new(1.0, t.weak));
+            if resp
+                .hover_pos()
+                .is_some_and(|p| (p - c).length() <= COMPASS_RADIUS)
+            {
+                painter.circle_filled(c, COMPASS_RADIUS, t.weak.gamma_multiply(0.15));
+                resp.clone()
+                    .show_tooltip_text("Doble clic: norte arriba (tecla N)");
+            }
             painter.line_segment([c, tip], Stroke::new(2.0, Color32::from_rgb(230, 70, 60)));
             painter.text(
                 tip,

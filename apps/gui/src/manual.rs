@@ -113,6 +113,51 @@ fn cells(line: &str) -> Vec<&str> {
         .collect()
 }
 
+/// The width of each column of a table so that the whole fits `ui.available_width()`: a column
+/// keeps the width of its longest cell when there is room for all of them; otherwise the columns
+/// that need less than an even share keep what they need and the rest split what is left in
+/// proportion to what they need (their text wraps).
+fn column_widths(ui: &egui::Ui, rows: &[Vec<&str>], size: f32, gap: f32) -> Vec<f32> {
+    let cols = rows.iter().map(Vec::len).max().unwrap_or(0);
+    if cols == 0 {
+        return Vec::new();
+    }
+    let mut need = vec![40.0f32; cols];
+    for row in rows {
+        for (ci, c) in row.iter().enumerate() {
+            let galley = ui.painter().layout_job(inline(ui, c, size));
+            need[ci] = need[ci].max(galley.size().x + 4.0);
+        }
+    }
+    // the grid's stripes and the scroll bar take a little more than the gaps
+    let room = (ui.available_width() - gap * (cols as f32 - 1.0) - 16.0).max(80.0 * cols as f32);
+    if need.iter().sum::<f32>() <= room {
+        return need;
+    }
+    let mut fixed = vec![false; cols];
+    let mut left = room;
+    loop {
+        let open: Vec<usize> = (0..cols).filter(|c| !fixed[*c]).collect();
+        if open.is_empty() {
+            break;
+        }
+        let share = left / open.len() as f32;
+        let small: Vec<usize> = open.iter().copied().filter(|c| need[*c] <= share).collect();
+        if small.is_empty() {
+            let total: f32 = open.iter().map(|c| need[*c]).sum();
+            for c in open {
+                need[c] = (left * need[c] / total).max(60.0);
+            }
+            break;
+        }
+        for c in small {
+            fixed[c] = true;
+            left -= need[c];
+        }
+    }
+    need
+}
+
 impl Manual {
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let lines: Vec<&str> = TEXT.lines().collect();
@@ -122,7 +167,7 @@ impl Manual {
             .filter_map(|(k, l)| l.strip_prefix("## ").map(|t| (k, t)))
             .collect();
         {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label("Ir a");
                 egui::ComboBox::from_id_salt("manual_toc")
                     .width(300.0)
@@ -153,7 +198,8 @@ impl Manual {
                             continue;
                         }
                         if in_code {
-                            ui.label(RichText::new(l).monospace().size(12.0));
+                            // a long command wraps at the edge of the window instead of running past it
+                            ui.add(egui::Label::new(RichText::new(l).monospace().size(12.0)).wrap());
                             k += 1;
                             continue;
                         }
@@ -167,12 +213,16 @@ impl Manual {
                                 .filter(|r| !r.contains("---"))
                                 .map(|r| cells(r))
                                 .collect();
+                            // the columns share the width of the window: a cell wraps at its
+                            // column and a table never runs past the edge
+                            let gap = 14.0;
+                            let widths = column_widths(ui, &rows, 13.0, gap);
                             egui::Grid::new(("manual_table", start))
                                 .striped(true)
-                                .spacing([14.0, 4.0])
+                                .spacing([gap, 4.0])
                                 .show(ui, |ui| {
                                     for (ri, row) in rows.iter().enumerate() {
-                                        for c in row {
+                                        for (ci, c) in row.iter().enumerate() {
                                             let mut job = inline(ui, c, 13.0);
                                             if ri == 0 {
                                                 for s in &mut job.sections {
@@ -180,7 +230,11 @@ impl Manual {
                                                         ui.visuals().strong_text_color();
                                                 }
                                             }
-                                            ui.label(job);
+                                            let w = widths.get(ci).copied().unwrap_or(120.0);
+                                            ui.scope(|ui| {
+                                                ui.set_max_width(w);
+                                                ui.add(egui::Label::new(job).wrap());
+                                            });
                                         }
                                         ui.end_row();
                                     }

@@ -1,9 +1,9 @@
 # Publicar una versión de HIPSO
 
-Compilamos en local (Mac y Windows); Linux lo compila GitHub Actions. Cada sistema sube su paquete a la misma release `vX.Y.Z`:
+Compilamos el Mac en local; Windows y Linux los compila GitHub Actions. Cada sistema sube su paquete a la misma release `vX.Y.Z`:
 
 - **Mac:** `HIPSO-macos-arm64.tar.gz` y `HIPSO-macos-x64.tar.gz`
-- **Windows:** `HIPSO-windows-x64.zip`
+- **Windows:** `HIPSO-windows-x64.zip` — lo compila GitHub Actions (`.github/workflows/windows.yml`) solo, en cuanto el Mac crea la release. Si hace falta, también se puede compilar en un PC con Windows (`scripts/package.ps1 -Publish`) con el prompt de más abajo.
 - **Linux:** `HIPSO-linux-x64.tar.gz` — lo compila GitHub Actions (`.github/workflows/linux.yml`) solo, en cuanto el Mac crea la release. No hay que hacer nada a mano.
 
 Da igual el orden entre Mac y Windows. El primero que publica sube la versión y crea la release; el segundo hace `git pull` y añade su paquete a esa release sin tocar la versión. Si Windows publica primero, es su `gh release create` el que dispara la compilación de Linux, igual que haría el Mac.

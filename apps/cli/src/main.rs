@@ -633,6 +633,15 @@ enum Cmd {
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
     },
+    /// Check a delivery of sheets from their headers alone (no point is read): same coordinate
+    /// system, sheets twice, overlaps, holes inside the block. A folder stands for its LAS/LAZ.
+    Catalog {
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// How far (m) sheets may overlap or fall short of each other without it counting
+        #[arg(long, default_value_t = 1.0)]
+        tolerance: f64,
+    },
     /// Classify noise, ground and buildings, tile by tile in parallel, and write the points
     Classify {
         #[arg(required = true)]
@@ -640,6 +649,10 @@ enum Cmd {
         /// Output LAS, or LAZ when it ends in .laz; default: <results>/<input>_clasif<settings>
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Read the sheets within this many metres of each sheet as context, so its edges come out
+        /// as they would from the whole block, and write only the sheet's own points (0: off)
+        #[arg(long, default_value_t = 0.0)]
+        neighbors: f64,
         #[command(flatten)]
         steps: StepArgs,
     },
@@ -669,6 +682,10 @@ enum Cmd {
         /// (PolylineZ) they set the height; without, they take the lowest ground beside them
         #[arg(long)]
         breaklines: Option<PathBuf>,
+        /// Make each sheet's DTM with the sheets within this many metres of it, cut to its own
+        /// extent: no seam at the edges of the sheets (0: each sheet on its own)
+        #[arg(long, default_value_t = 0.0)]
+        neighbors: f64,
         #[command(flatten)]
         steps: StepArgs,
     },
@@ -707,6 +724,10 @@ enum Cmd {
         /// Also join the sheets' CHMs into one mosaic (by default each sheet keeps its own)
         #[arg(long)]
         mosaic: bool,
+        /// Read the sheets within this many metres of each sheet as context, so its edges come out
+        /// as they would from the whole block, and write only the sheet's own points (0: off)
+        #[arg(long, default_value_t = 0.0)]
+        neighbors: f64,
     },
     /// Digital surface model (highest returns) as a GeoTIFF, one per sheet
     Dsm {
@@ -733,12 +754,24 @@ enum Cmd {
         smooth: f64,
         #[arg(long, value_enum, default_value_t = SmoothArg::Mean)]
         smoothing: SmoothArg,
+        /// Read the sheets within this many metres of each sheet as context, so its edges come out
+        /// as they would from the whole block, and write only the sheet's own points (0: off)
+        #[arg(long, default_value_t = 0.0)]
+        neighbors: f64,
     },
     /// Individual trees from a canopy height model: tops (local maxima), crowns (Dalponte,
     /// Silva or watershed), polygons, per-point treeID and a check against field data
     Trees {
         /// Canopy height model (GeoTIFF or ASCII grid)
         chm: PathBuf,
+        /// Canopy models of the sheets around this one (repeat for each): the trees are found
+        /// on this sheet grown by --margin with what they have there, and only the trees with
+        /// their top on this sheet are kept, so a tree on a sheet edge is found once, whole
+        #[arg(long)]
+        around: Vec<PathBuf>,
+        /// How far (m) into the neighbouring sheets to look
+        #[arg(long, default_value_t = 30.0)]
+        margin: f64,
         /// Tree tops (.shp, or .csv if you name one); default: <results>/<chm>_arboles_<method>.shp (never an existing file)
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -1821,6 +1854,12 @@ enum Cmd {
         /// Only translate, do not rotate
         #[arg(long)]
         shift_only: bool,
+        /// Point-to-plane: distance to the tangent plane of the reference point
+        #[arg(long)]
+        plane: bool,
+        /// Share of the closest pairs used to find the motion (1 keeps all)
+        #[arg(long, default_value_t = 1.0)]
+        trim: f64,
     },
     /// Height difference between flight lines as a GeoTIFF, with the figures of the overlap
     Swath {
@@ -1924,6 +1963,10 @@ enum Cmd {
         /// Height break for the cover metrics
         #[arg(long, default_value_t = 2.0)]
         heightbreak: f64,
+        /// With several sheets, give the cells at the edge of each sheet the points of the
+        /// neighbours within this many metres (at least one cell), and write each cell once
+        #[arg(long, default_value_t = 0.0)]
+        neighbors: f64,
         #[arg(long, default_value_t = 4)]
         min_points: u32,
         /// Most memory, in MiB, for point heights (larger clouds take more passes)
@@ -2031,16 +2074,40 @@ fn run(cmd: Cmd) -> Result<()> {
             println!("{}", jobs::info(&inputs)?);
             return Ok(());
         }
+        Cmd::Catalog { inputs, tolerance } => {
+            let cat = hipso_core::catalog::catalog(&inputs)?;
+            println!("{}", cat.report(tolerance));
+            let bad = cat.failed.len()
+                + cat
+                    .issues(tolerance)
+                    .iter()
+                    .filter(|i| {
+                        i.severity == hipso_core::catalog::Severity::Error
+                            && i.kind != hipso_core::catalog::Kind::Unreadable
+                    })
+                    .count();
+            if bad > 0 {
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
         Cmd::Classify {
             inputs,
             output,
+            neighbors,
             steps,
         } => {
             // every sheet is classified on its own: they are never joined into one file
             let output = single_output(output, inputs.len())?;
             let tag = format!("clasif{}", steps.tag());
             let out_for = |p: &Path| out_path(output.clone(), p, &tag, &ext_of(p));
-            hipso_core::sheets::classify_each(&inputs, &out_for, &steps.steps(), &steps.tiling())?
+            hipso_core::sheets::classify_each(
+                &inputs,
+                &out_for,
+                &steps.steps(),
+                &steps.tiling(),
+                neighbors,
+            )?
         }
         Cmd::Dtm {
             inputs,
@@ -2051,6 +2118,7 @@ fn run(cmd: Cmd) -> Result<()> {
             smoothing,
             mosaic,
             breaklines,
+            neighbors,
             steps,
         } => {
             let output = single_output(output, inputs.len())?;
@@ -2093,7 +2161,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 smoothing: smoothing_of(smoothing),
                 breaklines,
             };
-            hipso_core::sheets::dtm_each(&inputs, &base, &out_for, mosaic_to.as_deref())?.0
+            hipso_core::sheets::dtm_each(&inputs, &base, &out_for, mosaic_to.as_deref(), neighbors)?.0
         }
         Cmd::Dsm {
             inputs,
@@ -2105,6 +2173,7 @@ fn run(cmd: Cmd) -> Result<()> {
             threads,
             smooth,
             smoothing,
+            neighbors,
         } => {
             let output = single_output(output, inputs.len())?;
             let (m, name) = match method {
@@ -2117,30 +2186,23 @@ fn run(cmd: Cmd) -> Result<()> {
             } else {
                 String::new()
             };
-            let mut lines = Vec::new();
-            for input in &inputs {
-                let out = out_path(
-                    output.clone(),
-                    input,
-                    &format!("mds_{}m_{name}{sm}", paths::num(cell)),
-                    "tif",
-                );
-                lines.push(jobs::dsm(&jobs::DsmJob {
-                    input: input.clone(),
-                    output: out,
-                    cell,
-                    method: m,
-                    fill: !no_fill,
-                    tiling: Tiling {
-                        size: tile,
-                        buffer: 5.0,
-                        threads,
-                    },
-                    smooth,
-                    smoothing: smoothing_of(smoothing),
-                })?);
-            }
-            lines.join("\n")
+            let tag = format!("mds_{}m_{name}{sm}", paths::num(cell));
+            let out_for = |p: &Path| out_path(output.clone(), p, &tag, "tif");
+            let base = jobs::DsmJob {
+                input: PathBuf::new(),
+                output: PathBuf::new(),
+                cell,
+                method: m,
+                fill: !no_fill,
+                tiling: Tiling {
+                    size: tile,
+                    buffer: 5.0,
+                    threads,
+                },
+                smooth,
+                smoothing: smoothing_of(smoothing),
+            };
+            hipso_core::sheets::dsm_each(&inputs, &base, &out_for, None, neighbors)?.0
         }
         Cmd::Chm {
             inputs,
@@ -2155,6 +2217,7 @@ fn run(cmd: Cmd) -> Result<()> {
             smooth,
             smoothing,
             mosaic,
+            neighbors,
         } => {
             let output = single_output(output, inputs.len())?;
             if inputs.len() > 1 && dtm.is_some() {
@@ -2202,10 +2265,20 @@ fn run(cmd: Cmd) -> Result<()> {
                 smooth,
                 smoothing: smoothing_of(smoothing),
             };
-            hipso_core::sheets::chm_each(&inputs, &base, &out_for, &dtm_of, mosaic_to.as_deref())?.0
+            hipso_core::sheets::chm_each(
+                &inputs,
+                &base,
+                &out_for,
+                &dtm_of,
+                mosaic_to.as_deref(),
+                neighbors,
+            )?
+            .0
         }
         Cmd::Trees {
             chm,
+            around,
+            margin,
             output,
             crowns,
             crowns_shp,
@@ -2308,6 +2381,8 @@ fn run(cmd: Cmd) -> Result<()> {
                     plot_radius,
                     max_dist: match_dist,
                 }),
+                around,
+                margin,
             })?
         }
         Cmd::Obia {
@@ -3826,6 +3901,8 @@ fn run(cmd: Cmd) -> Result<()> {
             iterations,
             stop,
             shift_only,
+            plane,
+            trim,
         } => {
             use hipso_core::cloudtools::{FitParams, fit_cloud, fit_text};
             let out = out_path(output, &input, "ajustada", &ext_of(&input));
@@ -3840,6 +3917,8 @@ fn run(cmd: Cmd) -> Result<()> {
                     max_iter: iterations,
                     stop_dist: stop,
                     shift_only,
+                    plane,
+                    trim,
                 },
             )?;
             fit_text(&rep, &out)
@@ -4140,6 +4219,7 @@ fn run(cmd: Cmd) -> Result<()> {
             output,
             cell,
             heightbreak,
+            neighbors,
             min_points,
             memory_mb,
             intensity,
@@ -4190,7 +4270,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 intensity,
                 strata,
             };
-            hipso_core::sheets::metrics_each(&inputs, &base, &out_for, &dtm_of)?
+            hipso_core::sheets::metrics_each(&inputs, &base, &out_for, &dtm_of, neighbors)?
         }
     };
     println!("{summary}");

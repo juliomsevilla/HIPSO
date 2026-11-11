@@ -1,0 +1,39 @@
+name: windows
+# El paquete de Windows lo compila GitHub: arranca solo cuando se crea la release vX.Y.Z (la crea
+# scripts/package.sh --publish desde el Mac) y sube HIPSO-windows-x64.zip a esa misma release.
+# También se puede lanzar a mano indicando la etiqueta (por ejemplo v0.7.6).
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release a la que subir el paquete (por ejemplo v0.7.6)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release --locked
+      - name: Package
+        shell: bash
+        run: |
+          d=HIPSO-windows-x64
+          mkdir "$d"
+          cp target/release/hipso.exe target/release/hipso-gui.exe README.md LICENSE NOTICE THIRD_PARTY_LICENSES.md docs/MANUAL.md "$d"/
+          cp -r licenses "$d"/
+          7z a "$d.zip" "$d"
+      - name: Upload to the release
+        shell: bash
+        run: gh release upload "$TAG" HIPSO-windows-x64.zip --clobber

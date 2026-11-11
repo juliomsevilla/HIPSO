@@ -79,8 +79,14 @@ pub struct ClassifyJob {
 }
 
 pub fn classify(j: &ClassifyJob) -> Result<String> {
+    classify_with(j, &[])
+}
+
+/// [`classify`] on a sheet of a block: `context` are the neighbouring sheets, whose points the
+/// filters see near the edges of the sheet; the file written has the sheet's points only.
+pub fn classify_with(j: &ClassifyJob, context: &[PathBuf]) -> Result<String> {
     paths::ensure_parent(&j.output)?;
-    let r = pipeline::classify(&j.inputs, &j.output, &j.steps, &j.tiling)?;
+    let r = pipeline::classify_with_context(&j.inputs, context, &j.output, &j.steps, &j.tiling)?;
     Ok(format!("{}\n{}", report(&r), j.output.display()))
 }
 
@@ -103,6 +109,12 @@ pub struct DtmJob {
 /// The Kraus & Pfeifer filter on one file, with a mean surface and no other step, runs streamed over the
 /// whole file (same result as the tiled path); anything else runs tiled.
 pub fn dtm(j: &DtmJob) -> Result<String> {
+    dtm_with(j, &[])
+}
+
+/// [`dtm`] on a sheet of a block: `context` are the neighbouring sheets, whose points the
+/// triangulation sees near the edges of the sheet (as far as the tiles' buffer reaches).
+pub fn dtm_with(j: &DtmJob, context: &[PathBuf]) -> Result<String> {
     paths::ensure_parent(&j.output)?;
     let lines = match &j.breaklines {
         Some(p) => {
@@ -116,6 +128,7 @@ pub fn dtm(j: &DtmJob) -> Result<String> {
         None => None,
     };
     let streamed = j.inputs.len() == 1
+        && context.is_empty()
         && j.surface == Surface::Mean
         && j.steps.noise.is_none()
         && j.steps.buildings.is_none();
@@ -134,8 +147,9 @@ pub fn dtm(j: &DtmJob) -> Result<String> {
             j.output.display()
         ));
     }
-    let (dtm, rep, epsg) = pipeline::dtm(
+    let (dtm, rep, epsg) = pipeline::dtm_in(
         &j.inputs,
+        context,
         j.cell,
         &j.steps,
         j.surface,
@@ -189,15 +203,48 @@ pub struct DsmJob {
     pub smoothing: trees::Smoothing,
 }
 
+/// What a sheet of a block needs besides its own points, to have at its edges what the block
+/// would have given: the neighbouring sheets (read as context by the methods that triangulate), the
+/// strip of their points near this sheet (for the methods that take the highest point of a cell),
+/// their ground models, and the extent the result is cut to.
+#[derive(Default)]
+pub struct SheetContext {
+    pub extra: Vec<PathBuf>,
+    pub halo: Vec<crate::las::Point>,
+    /// How far (m) the strip reaches beyond the sheet.
+    pub margin: f64,
+    pub ground_around: Vec<PathBuf>,
+    /// `[min x, min y, max x, max y]` of the sheet; the result is cut to it.
+    pub crop: Option<[f64; 4]>,
+}
+
+impl SheetContext {
+    fn cut(&self, g: Grid) -> Result<Grid> {
+        match self.crop {
+            Some(b) => g.crop(b),
+            None => Ok(g),
+        }
+    }
+}
+
 pub fn dsm(j: &DsmJob) -> Result<String> {
+    dsm_with(j, &SheetContext::default())
+}
+
+/// [`dsm`] on a sheet of a block, with its context.
+pub fn dsm_with(j: &DsmJob, ctx: &SheetContext) -> Result<String> {
     paths::ensure_parent(&j.output)?;
     let (g, epsg) = match j.method {
         DsmMethod::Max => {
             let r = Reader::open(&j.input)?;
-            (chm::dsm(&r, j.cell, j.fill)?, r.header.epsg)
+            (
+                chm::dsm_in(&r, &ctx.halo, ctx.margin, j.cell, j.fill)?,
+                r.header.epsg,
+            )
         }
-        DsmMethod::Tin | DsmMethod::Idw => pipeline::dsm(
+        DsmMethod::Tin | DsmMethod::Idw => pipeline::dsm_in(
             std::slice::from_ref(&j.input),
+            &ctx.extra,
             j.cell,
             if j.method == DsmMethod::Idw {
                 Surface::Idw
@@ -207,7 +254,8 @@ pub fn dsm(j: &DsmJob) -> Result<String> {
             &j.tiling,
         )?,
     };
-    let g = smoothed(g, j.smooth, j.smoothing);
+    // smoothed on the whole surface and cut afterwards, so the smoothing has no seam either
+    let g = ctx.cut(smoothed(g, j.smooth, j.smoothing))?;
     g.write_tiff(&j.output, epsg)?;
     Ok(format!(
         "MDS de {} x {}: {}",
@@ -270,22 +318,34 @@ pub struct ChmJob {
 }
 
 pub fn chm(j: &ChmJob) -> Result<String> {
+    chm_with(j, &SheetContext::default())
+}
+
+/// [`chm`] on a sheet of a block, with its context.
+pub fn chm_with(j: &ChmJob, ctx: &SheetContext) -> Result<String> {
     let u = crate::crs::unify(&[j.input.as_path(), j.dtm.as_path()], false)?;
     let j = ChmJob {
         input: u.path(&j.input),
         dtm: u.path(&j.dtm),
         ..j.clone()
     };
-    chm_run(&j).map(|s| s + &u.notes())
+    chm_run(&j, ctx).map(|s| s + &u.notes())
 }
 
-fn chm_run(j: &ChmJob) -> Result<String> {
+fn chm_run(j: &ChmJob, ctx: &SheetContext) -> Result<String> {
     paths::ensure_parent(&j.output)?;
-    let ground = Grid::read(&j.dtm)?;
+    let mut ground = Grid::read(&j.dtm)?;
+    // the points of the neighbours need the ground under them
+    if !ctx.ground_around.is_empty() && ctx.margin > 0.0 {
+        ground = grown_with_neighbours(ground, &ctx.ground_around, ctx.margin)?.0;
+    }
     let (chm, epsg) = match &j.method {
         ChmMethod::Max { fill } => {
             let r = Reader::open(&j.input)?;
-            (chm::chm(&r, &ground, j.cell, *fill)?, r.header.epsg)
+            (
+                chm::chm_in(&r, &ctx.halo, ctx.margin, &ground, j.cell, *fill)?,
+                r.header.epsg,
+            )
         }
         ChmMethod::Tin | ChmMethod::Idw => {
             let surface = if j.method == ChmMethod::Idw {
@@ -293,19 +353,25 @@ fn chm_run(j: &ChmJob) -> Result<String> {
             } else {
                 Surface::Tin
             };
-            let (dsm, epsg) =
-                pipeline::dsm(std::slice::from_ref(&j.input), j.cell, surface, &j.tiling)?;
+            let (dsm, epsg) = pipeline::dsm_in(
+                std::slice::from_ref(&j.input),
+                &ctx.extra,
+                j.cell,
+                surface,
+                &j.tiling,
+            )?;
             (above_ground(dsm, &ground), epsg)
         }
-        ChmMethod::PitFree(p) => pipeline::chm_pitfree(
+        ChmMethod::PitFree(p) => pipeline::chm_pitfree_in(
             std::slice::from_ref(&j.input),
+            &ctx.extra,
             &ground,
             j.cell,
             p,
             &j.tiling,
         )?,
     };
-    let chm = smoothed(chm, j.smooth, j.smoothing);
+    let chm = ctx.cut(smoothed(chm, j.smooth, j.smoothing))?;
     chm.write_tiff(&j.output, epsg)?;
     Ok(format!(
         "CHM de {} x {}: {}",
@@ -341,16 +407,33 @@ impl MetricsJob {
 /// attributes (DBF field names are short: `<name>_campos.txt` lists their meaning); a `.csv`
 /// output keeps the FUSION-compatible text table.
 pub fn metrics(j: &MetricsJob) -> Result<String> {
+    metrics_with(j, &MetricsContext::default())
+}
+
+/// What a sheet of a block needs besides its own points and ground model (see
+/// [`crate::metrics::Context`]): the strip of its neighbours' points, the ground models of the
+/// neighbours, and which cells the sheet writes.
+#[derive(Default)]
+pub struct MetricsContext {
+    pub halo: Vec<crate::las::Point>,
+    /// Ground models of the neighbouring sheets, used `margin` metres beyond this one's.
+    pub ground_around: Vec<PathBuf>,
+    pub margin: f64,
+    pub owns: Option<Box<dyn Fn(f64, f64) -> bool + Send + Sync>>,
+}
+
+/// [`metrics`] on a sheet of a block, with its context.
+pub fn metrics_with(j: &MetricsJob, ctx: &MetricsContext) -> Result<String> {
     let u = crate::crs::unify(&[j.input.as_path(), j.dtm.as_path()], false)?;
     let j = MetricsJob {
         input: u.path(&j.input),
         dtm: u.path(&j.dtm),
         ..j.clone()
     };
-    metrics_run(&j).map(|s| s + &u.notes())
+    metrics_run(&j, ctx).map(|s| s + &u.notes())
 }
 
-fn metrics_run(j: &MetricsJob) -> Result<String> {
+fn metrics_run(j: &MetricsJob, ctx: &MetricsContext) -> Result<String> {
     paths::ensure_parent(&j.output)?;
     let f = j.formats.fixed();
     let csv_main = paths::swap_ext(&j.output, "csv");
@@ -359,7 +442,7 @@ fn metrics_run(j: &MetricsJob) -> Result<String> {
             output: csv_main.clone(),
             ..j.clone()
         };
-        return metrics_csv(&job, &csv_main);
+        return metrics_csv(&job, &csv_main, ctx);
     }
     // the vector layers are made from the text tables, which are kept when asked for
     let csv_target = if f.csv {
@@ -371,7 +454,7 @@ fn metrics_run(j: &MetricsJob) -> Result<String> {
         output: csv_target.clone(),
         ..j.clone()
     };
-    let summary = metrics_csv(&tmp_job, &csv_target)?;
+    let summary = metrics_csv(&tmp_job, &csv_target, ctx)?;
     let prj = Reader::open(&j.input)
         .ok()
         .and_then(|r| r.header.epsg)
@@ -422,10 +505,13 @@ fn metrics_run(j: &MetricsJob) -> Result<String> {
     Ok(format!("{summary}\n  shapefiles: {}", files.join(", ")))
 }
 
-fn metrics_csv(j: &MetricsJob, output: &std::path::Path) -> Result<String> {
+fn metrics_csv(j: &MetricsJob, output: &std::path::Path, ctx: &MetricsContext) -> Result<String> {
     let mut out = BufWriter::new(File::create(output)?);
     let r = Reader::open(&j.input)?.for_passes()?;
-    let ground = Grid::read(&j.dtm)?;
+    let mut ground = Grid::read(&j.dtm)?;
+    if !ctx.ground_around.is_empty() && ctx.margin > 0.0 {
+        ground = grown_with_neighbours(ground, &ctx.ground_around, ctx.margin)?.0;
+    }
     let mut int_out = if j.intensity {
         Some(BufWriter::new(File::create(j.sibling("intensity"))?))
     } else {
@@ -447,7 +533,16 @@ fn metrics_csv(j: &MetricsJob, output: &std::path::Path) -> Result<String> {
         strata: strata_out.as_mut().map(|w| w as &mut dyn Write),
         structure: structure_out.as_mut().map(|w| w as &mut dyn Write),
     };
-    let rep = metrics::grid_metrics(&r, &ground, &j.params, outs)?;
+    let rep = metrics::grid_metrics_in(
+        &r,
+        &ground,
+        &j.params,
+        outs,
+        &metrics::Context {
+            halo: &ctx.halo,
+            owns: ctx.owns.as_deref().map(|f| f as &(dyn Fn(f64, f64) -> bool + Sync)),
+        },
+    )?;
     out.flush()?;
     for w in [
         int_out.as_mut(),
@@ -501,6 +596,12 @@ pub struct TreesJob {
     pub smooth: f64,
     pub smoothing: trees::Smoothing,
     pub field: Option<FieldJob>,
+    /// Canopy models of the sheets around this one (same cell size). With them, the trees are
+    /// searched for on this model grown by `margin` metres on every side with what the
+    /// neighbours have there, and only the trees whose top is on this sheet are kept: a tree
+    /// cut by the edge of a sheet is found once, whole, by the sheet that holds its top.
+    pub around: Vec<PathBuf>,
+    pub margin: f64,
 }
 
 /// Tops from a CSV of `x,y` lines (a header line is skipped), their height read from the CHM.
@@ -539,9 +640,56 @@ pub fn trees(j: &TreesJob) -> Result<String> {
     trees_run(&j).map(|s| s + &u.notes())
 }
 
+/// This sheet's model grown by `margin` with what the sheets around have there; the own extent
+/// and the number of cells added on each side.
+fn grown_with_neighbours(
+    own: Grid,
+    around: &[PathBuf],
+    margin: f64,
+) -> Result<(Grid, [f64; 4], usize)> {
+    let b = [
+        own.x0,
+        own.y0,
+        own.x0 + own.cols as f64 * own.cell,
+        own.y0 + own.rows as f64 * own.cell,
+    ];
+    let k = (margin / own.cell).ceil() as usize;
+    let mut g = Grid::new(
+        own.x0 - k as f64 * own.cell,
+        own.y0 - k as f64 * own.cell,
+        own.cell,
+        own.cols + 2 * k,
+        own.rows + 2 * k,
+    )?;
+    g.fill_from(&own);
+    let reach = k as f64 * own.cell;
+    for path in around {
+        crate::check_cancel()?;
+        let Ok((e, cell)) = Grid::read_extent(path) else {
+            continue;
+        };
+        let touches = e[0] < b[2] + reach
+            && e[2] > b[0] - reach
+            && e[1] < b[3] + reach
+            && e[3] > b[1] - reach;
+        if !touches || (cell - own.cell).abs() > own.cell * 1e-6 {
+            continue;
+        }
+        g.fill_from(&Grid::read(path)?);
+    }
+    Ok((g, b, k))
+}
+
 fn trees_run(j: &TreesJob) -> Result<String> {
     use crate::forest;
     let mut g = Grid::read(&j.chm)?;
+    // the own extent and the margin, when the neighbours are used
+    let mut owned: Option<([f64; 4], usize)> = None;
+    if !j.around.is_empty() && j.margin > 0.0 {
+        let (grown, own, k) = grown_with_neighbours(g, &j.around, j.margin)?;
+        g = grown;
+        owned = Some((own, k));
+    }
     if j.smooth > 0.0 {
         g = trees::smooth(&g, j.smooth, j.smoothing, j.tops.shape);
     }
@@ -549,7 +697,22 @@ fn trees_run(j: &TreesJob) -> Result<String> {
         Some(f) => manual_tops(f, &g)?,
         None => trees::tops(&g, &j.tops),
     };
-    let ids = trees::crowns(&g, &mut list, &j.crown);
+    let mut ids = trees::crowns(&g, &mut list, &j.crown);
+    // the trees whose top is on this sheet (the west and south edges belong to it, the east and
+    // north ones to the next sheet, so no tree is found twice)
+    let mut dropped = 0usize;
+    if let Some((b, _)) = owned {
+        let mine = |t: &trees::Tree| t.x >= b[0] && t.x < b[2] && t.y >= b[1] && t.y < b[3];
+        let keep: std::collections::HashSet<u32> =
+            list.iter().filter(|t| mine(t)).map(|t| t.id).collect();
+        dropped = list.len() - keep.len();
+        list.retain(|t| keep.contains(&t.id));
+        for id in &mut ids {
+            if *id != 0 && !keep.contains(id) {
+                *id = 0;
+            }
+        }
+    }
     paths::ensure_parent(&j.output)?;
     let hulls = forest::crown_hulls(&g, &ids);
     let epsg = Reader::open(&j.cloud.as_ref().map_or(j.chm.clone(), |c| c.0.clone()))
@@ -588,20 +751,42 @@ fn trees_run(j: &TreesJob) -> Result<String> {
         written.push(path.display().to_string());
     }
     let mut lines = vec![format!("{} individuos: {}", list.len(), written.join(", "))];
+    if owned.is_some() {
+        lines.push(format!(
+            "  con las hojas vecinas: {dropped} árbol(es) con la cima en otra hoja se dejan a esa hoja"
+        ));
+    }
     if let Some(path) = &j.crowns {
         paths::ensure_parent(path)?;
+        // with neighbours the crown raster is cut back to the sheet's own extent
+        let cut: Option<(Grid, Vec<u32>)> = owned.map(|(b, k)| {
+            let mut own = Grid::new(b[0], b[1], g.cell, g.cols - 2 * k, g.rows - 2 * k)
+                .unwrap_or_else(|_| g.like());
+            let mut own_ids = vec![0u32; own.data.len()];
+            for r in 0..own.rows {
+                for c in 0..own.cols {
+                    own_ids[r * own.cols + c] = ids[(r + k) * g.cols + c + k];
+                    own.data[r * own.cols + c] = g.data[(r + k) * g.cols + c + k];
+                }
+            }
+            (own, own_ids)
+        });
+        let (g, ids): (&Grid, &Vec<u32>) = match &cut {
+            Some((a, b)) => (a, b),
+            None => (&g, &ids),
+        };
         // a 32-bit float holds whole numbers exactly up to 2^24 and every viewer reads it; past
         // that the numbers go in an integer raster, which keeps them all
         if ids.iter().copied().max().unwrap_or(0) > 1 << 24 {
             let labels = crate::obia::Labels {
-                lat: crate::obia::Lattice::of(&g),
+                lat: crate::obia::Lattice::of(g),
                 count: ids.iter().copied().max().unwrap_or(0),
                 ids: ids.clone(),
             };
             labels.write_tiff(path, Grid::read_epsg(&j.chm).or(epsg))?;
         } else {
             let mut r = g.like();
-            for (v, id) in r.data.iter_mut().zip(&ids) {
+            for (v, id) in r.data.iter_mut().zip(ids) {
                 if *id > 0 {
                     *v = *id as f32;
                 }

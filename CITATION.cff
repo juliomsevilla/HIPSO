@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "Si HIPSO te ha servido en tu trabajo, cítalo así."
+title: "HIPSO: procesamiento y edición de nubes de puntos"
+type: software
+version: 0.7.6
+authors:
+  - family-names: Sevilla
+    given-names: Julio M.
+repository-code: "https://github.com/juliomsevilla/HIPSO"
+url: "https://github.com/juliomsevilla/HIPSO"
+license-ref: "LicenseRef-HIPSO-Freeware"
+keywords:
+  - lidar
+  - point-cloud
+  - forestry
+  - laz
+  - copc
+abstract: >-
+  Procesamiento y edición de nubes de puntos LiDAR, con memoria, no depende del número de puntos: clasificación, modelos digitales del terreno y de alturas de la vegetación, métricas por área y por árboles individuales, edición de puntos y análisis de terreno.

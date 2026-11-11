@@ -463,6 +463,13 @@ pub struct FitParams {
     pub stop_dist: f64,
     /// Only translate (no rotation).
     pub shift_only: bool,
+    /// Minimise the distance to the tangent plane of the reference point (point-to-plane)
+    /// instead of the distance to the point itself: converges in fewer iterations on
+    /// surfaces and does not stall on a sparse reference.
+    pub plane: bool,
+    /// Share of the pairs, the closest ones, used to find the motion (1 keeps all). Under 1
+    /// it sets aside the pairs of changed ground, felled trees or moving objects.
+    pub trim: f64,
 }
 
 impl Default for FitParams {
@@ -474,6 +481,8 @@ impl Default for FitParams {
             max_iter: 30,
             stop_dist: 0.01,
             shift_only: false,
+            plane: false,
+            trim: 1.0,
         }
     }
 }
@@ -571,6 +580,117 @@ impl Rigid {
     }
 }
 
+/// Unit normal of the best plane through the neighbours of each point within `radius`, or
+/// zeros where there are too few neighbours or they are not flat enough to define one.
+fn plane_normals(pts: &[[f64; 3]], radius: f64) -> Vec<[f64; 3]> {
+    let mut cells: FxMap<u64, Vec<u32>> = FxMap::default();
+    for (i, q) in pts.iter().enumerate() {
+        cells
+            .entry(pack(
+                (q[0] / radius).floor() as i64,
+                (q[1] / radius).floor() as i64,
+                (q[2] / radius).floor() as i64,
+            ))
+            .or_default()
+            .push(i as u32);
+    }
+    let r2 = radius * radius;
+    pts.par_iter()
+        .map(|q| {
+            let (cx, cy, cz) = (
+                (q[0] / radius).floor() as i64,
+                (q[1] / radius).floor() as i64,
+                (q[2] / radius).floor() as i64,
+            );
+            let mut near: Vec<[f64; 3]> = Vec::new();
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        let Some(list) = cells.get(&pack(cx + dx, cy + dy, cz + dz)) else {
+                            continue;
+                        };
+                        for &o in list {
+                            let s = pts[o as usize];
+                            let d = [s[0] - q[0], s[1] - q[1], s[2] - q[2]];
+                            if d[0] * d[0] + d[1] * d[1] + d[2] * d[2] <= r2 {
+                                near.push(d);
+                            }
+                        }
+                    }
+                }
+            }
+            plane_through(&near).unwrap_or([0.0; 3])
+        })
+        .collect()
+}
+
+/// Normal of the least-squares plane through `d` (offsets from any origin), if the points are
+/// flat enough: the smallest eigenvalue of their covariance at most a quarter of the middle one.
+fn plane_through(d: &[[f64; 3]]) -> Option<[f64; 3]> {
+    if d.len() < 6 {
+        return None;
+    }
+    let n = d.len() as f64;
+    let m = (0..3)
+        .map(|k| d.iter().map(|v| v[k]).sum::<f64>() / n)
+        .collect::<Vec<_>>();
+    let mut c = [[0.0f64; 3]; 3];
+    for v in d {
+        let u = [v[0] - m[0], v[1] - m[1], v[2] - m[2]];
+        for i in 0..3 {
+            for j in 0..3 {
+                c[i][j] += u[i] * u[j];
+            }
+        }
+    }
+    let (vals, vecs) = jacobi3(c);
+    let mut order = [0usize, 1, 2];
+    order.sort_by(|&a, &b| vals[a].total_cmp(&vals[b]));
+    let (lo, mid) = (vals[order[0]], vals[order[1]]);
+    if mid <= 0.0 || lo > 0.25 * mid {
+        return None;
+    }
+    let k = order[0];
+    Some([vecs[0][k], vecs[1][k], vecs[2][k]])
+}
+
+/// Eigenvalues and eigenvectors (as columns) of a symmetric 3×3 matrix, by Jacobi rotations.
+fn jacobi3(mut a: [[f64; 3]; 3]) -> ([f64; 3], [[f64; 3]; 3]) {
+    let mut v = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    for _ in 0..32 {
+        let off = a[0][1].abs() + a[0][2].abs() + a[1][2].abs();
+        if off < 1e-18 {
+            break;
+        }
+        for (p, q) in [(0, 1), (0, 2), (1, 2)] {
+            if a[p][q].abs() < 1e-300 {
+                continue;
+            }
+            let theta = (a[q][q] - a[p][p]) / (2.0 * a[p][q]);
+            let t = theta.signum() / (theta.abs() + (theta * theta + 1.0).sqrt());
+            let t = if theta == 0.0 { 1.0 } else { t };
+            let c = 1.0 / (t * t + 1.0).sqrt();
+            let s = t * c;
+            for k in 0..3 {
+                let (akp, akq) = (a[k][p], a[k][q]);
+                a[k][p] = c * akp - s * akq;
+                a[k][q] = s * akp + c * akq;
+            }
+            for k in 0..3 {
+                let (apk, aqk) = (a[p][k], a[q][k]);
+                a[p][k] = c * apk - s * aqk;
+                a[q][k] = s * apk + c * aqk;
+            }
+            for k in 0..3 {
+                let (vkp, vkq) = (v[k][p], v[k][q]);
+                v[k][p] = c * vkp - s * vkq;
+                v[k][q] = s * vkp + c * vkq;
+            }
+        }
+    }
+    ([a[0][0], a[1][1], a[2][2]], v)
+}
+
 /// Moves `source` to lie on `reference` (iterative closest point) and writes it to `output`.
 pub fn fit_cloud(
     reference: &[PathBuf],
@@ -589,6 +709,11 @@ pub fn fit_cloud(
     let reference = unified.all(reference);
     let reference = reference.as_slice();
     let source = &unified.path(source);
+    if !(p.trim > 0.0 && p.trim <= 1.0) {
+        return Err(Error::Param(
+            "la parte de pares que se usa va de 0 (excluido) a 1".into(),
+        ));
+    }
     if !(p.thin > 0.0 && p.max_xy > 0.0 && p.max_z > 0.0) {
         return Err(Error::Param(
             "el aclarado y los límites deben ser positivos".into(),
@@ -612,6 +737,11 @@ pub fn fit_cloud(
         })
         .collect();
     drop(grid);
+    let normals = if p.plane && !p.shift_only {
+        plane_normals(&flat, 2.0 * p.thin)
+    } else {
+        Vec::new()
+    };
     let r = Reader::open(source)?;
     // the points that look for their pair: last and single returns, one per 3D cell
     let mut seen: FxMap<u64, ()> = FxMap::default();
@@ -656,7 +786,7 @@ pub fn fit_cloud(
         }
         let (lim_xy, lim_z) = (p.max_xy.min(reach), p.max_z.min(reach));
         let moved: Vec<[f64; 3]> = sample.iter().map(|q| m.apply(*q)).collect();
-        let pairs: Vec<([f64; 3], [f64; 3])> = moved
+        let mut pairs: Vec<([f64; 3], [f64; 3], u32)> = moved
             .par_iter()
             .filter_map(|q| {
                 let (cx, cy, cz) = (
@@ -664,7 +794,7 @@ pub fn fit_cloud(
                     (q[1] / reach).floor() as i64,
                     (q[2] / reach).floor() as i64,
                 );
-                let mut best: Option<(f64, [f64; 3])> = None;
+                let mut best: Option<(f64, [f64; 3], u32)> = None;
                 for dx in -1..=1 {
                     for dy in -1..=1 {
                         for dz in -1..=1 {
@@ -679,13 +809,13 @@ pub fn fit_cloud(
                                 }
                                 let d = ex * ex + ey * ey + ez * ez;
                                 if best.is_none_or(|b| d < b.0) {
-                                    best = Some((d, s));
+                                    best = Some((d, s, o));
                                 }
                             }
                         }
                     }
                 }
-                best.map(|b| (*q, b.1))
+                best.map(|b| (*q, b.1, b.2))
             })
             .collect();
         if pairs.len() < 10 {
@@ -693,9 +823,17 @@ pub fn fit_cloud(
                 "las nubes no se solapan dentro de los límites: amplía los límites horizontal y vertical".into(),
             ));
         }
+        if p.trim < 1.0 {
+            let dist = |(a, b, _): &([f64; 3], [f64; 3], u32)| {
+                (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)
+            };
+            pairs.sort_by(|x, y| dist(x).total_cmp(&dist(y)));
+            let keep = ((pairs.len() as f64 * p.trim).ceil() as usize).clamp(10, pairs.len());
+            pairs.truncate(keep);
+        }
         let mean = pairs
             .iter()
-            .map(|(a, b)| {
+            .map(|(a, b, _)| {
                 ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
             })
             .sum::<f64>()
@@ -714,19 +852,34 @@ pub fn fit_cloud(
         let step = if p.shift_only {
             let n = pairs.len() as f64;
             let t = (0..3)
-                .map(|k| pairs.iter().map(|(a, b)| b[k] - a[k]).sum::<f64>() / n)
+                .map(|k| pairs.iter().map(|(a, b, _)| b[k] - a[k]).sum::<f64>() / n)
                 .collect::<Vec<_>>();
             Rigid::small([0.0; 3], [t[0], t[1], t[2]])
         } else {
             let mut ata = [[0.0; 6]; 6];
             let mut atb = [0.0; 6];
-            for (a, b) in &pairs {
+            for (a, b, o) in &pairs {
                 let (x, y, z) = (a[0] - c0[0], a[1] - c0[1], a[2] - c0[2]);
-                let rows = [
-                    ([0.0, z, -y, 1.0, 0.0, 0.0], b[0] - a[0]),
-                    ([-z, 0.0, x, 0.0, 1.0, 0.0], b[1] - a[1]),
-                    ([y, -x, 0.0, 0.0, 0.0, 1.0], b[2] - a[2]),
-                ];
+                let rows: Vec<([f64; 6], f64)> = if p.plane {
+                    // distance along the normal of the reference point only
+                    let nv = normals[*o as usize];
+                    if nv == [0.0; 3] {
+                        continue;
+                    }
+                    let cross = [
+                        y * nv[2] - z * nv[1],
+                        z * nv[0] - x * nv[2],
+                        x * nv[1] - y * nv[0],
+                    ];
+                    let rhs = nv[0] * (b[0] - a[0]) + nv[1] * (b[1] - a[1]) + nv[2] * (b[2] - a[2]);
+                    vec![([cross[0], cross[1], cross[2], nv[0], nv[1], nv[2]], rhs)]
+                } else {
+                    vec![
+                        ([0.0, z, -y, 1.0, 0.0, 0.0], b[0] - a[0]),
+                        ([-z, 0.0, x, 0.0, 1.0, 0.0], b[1] - a[1]),
+                        ([y, -x, 0.0, 0.0, 0.0, 1.0], b[2] - a[2]),
+                    ]
+                };
                 for (row, rhs) in rows {
                     for i in 0..6 {
                         atb[i] += row[i] * rhs;
@@ -734,6 +887,13 @@ pub fn fit_cloud(
                             ata[i][j] += row[i] * row[j];
                         }
                     }
+                }
+            }
+            if p.plane {
+                // a flat surface leaves some motions free: a light ridge keeps them at rest
+                let ridge = 1e-9 * (0..6).map(|i| ata[i][i]).sum::<f64>().max(1e-12);
+                for (i, row) in ata.iter_mut().enumerate() {
+                    row[i] += ridge;
                 }
             }
             let Some(x) = solve(ata, atb) else { break };

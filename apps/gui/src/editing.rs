@@ -33,6 +33,8 @@ pub struct Editing {
     /// Lasso trail and start of the drag on the 3D view, in pixels of the view.
     pub d3draft: Vec<[f64; 2]>,
     pub d3start: Option<Pos2>,
+    /// Radius of the brushes on the screen, in pixels.
+    pub brush_px: f64,
     /// Selections in 3D reach only this many metres either side of the plane of the target.
     pub slab: bool,
     pub slab_half: f64,
@@ -66,6 +68,7 @@ impl Default for Editing {
             pstart: None,
             d3draft: Vec::new(),
             d3start: None,
+            brush_px: 18.0,
             slab: false,
             slab_half: 1.0,
             sel_rev: 0,
@@ -91,10 +94,125 @@ fn parse(s: &str) -> Option<f64> {
 }
 
 pub fn is_select(n: Nav) -> bool {
+    is_select_3d(n) || is_brush(n) || is_line(n)
+}
+
+/// The tools that work on the 3D view too: shapes drawn on the screen. The brushes and the
+/// lines belong to the plan and the profile.
+pub fn is_select_3d(n: Nav) -> bool {
     matches!(
         n,
         Nav::SelRect | Nav::SelPoly | Nav::SelLasso | Nav::SelCircle
     )
+}
+
+pub fn is_brush(n: Nav) -> bool {
+    matches!(n, Nav::SelBrush | Nav::SelBrushSq)
+}
+
+/// Above or below a line drawn in the profile.
+pub fn is_line(n: Nav) -> bool {
+    matches!(n, Nav::SelAbove | Nav::SelBelow)
+}
+
+/// A brush stroke in progress: adds the pointer's position to `draft` (view coordinates) while
+/// the button is down, and gives the stroke when it ends. `px` is how many pixels make one unit
+/// of the view and `size_px` the radius of the brush on the screen; `[` and `]` change it.
+fn brush_stroke(
+    nav: Nav,
+    resp: &egui::Response,
+    size_px: &mut f64,
+    draft: &mut Vec<[f64; 2]>,
+    to: &dyn Fn(Pos2) -> [f64; 2],
+    px: f64,
+) -> Option<edit::Brush> {
+    if resp.hovered() {
+        let (less, more) = resp.ctx.input(|i| {
+            (
+                i.key_pressed(egui::Key::OpenBracket),
+                i.key_pressed(egui::Key::CloseBracket),
+            )
+        });
+        if less {
+            *size_px = (*size_px / 1.15).max(2.0);
+        }
+        if more {
+            *size_px = (*size_px * 1.15).min(300.0);
+        }
+    }
+    let end = resp.interact_pointer_pos();
+    if resp.dragged_by(egui::PointerButton::Primary)
+        && let Some(p) = end
+    {
+        let c = to(p);
+        if draft
+            .last()
+            .is_none_or(|l| (l[0] - c[0]).hypot(l[1] - c[1]) * px > 2.0)
+        {
+            draft.push(c);
+        }
+    }
+    let stopped = resp.drag_stopped_by(egui::PointerButton::Primary);
+    if !(stopped || resp.clicked_by(egui::PointerButton::Primary)) {
+        return None;
+    }
+    let mut path = std::mem::take(draft);
+    if path.is_empty() {
+        // a click paints one dab
+        path.push(to(end?));
+    }
+    Some(edit::Brush::new(
+        &path,
+        *size_px / px,
+        nav == Nav::SelBrushSq,
+    ))
+}
+
+/// The brush on the screen: the stroke so far and the shape of the brush under the pointer.
+fn paint_brush(
+    painter: &egui::Painter,
+    nav: Nav,
+    resp: &egui::Response,
+    trail: &[Pos2],
+    size_px: f32,
+    color: Color32,
+) {
+    let square = nav == Nav::SelBrushSq;
+    let fill = color.gamma_multiply(0.28);
+    if trail.len() >= 2 {
+        painter.add(egui::Shape::line(
+            trail.to_vec(),
+            Stroke::new(2.0 * size_px, fill),
+        ));
+    }
+    for p in trail
+        .iter()
+        .step_by(trail.len().div_ceil(40).max(1))
+        .chain(trail.last())
+    {
+        if square {
+            painter.rect_filled(
+                Rect::from_center_size(*p, Vec2::splat(2.0 * size_px)),
+                0.0,
+                fill,
+            );
+        } else {
+            painter.circle_filled(*p, size_px, fill);
+        }
+    }
+    if let Some(h) = resp.hover_pos() {
+        let stroke = Stroke::new(1.5, color);
+        if square {
+            painter.rect_stroke(
+                Rect::from_center_size(h, Vec2::splat(2.0 * size_px)),
+                0.0,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+        } else {
+            painter.circle_stroke(h, size_px, stroke);
+        }
+    }
 }
 
 /// The shape a selection tool just finished, from the pointer's events. `to` turns a screen
@@ -243,6 +361,27 @@ impl App {
             );
             [m.0, m.1]
         };
+        if is_brush(self.nav) {
+            if let Some(b) = brush_stroke(
+                self.nav,
+                resp,
+                &mut self.ed.brush_px,
+                &mut self.ed.draft,
+                &to,
+                plan.scale,
+            ) {
+                let op = SelOp {
+                    mode: self.mode_now(ctx),
+                    region: Region::PlanBrush(b),
+                    attr: self.ed.attr.clone(),
+                };
+                self.queue(Cmd::AddOp(Box::new(op)));
+            }
+            if resp.drag_stopped_by(egui::PointerButton::Primary) {
+                self.drag_start = None;
+            }
+            return;
+        }
         let start = self.drag_start;
         if let Some(poly) =
             finished_shape(self.nav, resp, start, &mut self.ed.draft, &to, plan.scale)
@@ -278,6 +417,17 @@ impl App {
                 Pos2::new(s.0 as f32, s.1 as f32) + rect.min.to_vec2()
             })
             .collect();
+        if is_brush(self.nav) {
+            paint_brush(
+                painter,
+                self.nav,
+                resp,
+                &trail,
+                self.ed.brush_px as f32,
+                Color32::from_rgb(0, 255, 255),
+            );
+            return;
+        }
         paint_shape(
             painter,
             self.nav,
@@ -369,6 +519,70 @@ impl App {
         }
         if resp.drag_started_by(egui::PointerButton::Primary) {
             self.ed.pstart = resp.interact_pointer_pos();
+        }
+        let color = Color32::from_rgb(0, 255, 255);
+        if is_brush(self.nav) {
+            if let Some(b) = brush_stroke(
+                self.nav,
+                resp,
+                &mut self.ed.brush_px,
+                &mut self.ed.pdraft,
+                &to,
+                k,
+            ) {
+                let op = SelOp {
+                    mode: self.mode_now(ctx),
+                    region: Region::ProfileBrush { bx, brush: b },
+                    attr: self.ed.attr.clone(),
+                };
+                self.queue(Cmd::AddOp(Box::new(op)));
+            }
+            let trail: Vec<Pos2> = self.ed.pdraft.iter().map(|p| back(p[0], p[1])).collect();
+            paint_brush(
+                painter,
+                self.nav,
+                resp,
+                &trail,
+                self.ed.brush_px as f32,
+                color,
+            );
+            return;
+        }
+        if is_line(self.nav) {
+            let above = self.nav == Nav::SelAbove;
+            if resp.drag_stopped_by(egui::PointerButton::Primary)
+                && let (Some(a), Some(b)) = (self.ed.pstart, resp.interact_pointer_pos())
+                && (a.x - b.x).abs() >= 4.0
+            {
+                let op = SelOp {
+                    mode: self.mode_now(ctx),
+                    region: Region::Side {
+                        bx,
+                        a: to(a),
+                        b: to(b),
+                        above,
+                    },
+                    attr: self.ed.attr.clone(),
+                };
+                self.queue(Cmd::AddOp(Box::new(op)));
+            }
+            if let (true, Some(a), Some(b)) = (
+                resp.dragged_by(egui::PointerButton::Primary),
+                self.ed.pstart,
+                resp.interact_pointer_pos(),
+            ) {
+                painter.line_segment([a, b], Stroke::new(2.0, color));
+                // the side that is taken, shaded along the line
+                let off = if above { -14.0 } else { 14.0 };
+                painter.line_segment(
+                    [a + Vec2::new(0.0, off), b + Vec2::new(0.0, off)],
+                    Stroke::new(6.0, color.gamma_multiply(0.25)),
+                );
+            }
+            if resp.drag_stopped_by(egui::PointerButton::Primary) {
+                self.ed.pstart = None;
+            }
+            return;
         }
         let start = self.ed.pstart;
         if let Some(poly) = finished_shape(self.nav, resp, start, &mut self.ed.pdraft, &to, k) {
@@ -770,6 +984,10 @@ impl App {
                                 ("@aoi", "Seleccionar con polígono", Nav::SelPoly),
                                 ("@lasso", "Seleccionar con lazo", Nav::SelLasso),
                                 ("@circle", "Seleccionar con círculo", Nav::SelCircle),
+                                ("@brush", "Pincel redondo (plano y perfil)", Nav::SelBrush),
+                                ("@brushsq", "Pincel cuadrado (plano y perfil)", Nav::SelBrushSq),
+                                ("@above", "Seleccionar todo lo que queda sobre una línea del perfil", Nav::SelAbove),
+                                ("@below", "Seleccionar todo lo que queda bajo una línea del perfil", Nav::SelBelow),
                             ] {
                                 if ribbon::tool_button(ui, &t, icon, name, self.nav == n).clicked()
                                 {
@@ -777,6 +995,31 @@ impl App {
                                 }
                             }
                         });
+                        if is_brush(self.nav) {
+                            ui.horizontal(|ui| {
+                                ui.label("Tamaño del pincel");
+                                ui.add(
+                                    egui::Slider::new(&mut self.ed.brush_px, 2.0..=300.0)
+                                        .suffix(" px")
+                                        .logarithmic(true),
+                                );
+                            });
+                            ui.label(
+                                egui::RichText::new(
+                                    "Arrastra para pintar; los puntos tocados se seleccionan. [ y ] cambian el tamaño. Vale en planta y en perfil.",
+                                )
+                                .size(11.0)
+                                .color(t.weak),
+                            );
+                        } else if is_line(self.nav) {
+                            ui.label(
+                                egui::RichText::new(
+                                    "En el perfil, arrastra para trazar una línea: se selecciona todo lo que queda por encima (o por debajo) a lo largo de ella, dentro de la caja del perfil.",
+                                )
+                                .size(11.0)
+                                .color(t.weak),
+                            );
+                        }
                         ui.horizontal_wrapped(|ui| {
                             ui.spacing_mut().item_spacing = Vec2::splat(2.0);
                             if ribbon::small_button(ui, &t, "@selall", "Todo", false).clicked() {

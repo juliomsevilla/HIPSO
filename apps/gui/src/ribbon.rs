@@ -26,7 +26,7 @@ pub fn big_button(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: bo
     }
 }
 
-fn big_button_body(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: bool) -> Response {
+pub fn big_button_body(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: bool) -> Response {
     let lines: Vec<&str> = label.split('\n').collect();
     let w = big_width(ui, label);
     let (rect, r) = ui.allocate_exact_size(Vec2::new(w, 66.0), Sense::click());
@@ -318,7 +318,10 @@ pub fn fold_group(
             egui::Popup::menu(&r)
                 .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                 .show(|ui| {
+                    // the controls say they are in a popup: a menu inside it has to be a submenu
+                    ctx.data_mut(|d| d.insert_temp(egui::Id::new("rf_in_popup"), true));
                     ui.horizontal(add);
+                    ctx.data_mut(|d| d.insert_temp(egui::Id::new("rf_in_popup"), false));
                 });
         });
         ctx.data_mut(|d| d.insert_temp(used_id, used + folded_w));
@@ -331,6 +334,13 @@ pub fn fold_group(
         d.insert_temp(wid, w);
         d.insert_temp(used_id, used + w);
     });
+}
+
+/// Whether the controls being drawn are in the popup of a folded group, where a menu has to be
+/// a submenu (`ui.menu_button`) and not a popup of its own, which would close the first.
+pub fn in_folded_popup(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(egui::Id::new("rf_in_popup")))
+        .unwrap_or(false)
 }
 
 /// The spacing of the form controls inside a ribbon group: three rows fit the height of a

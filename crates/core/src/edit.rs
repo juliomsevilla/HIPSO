@@ -28,6 +28,112 @@ pub enum Region {
     Profile { bx: ProfileBox, poly: Polygon },
     /// A shape drawn on the 3D view, whatever lies in front of or behind the points.
     View(ViewCut),
+    /// A brush stroke in map coordinates, whatever the elevation.
+    PlanBrush(Brush),
+    /// A brush stroke in a profile (distance along the box, elevation); only points inside the
+    /// box count.
+    ProfileBrush { bx: ProfileBox, brush: Brush },
+    /// Everything above (or below) a line drawn in a profile, along the length of the line;
+    /// only points inside the box count.
+    Side {
+        bx: ProfileBox,
+        a: [f64; 2],
+        b: [f64; 2],
+        above: bool,
+    },
+}
+
+/// A brush stroke: the points within `half` of a path (round brush) or inside a square of side
+/// `2 half` dragged along it (square brush). The path is stamped every half a brush radius and
+/// the stamps are kept in a grid, so asking whether a point is painted does not depend on how
+/// long the stroke is, and the viewer and the saved file give the same answer.
+#[derive(Clone, Debug)]
+pub struct Brush {
+    pub half: f64,
+    pub square: bool,
+    stamps: Vec<[f64; 2]>,
+    cells: std::collections::HashMap<(i64, i64), Vec<u32>>,
+}
+
+impl Brush {
+    pub fn new(path: &[[f64; 2]], half: f64, square: bool) -> Self {
+        let half = half.max(f64::MIN_POSITIVE);
+        let step = half * 0.5;
+        let mut stamps: Vec<[f64; 2]> = Vec::new();
+        if let Some(first) = path.first() {
+            stamps.push(*first);
+        }
+        for w in path.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            let len = (b[0] - a[0]).hypot(b[1] - a[1]);
+            let n = (len / step).ceil().max(1.0) as usize;
+            for k in 1..=n {
+                let t = k as f64 / n as f64;
+                stamps.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+            }
+        }
+        let mut cells: std::collections::HashMap<(i64, i64), Vec<u32>> = Default::default();
+        for (i, st) in stamps.iter().enumerate() {
+            cells
+                .entry(Self::cell_of(st[0], st[1], half))
+                .or_default()
+                .push(i as u32);
+        }
+        Self {
+            half,
+            square,
+            stamps,
+            cells,
+        }
+    }
+
+    fn cell_of(x: f64, y: f64, half: f64) -> (i64, i64) {
+        (
+            (x / (2.0 * half)).floor() as i64,
+            (y / (2.0 * half)).floor() as i64,
+        )
+    }
+
+    pub fn contains(&self, x: f64, y: f64) -> bool {
+        let (cx, cy) = Self::cell_of(x, y, self.half);
+        let h2 = self.half * self.half;
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                let Some(list) = self.cells.get(&(cx + dx, cy + dy)) else {
+                    continue;
+                };
+                for &i in list {
+                    let st = self.stamps[i as usize];
+                    let (ex, ey) = ((x - st[0]).abs(), (y - st[1]).abs());
+                    let inside = if self.square {
+                        ex <= self.half && ey <= self.half
+                    } else {
+                        ex * ex + ey * ey <= h2
+                    };
+                    if inside {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+}
+
+/// Whether `(u, z)` is above (or below) the segment from `a` to `b`, within the span of the
+/// segment along `u`.
+pub fn beside_line(a: [f64; 2], b: [f64; 2], above: bool, u: f64, z: f64) -> bool {
+    let (u0, u1) = (a[0].min(b[0]), a[0].max(b[0]));
+    if u < u0 || u > u1 {
+        return false;
+    }
+    let zl = if (b[0] - a[0]).abs() < 1e-12 {
+        // a vertical line: the span is a point, and so is what is above it
+        a[1].max(b[1])
+    } else {
+        a[1] + (b[1] - a[1]) * (u - a[0]) / (b[0] - a[0])
+    };
+    if above { z > zl } else { z < zl }
 }
 
 /// A polygon drawn in pixels on a 3D view, with the camera that showed it and, optionally, the
@@ -230,6 +336,18 @@ impl SelOp {
                 u >= 0.0 && u <= bx.length() && t.abs() <= bx.width / 2.0 && poly.contains(u, p.z)
             }
             Region::View(cut) => cut.contains(p),
+            Region::PlanBrush(brush) => brush.contains(p.x, p.y),
+            Region::ProfileBrush { bx, brush } => {
+                let (u, t) = bx.local(p.x, p.y);
+                u >= 0.0 && u <= bx.length() && t.abs() <= bx.width / 2.0 && brush.contains(u, p.z)
+            }
+            Region::Side { bx, a, b, above } => {
+                let (u, t) = bx.local(p.x, p.y);
+                u >= 0.0
+                    && u <= bx.length()
+                    && t.abs() <= bx.width / 2.0
+                    && beside_line(*a, *b, *above, u, p.z)
+            }
         }
     }
 }
@@ -675,6 +793,61 @@ mod tests {
         assert!(ses.toggle(&mut s, 0));
         assert_eq!(s.class, [2, 7, 7, 1, 2]);
         assert!(!ses.toggle(&mut s, 9));
+    }
+
+    #[test]
+    fn a_brush_stroke_picks_what_lies_along_its_path() {
+        let s = store();
+        // a stroke along y = 1 from x = 0 to x = 10, 1.5 m either side: all but the point at (8, 8)
+        let path = [[0.0, 1.0], [5.0, 1.0], [10.0, 1.0]];
+        let round = Region::PlanBrush(Brush::new(&path, 1.5, false));
+        let sel = [op(Mode::New, round, Attr::default())];
+        assert_eq!(selection(&s, &sel), [true, true, false, true, true]);
+        // a point just inside and just outside the round end of a stroke
+        let b = Brush::new(&[[0.0, 0.0]], 1.0, false);
+        assert!(b.contains(0.99, 0.0) && !b.contains(1.01, 0.0));
+        // the square brush reaches its corners, the round one does not
+        let sq = Brush::new(&[[0.0, 0.0]], 1.0, true);
+        assert!(sq.contains(0.95, 0.95) && !b.contains(0.95, 0.95));
+        // a slanted stroke has no gaps along it
+        let slant = Brush::new(&[[0.0, 0.0], [10.0, 10.0]], 0.5, false);
+        assert!((0..=100).all(|k| slant.contains(k as f64 / 10.0, k as f64 / 10.0)));
+    }
+
+    #[test]
+    fn above_and_below_a_line_in_a_profile() {
+        let s = store();
+        let bx = ProfileBox {
+            a: [0.0, 1.0],
+            b: [10.0, 1.0],
+            width: 2.0,
+        };
+        // a line at 5 m from the start to the end of the box
+        let side = |above| {
+            vec![op(
+                Mode::New,
+                Region::Side {
+                    bx,
+                    a: [0.0, 5.0],
+                    b: [10.0, 5.0],
+                    above,
+                },
+                Attr::default(),
+            )]
+        };
+        // the box takes the points within 1 m of the axis (y = 1): all but the one at y = 8
+        let up = selection(&s, &side(true));
+        let down = selection(&s, &side(false));
+        // a point is in at most one of the two, and the box (y within 1 of the axis) limits them
+        assert!(up.iter().zip(&down).all(|(a, b)| !(*a && *b)));
+        assert_eq!(up, [false, true, false, true, false]);
+        assert_eq!(down, [true, false, false, false, true]);
+        // along the line only: a line spanning half the box leaves the other half alone
+        assert!(beside_line([0.0, 5.0], [5.0, 5.0], true, 3.0, 6.0));
+        assert!(!beside_line([0.0, 5.0], [5.0, 5.0], true, 7.0, 6.0));
+        // a slanted line: above is relative to the line at that distance
+        assert!(beside_line([0.0, 0.0], [10.0, 10.0], true, 2.0, 3.0));
+        assert!(!beside_line([0.0, 0.0], [10.0, 10.0], true, 8.0, 3.0));
     }
 
     #[test]

@@ -21,6 +21,8 @@ pub struct State {
     pub dtm_smooth: f64,
     pub dtm_smoothing: Smoothing,
     pub mosaic_dtm: bool,
+    /// Metres within which neighbouring sheets are used as context (0: each sheet alone).
+    pub neighbors: f64,
     /// Shapefile of breaklines for the DTM (empty: none).
     pub dtm_breaklines: String,
     pub chm_smooth: f64,
@@ -73,6 +75,7 @@ impl Default for State {
             dtm_smooth: 0.0,
             dtm_smoothing: Smoothing::Mean,
             mosaic_dtm: false,
+            neighbors: 0.0,
             dtm_breaklines: String::new(),
             chm_smooth: 0.0,
             chm_smoothing: Smoothing::Mean,
@@ -259,6 +262,22 @@ impl Tools {
         }
     }
 
+    /// The distance within which the neighbouring sheets are read as context, so that the edges of
+    /// a sheet come out as they would from the whole block.
+    fn neighbors_row(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf]) {
+        if inputs.len() < 2 {
+            return;
+        }
+        num(
+            ui,
+            "Hojas vecinas hasta (m, 0 = cada hoja sola)",
+            &mut self.s2.neighbors,
+            0.0..=500.0,
+            5.0,
+        );
+        ui.label(egui::RichText::new("Sin costura en los bordes: cada hoja se calcula con las que tiene a esa distancia y se queda solo con lo suyo. Cuesta leer también las vecinas.").color(t.weak).size(11.0));
+    }
+
     pub fn classify_form(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf]) {
         let tag = format!("clasif{}", self.ground_tag());
         let ext = inputs
@@ -267,6 +286,7 @@ impl Tools {
             .map_or("las".to_string(), |e| e.to_string_lossy().into_owned());
         self.sheet_note(ui, t, inputs, &tag, &ext);
         ui.label(egui::RichText::new("Las hojas no se unen: se clasifica una a una y cada una se escribe en su propio archivo.").color(t.weak).size(11.0));
+        self.neighbors_row(ui, t, inputs);
         self.steps_form(ui);
     }
 
@@ -323,6 +343,7 @@ impl Tools {
         if !self.s2.dtm_breaklines.is_empty() && self.dtm_surface == Surface::Mean {
             ui.label(egui::RichText::new("Las líneas de rotura necesitan TIN o IDW: con «Media por celda» no se pueden usar.").color(egui::Color32::from_rgb(200, 60, 40)).size(11.0));
         }
+        self.neighbors_row(ui, t, inputs);
         ui.checkbox(
             &mut self.s2.mosaic_dtm,
             "Hacer además un mosaico con todas las hojas",
@@ -415,6 +436,7 @@ impl Tools {
             _ => {}
         }
         Self::smoothing_row(ui, &mut self.s2.chm_smooth, &mut self.s2.chm_smoothing);
+        self.neighbors_row(ui, t, inputs);
         ui.checkbox(
             &mut self.s2.mosaic_chm,
             "Hacer además un mosaico con todas las hojas",
@@ -453,6 +475,7 @@ impl Tools {
             0.0..=50.0,
             0.1,
         );
+        self.neighbors_row(ui, t, inputs);
         ui.checkbox(&mut self.intensity, "Métricas de intensidad (_intensity)");
         ui.checkbox(&mut self.strata, "Métricas por estratos (_strata)");
         let mut structure = self.mp.structure.is_some();
@@ -868,6 +891,7 @@ impl Tools {
                 .ok_or_else(|| hipso_core::Error::Param(format!("no hay MDT de {}", p.display())))
         };
         let inputs_v = inputs.to_vec();
+        let neighbors = self.s2.neighbors;
         let (task, show, outputs): (Task, Vec<PathBuf>, Vec<PathBuf>) = match tool {
             ToolId::Classify => {
                 let tag = format!("clasif{}", self.ground_tag());
@@ -877,7 +901,7 @@ impl Tools {
                 (
                     Box::new(move || {
                         let out_for = |p: &Path| outs.get(p).cloned().unwrap_or_default();
-                        sheets::classify_each(&inputs_v, &out_for, &steps, &tiling)
+                        sheets::classify_each(&inputs_v, &out_for, &steps, &tiling, neighbors)
                     }),
                     vec![],
                     outputs,
@@ -921,7 +945,8 @@ impl Tools {
                 (
                     Box::new(move || {
                         let out_for = |p: &Path| outs.get(p).cloned().unwrap_or_default();
-                        sheets::dtm_each(&inputs_v, &base, &out_for, mosaic.as_deref()).map(|r| r.0)
+                        sheets::dtm_each(&inputs_v, &base, &out_for, mosaic.as_deref(), neighbors)
+                            .map(|r| r.0)
                     }),
                     show,
                     outputs,
@@ -966,8 +991,15 @@ impl Tools {
                     };
                     Box::new(move || {
                         let out_for = |p: &Path| outs.get(p).cloned().unwrap_or_default();
-                        sheets::chm_each(&inputs_v, &base, &out_for, &dtm_for, mosaic.as_deref())
-                            .map(|r| r.0)
+                        sheets::chm_each(
+                            &inputs_v,
+                            &base,
+                            &out_for,
+                            &dtm_for,
+                            mosaic.as_deref(),
+                            neighbors,
+                        )
+                        .map(|r| r.0)
                     })
                 } else {
                     let base = jobs::DsmJob {
@@ -986,7 +1018,8 @@ impl Tools {
                     };
                     Box::new(move || {
                         let out_for = |p: &Path| outs.get(p).cloned().unwrap_or_default();
-                        sheets::dsm_each(&inputs_v, &base, &out_for, mosaic.as_deref()).map(|r| r.0)
+                        sheets::dsm_each(&inputs_v, &base, &out_for, mosaic.as_deref(), neighbors)
+                            .map(|r| r.0)
                     })
                 };
                 (task, show, outputs)
@@ -1029,7 +1062,7 @@ impl Tools {
                 (
                     Box::new(move || {
                         let out_for = |p: &Path| outs.get(p).cloned().unwrap_or_default();
-                        sheets::metrics_each(&inputs_v, &base, &out_for, &dtm_for)
+                        sheets::metrics_each(&inputs_v, &base, &out_for, &dtm_for, neighbors)
                     }),
                     show,
                     outputs,

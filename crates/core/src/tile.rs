@@ -127,6 +127,18 @@ impl Tiled {
     /// share the first one's point format and record length; coordinates are converted to the
     /// first one's scale and offset.
     pub fn spool(inputs: &[Reader], layout: Layout) -> Result<Self> {
+        Self::spool_with_context(inputs, &[], layout)
+    }
+
+    /// [`Tiled::spool`] with `context`: files whose points only help to decide about the points of
+    /// `inputs` (the neighbouring sheets of a block). Their points are kept in the tiles they
+    /// reach, but none of them is a tile's own, so none is written out; the ones beyond the
+    /// buffer of the layout are left out.
+    pub fn spool_with_context(
+        inputs: &[Reader],
+        context: &[Reader],
+        layout: Layout,
+    ) -> Result<Self> {
         let first = inputs
             .first()
             .ok_or_else(|| Error::Param("no hay archivos de entrada".into()))?;
@@ -146,7 +158,20 @@ impl Tiled {
         let mut bufs: Vec<Vec<u8>> = vec![Vec::new(); n];
         let mut counts = vec![0u64; n];
         // reading and spreading the points is about half of the work, processing the tiles the rest
-        crate::progress::begin(2 * inputs.iter().map(|r| r.header.count).sum::<u64>());
+        crate::progress::begin(
+            2 * inputs
+                .iter()
+                .chain(context)
+                .map(|r| r.header.count)
+                .sum::<u64>(),
+        );
+        // where the points of the context still matter: the layout and its buffer
+        let reach = [
+            layout.x0 - layout.buffer,
+            layout.y0 - layout.buffer,
+            layout.x0 + layout.cols as f64 * layout.size + layout.buffer,
+            layout.y0 + layout.rows as f64 * layout.size + layout.buffer,
+        ];
         let flush = |t: usize, buf: &mut Vec<u8>| -> Result<()> {
             let mut f = OpenOptions::new()
                 .create(true)
@@ -156,7 +181,8 @@ impl Tiled {
             buf.clear();
             Ok(())
         };
-        for input in inputs {
+        for (n, input) in inputs.iter().chain(context).enumerate() {
+            let is_context = n >= inputs.len();
             let h = &input.header;
             if h.format != header.format || h.record_len != header.record_len {
                 return Err(Error::Unsupported(format!(
@@ -174,6 +200,11 @@ impl Tiled {
                 crate::progress::advance((bytes.len() / rec_len.max(1)) as u64);
                 for rec in bytes.chunks_exact(rec_len) {
                     let Some(p) = input.decode(rec) else { continue };
+                    if is_context
+                        && (p.x < reach[0] || p.x >= reach[2] || p.y < reach[1] || p.y >= reach[3])
+                    {
+                        continue;
+                    }
                     let mut rec = rec.to_vec();
                     if !same && !crate::las::set_xyz(&header, &mut rec, p.x, p.y, p.z) {
                         return Err(Error::Param(
@@ -183,7 +214,7 @@ impl Tiled {
                     layout.visit(p.x, p.y, |t, home| {
                         if let (Some(b), Some(c)) = (bufs.get_mut(t), counts.get_mut(t)) {
                             b.extend_from_slice(&rec);
-                            b.push(u8::from(home));
+                            b.push(u8::from(home && !is_context));
                             *c += 1;
                             if b.len() >= flush_at
                                 && let Err(e) = flush(t, b)

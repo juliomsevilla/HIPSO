@@ -210,12 +210,25 @@ pub fn classify(
     s: &Steps,
     t: &Tiling,
 ) -> Result<Report> {
+    classify_with_context(inputs, &[], output, s, t)
+}
+
+/// [`classify`] with `context`: files (the neighbouring sheets of a block) whose points are seen
+/// by the filters near the edges of `inputs` but are neither classified nor written.
+pub fn classify_with_context(
+    inputs: &[std::path::PathBuf],
+    context: &[std::path::PathBuf],
+    output: &std::path::Path,
+    s: &Steps,
+    t: &Tiling,
+) -> Result<Report> {
     let readers = open_all(inputs)?;
+    let context = open_all(context)?;
     let template = readers
         .first()
         .ok_or_else(|| Error::Param("no hay archivos de entrada".into()))?;
     let layout = Layout::new(union(&readers), t.size, t.buffer, 1.0)?;
-    let tiled = Tiled::spool(&readers, layout)?;
+    let tiled = Tiled::spool_with_context(&readers, &context, layout)?;
     let format = tiled.header.format;
     let rec_len = usize::from(tiled.header.record_len);
     let mut writer = Writer::create(output, template)?;
@@ -299,13 +312,28 @@ pub fn dtm(
     t: &Tiling,
     breaklines: Option<&crate::breaklines::Breaklines>,
 ) -> Result<(Grid, Report, Option<u16>)> {
+    dtm_in(inputs, &[], cell, s, surface, t, breaklines)
+}
+
+/// [`dtm`] with `context`: files (the neighbouring sheets of a block) whose points the filters and
+/// triangulations see near the edges of `inputs`, but that give no cell of their own.
+pub fn dtm_in(
+    inputs: &[std::path::PathBuf],
+    context: &[std::path::PathBuf],
+    cell: f64,
+    s: &Steps,
+    surface: Surface,
+    t: &Tiling,
+    breaklines: Option<&crate::breaklines::Breaklines>,
+) -> Result<(Grid, Report, Option<u16>)> {
     let readers = open_all(inputs)?;
+    let context = open_all(context)?;
     let epsg = readers.first().and_then(|r| r.header.epsg);
     let b = union(&readers);
     let layout = Layout::new(b, t.size, t.buffer, cell)?;
     let mut out = Grid::covering(b, cell)?;
     let fp = Footprint::new(b, cell);
-    let mut tiled = Tiled::spool(&readers, layout)?;
+    let mut tiled = Tiled::spool_with_context(&readers, &context, layout)?;
     tiled.keep_records = false;
     let mut report = Report::default();
     tiled.process(
@@ -424,13 +452,27 @@ pub fn chm_pitfree(
     p: &PitFree,
     t: &Tiling,
 ) -> Result<(Grid, Option<u16>)> {
+    chm_pitfree_in(inputs, &[], dtm, cell, p, t)
+}
+
+/// [`chm_pitfree`] with `context`: files (the neighbouring sheets of a block) whose points the filters and
+/// triangulations see near the edges of `inputs`, but that give no cell of their own.
+pub fn chm_pitfree_in(
+    inputs: &[std::path::PathBuf],
+    context: &[std::path::PathBuf],
+    dtm: &Grid,
+    cell: f64,
+    p: &PitFree,
+    t: &Tiling,
+) -> Result<(Grid, Option<u16>)> {
     let readers = open_all(inputs)?;
+    let context = open_all(context)?;
     let epsg = readers.first().and_then(|r| r.header.epsg);
     let b = union(&readers);
     let layout = Layout::new(b, t.size, t.buffer, cell)?;
     let mut out = Grid::covering(b, cell)?;
     let fp = Footprint::new(b, cell);
-    let mut tiled = Tiled::spool(&readers, layout)?;
+    let mut tiled = Tiled::spool_with_context(&readers, &context, layout)?;
     tiled.keep_records = false;
     tiled.process(
         t.threads,
@@ -494,13 +536,26 @@ pub fn dsm(
     interpolation: Surface,
     t: &Tiling,
 ) -> Result<(Grid, Option<u16>)> {
+    dsm_in(inputs, &[], cell, interpolation, t)
+}
+
+/// [`dsm`] with `context`: files (the neighbouring sheets of a block) whose points the filters and
+/// triangulations see near the edges of `inputs`, but that give no cell of their own.
+pub fn dsm_in(
+    inputs: &[std::path::PathBuf],
+    context: &[std::path::PathBuf],
+    cell: f64,
+    interpolation: Surface,
+    t: &Tiling,
+) -> Result<(Grid, Option<u16>)> {
     let readers = open_all(inputs)?;
+    let context = open_all(context)?;
     let epsg = readers.first().and_then(|r| r.header.epsg);
     let b = union(&readers);
     let layout = Layout::new(b, t.size, t.buffer, cell)?;
     let mut out = Grid::covering(b, cell)?;
     let fp = Footprint::new(b, cell);
-    let mut tiled = Tiled::spool(&readers, layout)?;
+    let mut tiled = Tiled::spool_with_context(&readers, &context, layout)?;
     tiled.keep_records = false;
     tiled.process(
         t.threads,

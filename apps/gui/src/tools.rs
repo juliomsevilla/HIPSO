@@ -332,6 +332,8 @@ pub struct Tools {
     crowns_shp: bool,
     tops_shp: bool,
     cloud_ids: bool,
+    across: bool,
+    across_margin: f64,
     field: String,
     field_radius: f64,
     match_dist: f64,
@@ -431,6 +433,8 @@ impl Default for Tools {
             crowns_shp: true,
             tops_shp: true,
             cloud_ids: false,
+            across: true,
+            across_margin: 30.0,
             field: String::new(),
             field_radius: 10.0,
             match_dist: 3.0,
@@ -1337,6 +1341,19 @@ impl Tools {
                     &mut self.cloud_ids,
                     "Nube LAS/LAZ con atributo treeID por punto",
                 );
+                ui.checkbox(
+                    &mut self.across,
+                    "Con varias hojas, cada árbol una sola vez: lo busca con lo que tienen las vecinas y lo deja a la hoja de su cima",
+                );
+                if self.across {
+                    num(
+                        ui,
+                        "Margen hacia las vecinas (m)",
+                        &mut self.across_margin,
+                        1.0..=500.0,
+                        1.0,
+                    );
+                }
             });
         egui::CollapsingHeader::new("5 · Comprobar con inventario de campo").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -1630,7 +1647,16 @@ impl Tools {
                             plot_radius: self.field_radius,
                             max_dist: self.match_dist,
                         }),
+                        around: Vec::new(),
+                        margin: if self.across { self.across_margin } else { 0.0 },
                     });
+                }
+                // each sheet looks at the models of the others, which tell which are its neighbours
+                if self.across && trees_jobs.len() > 1 {
+                    let all: Vec<PathBuf> = trees_jobs.iter().map(|j| j.chm.clone()).collect();
+                    for j in &mut trees_jobs {
+                        j.around = all.iter().filter(|c| **c != j.chm).cloned().collect();
+                    }
                 }
                 (
                     Box::new(move || {

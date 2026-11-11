@@ -5,6 +5,7 @@ pub mod aba;
 pub mod axelsson;
 pub mod breaklines;
 pub mod buildings;
+pub mod catalog;
 pub mod change;
 pub mod chm;
 pub mod classes;
