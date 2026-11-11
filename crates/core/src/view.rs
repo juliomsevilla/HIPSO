@@ -888,6 +888,41 @@ impl Layer {
         })
     }
 
+    /// A flat-coloured triangle of screen positions and depths.
+    fn tri(&self, v: [(f64, f64, f64); 3], c: [u8; 3]) {
+        use std::sync::atomic::Ordering::Relaxed;
+        let area = (v[1].0 - v[0].0) * (v[2].1 - v[0].1) - (v[2].0 - v[0].0) * (v[1].1 - v[0].1);
+        if area.abs() < 1e-9 {
+            return;
+        }
+        let x0 = v.iter().map(|p| p.0).fold(f64::INFINITY, f64::min).floor().max(0.0) as i64;
+        let x1 = (v.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max).ceil())
+            .min(self.w as f64 - 1.0) as i64;
+        let y0 = v.iter().map(|p| p.1).fold(f64::INFINITY, f64::min).floor().max(0.0) as i64;
+        let y1 = (v.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max).ceil())
+            .min(self.h as f64 - 1.0) as i64;
+        let inv = 1.0 / area;
+        let rgb = u64::from(c[0]) << 16 | u64::from(c[1]) << 8 | u64::from(c[2]);
+        for y in y0..=y1 {
+            let py = y as f64 + 0.5;
+            for x in x0..=x1 {
+                let px = x as f64 + 0.5;
+                let w0 = ((v[1].0 - px) * (v[2].1 - py) - (v[2].0 - px) * (v[1].1 - py)) * inv;
+                let w1 = ((v[2].0 - px) * (v[0].1 - py) - (v[0].0 - px) * (v[2].1 - py)) * inv;
+                let w2 = 1.0 - w0 - w1;
+                if w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6 {
+                    continue;
+                }
+                let d = (w0 * v[0].2 + w1 * v[1].2 + w2 * v[2].2) as f32;
+                let packed = Self::depth_key(d) << 24 | rgb;
+                let cell = &self.cells[y as usize * self.w + x as usize];
+                if packed < cell.load(Relaxed) {
+                    cell.fetch_min(packed, Relaxed);
+                }
+            }
+        }
+    }
+
     fn splat(&self, x: i64, y: i64, d: f32, size: i64, c: [u8; 3]) {
         use std::sync::atomic::Ordering::Relaxed;
         let packed = Self::depth_key(d) << 24
@@ -1324,12 +1359,142 @@ pub fn render_3d_with(
     w: usize,
     h: usize,
 ) -> Image {
+    render_3d_surface(s, st, over, None, o, w, h)
+}
+
+/// A raster seen as a surface in 3D: heights from `grid`, colours from `color` (one pixel per
+/// cell, alpha 0 where the cell is empty).
+#[derive(Clone, Copy)]
+pub struct Surface<'a> {
+    pub grid: &'a Grid,
+    pub color: &'a Image,
+    /// Most quads drawn: the grid is thinned (every n-th cell) to stay under it.
+    pub max_quads: usize,
+    /// Light the relief (the colours do not carry it already).
+    pub shade: bool,
+}
+
+impl Surface<'_> {
+    /// Extent as min x, min y, min z, max x, max y, max z.
+    pub fn bounds(&self) -> [f64; 6] {
+        let g = self.grid;
+        let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+        for v in g.data.iter().filter(|v| v.is_finite()) {
+            lo = lo.min(*v);
+            hi = hi.max(*v);
+        }
+        if lo > hi {
+            (lo, hi) = (0.0, 0.0);
+        }
+        [
+            g.x0,
+            g.y0,
+            f64::from(lo),
+            g.x0 + g.cols as f64 * g.cell,
+            g.y0 + g.rows as f64 * g.cell,
+            f64::from(hi),
+        ]
+    }
+
+    /// Every `step`-th cell is a vertex.
+    fn step(&self) -> usize {
+        let n = (self.grid.cols * self.grid.rows) as f64;
+        (n / self.max_quads.max(1) as f64).sqrt().ceil().max(1.0) as usize
+    }
+
+    fn draw(&self, layer: &Layer, o: &Orbit) {
+        use rayon::prelude::*;
+        let g = self.grid;
+        let step = self.step();
+        if g.cols < step + 1 || g.rows < step + 1 || self.color.w != g.cols || self.color.h != g.rows
+        {
+            return;
+        }
+        let (nc, nr) = ((g.cols - 1) / step, (g.rows - 1) / step);
+        let proj = o.projector(layer.w, layer.h);
+        let (wf, hf) = (layer.w as f64, layer.h as f64);
+        let span = step as f64 * g.cell;
+        let ex = o.exaggeration;
+        // light from the north-west, 45 degrees up
+        let l = [-0.5f64, 0.5, std::f64::consts::FRAC_1_SQRT_2];
+        (0..nr).into_par_iter().for_each(|qr| {
+            let (r0, r1) = (qr * step, qr * step + step);
+            let row = |r: usize| -> Vec<Option<(f64, f64, f64)>> {
+                (0..=nc)
+                    .map(|qc| {
+                        let c = qc * step;
+                        let z = g.data[r * g.cols + c];
+                        if !z.is_finite() {
+                            return None;
+                        }
+                        let (x, y) = g.center(c, r);
+                        proj.apply([x, y, f64::from(z)])
+                    })
+                    .collect()
+            };
+            let (a, b) = (row(r0), row(r1));
+            for qc in 0..nc {
+                let (Some(v00), Some(v10), Some(v01), Some(v11)) =
+                    (a[qc], a[qc + 1], b[qc], b[qc + 1])
+                else {
+                    continue;
+                };
+                let (xmin, xmax) = (
+                    v00.0.min(v10.0).min(v01.0).min(v11.0),
+                    v00.0.max(v10.0).max(v01.0).max(v11.0),
+                );
+                let (ymin, ymax) = (
+                    v00.1.min(v10.1).min(v01.1).min(v11.1),
+                    v00.1.max(v10.1).max(v01.1).max(v11.1),
+                );
+                if xmax < 0.0 || ymax < 0.0 || xmin >= wf || ymin >= hf {
+                    continue;
+                }
+                let (c0, rm) = (qc * step, r0 + step / 2);
+                let px = self.color.rgba[(rm * g.cols + c0 + step / 2) * 4..][..4].to_vec();
+                if px[3] == 0 {
+                    continue;
+                }
+                let mut rgb = [px[0], px[1], px[2]];
+                if self.shade {
+                    let z = |r: usize, c: usize| f64::from(g.data[r * g.cols + c]);
+                    let (z00, z10) = (z(r0, c0), z(r0, c0 + step));
+                    let (z01, z11) = (z(r1, c0), z(r1, c0 + step));
+                    let dzdx = (z10 + z11 - z00 - z01) / (2.0 * span) * ex;
+                    let dzdn = (z00 + z10 - z01 - z11) / (2.0 * span) * ex;
+                    let k = 1.0 / (dzdx * dzdx + dzdn * dzdn + 1.0).sqrt();
+                    let dot = (-dzdx * l[0] - dzdn * l[1] + l[2]) * k;
+                    let f = 0.35 + 0.65 * dot.clamp(0.0, 1.0);
+                    for ch in &mut rgb {
+                        *ch = (f64::from(*ch) * f).round().min(255.0) as u8;
+                    }
+                }
+                layer.tri([v00, v10, v01], rgb);
+                layer.tri([v10, v11, v01], rgb);
+            }
+        });
+    }
+}
+
+/// [`render_3d_with`] with a raster surface under the points.
+pub fn render_3d_surface(
+    s: &PointStore,
+    st: &Style,
+    over: Option<(&PointStore, &Style)>,
+    surface: Option<&Surface>,
+    o: &Orbit,
+    w: usize,
+    h: usize,
+) -> Image {
     use rayon::prelude::*;
     let mut img = canvas(w, h, st);
     let (sy, cy) = o.yaw.sin_cos();
     let (sp, cp) = o.pitch.sin_cos();
     let f = Orbit::focal(w, h);
     let mut layer = Layer::new(w, h);
+    if let Some(sf) = surface {
+        sf.draw(&layer, o);
+    }
     let (mut gap_px, mut thin) = (0.0f64, 1);
     let airborne = s.airborne() || over.is_some_and(|(d, _)| d.airborne());
     for (s, st) in std::iter::once((s, st)).chain(over) {
@@ -2234,5 +2399,38 @@ mod scattered_tests {
         near.file_bounds[1] = [1000.0, 0.0, 100.0, 2000.0, 1000.0, 130.0];
         near.bounds = [0.0, 0.0, 100.0, 2000.0, 1000.0, 130.0];
         assert!(Orbit::fit_scene(&near).target[0] > 900.0);
+    }
+}
+
+#[cfg(test)]
+mod surface_tests {
+    use super::*;
+
+    #[test]
+    fn surface_draws_and_skips_empty_cells() {
+        let mut g = Grid::new(0.0, 0.0, 1.0, 40, 40).unwrap();
+        for (i, v) in g.data.iter_mut().enumerate() {
+            *v = (i % 40) as f32 * 0.1;
+        }
+        g.data[20 * 40 + 20] = f32::NAN;
+        let color = Image::filled(40, 40, [200, 100, 50]);
+        let mut rgba = color.rgba.clone();
+        for px in rgba.chunks_exact_mut(4) {
+            px[3] = 255;
+        }
+        let color = Image { rgba, ..color };
+        let sf = Surface { grid: &g, color: &color, max_quads: 10_000, shade: true };
+        let img = render_3d_surface(
+            &PointStore::default(),
+            &Style::default(),
+            None,
+            Some(&sf),
+            &Orbit::fit(sf.bounds()),
+            200,
+            150,
+        );
+        let bg = Style::default().background;
+        let drawn = img.rgba.chunks_exact(4).filter(|p| [p[0], p[1], p[2]] != bg).count();
+        assert!(drawn > 2000, "{drawn}");
     }
 }

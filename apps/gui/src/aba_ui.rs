@@ -256,6 +256,7 @@ impl App {
         let mut open = true;
         let mut go = false;
         egui::Window::new("Modelos lineales")
+            .default_pos([330.0, 190.0])
             .open(&mut open)
             .default_width(620.0)
             .show(ctx, |ui| {
@@ -563,6 +564,7 @@ impl App {
             let mut keep = true;
             let h = (ctx.content_rect().height() - 90.0).max(300.0);
             egui::Window::new("Diagnóstico del modelo")
+                .default_pos([(ctx.content_rect().right() - 700.0).max(330.0), 230.0])
                 .open(&mut keep)
                 .default_width(680.0)
                 .default_height(h.min(640.0))

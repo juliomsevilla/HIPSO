@@ -52,18 +52,25 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Igualar rásteres" => {
             "Pone varios rásteres con la misma rejilla, proyección y tamaño de celda."
         }
-        "Operaciones ráster" => {
-            "Tamizar un ráster de clases, medir la distancia a unas celdas y rellenar celdas vacías."
+        "Tamizar" => {
+            "Quita los parches pequeños de un ráster de clases: toman el valor del vecino mayor."
+        }
+        "Proximidad" => "Calcula para cada celda la distancia a la celda más cercana de unos valores.",
+        "Rellenar huecos" => {
+            "Rellena las celdas vacías de un ráster con las celdas con valor de alrededor."
         }
         "Reproyectar" => {
             "Pasa nubes y rásteres a otro sistema de coordenadas y cambia la referencia vertical de las alturas."
         }
-        "Vector" => {
-            "Estadística zonal de un ráster por polígono, y validar, reparar, ampliar, disolver o unir capas de polígonos."
-        }
-        "Tema" => "Cambia entre el tema claro y el oscuro.",
+        "Tema claro" | "Tema oscuro" => "Cambia entre el tema claro y el oscuro.",
         "Registro" => "Muestra lo que se ha hecho, los errores y el avance de los procesos largos.",
         // Vista
+        "Norte arriba" => "Gira la vista 3D para que el norte quede arriba.",
+        "2D" => "Solo la planta.",
+        "2D + perfil" => "La planta y el perfil.",
+        "3D" => "Solo la vista 3D.",
+        "2D + perfil + 3D" => "La planta, el perfil y la vista 3D a la vez.",
+        "Zoom adelante" => "Vuelve a la vista que había antes de «Zoom anterior».",
         "Zoom" => "Clic acerca, clic derecho aleja y arrastrar dibuja una ventana de zoom (Z).",
         "Desplazar" => "Mueve la vista arrastrando (X).",
         "Extensión completa" => "Encuadra todo lo cargado.",
@@ -93,7 +100,7 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Curvas de nivel" => {
             "Curvas de nivel del terreno. Ocultan los puntos de la planta mientras están activas."
         }
-        // Procesar
+        // LiDAR
         "Información de los datos" => {
             "Analiza las nubes: puntos, densidad, clases, coordenadas y avisos."
         }
@@ -160,6 +167,10 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Seleccionar todo" => "Selecciona todos los elementos de la capa.",
         "Invertir selección" => "Invierte la selección de elementos.",
         "Limpiar selección" => "Quita la selección de elementos.",
+        k if crate::vector_ui::Op::ALL.iter().any(|o| o.label() == k) => crate::vector_ui::Op::ALL
+            .iter()
+            .find(|o| o.label() == k)
+            .map_or("", |o| o.help()),
         _ => {
             #[cfg(debug_assertions)]
             {

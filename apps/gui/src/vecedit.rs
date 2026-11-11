@@ -896,8 +896,10 @@ impl App {
         const HEAD_H: f32 = 28.0;
         const NUM_W: f32 = 56.0;
         egui::Window::new(format!("Tabla de atributos · {name}"))
+            .default_pos([330.0, 190.0])
             .open(&mut open)
-            .default_size([760.0, 460.0])
+            .default_size([560.0, 460.0])
+            .max_height(((v.data.features.len() as f32) * ROW_H + HEAD_H + 110.0).min((ctx.content_rect().height() - 90.0).max(240.0)))
             .min_size([360.0, 220.0])
             .resizable(true)
             .show(ctx, |ui| {

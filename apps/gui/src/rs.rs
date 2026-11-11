@@ -771,6 +771,7 @@ impl App {
         let mut open = true;
         let images = self.image_layers();
         egui::Window::new("Índices espectrales")
+            .default_pos([(ctx.content_rect().right() - 560.0).max(320.0), 190.0])
             .vscroll(true)
             .max_height((ctx.content_rect().height() - 90.0).max(240.0))
             .open(&mut open)

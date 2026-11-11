@@ -21,7 +21,7 @@ pub enum Op {
 }
 
 impl Op {
-    const ALL: [Op; 12] = [
+    pub const ALL: [Op; 12] = [
         Op::Zonal,
         Op::Validate,
         Op::Repair,
@@ -36,7 +36,47 @@ impl Op {
         Op::SpatialJoin,
     ];
 
-    fn name(self) -> &'static str {
+    /// The short name of the button.
+    pub fn label(self) -> &'static str {
+        match self {
+            Op::Zonal => "Estadística zonal",
+            Op::Validate => "Comprobar validez",
+            Op::Repair => "Reparar geometrías",
+            Op::Buffer => "Búfer",
+            Op::Dissolve => "Disolver",
+            Op::Union => "Unión",
+            Op::Intersect => "Intersección",
+            Op::Difference => "Diferencia",
+            Op::SymDifference => "Diferencia simétrica",
+            Op::Centroids => "Centroides",
+            Op::PointOnSurface => "Puntos en superficie",
+            Op::SpatialJoin => "Unir por localización",
+        }
+    }
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            Op::Zonal => "@zonal",
+            Op::Validate => "@validate",
+            Op::Repair => "@makevalid",
+            Op::Buffer => "@buffer",
+            Op::Dissolve => "@dissolve",
+            Op::Union => "@union",
+            Op::Intersect => "@intersect",
+            Op::Difference => "@difference",
+            Op::SymDifference => "@symdiff",
+            Op::Centroids => "@centroid",
+            Op::PointOnSurface => "@pointonsurf",
+            Op::SpatialJoin => "@spatialjoin",
+        }
+    }
+
+    /// Corrections of the geometry, as opposed to the geoprocesses that make new layers.
+    pub fn is_geometry(self) -> bool {
+        matches!(self, Op::Validate | Op::Repair)
+    }
+
+    pub fn name(self) -> &'static str {
         match self {
             Op::Zonal => "Estadística zonal (ráster por polígono)",
             Op::Validate => "Comprobar si los polígonos son válidos",
@@ -53,7 +93,7 @@ impl Op {
         }
     }
 
-    fn help(self) -> &'static str {
+    pub fn help(self) -> &'static str {
         match self {
             Op::Zonal => "Para cada polígono calcula, con las celdas del ráster cuyo centro cae dentro: número de celdas, mínimo, máximo, media, suma, desviación típica y mediana. El resultado es una capa de polígonos nueva con los campos originales y un campo más por cada estadístico. Sirve, por ejemplo, para obtener el CHM medio de cada rodal.",
             Op::Validate => "Busca polígonos con anillos sin cerrar, autointersecciones, huecos fuera del polígono o partes solapadas.",
@@ -86,11 +126,16 @@ pub struct VectorTool {
     pub report: String,
 }
 
-impl Default for VectorTool {
-    fn default() -> Self {
+/// One tool (and window) per operation, in the order of [`Op::ALL`].
+pub fn tools() -> Vec<VectorTool> {
+    Op::ALL.iter().map(|op| VectorTool::new(*op)).collect()
+}
+
+impl VectorTool {
+    fn new(op: Op) -> Self {
         Self {
             open: false,
-            op: Op::Zonal,
+            op,
             layer: None,
             second: None,
             raster: None,
@@ -131,8 +176,15 @@ fn pick_vector(slot: &mut Option<PathBuf>, ui: &mut egui::Ui, label: &str, loade
 }
 
 impl App {
-    pub fn vector_window(&mut self, ctx: &egui::Context) {
-        if !self.vt.open {
+    /// The windows of the geoprocesses: each one opens its own.
+    pub fn vector_windows(&mut self, ctx: &egui::Context) {
+        for i in 0..self.vt.len() {
+            self.vector_window(ctx, i);
+        }
+    }
+
+    fn vector_window(&mut self, ctx: &egui::Context, i: usize) {
+        if !self.vt[i].open {
             return;
         }
         let vectors: Vec<(String, PathBuf)> = self
@@ -150,7 +202,9 @@ impl App {
         let weak = self.tokens().weak;
         let mut open = true;
         let mut go = false;
-        egui::Window::new("Capas vectoriales: operaciones")
+        let title = self.vt[i].op.name();
+        egui::Window::new(title)
+            .default_pos([(ctx.content_rect().right() - 560.0).max(320.0), 190.0])
             .vscroll(true)
             .max_height((ctx.content_rect().height() - 90.0).max(240.0))
             .open(&mut open)
@@ -158,17 +212,7 @@ impl App {
             .show(ctx, |ui| {
                 crate::tools::output_row(ui, &mut self.tools.out_dir);
                 ui.separator();
-                let t = &mut self.vt;
-                ui.horizontal(|ui| {
-                    ui.label("Operación");
-                    egui::ComboBox::from_id_salt("vector_op")
-                        .selected_text(t.op.name())
-                        .show_ui(ui, |ui| {
-                            for o in Op::ALL {
-                                ui.selectable_value(&mut t.op, o, o.name());
-                            }
-                        });
-                });
+                let t = &mut self.vt[i];
                 ui.label(egui::RichText::new(t.op.help()).color(weak).size(11.0));
                 ui.separator();
                 if t.op == Op::Zonal {
@@ -265,7 +309,7 @@ impl App {
                 }
             });
         if go {
-            let t = &mut self.vt;
+            let t = &mut self.vt[i];
             let (Some(layer), op) = (t.layer.clone(), t.op) else {
                 return;
             };
@@ -383,7 +427,7 @@ impl App {
             }
         }
         if !open {
-            self.vt.open = false;
+            self.vt[i].open = false;
         }
     }
 }

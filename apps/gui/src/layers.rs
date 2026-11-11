@@ -609,7 +609,7 @@ impl App {
                     v.rebuild();
                     self.plan_fit = true;
                     self.log(format!(
-                        "La nube no declara su sistema de coordenadas: «{name}» (EPSG:{from}) se ha pasado a EPSG:{to}, que es donde cae sobre la nube. Si no es el de la nube, asígnaselo en Procesar > Asignar proyección."
+                        "La nube no declara su sistema de coordenadas: «{name}» (EPSG:{from}) se ha pasado a EPSG:{to}, que es donde cae sobre la nube. Si no es el de la nube, asígnaselo en LiDAR > Asignar proyección."
                     ));
                 }
             }
@@ -682,7 +682,7 @@ impl App {
                     moved = cloud.and_then(|c| self.assume_move(layer_crs, data.bounds, c));
                     if let Some((from, to)) = moved {
                         self.log(format!(
-                            "La nube no declara su sistema de coordenadas: «{}» está en EPSG:{from} y no cae sobre ella; se pasa a EPSG:{to}, donde sí cae. Si no es el de la nube, asígnaselo en Procesar > Asignar proyección.",
+                            "La nube no declara su sistema de coordenadas: «{}» está en EPSG:{from} y no cae sobre ella; se pasa a EPSG:{to}, donde sí cae. Si no es el de la nube, asígnaselo en LiDAR > Asignar proyección.",
                             p.display()
                         ));
                     }

@@ -115,6 +115,7 @@ impl App {
         let mut open = true;
         let mut go = false;
         egui::Window::new("OBIA: análisis por objetos")
+            .default_pos([(ctx.content_rect().right() - 560.0).max(320.0), 190.0])
             .vscroll(true)
             .max_height((ctx.content_rect().height() - 90.0).max(240.0))
             .open(&mut open)

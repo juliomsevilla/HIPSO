@@ -219,9 +219,9 @@ enum Layout {
     All,
 }
 
-/// The ribbon tabs before the ones that depend on the selected layer: Archivo, Vista and
-/// Procesar. Editing points lives in the side panel, so it stays within reach of the others.
-const FIRST_EXTRA: usize = 3;
+/// The ribbon tabs before the ones that depend on the selected layer: Archivo, Vista, LiDAR,
+/// Vectorial and Raster. Editing points lives in the side panel, so it stays within reach of the others.
+const FIRST_EXTRA: usize = 5;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Side {
@@ -256,6 +256,15 @@ struct CloudLoad {
     store: PointStore,
     files: Vec<PathBuf>,
     notes: Vec<String>,
+}
+
+/// A raster prepared for the 3D view.
+struct Surf3 {
+    key: u64,
+    grid: Grid,
+    color: Image,
+    shade: bool,
+    bounds: [f64; 6],
 }
 
 enum RefKind {
@@ -300,6 +309,7 @@ enum Action {
     SaveShot,
     ZoomFull,
     ZoomPrev,
+    ZoomNext,
     ZoomSel,
     ZoomLayer,
     SaveProject,
@@ -327,15 +337,14 @@ enum Action {
     Obia,
     Align,
     Reproject,
-    RasterOps,
-    VectorOps,
+    RasterOp(u8),
+    VectorOp(u8),
     Change,
     Model,
     Corridor,
     ClearMarks,
     ToggleTheme,
     NorthUp,
-    Exaggeration(i32),
     Layout(u8),
     Classes,
     About,
@@ -379,6 +388,7 @@ struct App {
     plan: Plan,
     plan_fit: bool,
     prev_plans: Vec<Plan>,
+    next_plans: Vec<Plan>,
     orbit: Orbit,
     follow_plan: bool,
     profile: Option<ProfileBox>,
@@ -395,6 +405,8 @@ struct App {
     /// Where the profile was drawn in the last frame.
     profile_rect: Option<Rect>,
     tex_3d: Option<(egui::TextureHandle, u64)>,
+    /// The raster shown as a surface in the 3D view: key, heights, colours.
+    surf3: Option<Surf3>,
     moving_until: Instant,
     refs: Vec<RefLayer>,
     /// How many of the layers are drawn under the point clouds (the first ones in `refs`).
@@ -450,8 +462,8 @@ struct App {
     ot: obia_ui::ObiaTool,
     at: align_ui::AlignTool,
     rp: reproject_ui::ReprojectTool,
-    ro: rasterops_ui::RasterOpsTool,
-    vt: vector_ui::VectorTool,
+    ro: Vec<rasterops_ui::RasterOpsTool>,
+    vt: Vec<vector_ui::VectorTool>,
     ct: change_ui::ChangeTool,
     mo: aba_ui::ModelTool,
     co: corridor_ui::CorridorTool,
@@ -519,6 +531,7 @@ impl Default for App {
             },
             plan_fit: true,
             prev_plans: Vec::new(),
+            next_plans: Vec::new(),
             orbit: Orbit {
                 target: [0.0; 3],
                 yaw: 0.0,
@@ -539,6 +552,7 @@ impl Default for App {
             prof_failed: None,
             profile_rect: None,
             tex_3d: None,
+            surf3: None,
             moving_until: Instant::now(),
             refs: Vec::new(),
             cloud_slot: 0,
@@ -586,8 +600,8 @@ impl Default for App {
             ot: obia_ui::ObiaTool::default(),
             at: align_ui::AlignTool::default(),
             rp: reproject_ui::ReprojectTool::default(),
-            ro: rasterops_ui::RasterOpsTool::default(),
-            vt: vector_ui::VectorTool::default(),
+            ro: rasterops_ui::tools(),
+            vt: vector_ui::tools(),
             ct: change_ui::ChangeTool::default(),
             mo: aba_ui::ModelTool::default(),
             co: corridor_ui::CorridorTool::default(),
@@ -771,6 +785,11 @@ impl App {
                     }
                 }
                 "--hide-points" => self.show_points = false,
+                "--exag" => {
+                    if let Some(v) = it.next().and_then(|v| v.parse().ok()) {
+                        self.orbit.exaggeration = v;
+                    }
+                }
                 "--nav" => {
                     self.nav = match it.next().as_deref() {
                         Some("digitize") => Nav::Digitize,
@@ -864,8 +883,8 @@ impl App {
                     Some("obia") => Action::Obia,
                     Some("align") => Action::Align,
                     Some("reproject") => Action::Reproject,
-                    Some("rasterops") => Action::RasterOps,
-                    Some("vector") => Action::VectorOps,
+                    Some("rasterops") => Action::RasterOp(0),
+                    Some("vector") => Action::VectorOp(0),
                     Some("change") => Action::Change,
                     Some("model") => Action::Model,
                     Some("corridor") => Action::Corridor,
@@ -1012,9 +1031,9 @@ impl App {
         }
     }
 
-    /// The groups of the Procesar tab: what each button shows, whether its window is open and
+    /// The groups of the LiDAR tab: what each button shows, whether its window is open and
     /// what it does. Large buttons first, then columns of up to three small ones.
-    fn process_groups(&self) -> Vec<ribbon::Group<Action>> {
+    fn lidar_groups(&self) -> Vec<ribbon::Group<Action>> {
         use ribbon::{Group, Item};
         let tool = |icon: &'static str, label: &'static str, id: ToolId| Item {
             icon,
@@ -1058,7 +1077,7 @@ impl App {
                 menus: vec![],
                 columns: vec![vec![
                     tool("@compare", "Comparar nubes", ToolId::Compare),
-                    tool("@fit", "Ajustar nubes", ToolId::Fit),
+                    tool("@icp", "Ajustar nubes", ToolId::Fit),
                     tool("@swath", "Entre pasadas", ToolId::Swath),
                 ]],
             },
@@ -1090,7 +1109,7 @@ impl App {
                 caption: "ALS",
                 icon: "@metrics",
                 big: vec![
-                    tool("@clip", "Extraer\nmuestras", ToolId::Clip),
+                    tool("@plots", "Extraer\nmuestras", ToolId::Clip),
                     tool("@metrics", "Métricas\npor celda", ToolId::Metrics),
                     other(
                         "@model",
@@ -1125,6 +1144,141 @@ impl App {
                 ],
                 menus: vec![],
                 columns: vec![],
+            },
+        ]
+    }
+
+    /// The groups of the Vectorial tab: the layer, the corrections of the geometry and the
+    /// geoprocesses, each of which opens its own window.
+    fn vector_groups(&self) -> Vec<ribbon::Group<Action>> {
+        use ribbon::{Group, Item};
+        let ops = |geometry: bool| -> Vec<Item<Action>> {
+            vector_ui::Op::ALL
+                .iter()
+                .enumerate()
+                .filter(|(_, op)| op.is_geometry() == geometry)
+                .map(|(k, op)| Item {
+                    icon: op.icon(),
+                    label: op.label(),
+                    on: self.vt.get(k).is_some_and(|t| t.open),
+                    action: Action::VectorOp(k as u8),
+                })
+                .collect()
+        };
+        let columns = |items: Vec<Item<Action>>| -> Vec<Vec<Item<Action>>> {
+            let mut cols: Vec<Vec<Item<Action>>> = Vec::new();
+            for i in items {
+                match cols.last_mut() {
+                    Some(c) if c.len() < 3 => c.push(i),
+                    _ => cols.push(vec![i]),
+                }
+            }
+            cols
+        };
+        vec![
+            Group {
+                caption: "Capa",
+                icon: "@newlayer",
+                big: vec![
+                    Item {
+                        icon: "@newlayer",
+                        label: "Nueva\ncapa",
+                        on: false,
+                        action: Action::NewLayer,
+                    },
+                    Item {
+                        icon: "@table",
+                        label: "Tabla de\natributos",
+                        on: self.table_layer.is_some(),
+                        action: Action::LayerTable,
+                    },
+                ],
+                menus: vec![],
+                columns: vec![],
+            },
+            Group {
+                caption: "Geometría",
+                icon: "@classify",
+                big: vec![],
+                menus: vec![],
+                columns: columns(ops(true)),
+            },
+            Group {
+                caption: "Geoprocesos",
+                icon: "@zonal",
+                big: vec![],
+                menus: vec![],
+                columns: columns(ops(false)),
+            },
+        ]
+    }
+
+    /// The groups of the Ráster tab: the operations on images and the geoprocesses on rasters.
+    fn raster_groups(&self) -> Vec<ribbon::Group<Action>> {
+        use ribbon::{Group, Item};
+        vec![
+            Group {
+                caption: "Operaciones",
+                icon: "@rs",
+                big: vec![
+                    Item {
+                        icon: "@rs",
+                        label: "Composición\nde bandas",
+                        on: false,
+                        action: Action::ImageTool(0),
+                    },
+                    Item {
+                        icon: "@bands",
+                        label: "Índices\nespectrales",
+                        on: self.rs.open,
+                        action: Action::ImageTool(1),
+                    },
+                    Item {
+                        icon: "@stack",
+                        label: "Crear\nmultibanda",
+                        on: self.rt.open == Some(0),
+                        action: Action::RasterTool(0),
+                    },
+                    Item {
+                        icon: "@mosaic",
+                        label: "Mosaico",
+                        on: self.rt.open == Some(1),
+                        action: Action::RasterTool(1),
+                    },
+                ],
+                menus: vec![],
+                columns: vec![],
+            },
+            Group {
+                caption: "Geoprocesos",
+                icon: "@reproject",
+                big: vec![
+                    Item {
+                        icon: "@alignrs",
+                        label: "Igualar\nrásteres",
+                        on: self.at.open,
+                        action: Action::Align,
+                    },
+                    Item {
+                        icon: "@reproject",
+                        label: "Reproyectar",
+                        on: self.rp.open,
+                        action: Action::Reproject,
+                    },
+                ],
+                menus: vec![],
+                columns: vec![
+                    rasterops_ui::Op::ALL
+                        .iter()
+                        .enumerate()
+                        .map(|(k, op)| Item {
+                            icon: op.icon(),
+                            label: op.label(),
+                            on: self.ro.get(k).is_some_and(|t| t.open),
+                            action: Action::RasterOp(k as u8),
+                        })
+                        .collect(),
+                ],
             },
         ]
     }
@@ -1582,8 +1736,18 @@ impl App {
         self.moving_until = Instant::now() + Duration::from_millis(160);
     }
 
+    /// Back to the previous view of the plan; the one left can be reached again with
+    /// [`Action::ZoomNext`].
+    fn zoom_back(&mut self) {
+        if let Some(p) = self.prev_plans.pop() {
+            self.next_plans.push(self.plan);
+            self.plan = p;
+        }
+    }
+
     fn zoom_to(&mut self, p: Plan) {
         self.prev_plans.push(self.plan);
+        self.next_plans.clear();
         if self.prev_plans.len() > 50 {
             self.prev_plans.remove(0);
         }
@@ -1684,10 +1848,13 @@ impl App {
             }
             Action::ZoomFull => {
                 self.prev_plans.push(self.plan);
+        self.next_plans.clear();
                 self.plan_fit = true;
             }
-            Action::ZoomPrev => {
-                if let Some(p) = self.prev_plans.pop() {
+            Action::ZoomPrev => self.zoom_back(),
+            Action::ZoomNext => {
+                if let Some(p) = self.next_plans.pop() {
+                    self.prev_plans.push(self.plan);
                     self.plan = p;
                 }
             }
@@ -1806,8 +1973,16 @@ impl App {
             Action::Obia => self.ot.open = true,
             Action::Align => self.at.open = true,
             Action::Reproject => self.rp.open = true,
-            Action::RasterOps => self.ro.open = true,
-            Action::VectorOps => self.vt.open = true,
+            Action::RasterOp(k) => {
+                if let Some(t) = self.ro.get_mut(usize::from(k)) {
+                    t.open = true;
+                }
+            }
+            Action::VectorOp(k) => {
+                if let Some(t) = self.vt.get_mut(usize::from(k)) {
+                    t.open = true;
+                }
+            }
             Action::Change => self.ct.open = true,
             Action::Model => self.mo.open = true,
             Action::Corridor => self.co.open = true,
@@ -1824,10 +1999,6 @@ impl App {
                 self.set_theme(ctx, !self.dark);
             }
             Action::NorthUp => self.orbit.yaw = 0.0,
-            Action::Exaggeration(d) => {
-                self.orbit.exaggeration =
-                    (self.orbit.exaggeration + 0.5 * f64::from(d)).clamp(0.5, 10.0)
-            }
             Action::Layout(k) => {
                 self.layout = [
                     Layout::Plan,
@@ -1844,12 +2015,13 @@ impl App {
     }
 
     fn commands() -> Vec<(&'static str, Action)> {
-        vec![
+        let mut v = vec![
             ("Abrir (nubes, ráster y vectores)", Action::Open),
             ("Cerrar todo", Action::CloseAll),
             ("Guardar vista como PNG", Action::SaveShot),
             ("Zoom a la extensión completa", Action::ZoomFull),
             ("Zoom anterior", Action::ZoomPrev),
+            ("Zoom adelante", Action::ZoomNext),
             ("Zoom a la selección", Action::ZoomSel),
             ("Guardar proyecto", Action::SaveProject),
             ("Abrir proyecto", Action::OpenProject),
@@ -1881,14 +2053,6 @@ impl App {
             (
                 "Reproyectar nubes y rásteres (sistema de coordenadas y alturas)",
                 Action::Reproject,
-            ),
-            (
-                "Operaciones ráster: tamizar, proximidad y relleno de huecos",
-                Action::RasterOps,
-            ),
-            (
-                "Capas vectoriales: estadística zonal, validar, búfer, disolver, unión",
-                Action::VectorOps,
             ),
             (
                 "Análisis de terreno (pendiente, orientación, drenaje, visibilidad…)",
@@ -1973,7 +2137,14 @@ impl App {
             ("Atajos de teclado", Action::Shortcuts),
             ("Acerca del programa", Action::About),
             ("Manual de uso (F1)", Action::Manual),
-        ]
+        ];
+        for (k, op) in vector_ui::Op::ALL.iter().enumerate() {
+            v.push((op.name(), Action::VectorOp(k as u8)));
+        }
+        for (k, op) in rasterops_ui::Op::ALL.iter().enumerate() {
+            v.push((op.label(), Action::RasterOp(k as u8)));
+        }
+        v
     }
 
     // ----------------------------------------------------------------------------- chrome
@@ -2011,20 +2182,6 @@ impl App {
                         {
                             self.palette = Some(String::new());
                         }
-                        if ui
-                            .add(egui::Button::new(if self.dark { "☀" } else { "🌙" }).frame(false))
-                            .on_hover_text("Tema claro / oscuro")
-                            .clicked()
-                        {
-                            self.act(ctx, Action::ToggleTheme);
-                        }
-                        if ui
-                            .add(egui::Button::new("📜").frame(false).selected(self.show_log))
-                            .on_hover_text("Mostrar u ocultar el registro")
-                            .clicked()
-                        {
-                            self.act(ctx, Action::ToggleLog);
-                        }
                     });
                 });
             });
@@ -2043,7 +2200,7 @@ impl App {
                 if self.tab >= FIRST_EXTRA {
                     self.tab = 0;
                 }
-                let names = vec!["Archivo", "Vista", "Procesar"];
+                let names = vec!["Archivo", "Vista", "LiDAR", "Vectorial", "Raster"];
                 let mut tab = self.tab;
                 if ribbon::tab_strip(ui, &t, "Inicio", &names, FIRST_EXTRA, &mut tab) {
                     self.backstage = !self.backstage;
@@ -2073,7 +2230,7 @@ impl App {
                     .show(ui, |ui| {
                         ui.horizontal(|ui| match self.tab {
                             0 => {
-                                ribbon::fold_group(ui, &t, "Archivo", "@open", 2, |ui| {
+                                ribbon::fold_group(ui, &t, "Archivo", "@open", 1, |ui| {
                                     if ribbon::big_button(ui, &t, "@save", "Guardar\nproyecto", false)
                                         .clicked()
                                     {
@@ -2095,7 +2252,7 @@ impl App {
                                         ribbon::small_menu(
                                             ui,
                                             &t,
-                                            "@open",
+                                            "@recent",
                                             "Recientes",
                                             !recent.is_empty(),
                                             |ui| {
@@ -2126,294 +2283,66 @@ impl App {
                                         }
                                     });
                                 });
-                                ribbon::fold_group(ui, &t, "Vectorial", "@table", 1, |ui| {
-                                    if ribbon::big_button(ui, &t, "@newlayer", "Nueva\ncapa", false)
-                                        .clicked()
-                                    {
-                                        self.act(ctx, Action::NewLayer);
-                                    }
+                                ribbon::fold_group(ui, &t, "Interfaz", "@sun", 0, |ui| {
                                     if ribbon::big_button(
                                         ui,
                                         &t,
-                                        "@table",
-                                        "Tabla de\natributos",
-                                        self.table_layer.is_some(),
+                                        "@log",
+                                        "Registro",
+                                        self.show_log,
                                     )
                                     .clicked()
                                     {
-                                        self.act(ctx, Action::LayerTable);
+                                        self.act(ctx, Action::ToggleLog);
                                     }
-                                    if ribbon::big_button(
-                                        ui,
-                                        &t,
-                                        "@zonal",
-                                        "Geoprocesos",
-                                        self.vt.open,
-                                    )
-                                    .clicked()
-                                    {
-                                        self.act(ctx, Action::VectorOps);
+                                    let (icon, label) = if self.dark {
+                                        ("@sun", "Tema\nclaro")
+                                    } else {
+                                        ("@moon", "Tema\noscuro")
+                                    };
+                                    if ribbon::big_button(ui, &t, icon, label, false).clicked() {
+                                        self.act(ctx, Action::ToggleTheme);
                                     }
-                                });
-                                ribbon::fold_group(ui, &t, "Ráster", "@rs", 0, |ui| {
-                                    if ribbon::big_button(
-                                        ui,
-                                        &t,
-                                        "@rs",
-                                        "Composición\nde bandas",
-                                        false,
-                                    )
-                                    .clicked()
-                                    {
-                                        self.act(ctx, Action::ImageTool(0));
-                                    }
-                                    if ribbon::big_button(
-                                        ui,
-                                        &t,
-                                        "@bands",
-                                        "Índices\nespectrales",
-                                        self.rs.open,
-                                    )
-                                    .clicked()
-                                    {
-                                        self.act(ctx, Action::ImageTool(1));
-                                    }
-                                    ui.vertical(|ui| {
-                                        if ribbon::small_button(
-                                            ui,
-                                            &t,
-                                            "@stack",
-                                            "Crear multibanda",
-                                            self.rt.open == Some(0),
-                                        )
-                                        .clicked()
-                                        {
-                                            self.act(ctx, Action::RasterTool(0));
-                                        }
-                                        if ribbon::small_button(
-                                            ui,
-                                            &t,
-                                            "@mosaic",
-                                            "Mosaico",
-                                            self.rt.open == Some(1),
-                                        )
-                                        .clicked()
-                                        {
-                                            self.act(ctx, Action::RasterTool(1));
-                                        }
-                                    });
-                                    ui.vertical(|ui| {
-                                        if ribbon::small_button(
-                                            ui,
-                                            &t,
-                                            "@stack",
-                                            "Igualar rásteres",
-                                            self.at.open,
-                                        )
-                                        .clicked()
-                                        {
-                                            self.act(ctx, Action::Align);
-                                        }
-                                        if ribbon::small_button(
-                                            ui,
-                                            &t,
-                                            "@reproject",
-                                            "Reproyectar",
-                                            self.rp.open,
-                                        )
-                                        .clicked()
-                                        {
-                                            self.act(ctx, Action::Reproject);
-                                        }
-                                        if ribbon::small_button(
-                                            ui,
-                                            &t,
-                                            "@stack",
-                                            "Operaciones ráster",
-                                            self.ro.open,
-                                        )
-                                        .clicked()
-                                        {
-                                            self.act(ctx, Action::RasterOps);
-                                        }
-                                    });
                                 });
                             }
                             2 => {
-                                let groups = self.process_groups();
+                                let groups = self.lidar_groups();
+                                ribbon::adaptive_groups(ui, &t, &groups, |a| self.act(ctx, a));
+                                if busy {
+                                    ui.spinner();
+                                }
+                            }
+                            3 => {
+                                let groups = self.vector_groups();
+                                ribbon::adaptive_groups(ui, &t, &groups, |a| self.act(ctx, a));
+                                if busy {
+                                    ui.spinner();
+                                }
+                            }
+                            4 => {
+                                let groups = self.raster_groups();
                                 ribbon::adaptive_groups(ui, &t, &groups, |a| self.act(ctx, a));
                                 if busy {
                                     ui.spinner();
                                 }
                             }
                             1 => {
-                                ribbon::fold_group(ui, &t, "Navegación", "✋", 5, |ui| {
-                                    for (icon, name, n) in
-                                        [("🔍", "Zoom", Nav::Zoom), ("✋", "Desplazar", Nav::Pan)]
+                                ribbon::fold_group(ui, &t, "Disposición", "@layall", 5, |ui| {
+                                    for (k, (icon, name, l)) in [
+                                        ("@lay2d", "2D", Layout::Plan),
+                                        ("@lay2dprof", "2D +\nperfil", Layout::PlanProfile),
+                                        ("@lay3d", "3D", Layout::View3d),
+                                        ("@layall", "2D + perfil\n+ 3D", Layout::All),
+                                    ]
+                                    .into_iter()
+                                    .enumerate()
                                     {
-                                        if ribbon::big_button(ui, &t, icon, name, self.nav == n)
+                                        if ribbon::big_button(ui, &t, icon, name, self.layout == l)
                                             .clicked()
                                         {
-                                            self.act(ctx, Action::Nav(n));
+                                            self.act(ctx, Action::Layout(k as u8));
                                         }
                                     }
-                                    ui.vertical(|ui| {
-                                        if ribbon::small_button(
-                                            ui,
-                                            &t,
-                                            "@full",
-                                            "Extensión completa",
-                                            false,
-                                        )
-                                        .clicked()
-                                        {
-                                            self.act(ctx, Action::ZoomFull);
-                                        }
-                                        if ribbon::small_button(
-                                            ui,
-                                            &t,
-                                            "@prev",
-                                            "Zoom anterior",
-                                            false,
-                                        )
-                                        .clicked()
-                                        {
-                                            self.act(ctx, Action::ZoomPrev);
-                                        }
-                                        if ribbon::small_button(
-                                            ui,
-                                            &t,
-                                            "@fit",
-                                            "Zoom a la selección",
-                                            false,
-                                        )
-                                        .clicked()
-                                        {
-                                            self.act(ctx, Action::ZoomSel);
-                                        }
-                                    });
-                                    ui.vertical(|ui| {
-                                        let on_layer = self.sel_layer.is_some_and(|k| k < self.refs.len());
-                                        if ribbon::small_button_on(ui, &t, "@full", "Zoom a la capa", false, on_layer).clicked() {
-                                            self.act(ctx, Action::ZoomLayer);
-                                        }
-                                        if ribbon::small_button(
-                                            ui,
-                                            &t,
-                                            "@relink",
-                                            "Refrescar 3D",
-                                            false,
-                                        )
-                                        .clicked()
-                                        {
-                                            self.act(ctx, Action::Relink3d);
-                                        }
-                                        if ribbon::small_button(
-                                            ui,
-                                            &t,
-                                            "@clear",
-                                            "Limpiar marcas",
-                                            false,
-                                        )
-                                        .clicked()
-                                        {
-                                            self.act(ctx, Action::ClearMarks);
-                                        }
-                                    });
-                                });
-                                ribbon::fold_group(ui, &t, "Ventanas", "@stack", 4, |ui| {
-                                    ribbon::compact(ui);
-                                    egui::Grid::new("rb_windows")
-                                        .num_columns(2)
-                                        .spacing([8.0, 3.0])
-                                        .show(ui, |ui| {
-                                            ui.label("Disposición");
-                                            let names = ["2D", "2D + perfil", "3D", "2D + perfil + 3D"];
-                                            let cur = [
-                                                Layout::Plan,
-                                                Layout::PlanProfile,
-                                                Layout::View3d,
-                                                Layout::All,
-                                            ]
-                                            .iter()
-                                            .position(|l| *l == self.layout)
-                                            .unwrap_or(0);
-                                            egui::ComboBox::from_id_salt("layout")
-                                                .width(128.0)
-                                                .selected_text(names[cur])
-                                                .show_ui(ui, |ui| {
-                                                    for (k, n) in names.iter().enumerate() {
-                                                        if ui.selectable_label(k == cur, *n).clicked() {
-                                                            self.act(ctx, Action::Layout(k as u8));
-                                                        }
-                                                    }
-                                                })
-                                                .response
-                                                .on_hover_text("Qué vistas se muestran a la vez: planta, perfil y 3D.");
-                                            ui.end_row();
-                                            ui.label("Puntos");
-                                            ribbon::stepper(
-                                                ui,
-                                                "Puntos más pequeños en la planta y el 3D (−)",
-                                                "Puntos más grandes en la planta y el 3D (+)",
-                                                |d| self.act(ctx, Action::PointSize(d)),
-                                            );
-                                            ui.end_row();
-                                            ui.label("3D");
-                                            ui.menu_button("Opciones 3D  ▾", |ui| {
-                                                if ui.button("Norte arriba").clicked() {
-                                                    self.act(ctx, Action::NorthUp);
-                                                }
-                                                if ui.button("Exageración vertical +").clicked() {
-                                                    self.act(ctx, Action::Exaggeration(1));
-                                                }
-                                                if ui.button("Exageración vertical −").clicked() {
-                                                    self.act(ctx, Action::Exaggeration(-1));
-                                                }
-                                                ui.checkbox(
-                                                    &mut self.follow_plan,
-                                                    "Enlazar con la planta (2D+perfil+3D)",
-                                                );
-                                            })
-                                            .response
-                                            .on_hover_text("Norte arriba, exageración vertical y enlace de la vista 3D con la planta.");
-                                            ui.end_row();
-                                        });
-                                });
-                                ribbon::fold_group(ui, &t, "Perfil", "@table", 3, |ui| {
-                                    ribbon::compact(ui);
-                                    egui::Grid::new("rb_profile")
-                                        .num_columns(2)
-                                        .spacing([8.0, 3.0])
-                                        .show(ui, |ui| {
-                                            ui.label("Ancho");
-                                            ui.horizontal(|ui| {
-                                                ui.add(
-                                                    crate::numfield::NumField::new(&mut self.profile_width)
-                                                        .range(0.5..=1000.0)
-                                                        .speed(0.5)
-                                                        .suffix(" m"),
-                                                )
-                                                .on_hover_text("Ancho de la caja del perfil");
-                                                ui.checkbox(&mut self.prof_grid, "Cuadrícula")
-                                                    .on_hover_text("Líneas horizontales con las cotas en el lado izquierdo del perfil");
-                                            });
-                                            ui.end_row();
-                                            ui.label("Puntos");
-                                            ui.horizontal(|ui| {
-                                                ribbon::stepper(
-                                                    ui,
-                                                    "Puntos más pequeños en el perfil (− con el cursor sobre él)",
-                                                    "Puntos más grandes en el perfil (+ con el cursor sobre él)",
-                                                    |d| self.act(ctx, Action::ProfileSize(d)),
-                                                );
-                                                ui.checkbox(&mut self.prof_full, "Sin decimar")
-                                                    .on_hover_text("El perfil lee de los archivos los puntos de su caja sin decimar (hasta 6 millones), en segundo plano. Sin esto usa los mismos puntos que la planta y el 3D.");
-                                            });
-                                            ui.end_row();
-                                        });
-                                });
-                                ribbon::fold_group(ui, &t, "Carga de puntos", "@adddata", 2, |ui| {
                                     ribbon::compact(ui);
                                     let status = self.store.as_ref().map_or_else(
                                         || "Aún no hay ninguna nube cargada.".to_string(),
@@ -2426,11 +2355,9 @@ impl App {
                                             )
                                         },
                                     );
-                                    egui::Grid::new("rb_load")
-                                        .num_columns(2)
-                                        .spacing([8.0, 3.0])
-                                        .show(ui, |ui| {
-                                            ui.label("Máximo");
+                                    ui.vertical(|ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label("Máx. puntos");
                                             ui.add(
                                                 crate::numfield::NumField::new(&mut self.max_points_m)
                                                     .range(0.5..=200.0)
@@ -2438,142 +2365,90 @@ impl App {
                                                     .suffix(" M"),
                                             )
                                             .on_hover_text(format!("Millones de puntos que se cargan en pantalla; una nube mayor se decima. Pulsa Aplicar para recargar. {status}"));
-                                            ui.end_row();
-                                            ui.label("");
-                                            if ui
-                                                .button("Aplicar")
-                                                .on_hover_text(format!("Vuelve a cargar las nubes con ese máximo. {status}"))
-                                                .clicked()
-                                                && !self.clouds.is_empty()
-                                            {
-                                                self.reload(ctx);
-                                            }
-                                            ui.end_row();
                                         });
-                                });
-                                ribbon::fold_group(ui, &t, "Visualización", "@zonal", 1, |ui| {
-                                    ribbon::compact(ui);
-                                    ui.vertical(|ui| {
-                                        let names = [
-                                            ("Elevación (azul-rojo)", ColorBy::Elevation),
-                                            ("Elevación (tierra)", ColorBy::ElevationEarth),
-                                            ("Clasificación", ColorBy::Class),
-                                            ("Intensidad", ColorBy::Intensity),
-                                            ("Retorno", ColorBy::Return),
-                                            ("ID de fuente", ColorBy::Source),
-                                            ("Archivo", ColorBy::File),
-                                            ("RGB", ColorBy::Rgb),
-                                        ];
-                                        let cur = names
-                                            .iter()
-                                            .find(|n| n.1 == self.style.color_by)
-                                            .map_or("Colorear por…", |n| n.0);
-                                        ui.horizontal(|ui| {
-                                        ui.label("Color");
-                                        egui::ComboBox::from_id_salt("colorby")
-                                            .width(150.0)
-                                            .selected_text(cur)
-                                            .show_ui(ui, |ui| {
-                                                for (name, c) in names {
-                                                    if ui
-                                                        .selectable_label(
-                                                            self.style.color_by == c,
-                                                            name,
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        self.act(ctx, Action::Color(c));
-                                                    }
-                                                }
-                                            })
-.response
-.on_hover_text("Atributo con el que se colorean los puntos.");
-                                        });
-                                        ui.menu_button("Rango de elevación  ▾", |ui| {
-                                            let (lo, hi) = self
-                                                .store
-                                                .as_ref()
-                                                .map_or((0.0, 1.0), |s| (s.bounds[2], s.bounds[5]));
-                                            ui.horizontal(|ui| {
-                                                ui.label("Mín");
-                                                if ui
-                                                    .add(
-                                                        crate::numfield::NumField::new(
-                                                            &mut self.style.zmin,
-                                                        )
-                                                        .range(lo - 1000.0..=hi)
-                                                        .speed(0.5),
-                                                    )
-                                                    .changed()
-                                                {
-                                                    self.touch();
-                                                }
-                                                ui.label("Máx");
-                                                if ui
-                                                    .add(
-                                                        crate::numfield::NumField::new(
-                                                            &mut self.style.zmax,
-                                                        )
-                                                        .range(lo..=hi + 1000.0)
-                                                        .speed(0.5),
-                                                    )
-                                                    .changed()
-                                                {
-                                                    self.touch();
-                                                }
-                                            });
-                                            if ui.button("Ajustar a los datos").clicked() {
-                                                self.style.zmin = lo;
-                                                self.style.zmax = hi;
-                                            }
-                                        })
-.response
-.on_hover_text("Rango de elevaciones al que se reparte la rampa de color.");
-                                        ui.menu_button("Filtros de retornos y clases  ▾", |ui| {
-                                            for (k, n) in [
-                                                "Primeros retornos",
-                                                "Retornos intermedios",
-                                                "Últimos retornos",
-                                                "Retornos únicos",
-                                            ]
-                                            .iter()
-                                            .enumerate()
-                                            {
-                                                let mut on = self.style.returns & (1 << k) != 0;
-                                                if ui.checkbox(&mut on, *n).changed() {
-                                                    self.style.returns ^= 1 << k;
-                                                }
-                                            }
-                                            ui.separator();
-                                            if ui.button("Clases y colores…").clicked() {
-                                                self.act(ctx, Action::Classes);
-                                            }
-                                        })
-.response
-.on_hover_text("Qué retornos y qué clases se dibujan.");
+                                        if ui
+                                            .button("Aplicar")
+                                            .on_hover_text(format!("Vuelve a cargar las nubes con ese máximo. {status}"))
+                                            .clicked()
+                                            && !self.clouds.is_empty()
+                                        {
+                                            self.reload(ctx);
+                                        }
                                     });
                                 });
-                                ribbon::fold_group(ui, &t, "Herramientas", "🔍", 0, |ui| {
-                                    for (icon, name, n) in [
-                                        ("❓", "Consultar", Nav::Query),
-                                        ("@density", "Densidad", Nav::Density),
-                                        ("📈", "Perfil", Nav::Profile),
-                                    ] {
-                                        if ribbon::big_button(ui, &t, icon, name, self.nav == n)
-                                            .clicked()
-                                        {
-                                            self.act(ctx, Action::Nav(n));
-                                        }
+                                ribbon::fold_group(ui, &t, "Navegación", "✋", 4, |ui| {
+                                    if ribbon::big_button(ui, &t, "✋", "Desplazar", self.nav == Nav::Pan)
+                                        .clicked()
+                                    {
+                                        self.act(ctx, Action::Nav(Nav::Pan));
                                     }
                                     ui.vertical(|ui| {
-                                        if ribbon::small_button(
-                                            ui,
-                                            &t,
-                                            "📏",
-                                            "Medir",
-                                            self.nav == Nav::Measure,
-                                        )
-                                        .clicked()
+                                        if ribbon::small_button(ui, &t, "🔍", "Zoom", self.nav == Nav::Zoom)
+                                            .clicked()
+                                        {
+                                            self.act(ctx, Action::Nav(Nav::Zoom));
+                                        }
+                                        if ribbon::small_button(ui, &t, "@query", "Consultar", self.nav == Nav::Query)
+                                            .clicked()
+                                        {
+                                            self.act(ctx, Action::Nav(Nav::Query));
+                                        }
+                                        if ribbon::small_button(ui, &t, "@clear", "Limpiar marcas", false)
+                                            .clicked()
+                                        {
+                                            self.act(ctx, Action::ClearMarks);
+                                        }
+                                    });
+                                    ui.vertical(|ui| {
+                                        if ribbon::small_button(ui, &t, "@full", "Extensión completa", false)
+                                            .clicked()
+                                        {
+                                            self.act(ctx, Action::ZoomFull);
+                                        }
+                                        let on_layer = self.sel_layer.is_some_and(|k| k < self.refs.len());
+                                        if ribbon::small_button_on(ui, &t, "@zoomlayer", "Zoom a la capa", false, on_layer)
+                                            .clicked()
+                                        {
+                                            self.act(ctx, Action::ZoomLayer);
+                                        }
+                                        if ribbon::small_button(ui, &t, "@zoomsel", "Zoom a la selección", false)
+                                            .clicked()
+                                        {
+                                            self.act(ctx, Action::ZoomSel);
+                                        }
+                                    });
+                                    ui.vertical(|ui| {
+                                        if ribbon::small_button_on(ui, &t, "@prev", "Zoom anterior", false, !self.prev_plans.is_empty())
+                                            .clicked()
+                                        {
+                                            self.act(ctx, Action::ZoomPrev);
+                                        }
+                                        if ribbon::small_button_on(ui, &t, "@next", "Zoom adelante", false, !self.next_plans.is_empty())
+                                            .clicked()
+                                        {
+                                            self.act(ctx, Action::ZoomNext);
+                                        }
+                                        if ribbon::small_button(ui, &t, "@relink", "Refrescar 3D", false)
+                                            .clicked()
+                                        {
+                                            self.act(ctx, Action::Relink3d);
+                                        }
+                                    });
+                                });
+                                ribbon::fold_group(ui, &t, "Herramientas", "@measure", 3, |ui| {
+                                    ui.vertical(|ui| {
+                                        for (icon, name, n) in [
+                                            ("@density", "Densidad", Nav::Density),
+                                            ("@profile", "Perfil", Nav::Profile),
+                                        ] {
+                                            if ribbon::small_button(ui, &t, icon, name, self.nav == n)
+                                                .clicked()
+                                            {
+                                                self.act(ctx, Action::Nav(n));
+                                            }
+                                        }
+                                        if ribbon::small_button(ui, &t, "@measure", "Medir", self.nav == Nav::Measure)
+                                            .clicked()
                                         {
                                             let to = if self.nav == Nav::Measure {
                                                 Nav::Zoom
@@ -2582,6 +2457,8 @@ impl App {
                                             };
                                             self.act(ctx, Action::Nav(to));
                                         }
+                                    });
+                                    ui.vertical(|ui| {
                                         ui.horizontal(|ui| {
                                         if ribbon::small_button(
                                             ui,
@@ -2633,7 +2510,7 @@ ui.menu_button("⚙", |ui| {
                                                                                     if ribbon::small_button(
                                                 ui,
                                                 &t,
-                                                "〰",
+                                                "@contour",
                                                 "Curvas de nivel",
                                                 self.contours_on,
                                             )
@@ -2644,6 +2521,175 @@ ui.menu_button("⚙", |ui| {
 
 
                                     });
+                                });
+                                ribbon::fold_group(ui, &t, "Vista 3D", "@lay3d", 2, |ui| {
+                                    if ribbon::big_button(ui, &t, "@north", "Norte\narriba", false)
+                                        .clicked()
+                                    {
+                                        self.act(ctx, Action::NorthUp);
+                                    }
+                                    ribbon::compact(ui);
+                                    ui.vertical(|ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label("Exageración");
+                                            ui.add(
+                                                egui::DragValue::new(&mut self.orbit.exaggeration)
+                                                    .range(0.1..=100.0)
+                                                    .speed(0.05)
+                                                    .prefix("× ")
+                                                    .max_decimals(1),
+                                            )
+                                            .on_hover_text("Exageración vertical de la vista 3D (nubes y superficies ráster). Arrastra o escribe el valor.");
+                                        });
+                                        ui.checkbox(&mut self.follow_plan, "Enlazar con la planta")
+                                            .on_hover_text("En «2D + perfil + 3D», la vista 3D sigue lo que se ve en la planta.");
+                                    });
+                                });
+                                ribbon::fold_group(ui, &t, "Visualización", "@intensity", 1, |ui| {
+                                    ribbon::compact(ui);
+                                    ui.vertical(|ui| {
+                                        let names = [
+                                            ("Elevación (azul-rojo)", ColorBy::Elevation),
+                                            ("Elevación (tierra)", ColorBy::ElevationEarth),
+                                            ("Clasificación", ColorBy::Class),
+                                            ("Intensidad", ColorBy::Intensity),
+                                            ("Retorno", ColorBy::Return),
+                                            ("ID de fuente", ColorBy::Source),
+                                            ("Archivo", ColorBy::File),
+                                            ("RGB", ColorBy::Rgb),
+                                        ];
+                                        let cur = names
+                                            .iter()
+                                            .find(|n| n.1 == self.style.color_by)
+                                            .map_or("Colorear por…", |n| n.0);
+                                        ui.horizontal(|ui| {
+                                        ui.label("Color");
+                                        egui::ComboBox::from_id_salt("colorby")
+                                            .width(150.0)
+                                            .selected_text(cur)
+                                            .show_ui(ui, |ui| {
+                                                for (name, c) in names {
+                                                    if ui
+                                                        .selectable_label(
+                                                            self.style.color_by == c,
+                                                            name,
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        self.act(ctx, Action::Color(c));
+                                                    }
+                                                }
+                                            })
+.response
+.on_hover_text("Atributo con el que se colorean los puntos.");
+                                        });
+                                        ui.horizontal(|ui| {
+                                        ui.menu_button("Rango Z  ▾", |ui| {
+                                            let (lo, hi) = self
+                                                .store
+                                                .as_ref()
+                                                .map_or((0.0, 1.0), |s| (s.bounds[2], s.bounds[5]));
+                                            ui.horizontal(|ui| {
+                                                ui.label("Mín");
+                                                if ui
+                                                    .add(
+                                                        crate::numfield::NumField::new(
+                                                            &mut self.style.zmin,
+                                                        )
+                                                        .range(lo - 1000.0..=hi)
+                                                        .speed(0.5),
+                                                    )
+                                                    .changed()
+                                                {
+                                                    self.touch();
+                                                }
+                                                ui.label("Máx");
+                                                if ui
+                                                    .add(
+                                                        crate::numfield::NumField::new(
+                                                            &mut self.style.zmax,
+                                                        )
+                                                        .range(lo..=hi + 1000.0)
+                                                        .speed(0.5),
+                                                    )
+                                                    .changed()
+                                                {
+                                                    self.touch();
+                                                }
+                                            });
+                                            if ui.button("Ajustar a los datos").clicked() {
+                                                self.style.zmin = lo;
+                                                self.style.zmax = hi;
+                                            }
+                                        })
+.response
+.on_hover_text("Rango de elevaciones al que se reparte la rampa de color.");
+                                        ui.menu_button("Filtros  ▾", |ui| {
+                                            for (k, n) in [
+                                                "Primeros retornos",
+                                                "Retornos intermedios",
+                                                "Últimos retornos",
+                                                "Retornos únicos",
+                                            ]
+                                            .iter()
+                                            .enumerate()
+                                            {
+                                                let mut on = self.style.returns & (1 << k) != 0;
+                                                if ui.checkbox(&mut on, *n).changed() {
+                                                    self.style.returns ^= 1 << k;
+                                                }
+                                            }
+                                            ui.separator();
+                                            if ui.button("Clases y colores…").clicked() {
+                                                self.act(ctx, Action::Classes);
+                                            }
+                                        })
+.response
+.on_hover_text("Qué retornos y qué clases se dibujan.");
+                                        });
+                                        ui.horizontal(|ui| {
+                                            ui.label("Puntos");
+                                            ribbon::stepper(
+                                                ui,
+                                                "Puntos más pequeños en la planta y el 3D (−)",
+                                                "Puntos más grandes en la planta y el 3D (+)",
+                                                |d| self.act(ctx, Action::PointSize(d)),
+                                            );
+                                        });
+                                    });
+                                });
+                                ribbon::fold_group(ui, &t, "Perfil", "@profile", 0, |ui| {
+                                    ribbon::compact(ui);
+                                    egui::Grid::new("rb_profile")
+                                        .num_columns(2)
+                                        .spacing([8.0, 3.0])
+                                        .show(ui, |ui| {
+                                            ui.label("Ancho");
+                                            ui.horizontal(|ui| {
+                                                ui.add(
+                                                    crate::numfield::NumField::new(&mut self.profile_width)
+                                                        .range(0.5..=1000.0)
+                                                        .speed(0.5)
+                                                        .suffix(" m"),
+                                                )
+                                                .on_hover_text("Ancho de la caja del perfil");
+                                                ui.checkbox(&mut self.prof_grid, "Cuadrícula")
+                                                    .on_hover_text("Líneas horizontales con las cotas en el lado izquierdo del perfil");
+                                            });
+                                            ui.end_row();
+                                            ui.label("Puntos");
+                                            ui.horizontal(|ui| {
+                                                ribbon::stepper(
+                                                    ui,
+                                                    "Puntos más pequeños en el perfil (− con el cursor sobre él)",
+                                                    "Puntos más grandes en el perfil (+ con el cursor sobre él)",
+                                                    |d| self.act(ctx, Action::ProfileSize(d)),
+                                                );
+                                                ui.checkbox(&mut self.prof_full, "Sin decimar")
+                                                    .on_hover_text("El perfil lee de los archivos los puntos de su caja sin decimar (hasta 6 millones), en segundo plano. Sin esto usa los mismos puntos que la planta y el 3D.");
+                                            });
+                                            ui.end_row();
+                                        });
                                 });
                             }
                             _ => {}
@@ -3078,10 +3124,8 @@ ui.menu_button("⚙", |ui| {
             self.plan.cy += f64::from(d.y) / self.plan.scale;
             self.touch();
         }
-        if resp.middle_clicked()
-            && let Some(p) = self.prev_plans.pop()
-        {
-            self.plan = p;
+        if resp.middle_clicked() {
+            self.zoom_back();
         }
         // tools
         let to_map = |s: &Self, p: Pos2| {
@@ -3129,6 +3173,7 @@ ui.menu_button("⚙", |ui| {
                     self.drag_start = None;
                 } else if let Some(p) = click {
                     self.prev_plans.push(self.plan);
+        self.next_plans.clear();
                     self.plan.zoom_at(
                         2.0,
                         f64::from(p.x - rect.left()),
@@ -3138,6 +3183,7 @@ ui.menu_button("⚙", |ui| {
                     );
                 } else if let Some(p) = right_click {
                     self.prev_plans.push(self.plan);
+        self.next_plans.clear();
                     self.plan.zoom_at(
                         0.5,
                         f64::from(p.x - rect.left()),
@@ -3931,7 +3977,12 @@ ui.menu_button("⚙", |ui| {
                 let keep = o.exaggeration;
                 *o = match &store {
                     Some(s) => Orbit::fit_scene(s),
-                    None => Orbit::fit(b),
+                    None => {
+                        // a raster alone: closer, it is a flat sheet
+                        let mut f = Orbit::fit(b);
+                        f.dist *= 0.75;
+                        f
+                    }
                 };
                 o.exaggeration = keep;
                 moved = true;
@@ -3942,7 +3993,94 @@ ui.menu_button("⚙", |ui| {
         }
     }
 
+    /// The raster the 3D view shows as a surface: the selected one, else the first visible
+    /// (a one-band raster, or a one-band image whose reduced copy gives the heights).
+    fn surface_layer(&self) -> Option<usize> {
+        let ok = |r: &RefLayer| {
+            r.visible
+                && match &r.kind {
+                    RefKind::Raster { .. } => true,
+                    RefKind::Image(l) => l.work.bands.len() == 1,
+                    RefKind::Vector(_) => false,
+                }
+        };
+        self.sel_layer
+            .filter(|k| self.refs.get(*k).is_some_and(ok))
+            .or_else(|| self.refs.iter().position(ok))
+    }
+
+    /// Heights and colours of layer `k` for the 3D view, made again only when it changes.
+    fn prepare_surface(&mut self, k: usize) {
+        let r = &self.refs[k];
+        let key = match &r.kind {
+            RefKind::Raster { grid, style, .. } => hash_of((
+                k,
+                &r.path,
+                grid.cols,
+                grid.rows,
+                (style.mode as u8, style.ramp, style.invert, style.classes),
+                (style.lo.to_bits(), style.hi.to_bits()),
+                (
+                    style.azimuth.to_bits(),
+                    style.altitude.to_bits(),
+                    style.zfactor.to_bits(),
+                    style.blend.to_bits(),
+                ),
+            )),
+            _ => hash_of((k, &r.path)),
+        };
+        if self.surf3.as_ref().is_some_and(|s| s.key == key) {
+            return;
+        }
+        let (grid, style) = match &r.kind {
+            RefKind::Raster { grid, style, .. } => (grid.clone(), style.clone()),
+            RefKind::Image(l) => {
+                let g = Grid {
+                    x0: l.work.x0,
+                    y0: l.work.y0,
+                    cell: l.work.cell,
+                    cols: l.work.cols,
+                    rows: l.work.rows,
+                    data: l.work.bands[0].clone(),
+                };
+                let st = rs::GridStyle::new(&g);
+                (g, st)
+            }
+            RefKind::Vector(_) => return,
+        };
+        let shade = style.mode != rs::GridMode::Hillshade;
+        // empty cells stay transparent: the surface skips them
+        let color = rs::render_grid(&grid, &style);
+        let bounds = view::Surface {
+            grid: &grid,
+            color: &color,
+            max_quads: 1,
+            shade,
+        }
+        .bounds();
+        let first = self.surf3.is_none() || self.store.is_none();
+        self.surf3 = Some(Surf3 {
+            key,
+            grid,
+            color,
+            shade,
+            bounds,
+        });
+        if first && self.store.is_none() {
+            let keep = self.orbit.exaggeration;
+            self.orbit = Orbit::fit(bounds);
+            self.orbit.dist *= 0.75;
+            self.orbit.exaggeration = keep;
+        }
+        self.tex_3d = None;
+    }
+
     fn view_3d(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, rect: Rect) {
+        let surf_layer = self.surface_layer();
+        match surf_layer {
+            Some(k) => self.prepare_surface(k),
+            None => self.surf3 = None,
+        }
         let t = self.tokens();
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 0.0, color32(self.style.background));
@@ -3951,8 +4089,19 @@ ui.menu_button("⚙", |ui| {
             rect.width().max(8.0) as usize,
             rect.height().max(8.0) as usize,
         );
-        if let Some(store) = self.store.clone() {
-            self.nav_3d(ui, &resp, w, h, store.bounds);
+        // with the cloud hidden and a raster shown, only the surface is drawn
+        let has_cloud = self.store.is_some() && (self.show_points || self.surf3.is_none());
+        let store = if has_cloud {
+            self.store.clone()
+        } else {
+            self.surf3.as_ref().map(|_| Arc::new(PointStore::default()))
+        };
+        if let Some(store) = store {
+            let nav_bounds = match (&self.surf3, has_cloud) {
+                (Some(s), false) => s.bounds,
+                _ => store.bounds,
+            };
+            self.nav_3d(ui, &resp, w, h, nav_bounds);
             let interactive = Instant::now() < self.moving_until;
             let mut st = self.style.clone();
             st.thin = if interactive && store.len() > 1_000_000 {
@@ -3969,15 +4118,18 @@ ui.menu_button("⚙", |ui| {
             let px3 = self.orbit.dist / f;
             let half = w.max(h) as f64 * px3 * 0.6;
             let (tx, ty) = (self.orbit.target[0], self.orbit.target[1]);
-            self.update_detail3(
-                ctx,
-                [tx - half, ty - half, tx + half, ty + half],
-                px3,
-                interactive,
-            );
+            if has_cloud {
+                self.update_detail3(
+                    ctx,
+                    [tx - half, ty - half, tx + half, ty + half],
+                    px3,
+                    interactive,
+                );
+            }
             let over = self
                 .detail3
                 .as_ref()
+                .filter(|_| has_cloud)
                 .filter(|d| contains(d.window, [tx - half, ty - half, tx + half, ty + half]))
                 .map(|d| {
                     (
@@ -3995,20 +4147,28 @@ ui.menu_button("⚙", |ui| {
                 self.style_key(),
                 w,
                 h,
-                st.thin,
-                o.yaw.to_bits(),
-                o.pitch.to_bits(),
-                o.dist.to_bits(),
+                (st.thin, interactive, self.surf3.as_ref().map(|s| s.key), has_cloud),
+                (o.yaw.to_bits(), o.pitch.to_bits(), o.dist.to_bits()),
                 o.exaggeration.to_bits(),
-                o.target[0].to_bits(),
-                o.target[1].to_bits(),
-                o.target[2].to_bits(),
+                (
+                    o.target[0].to_bits(),
+                    o.target[1].to_bits(),
+                    o.target[2].to_bits(),
+                ),
                 (
                     st.window.map(|w| w.map(f64::to_bits)),
                     over.as_ref().map(|d| d.2),
                 ),
             ));
             if self.tex_3d.as_ref().is_none_or(|t| t.1 != key) {
+                // a moving view draws fewer quads: the surface stays smooth to drag
+                let quads = if interactive { 1_000_000 } else { 6_000_000 };
+                let surface = self.surf3.as_ref().map(|s| view::Surface {
+                    grid: &s.grid,
+                    color: &s.color,
+                    max_quads: quads,
+                    shade: s.shade,
+                });
                 let img = match &over {
                     Some((ds, spacing, _, _)) => {
                         let mut dst = st.clone();
@@ -4019,9 +4179,25 @@ ui.menu_button("⚙", |ui| {
                         } else {
                             1
                         };
-                        view::render_3d_with(&store, &st, Some((ds, &dst)), &self.orbit, w, h)
+                        view::render_3d_surface(
+                            &store,
+                            &st,
+                            Some((ds, &dst)),
+                            surface.as_ref(),
+                            &self.orbit,
+                            w,
+                            h,
+                        )
                     }
-                    None => view::render_3d(&store, &self.orbit, w, h, &st),
+                    None => view::render_3d_surface(
+                        &store,
+                        &st,
+                        None,
+                        surface.as_ref(),
+                        &self.orbit,
+                        w,
+                        h,
+                    ),
                 };
                 match &mut self.tex_3d {
                     Some((tex, k)) => {
@@ -4042,7 +4218,7 @@ ui.menu_button("⚙", |ui| {
             if interactive {
                 ctx.request_repaint_after(Duration::from_millis(170));
             }
-            if self.show_points
+            if (self.show_points || self.surf3.is_some())
                 && let Some((tex, _)) = &self.tex_3d
             {
                 painter.image(
@@ -4068,7 +4244,7 @@ ui.menu_button("⚙", |ui| {
                 FontId::proportional(11.0),
                 t.weak,
             );
-            if editing::is_select(self.nav) {
+            if has_cloud && editing::is_select(self.nav) {
                 self.view3d_select(ctx, &painter, &resp, rect, w, h);
             }
             // north arrow
@@ -4495,8 +4671,8 @@ impl eframe::App for App {
         self.obia_window(&ctx);
         self.align_window(&ctx);
         self.reproject_window(&ctx);
-        self.rasterops_window(&ctx);
-        self.vector_window(&ctx);
+        self.rasterops_windows(&ctx);
+        self.vector_windows(&ctx);
         self.change_window(&ctx);
         self.model_window(&ctx);
         self.corridor_window(&ctx);

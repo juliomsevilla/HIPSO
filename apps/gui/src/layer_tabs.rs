@@ -291,7 +291,7 @@ impl App {
                 if ribbon::small_button(ui, t, "@exprsel", "Seleccionar por expresión", false).clicked() {
                     self.vm.expr = Some(crate::vecmore::ExprDlg { expr: String::new(), mode: 0, msg: String::new() });
                 }
-                if ribbon::small_button_on(ui, t, "@fit", "Zoom a la selección", false, has_sel).clicked()
+                if ribbon::small_button_on(ui, t, "@zoomsel", "Zoom a la selección", false, has_sel).clicked()
                     && let Some(b) = self.active_vec().and_then(VecLayer::selection_bounds)
                 {
                     self.zoom_to_bounds(b);

@@ -12,6 +12,31 @@ pub enum Op {
     Fill,
 }
 
+impl Op {
+    pub const ALL: [Op; 3] = [Op::Sieve, Op::Proximity, Op::Fill];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Op::Sieve => "Tamizar",
+            Op::Proximity => "Proximidad",
+            Op::Fill => "Rellenar huecos",
+        }
+    }
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            Op::Sieve => "@sieve",
+            Op::Proximity => "@proximity",
+            Op::Fill => "@fillholes",
+        }
+    }
+}
+
+/// One tool (and window) per operation, in the order of [`Op::ALL`].
+pub fn tools() -> Vec<RasterOpsTool> {
+    Op::ALL.iter().map(|op| RasterOpsTool::new(*op)).collect()
+}
+
 pub struct RasterOpsTool {
     pub open: bool,
     pub op: Op,
@@ -28,11 +53,11 @@ pub struct RasterOpsTool {
     pub smoothing: f64,
 }
 
-impl Default for RasterOpsTool {
-    fn default() -> Self {
+impl RasterOpsTool {
+    fn new(op: Op) -> Self {
         Self {
             open: false,
-            op: Op::Sieve,
+            op,
             input: String::new(),
             threshold: 2.0,
             eight: false,
@@ -77,8 +102,15 @@ impl RasterOpsTool {
 }
 
 impl App {
-    pub fn rasterops_window(&mut self, ctx: &egui::Context) {
-        if !self.ro.open {
+    /// The windows of the raster operations: each one opens its own.
+    pub fn rasterops_windows(&mut self, ctx: &egui::Context) {
+        for i in 0..self.ro.len() {
+            self.rasterops_window(ctx, i);
+        }
+    }
+
+    fn rasterops_window(&mut self, ctx: &egui::Context, i: usize) {
+        if !self.ro[i].open {
             return;
         }
         let loaded: Vec<(String, PathBuf)> = self
@@ -91,7 +123,8 @@ impl App {
         let red = egui::Color32::from_rgb(200, 60, 40);
         let mut open = true;
         let mut go = false;
-        egui::Window::new("Operaciones ráster")
+        egui::Window::new(self.ro[i].op.label())
+            .default_pos([(ctx.content_rect().right() - 560.0).max(320.0), 190.0])
             .vscroll(true)
             .max_height((ctx.content_rect().height() - 90.0).max(240.0))
             .open(&mut open)
@@ -99,12 +132,7 @@ impl App {
             .show(ctx, |ui| {
                 crate::tools::output_row(ui, &mut self.tools.out_dir);
                 ui.separator();
-                let t = &mut self.ro;
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut t.op, Op::Sieve, "Tamizar");
-                    ui.radio_value(&mut t.op, Op::Proximity, "Proximidad");
-                    ui.radio_value(&mut t.op, Op::Fill, "Rellenar huecos");
-                });
+                let t = &mut self.ro[i];
                 let help = match t.op {
                     Op::Sieve => "Quita los parches pequeños de un ráster de clases: las celdas conexas de un mismo valor que son menos que el umbral toman el valor del parche vecino más grande. Las celdas vacías no se tocan.",
                     Op::Proximity => "Calcula para cada celda la distancia a la celda más cercana de unos valores (distancia euclídea exacta). Las celdas objetivo valen 0.",
@@ -192,7 +220,7 @@ impl App {
                 }
             });
         if go {
-            let t = &self.ro;
+            let t = &self.ro[i];
             let src = PathBuf::from(t.input.trim());
             let (op, threshold, eight) = (t.op, t.threshold.round().max(1.0) as usize, t.eight);
             let (targets, maxd, cells) = (t.targets(), t.max_distance(), t.in_cells);
@@ -253,7 +281,7 @@ impl App {
             );
         }
         if !open {
-            self.ro.open = false;
+            self.ro[i].open = false;
         }
     }
 }
