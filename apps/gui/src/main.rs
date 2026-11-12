@@ -33,6 +33,7 @@ mod rs;
 mod rstools;
 mod symbology;
 mod terrain;
+mod ponds_ui;
 mod theme;
 mod tips;
 mod tools;
@@ -349,6 +350,10 @@ enum Action {
     ImageTool(u8),
     RasterTool(u8),
     Terrain,
+    /// Opens the terrain analysis on the product `Product::ALL[k]`.
+    TerrainProduct(u8),
+    /// Opens the ponding tool (Hidrología).
+    Ponds,
     Obia,
     Align,
     Reproject,
@@ -473,7 +478,8 @@ struct App {
     show_classes: bool,
     ctable: classtable::ClassTable,
     rt: rstools::RasterTools,
-    tt: terrain::TerrainTool,
+    tt: Vec<terrain::TerrainTool>,
+    pt: ponds_ui::PondTool,
     ot: obia_ui::ObiaTool,
     at: align_ui::AlignTool,
     rp: reproject_ui::ReprojectTool,
@@ -611,7 +617,11 @@ impl Default for App {
             show_classes: false,
             ctable: classtable::ClassTable::load(),
             rt: rstools::RasterTools::default(),
-            tt: terrain::TerrainTool::default(),
+            tt: hipso_core::terrain::Product::ALL
+                .iter()
+                .map(|p| terrain::TerrainTool::new(*p))
+                .collect(),
+            pt: ponds_ui::PondTool::default(),
             ot: obia_ui::ObiaTool::default(),
             at: align_ui::AlignTool::default(),
             rp: reproject_ui::ReprojectTool::default(),
@@ -1105,12 +1115,6 @@ impl App {
                 ],
                 menus: vec![],
                 columns: vec![vec![
-                    other(
-                        "@terrain",
-                        "Análisis de terreno",
-                        self.tt.open,
-                        Action::Terrain,
-                    ),
                     tool("@volume", "Volumen sobre MDT", ToolId::Volume),
                     other(
                         "@change",
@@ -1294,6 +1298,44 @@ impl App {
                         })
                         .collect(),
                 ],
+            },
+            Group {
+                caption: "Análisis del terreno",
+                icon: "@terrain",
+                big: vec![],
+                menus: [
+                    ("@terrain_relief", "Relieve", 0..3),
+                    ("@terrain_form", "Forma del\nterreno", 3..9),
+                    ("@terrain_hydro", "Hidrología", 9..14),
+                    ("@terrain_view", "Visibilidad", 14..15),
+                ]
+                .into_iter()
+                .map(|(icon, label, range)| {
+                    let mut items: Vec<Item<Action>> = range
+                        .map(|k| Item {
+                            icon: [
+                                "@t_slope", "@t_aspect", "@t_hillshade", "@t_plancurv",
+                                "@t_profcurv", "@t_curv", "@t_rough", "@t_tri", "@t_tpi",
+                                "@t_filldepth", "@t_flowacc", "@t_wetness", "@t_streams",
+                                "@t_subbasins", "@t_viewshed",
+                            ][k],
+                            label: hipso_core::terrain::Product::ALL[k].name(),
+                            on: self.tt[k].open,
+                            action: Action::TerrainProduct(k as u8),
+                        })
+                        .collect();
+                    if icon == "@terrain_hydro" {
+                        items.push(Item {
+                            icon: "@t_ponds",
+                            label: "Zonas encharcadas",
+                            on: self.pt.open,
+                            action: Action::Ponds,
+                        });
+                    }
+                    ribbon::Menu { icon, label, items }
+                })
+                .collect(),
+                columns: vec![],
             },
         ]
     }
@@ -1984,7 +2026,13 @@ impl App {
             }
             Action::ImageTool(_) => self.rs.open = true,
             Action::RasterTool(k) => self.rt.open = Some(k),
-            Action::Terrain => self.tt.open = true,
+            Action::Terrain => self.tt[0].open = true,
+            Action::Ponds => self.pt.open = true,
+            Action::TerrainProduct(k) => {
+                if let Some(t) = self.tt.get_mut(usize::from(k)) {
+                    t.open = true;
+                }
+            }
             Action::Obia => self.ot.open = true,
             Action::Align => self.at.open = true,
             Action::Reproject => self.rp.open = true,
@@ -2151,6 +2199,7 @@ impl App {
             ("Colorear por fuente", Action::Color(ColorBy::Source)),
             ("Colorear por archivo", Action::Color(ColorBy::File)),
             ("Colorear por RGB", Action::Color(ColorBy::Rgb)),
+            ("Colorear por ID de árbol", Action::Color(ColorBy::Tree)),
             ("TIN sombreado", Action::ToggleTin),
             ("Curvas de nivel", Action::ToggleContours),
             ("Cargar ráster de fondo", Action::LoadRaster),
@@ -2410,6 +2459,7 @@ impl App {
                                             ("ID de fuente", ColorBy::Source),
                                             ("Archivo", ColorBy::File),
                                             ("RGB", ColorBy::Rgb),
+                                            ("ID de árbol (treeID)", ColorBy::Tree),
                                         ];
                                         let cur = names
                                             .iter()
@@ -3647,6 +3697,7 @@ ui.menu_button("⚙", |ui| {
                     ColorBy::Source => "fuente",
                     ColorBy::File => "archivo",
                     ColorBy::Rgb => "RGB",
+                    ColorBy::Tree => "ID de árbol",
                 }
             ),
         );
@@ -4730,7 +4781,8 @@ impl eframe::App for App {
         self.table_window(&ctx);
         self.rs_window(&ctx);
         self.raster_tools_window(&ctx);
-        self.terrain_window(&ctx);
+        self.terrain_windows(&ctx);
+        self.ponds_window(&ctx);
         self.obia_window(&ctx);
         self.align_window(&ctx);
         self.reproject_window(&ctx);

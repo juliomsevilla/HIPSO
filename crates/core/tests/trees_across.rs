@@ -32,6 +32,8 @@ fn sheet(x0: f64) -> Result<Grid> {
 
 fn job(chm: PathBuf, out: PathBuf, around: Vec<PathBuf>) -> TreesJob {
     TreesJob {
+        gpkg: false,
+        crown_metrics: Vec::new(),
         chm,
         output: out,
         formats: Formats {

@@ -146,14 +146,14 @@ impl App {
                             .hint_text("archivo GeoTIFF")
                             .desired_width(300.0),
                     );
-                    if ui.button("…").clicked()
+                    if ui.button("Archivo…").clicked()
                         && let Some(p) = crate::prefs::dialog()
                             .add_filter("Ráster", &["tif", "tiff"])
                             .pick_file()
                     {
                         t.input = p.display().to_string();
                     }
-                    ui.menu_button("De las capas", |ui| {
+                    ui.menu_button("De las capas cargadas", |ui| {
                         for (name, path) in &loaded {
                             if ui.button(name).clicked() {
                                 t.input = path.display().to_string();

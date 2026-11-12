@@ -689,6 +689,40 @@ impl Cloud for Points {
     }
 }
 
+/// Where an extra attribute lies in a record, and its type code (LAS 1.4 table).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ExtraField {
+    pub at: usize,
+    pub code: u8,
+}
+
+impl ExtraField {
+    /// The value in `rec`.
+    pub fn get(&self, rec: &[u8]) -> Option<f64> {
+        let b = rec.get(self.at..)?;
+        Some(match self.code {
+            1 => f64::from(*b.first()?),
+            2 => f64::from(*b.first()? as i8),
+            3 => f64::from(u16::from_le_bytes(b.get(..2)?.try_into().ok()?)),
+            4 => f64::from(i16::from_le_bytes(b.get(..2)?.try_into().ok()?)),
+            5 => f64::from(u32::from_le_bytes(b.get(..4)?.try_into().ok()?)),
+            6 => f64::from(i32::from_le_bytes(b.get(..4)?.try_into().ok()?)),
+            7 => u64::from_le_bytes(b.get(..8)?.try_into().ok()?) as f64,
+            8 => i64::from_le_bytes(b.get(..8)?.try_into().ok()?) as f64,
+            9 => f64::from(f32::from_le_bytes(b.get(..4)?.try_into().ok()?)),
+            10 => f64::from_le_bytes(b.get(..8)?.try_into().ok()?),
+            _ => return None,
+        })
+    }
+
+    /// The value as an identifier: whole and positive, else 0.
+    pub fn id(&self, rec: &[u8]) -> u32 {
+        self.get(rec)
+            .filter(|v| v.is_finite() && *v > 0.0)
+            .map_or(0, |v| v.round().min(f64::from(u32::MAX)) as u32)
+    }
+}
+
 /// An open LAS or LAZ file.
 pub struct Reader {
     path: std::path::PathBuf,
@@ -760,6 +794,40 @@ impl Reader {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Where the extra attribute called `name` (case ignored) sits in each record, when the
+    /// file declares it in its Extra Bytes record and its type is a plain number.
+    pub fn extra_field(&self, name: &str) -> Option<ExtraField> {
+        let raw = &self.vlrs;
+        let mut pos = 0usize;
+        while let Some(h) = raw.get(pos..pos + 54) {
+            let len = usize::from(u16_at(h, 20).unwrap_or(0));
+            let data = raw.get(pos + 54..pos + 54 + len).unwrap_or(&[]);
+            pos += 54 + len;
+            if h.get(2..12) != Some(b"LASF_Spec\0".as_slice()) || u16_at(h, 18) != Some(4) {
+                continue;
+            }
+            let mut at = usize::from(core_len(self.header.format)?);
+            for d in data.chunks_exact(192) {
+                let code = d[2];
+                let size = match code {
+                    0 => usize::from(d[3]),
+                    1 | 2 => 1,
+                    3 | 4 => 2,
+                    5 | 6 | 9 => 4,
+                    7 | 8 | 10 => 8,
+                    // pairs, triples and the like are not plain numbers
+                    _ => return None,
+                };
+                let label = String::from_utf8_lossy(&d[4..36]);
+                if label.trim_end_matches('\0').trim().eq_ignore_ascii_case(name) && code != 0 {
+                    return Some(ExtraField { at, code });
+                }
+                at += size;
+            }
+        }
+        None
     }
 
     /// The header block as it is in the file.

@@ -11,7 +11,7 @@ use crate::view::PointStore;
 use crate::{Error, Result};
 
 /// One decoded record: x, y, z, intensity, return byte, class, source id, scan angle, colour.
-type Row = (f64, f64, f64, u16, u8, u8, u16, i16, Option<[u8; 3]>);
+type Row = (f64, f64, f64, u16, u8, u8, u16, i16, Option<[u8; 3]>, u32);
 
 fn u16_at(b: &[u8], i: usize) -> u16 {
     b.get(i..i + 2)
@@ -77,9 +77,13 @@ pub fn load_detail(
     let has_rgb = clouds
         .iter()
         .any(|c| matches!(c.header().format, 2 | 3 | 5 | 7 | 8 | 10));
+    let has_tree = clouds
+        .iter()
+        .any(|c| c.reader().extra_field("treeID").is_some());
     for (fi, (c, ns)) in clouds.iter().zip(&nodes).enumerate() {
         let sel: Vec<Node> = ns.iter().filter(|n| n.level <= level).copied().collect();
         let r: &Reader = c.reader();
+        let tree_field = r.extra_field("treeID");
         let h = &r.header;
         let rec_len = usize::from(h.record_len);
         let (src_at, rgb_at) = (
@@ -121,12 +125,13 @@ pub fn load_detail(
                                 u16_at(rec, src_at),
                                 (r.decode_extra(rec).scan_angle * 10.0).round() as i16,
                                 rgb,
+                                tree_field.map_or(0, |f| f.id(rec)),
                             ))
                         })
                         .collect()
                 })
                 .collect();
-            for (x, y, z, i, ret, class, src, scan, rgb) in rows.into_iter().flatten() {
+            for (x, y, z, i, ret, class, src, scan, rgb, tree) in rows.into_iter().flatten() {
                 s.x.push((x - origin[0]) as f32);
                 s.y.push((y - origin[1]) as f32);
                 s.z.push((z - origin[2]) as f32);
@@ -138,6 +143,9 @@ pub fn load_detail(
                 s.file.push(fi.min(255) as u8);
                 if has_rgb {
                     s.rgb.push(rgb.unwrap_or([150, 150, 150]));
+                }
+                if has_tree {
+                    s.tree.push(tree);
                 }
                 for (k, v) in [x, y, z].into_iter().enumerate() {
                     lo[k] = lo[k].min(v);

@@ -457,9 +457,15 @@ impl Grid {
         let data = match d.read_image().map_err(tiff_err)? {
             DecodingResult::F32(v) => v,
             DecodingResult::F64(v) => v.into_iter().map(|x| x as f32).collect(),
+            DecodingResult::U8(v) => v.into_iter().map(|x| x as f32).collect(),
+            DecodingResult::U16(v) => v.into_iter().map(|x| x as f32).collect(),
+            DecodingResult::U32(v) => v.into_iter().map(|x| x as f32).collect(),
+            DecodingResult::I8(v) => v.into_iter().map(|x| x as f32).collect(),
+            DecodingResult::I16(v) => v.into_iter().map(|x| x as f32).collect(),
+            DecodingResult::I32(v) => v.into_iter().map(|x| x as f32).collect(),
             _ => {
                 return Err(Error::Unsupported(format!(
-                    "{}: solo se leen rásteres de valores reales",
+                    "{}: tipo de dato de ráster no admitido",
                     path.display()
                 )));
             }

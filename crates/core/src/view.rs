@@ -28,6 +28,8 @@ pub struct PointStore {
     pub file: Vec<u8>,
     /// Empty when no file carries colour.
     pub rgb: Vec<[u8; 3]>,
+    /// The crown number (`treeID`) of each point; empty when no file carries one.
+    pub tree: Vec<u32>,
     pub files: Vec<String>,
     /// Selected points (empty: none selected) and points removed by edits (empty: none).
     pub selected: Vec<bool>,
@@ -90,6 +92,7 @@ impl PointStore {
         half(&mut self.scan);
         half(&mut self.file);
         half(&mut self.rgb);
+        half(&mut self.tree);
     }
 
     /// The store without the points of file `k`, or `None` when it is the only one. The other
@@ -121,6 +124,11 @@ impl PointStore {
                 Vec::new()
             } else {
                 keep.iter().map(|&i| self.rgb[i]).collect()
+            },
+            tree: if self.tree.is_empty() {
+                Vec::new()
+            } else {
+                keep.iter().map(|&i| self.tree[i]).collect()
             },
             files: self.files.clone(),
             selected: Vec::new(),
@@ -176,7 +184,7 @@ fn u16_at(b: &[u8], i: usize) -> u16 {
 }
 
 /// x, y, z, intensity, return byte, class, source id, file id, colour.
-type Staged = (f64, f64, f64, u16, u8, u8, u16, u8, Option<[u8; 3]>, i16);
+type Staged = (f64, f64, f64, u16, u8, u8, u16, u8, Option<[u8; 3]>, i16, u32);
 
 /// Reads LAS/LAZ (and ASCII `x y z [intensity [class]]`) files keeping about `max_points` of
 /// them: one point in every `stride`, so large clouds fit in memory.
@@ -256,6 +264,7 @@ pub fn load_from(paths: &[PathBuf], read: &[PathBuf], max_points: usize) -> Resu
     let has_rgb = readers
         .iter()
         .any(|r| matches!(r.header.format, 2 | 3 | 5 | 7 | 8 | 10));
+    let has_tree = readers.iter().any(|r| r.extra_field("treeID").is_some());
     let mut push = |s: &mut PointStore, p: Staged| {
         if lo[0].is_infinite() && s.origin == [0.0; 3] {
             s.origin = [p.0, p.1, p.2];
@@ -271,6 +280,9 @@ pub fn load_from(paths: &[PathBuf], read: &[PathBuf], max_points: usize) -> Resu
         s.file.push(p.7);
         if has_rgb {
             s.rgb.push(p.8.unwrap_or([150, 150, 150]));
+        }
+        if has_tree {
+            s.tree.push(p.10);
         }
         for k in 0..3 {
             let v = [p.0, p.1, p.2][k];
@@ -296,6 +308,7 @@ pub fn load_from(paths: &[PathBuf], read: &[PathBuf], max_points: usize) -> Resu
                 .map_or(String::new(), |n| n.to_string_lossy().into_owned()),
         );
         let file_id = fi.min(255) as u8;
+        let tree_field = r.extra_field("treeID");
         // A COPC file that has to be thinned gives its first levels (an even sample of the whole
         // cloud) without decompressing the rest.
         // (a file that says it is COPC but cannot be read as one is read as a plain LAZ)
@@ -339,6 +352,7 @@ pub fn load_from(paths: &[PathBuf], read: &[PathBuf], max_points: usize) -> Resu
                         file_id,
                         rgb,
                         (r.decode_extra(rec).scan_angle * 10.0).round() as i16,
+                        tree_field.map_or(0, |f| f.id(rec)),
                     ),
                 );
             }
@@ -382,6 +396,7 @@ pub fn load_from(paths: &[PathBuf], read: &[PathBuf], max_points: usize) -> Resu
                     0,
                     id,
                     None,
+                    0,
                     0,
                 ),
             );
@@ -466,6 +481,7 @@ pub fn load_slab(
     let has_rgb = readers
         .iter()
         .any(|r| matches!(r.header.format, 2 | 3 | 5 | 7 | 8 | 10));
+    let has_tree = readers.iter().any(|r| r.extra_field("treeID").is_some());
     let mut lo = [f64::INFINITY; 3];
     let mut hi = [f64::NEG_INFINITY; 3];
     let mut n = 0u64;
@@ -485,6 +501,7 @@ pub fn load_slab(
             },
         );
         let file_id = fi.min(255) as u8;
+        let tree_field = r.extra_field("treeID");
         let mut body = |bytes: &[u8]| -> Result<()> {
             // decoding is the slow part: every core takes a share of the records
             let rows: Vec<Vec<(crate::las::Point, usize)>> = bytes
@@ -536,6 +553,9 @@ pub fn load_slab(
                         [c(0), c(1), c(2)]
                     }));
                 }
+                if has_tree {
+                    s.tree.push(tree_field.map_or(0, |f| f.id(rec)));
+                }
                 for (k, v) in [p.x, p.y, p.z].into_iter().enumerate() {
                     lo[k] = lo[k].min(v);
                     hi[k] = hi[k].max(v);
@@ -577,6 +597,8 @@ pub enum ColorBy {
     Source,
     File,
     Rgb,
+    /// The crown number of each point (the `treeID` attribute).
+    Tree,
 }
 
 /// The colour of selected points.
@@ -750,6 +772,10 @@ impl Style {
             ColorBy::Source => hash_color(u32::from(s.src[i])),
             ColorBy::File => hash_color(u32::from(s.file[i]) + 7),
             ColorBy::Rgb => s.rgb.get(i).copied().unwrap_or([200, 200, 200]),
+            ColorBy::Tree => match s.tree.get(i).copied().unwrap_or(0) {
+                0 => [120, 120, 120],
+                t => hash_color(t),
+            },
         }
     }
 }

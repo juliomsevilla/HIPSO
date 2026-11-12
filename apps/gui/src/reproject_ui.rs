@@ -134,7 +134,7 @@ impl App {
                 );
                 ui.horizontal(|ui| {
                     ui.label("Archivos");
-                    if ui.button("➕ Añadir…").clicked()
+                    if ui.button("Añadir archivos…").clicked()
                         && let Some(v) = crate::prefs::dialog()
                             .add_filter("Nubes y rásteres", &["las", "laz", "tif", "tiff"])
                             .pick_files()
@@ -146,7 +146,7 @@ impl App {
                             }
                         }
                     }
-                    ui.menu_button("➕ De las capas cargadas", |ui| {
+                    ui.menu_button("De las capas cargadas", |ui| {
                         for (name, path) in &loaded {
                             if ui.button(name).clicked() {
                                 if !t.inputs.iter().any(|i| &i.0 == path) {

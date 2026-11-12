@@ -82,7 +82,7 @@ impl App {
                     .size(11.0),
                 );
                 ui.horizontal(|ui| {
-                    if ui.button("➕ Añadir archivos…").clicked()
+                    if ui.button("Añadir archivos…").clicked()
                         && let Some(v) = crate::prefs::dialog()
                             .add_filter("Ráster", hipso_core::raster::EXTENSIONS)
                             .pick_files()
@@ -93,7 +93,7 @@ impl App {
                             }
                         }
                     }
-                    ui.menu_button("➕ De las capas cargadas", |ui| {
+                    ui.menu_button("De las capas cargadas", |ui| {
                         for (name, path) in &loaded {
                             if ui.button(name).clicked() {
                                 if !rt.files.iter().any(|f| &f.0 == path) {

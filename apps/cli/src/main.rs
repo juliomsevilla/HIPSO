@@ -108,6 +108,8 @@ enum ColorArg {
     Source,
     File,
     Rgb,
+    /// Crown number (treeID extra attribute)
+    Tree,
 }
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
@@ -1671,6 +1673,53 @@ enum Cmd {
         #[arg(long, default_value_t = 1000.0)]
         max_distance: f64,
     },
+    /// Ponds: where water stays on a DTM. The model is filled until it drains, and each connected
+    /// patch of water deeper than the minimum is a pond, measured by area, depth, volume, spill
+    /// level and drained area
+    Ponds {
+        /// The DTM (a GeoTIFF in a projected system, cell in metres)
+        input: PathBuf,
+        /// Base path of the results; default: <results>/<input>_charcos.shp
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// `depression` (water held up to the spill level of each depression) or `local` (low
+        /// spots against the smoothed model; slope and drained area are checked cell by cell)
+        #[arg(long, default_value = "depression")]
+        method: String,
+        /// Smooth the DTM first (Gaussian, standard deviation in map units; 0: no)
+        #[arg(long, default_value_t = 0.0)]
+        smooth: f64,
+        /// The value that means no data when the DTM does not declare one
+        #[arg(long)]
+        nodata: Option<f64>,
+        /// Shallower water is not a pond (DTM units)
+        #[arg(long, default_value_t = 0.05)]
+        min_depth: f64,
+        /// Drop ponds smaller than this (m²)
+        #[arg(long, default_value_t = 0.0)]
+        min_area: f64,
+        /// Drop ponds larger than this (m²): reservoirs are not puddles
+        #[arg(long)]
+        max_area: Option<f64>,
+        /// Drop ponds deeper than this (DTM units): pits and ditches are not puddles
+        #[arg(long)]
+        max_depth: Option<f64>,
+        /// Drop ponds holding less than this (m³)
+        #[arg(long, default_value_t = 0.0)]
+        min_volume: f64,
+        /// Drop ponds on ground steeper than this mean slope (degrees)
+        #[arg(long)]
+        max_slope: Option<f64>,
+        /// Drop ponds that drain less than this area (m²)
+        #[arg(long)]
+        min_catchment: Option<f64>,
+        /// Also write the water depth as a raster
+        #[arg(long)]
+        depth_raster: bool,
+        /// Also write a GeoPackage
+        #[arg(long)]
+        gpkg: bool,
+    },
     /// Statistics of a raster (a CHM, an index, a DTM) inside each polygon. The result is a
     /// polygon layer (shapefile) with the polygons' own attributes plus one new field per
     /// statistic: count, min, max, mean, sum, stddev, median. A cell counts when its centre is in
@@ -2331,6 +2380,8 @@ fn run(cmd: Cmd) -> Result<()> {
             };
             let formats = formats_of(format, &output);
             jobs::trees(&jobs::TreesJob {
+                gpkg: false,
+                crown_metrics: Vec::new(),
                 formats,
                 crowns: crowns.then(|| extra("individuos", "tif")),
                 crowns_shp: crowns_shp.then(|| extra("individuos", "shp")),
@@ -2464,6 +2515,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 output.unwrap_or_else(|| paths::unique(&paths::product(&first, "objetos", "shp")));
             let formats = formats_of(format, &output);
             jobs::obia(&jobs::ObiaJob {
+                gpkg: false,
                 rasters,
                 clouds: cloud,
                 cloud_layers: layers,
@@ -3572,6 +3624,42 @@ fn run(cmd: Cmd) -> Result<()> {
             job.compression = tiles.compression();
             mosaic(&job)?
         }
+        Cmd::Ponds {
+            input,
+            output,
+            method,
+            smooth,
+            nodata,
+            min_depth,
+            min_area,
+            max_area,
+            max_depth,
+            min_volume,
+            max_slope,
+            min_catchment,
+            depth_raster,
+            gpkg,
+        } => {
+            let out = out_path(output, &input, "charcos", "shp");
+            let mut job = hipso_core::ponds::PondJob::new(input, out);
+            job.method = match method.as_str() {
+                "depression" => hipso_core::ponds::Method::Depression,
+                "local" => hipso_core::ponds::Method::Local,
+                o => return Err(hipso_core::Error::Param(format!("--method: «{o}» no válido (depression, local)")).into()),
+            };
+            job.smooth = smooth;
+            job.nodata = nodata;
+            job.min_depth = min_depth;
+            job.min_area = min_area;
+            job.max_area = max_area;
+            job.max_depth = max_depth;
+            job.min_volume = min_volume;
+            job.max_slope = max_slope;
+            job.min_catchment = min_catchment;
+            job.depth_raster = depth_raster;
+            job.gpkg = gpkg;
+            hipso_core::ponds::run(&job)?
+        }
         Cmd::Terrain {
             input,
             product,
@@ -4034,6 +4122,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 ColorArg::Source => ColorBy::Source,
                 ColorArg::File => ColorBy::File,
                 ColorArg::Rgb => ColorBy::Rgb,
+                ColorArg::Tree => ColorBy::Tree,
             };
             st.point_size = point_size;
             let mask_of =

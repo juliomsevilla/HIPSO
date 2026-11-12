@@ -44,6 +44,7 @@ pub struct ObiaTool {
     pub cover_height: f64,
     pub vector: bool,
     pub csv: bool,
+    pub gpkg: bool,
     pub simplify: f64,
     pub out: String,
     pub out_manual: bool,
@@ -83,6 +84,7 @@ impl Default for ObiaTool {
             cover_height: 2.0,
             vector: true,
             csv: false,
+            gpkg: false,
             simplify: 0.0,
             out: String::new(),
             out_manual: false,
@@ -320,6 +322,7 @@ impl App {
                     ui.label("Salida");
                     ui.checkbox(&mut t.vector, "polígonos (shp)");
                     ui.checkbox(&mut t.csv, "tabla (csv)");
+                    ui.checkbox(&mut t.gpkg, "GeoPackage (gpkg)");
                     ui.label("Simplificar");
                     ui.add(NumField::new(&mut t.simplify).range(0.0..=100.0).suffix(" m"));
                 });
@@ -345,7 +348,7 @@ impl App {
                 });
                 let ready = t.chm.is_some()
                     && !t.out.trim().is_empty()
-                    && (t.vector || t.csv)
+                    && (t.vector || t.csv || t.gpkg)
                     && match t.classify {
                         1 => t.rules.is_some(),
                         2 => t.samples.is_some() && !t.class_field.trim().is_empty(),
@@ -427,6 +430,7 @@ if t.autorun && ready && self.running.is_none() {
                     vector: t.vector,
                     csv: t.csv,
                 },
+                gpkg: t.gpkg,
                 simplify: t.simplify,
                 cover_height: t.cover_height,
                 strata: (t.strata && t.classify != 0).then_some(StrataOpts {

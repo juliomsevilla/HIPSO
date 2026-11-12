@@ -51,6 +51,7 @@ pub mod mcc;
 pub mod metrics;
 pub mod noise;
 pub mod obia;
+pub mod ponds;
 pub mod ops;
 pub mod paths;
 pub mod pipeline;

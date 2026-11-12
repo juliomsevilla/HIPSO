@@ -1080,6 +1080,45 @@ impl App {
                 }
             }
             flush(&mut lines, &clip);
+        }
+    }
+
+    /// Draws the labels of the vector layers in `range`; done after every layer so that no layer
+    /// lying above hides them.
+    pub fn paint_vector_labels(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        w: usize,
+        h: usize,
+        range: std::ops::Range<usize>,
+    ) {
+        let clip = painter.with_clip_rect(rect);
+        let xf = Xf {
+            plan: self.plan,
+            w,
+            h,
+            origin: rect.min.to_vec2(),
+        };
+        let (lo, hi) = (
+            self.plan.to_map(0.0, h as f64, w, h),
+            self.plan.to_map(w as f64, 0.0, w, h),
+        );
+        let view = [lo.0, lo.1, hi.0, hi.1];
+        for r in self
+            .refs
+            .iter()
+            .enumerate()
+            .filter(|(k, r)| r.visible && range.contains(k))
+            .map(|(_, r)| r)
+        {
+            let RefKind::Vector(v) = &r.kind else {
+                continue;
+            };
+            if v.is_heavy() || v.labels.field.is_none() {
+                continue;
+            }
+            let visible: Vec<usize> = v.in_window(view);
             self.paint_labels(&clip, v, &visible, &xf, rect);
         }
     }
@@ -1234,20 +1273,26 @@ impl App {
         if self.ident.is_empty() {
             return None;
         }
-        let h = 8.0 + self.ident.len() as f32 * 15.0;
+        let wrap = (rect.width() - 40.0).clamp(120.0, 520.0);
+        let galleys: Vec<_> = self
+            .ident
+            .iter()
+            .map(|l| {
+                painter.layout(l.clone(), FontId::monospace(11.0), Color32::WHITE, wrap)
+            })
+            .collect();
+        let w = galleys.iter().map(|g| g.size().x).fold(0.0, f32::max) + 16.0;
+        let h = 10.0 + galleys.iter().map(|g| g.size().y + 2.0).sum::<f32>();
         let b = Rect::from_min_size(
             rect.left_bottom() + Vec2::new(10.0, -h - 34.0),
-            Vec2::new(340.0, h),
+            Vec2::new(w, h),
         );
         painter.rect_filled(b, 4.0, Color32::from_black_alpha(200));
-        for (k, l) in self.ident.iter().enumerate() {
-            painter.text(
-                b.min + Vec2::new(8.0, 5.0 + k as f32 * 15.0),
-                Align2::LEFT_TOP,
-                l,
-                FontId::monospace(11.0),
-                Color32::WHITE,
-            );
+        let mut y = 5.0;
+        for g in galleys {
+            let dy = g.size().y + 2.0;
+            painter.galley(b.min + Vec2::new(8.0, y), g, Color32::WHITE);
+            y += dy;
         }
         Some(b)
     }

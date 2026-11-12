@@ -111,6 +111,9 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Entre pasadas" => "Mide cuánto se separan entre sí las pasadas de vuelo.",
         "MDT" => "Modelo digital del terreno a partir de los puntos de suelo.",
         "MDS / CHM" => "Modelo digital de superficie y de alturas de la vegetación (CHM).",
+        "Zonas encharcadas" => {
+            "Delimita donde se queda el agua en un MDT: cada charco con su área, profundidad, volumen y cota de desborde."
+        }
         "Análisis de terreno" => {
             "Pendiente, orientación, curvatura, sombreado e hidrología a partir de un MDT."
         }

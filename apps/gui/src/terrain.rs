@@ -22,17 +22,16 @@ pub struct TerrainTool {
     pub eye: f64,
     pub target: f64,
     pub max_distance: f64,
-    pub out: String,
-    pub out_manual: bool,
     pub edges: terrain::Edges,
 }
 
-impl Default for TerrainTool {
-    fn default() -> Self {
+impl TerrainTool {
+    /// The window of one product, with its own settings.
+    pub fn new(product: Product) -> Self {
         Self {
             open: false,
             input: None,
-            product: Product::Slope,
+            product,
             percent: false,
             z_factor: 1.0,
             azimuth: 315.0,
@@ -44,8 +43,6 @@ impl Default for TerrainTool {
             eye: 1.7,
             target: 0.0,
             max_distance: 1000.0,
-            out: String::new(),
-            out_manual: false,
             edges: terrain::Edges::NoData,
         }
     }
@@ -94,8 +91,15 @@ fn help(p: Product) -> &'static str {
 }
 
 impl App {
-    pub fn terrain_window(&mut self, ctx: &egui::Context) {
-        if !self.tt.open {
+    /// The windows of the terrain products: each one opens its own.
+    pub fn terrain_windows(&mut self, ctx: &egui::Context) {
+        for i in 0..self.tt.len() {
+            self.terrain_window(ctx, i);
+        }
+    }
+
+    fn terrain_window(&mut self, ctx: &egui::Context, i: usize) {
+        if !self.tt[i].open {
             return;
         }
         let loaded: Vec<(String, PathBuf)> = self
@@ -107,16 +111,18 @@ impl App {
         let weak = self.tokens().weak;
         let mut open = true;
         let mut go = false;
-        egui::Window::new("Análisis de terreno")
+        egui::Window::new(self.tt[i].product.name())
             .default_pos([(ctx.content_rect().right() - 560.0).max(320.0), 190.0])
             .vscroll(true)
             .max_height((ctx.content_rect().height() - 90.0).max(240.0))
             .open(&mut open)
             .default_width(520.0)
             .show(ctx, |ui| {
-                let t = &mut self.tt;
+                crate::tools::output_row(ui, &mut self.tools.out_dir);
+                ui.separator();
+                let t = &mut self.tt[i];
                 ui.label(
-                    egui::RichText::new("Productos derivados de un MDT en un sistema métrico (UTM). El resultado es un GeoTIFF del mismo tamaño que el MDT.")
+                    egui::RichText::new(format!("{} Se calcula sobre un MDT en un sistema métrico (UTM); el resultado es un GeoTIFF del mismo tamaño que el MDT.", help(t.product)))
                         .color(weak)
                         .size(11.0),
                 );
@@ -143,26 +149,6 @@ impl App {
                         }
                     });
                 });
-                ui.horizontal(|ui| {
-                    ui.label("Producto");
-                    egui::ComboBox::from_id_salt("Producto")
-                    .selected_text(t.product.name())
-                    .height(420.0)
-                    .show_ui(ui, |ui| {
-                        for (title, items) in [
-                            ("Relieve", &Product::ALL[0..3]),
-                            ("Forma del terreno", &Product::ALL[3..9]),
-                            ("Hidrología", &Product::ALL[9..14]),
-                            ("Visibilidad", &Product::ALL[14..]),
-                        ] {
-                            ui.label(egui::RichText::new(title).color(weak).size(11.0));
-                            for p in items {
-                                ui.selectable_value(&mut t.product, *p, p.name());
-                            }
-                        }
-                    });
-                });
-                ui.label(egui::RichText::new(help(t.product)).color(weak).size(11.0));
                 ui.separator();
                 match t.product {
                     Product::Slope => {
@@ -241,49 +227,23 @@ impl App {
                     ui.add(NumField::new(&mut t.z_factor).range(0.0001..=100000.0));
                     ui.label(egui::RichText::new("1 si las alturas están en metros").color(weak).size(11.0));
                 });
-                if !t.out_manual {
-                    t.out = t.input.as_ref().map_or(String::new(), |f| {
-                        paths::unique(&paths::product(f, t.product.tag(), "tif")).display().to_string()
-                    });
-                }
-                ui.horizontal(|ui| {
-                    ui.label("Salida");
-                    if ui.add(egui::TextEdit::singleline(&mut t.out).desired_width(360.0)).changed() {
-                        t.out_manual = true;
-                    }
-                    if ui.button("…").clicked()
-                        && let Some(p) = crate::prefs::dialog().add_filter("GeoTIFF", &["tif"]).set_file_name("salida.tif").save_file()
-                    {
-                        t.out = p.display().to_string();
-                        t.out_manual = true;
-                    }
-                    if t.out_manual && ui.button("auto").clicked() {
-                        t.out_manual = false;
-                    }
-                });
                 let observer_ok = t.product != Product::Viewshed
                     || (num(&t.observer_x).is_some() && num(&t.observer_y).is_some());
                 if !observer_ok {
                     ui.label(egui::RichText::new("Escribe las coordenadas X e Y del observador (las del mapa).").color(weak).size(11.0));
                 }
-                let ready = t.input.is_some() && !t.out.trim().is_empty() && observer_ok;
+                let ready = t.input.is_some() && observer_ok;
                 if ui.add_enabled(ready && self.running.is_none(), egui::Button::new("▶ Calcular")).clicked() {
                     go = true;
                 }
             });
         if go {
-            let t = &self.tt;
-            let (Some(input), out) = (t.input.clone(), PathBuf::from(t.out.trim())) else {
+            let t = &self.tt[i];
+            let Some(input) = t.input.clone() else {
                 return;
             };
-            if out.exists() && t.out_manual {
-                self.log("La salida elegida a mano ya existe: cámbiala o bórrala.");
-            } else {
-                let out = if out.exists() {
-                    paths::unique(&out)
-                } else {
-                    out
-                };
+            {
+                let out = paths::unique(&paths::product(&input, t.product.tag(), "tif"));
                 let mut job = TerrainJob::new(input, out.clone(), t.product);
                 job.percent = t.percent;
                 job.edges = t.edges;
@@ -310,7 +270,7 @@ impl App {
             }
         }
         if !open {
-            self.tt.open = false;
+            self.tt[i].open = false;
         }
     }
 }

@@ -602,6 +602,113 @@ pub struct TreesJob {
     /// cut by the edge of a sheet is found once, whole, by the sheet that holds its top.
     pub around: Vec<PathBuf>,
     pub margin: f64,
+    /// Also write the tops and the crowns together in one GeoPackage (`<output>.gpkg`, tables
+    /// `apices` and `copas`).
+    pub gpkg: bool,
+    /// Clouds whose points inside each crown are measured (the metrics of Extraer muestras);
+    /// the crown polygons carry them as attributes. Empty: no metrics.
+    pub crown_metrics: Vec<PathBuf>,
+}
+
+/// A vector layer built in memory: one feature per row, its rings and its attribute values.
+fn vector_of(
+    fields: Vec<String>,
+    rows: Vec<(Vec<Vec<[f64; 2]>>, Vec<String>)>,
+    polygons: bool,
+) -> crate::view::VectorData {
+    let mut d = crate::view::VectorData {
+        fields,
+        polygons,
+        points: !polygons,
+        bounds: [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY],
+        ..Default::default()
+    };
+    for (parts, values) in rows {
+        for p in parts.iter().flatten() {
+            d.bounds = [
+                d.bounds[0].min(p[0]),
+                d.bounds[1].min(p[1]),
+                d.bounds[2].max(p[0]),
+                d.bounds[3].max(p[1]),
+            ];
+        }
+        d.num.push(
+            values
+                .iter()
+                .map(|t| t.trim().parse().unwrap_or(f64::NAN))
+                .collect(),
+        );
+        d.text.push(values);
+        d.features.push(crate::view::Feature { parts });
+    }
+    d
+}
+
+/// The metrics of Extraer muestras for the points inside each crown: the names of the columns
+/// and, by tree id, their values.
+fn crown_metrics(
+    clouds: &[PathBuf],
+    trees: &[trees::Tree],
+    hulls: &std::collections::BTreeMap<u32, Vec<[f64; 2]>>,
+    base: &std::path::Path,
+) -> Result<(Vec<String>, std::collections::HashMap<u32, Vec<String>>)> {
+    use crate::clip::{ClipJob, ClipMode, SampleMetrics};
+    use crate::vector::{Polygon, Region, Shape2};
+    let regions: Vec<Region> = trees
+        .iter()
+        .filter_map(|t| {
+            let h = hulls.get(&t.id).filter(|h| h.len() >= 3)?;
+            Some(Region {
+                name: t.id.to_string(),
+                shape: Shape2::Polygon(Polygon::new(vec![h.clone()])),
+                attrs: Vec::new(),
+            })
+        })
+        .collect();
+    if regions.is_empty() {
+        return Ok((Vec::new(), Default::default()));
+    }
+    let csv = paths::swap_ext(base, "csv").with_file_name(format!(
+        "{}_metricas_copas_tmp.csv",
+        paths::stem(base)
+    ));
+    let mut job = ClipJob::new(clouds.to_vec(), regions, csv.clone());
+    job.mode = ClipMode::MetricsOnly;
+    job.metrics = Some(SampleMetrics {
+        csv: csv.clone(),
+        formats: paths::Formats { vector: false, csv: true },
+        heightbreak: 2.0,
+        min_height: 0.0,
+        only: Vec::new(),
+    });
+    crate::clip::run(&job)?;
+    let text = std::fs::read_to_string(&csv);
+    let _ = std::fs::remove_file(&csv);
+    let text = text?;
+    let mut lines = text.lines();
+    let head: Vec<&str> = lines.next().unwrap_or("").split(',').collect();
+    // Muestra, Area, the metrics, Date
+    let names: Vec<String> = head
+        .get(2..head.len().saturating_sub(1))
+        .unwrap_or(&[])
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let mut by_id = std::collections::HashMap::new();
+    for l in lines {
+        let f: Vec<&str> = l.split(',').collect();
+        if let Some(id) = f.first().and_then(|v| v.trim().parse::<u32>().ok()) {
+            by_id.insert(
+                id,
+                f.get(2..f.len().saturating_sub(1))
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+            );
+        }
+    }
+    Ok((names, by_id))
 }
 
 /// Tops from a CSV of `x,y` lines (a header line is skipped), their height read from the CHM.
@@ -795,10 +902,85 @@ fn trees_run(j: &TreesJob) -> Result<String> {
         }
         lines.push(format!("  individuos (ráster): {}", path.display()));
     }
+    // the crown polygons as a layer in memory, when they carry metrics or go in the GeoPackage
+    let want_layer = j.crowns_shp.is_some() || j.gpkg;
+    let crown_layer = if want_layer && (j.gpkg || !j.crown_metrics.is_empty()) {
+        let (names, by_id) = if j.crown_metrics.is_empty() {
+            (Vec::new(), Default::default())
+        } else {
+            crown_metrics(&j.crown_metrics, &list, &hulls, &j.output)?
+        };
+        let mut fields: Vec<String> = ["TREEID", "Z", "AREA"].map(String::from).to_vec();
+        fields.extend(names.iter().cloned());
+        let rows = list
+            .iter()
+            .filter_map(|t| {
+                let h = hulls.get(&t.id).filter(|h| h.len() >= 3)?;
+                let mut v = vec![
+                    t.id.to_string(),
+                    format!("{:.2}", t.height),
+                    format!("{:.2}", forest::polygon_area(h)),
+                ];
+                match by_id.get(&t.id) {
+                    Some(m) => v.extend(m.iter().cloned()),
+                    None => v.extend(names.iter().map(|_| String::new())),
+                }
+                Some((vec![h.clone()], v))
+            })
+            .collect();
+        Some(vector_of(fields, rows, true))
+    } else {
+        None
+    };
     if let Some(path) = &j.crowns_shp {
         paths::ensure_parent(path)?;
-        forest::write_crowns_shp(path, &list, &hulls)?;
+        match &crown_layer {
+            Some(d) if !j.crown_metrics.is_empty() => {
+                let prj = epsg.and_then(crate::vector::prj_for_epsg);
+                crate::vector::write_layer(path, d, crate::view::GeomKind::Polygon, prj.as_deref())?;
+            }
+            _ => forest::write_crowns_shp(path, &list, &hulls)?,
+        }
         lines.push(format!("  individuos (polígonos): {}", path.display()));
+    }
+    if j.gpkg {
+        let path = paths::swap_ext(&j.output, "gpkg");
+        paths::ensure_parent(&path)?;
+        let tops = vector_of(
+            ["TREEID", "Z", "AREA", "HULLAREA", "CROWNDIAM"].map(String::from).to_vec(),
+            list.iter()
+                .map(|t| {
+                    let hull = hulls.get(&t.id).map_or(0.0, |h| forest::polygon_area(h));
+                    (
+                        vec![vec![[t.x, t.y]]],
+                        vec![
+                            t.id.to_string(),
+                            format!("{:.2}", t.height),
+                            format!("{:.2}", t.area),
+                            format!("{hull:.2}"),
+                            format!("{:.2}", 2.0 * (t.area / std::f64::consts::PI).sqrt()),
+                        ],
+                    )
+                })
+                .collect(),
+            false,
+        );
+        let mut tables = vec![crate::gpkg_write::Table {
+            name: "apices",
+            data: &tops,
+            kind: crate::view::GeomKind::Point,
+            epsg,
+        }];
+        if let Some(d) = &crown_layer {
+            tables.push(crate::gpkg_write::Table {
+                name: "copas",
+                data: d,
+                kind: crate::view::GeomKind::Polygon,
+                epsg,
+            });
+        }
+        crate::gpkg_write::write(&path, &tables)?;
+        lines.push(format!("  GeoPackage (ápices y copas): {}", path.display()));
     }
     // the tops shapefile is already the main result when vector output is on
     if let Some(path) = j.tops_shp.as_ref().filter(|_| !f.vector) {

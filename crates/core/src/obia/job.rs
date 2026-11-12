@@ -71,6 +71,8 @@ pub struct ObiaJob {
     /// Base path of the results (its extension is replaced by what each file needs).
     pub output: PathBuf,
     pub formats: Formats,
+    /// Also write the objects (and the strata) in one GeoPackage, `<output>.gpkg`.
+    pub gpkg: bool,
     /// Simplifies the polygons by this many map units (0: exact outlines).
     pub simplify: f64,
     /// Height, in the units of the canopy height model, from which a cell counts as covered by
@@ -106,11 +108,11 @@ impl ObiaJob {
             base.with_file_name(format!("{stem}_{tag}.tif"))
         };
         Outputs {
-            polygons: f.vector.then(|| paths::swap_ext(&self.output, "shp")),
+            polygons: (f.vector || self.gpkg).then(|| paths::swap_ext(&self.output, "shp")),
             table: f.csv.then(|| paths::swap_ext(&self.output, "csv")),
             objects: raster("objetos"),
             classes: (self.classify != ClassifyBy::Nothing).then(|| raster("clases")),
-            strata_polygons: (self.strata.is_some() && f.vector).then(|| {
+            strata_polygons: (self.strata.is_some() && (f.vector || self.gpkg)).then(|| {
                 let b = paths::swap_ext(&self.output, "shp");
                 let stem = b
                     .file_stem()
@@ -261,7 +263,44 @@ pub fn obia(j: &ObiaJob) -> Result<String> {
             lines.extend(write_strata(j, &out, &labels, &stack, c, opts, epsg)?);
         }
     }
+    if j.gpkg {
+        lines.push(pack_gpkg(j, &out)?);
+    }
     Ok(lines.join("\n") + &crate::crs::notes(&crs_warnings))
+}
+
+/// Puts the polygons written (objects, strata) into one GeoPackage; when the shapefile was not
+/// asked for, only as a step to this, it is removed.
+fn pack_gpkg(j: &ObiaJob, out: &Outputs) -> Result<String> {
+    let path = paths::swap_ext(&j.output, "gpkg");
+    let mut layers = Vec::new();
+    for (name, shp) in [("objetos", &out.polygons), ("estratos", &out.strata_polygons)] {
+        if let Some(shp) = shp.as_ref().filter(|p| p.is_file()) {
+            let (data, kind, prj) = crate::vecops::read_layer(shp)?;
+            let epsg = prj.as_deref().and_then(crate::vector::epsg_from_prj);
+            layers.push((name, data, kind, epsg, shp.clone()));
+        }
+    }
+    let tables: Vec<crate::gpkg_write::Table> = layers
+        .iter()
+        .map(|(name, data, kind, epsg, _)| crate::gpkg_write::Table {
+            name,
+            data,
+            kind: *kind,
+            epsg: *epsg,
+        })
+        .collect();
+    crate::gpkg_write::write(&path, &tables)?;
+    if !j.formats.vector {
+        for (.., shp) in &layers {
+            for ext in ["shp", "shx", "dbf", "prj", "cpg"] {
+                let _ = std::fs::remove_file(shp.with_extension(ext));
+            }
+            let stem = paths::stem(shp);
+            let _ = std::fs::remove_file(shp.with_file_name(format!("{stem}_campos.txt")));
+        }
+    }
+    Ok(format!("  GeoPackage (objetos y estratos): {}", path.display()))
 }
 
 /// Joins the classes into strata and writes them; returns the lines that say so.
@@ -392,6 +431,7 @@ mod tests {
                 vector: true,
                 csv: true,
             },
+            gpkg: true,
             simplify: 0.0,
             cover_height: 2.0,
             strata: None,
@@ -409,6 +449,14 @@ mod tests {
         assert_eq!(ids.count, 2);
         assert!(dir.join("resultado.shp").exists());
         assert!(dir.join("resultado_clases.tif").exists());
+        // the integer rasters open as layers (object and class numbers)
+        let g = crate::grid::Grid::read(&dir.join("resultado_clases.tif"))?;
+        assert!(g.data.iter().any(|v| *v == 1.0));
+        let g = crate::grid::Grid::read(&dir.join("resultado_objetos.tif"))?;
+        assert!(g.data.iter().any(|v| *v == 2.0));
+        let gpkg = dir.join("resultado.gpkg");
+        assert!(gpkg.exists());
+        assert_eq!(crate::view::read_vector(&gpkg)?.features.len(), 2);
         std::fs::remove_dir_all(&dir)?;
         Ok(())
     }
@@ -438,6 +486,7 @@ mod crs_tests {
                 vector: false,
                 csv: true,
             },
+            gpkg: false,
             simplify: 0.0,
             cover_height: 2.0,
             strata: None,
@@ -518,6 +567,7 @@ mod strata_tests {
                 vector: true,
                 csv: false,
             },
+            gpkg: false,
             simplify: 0.0,
             cover_height: 2.0,
             strata: Some(StrataOpts {

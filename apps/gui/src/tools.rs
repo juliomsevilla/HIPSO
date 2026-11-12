@@ -330,6 +330,9 @@ pub struct Tools {
     manual_tops: String,
     crowns_tif: bool,
     crowns_shp: bool,
+    /// Tops and crowns in one GeoPackage, and the cloud metrics on the crowns.
+    trees_gpkg: bool,
+    crown_metrics: bool,
     tops_shp: bool,
     cloud_ids: bool,
     across: bool,
@@ -431,6 +434,8 @@ impl Default for Tools {
             manual_tops: String::new(),
             crowns_tif: true,
             crowns_shp: true,
+            trees_gpkg: false,
+            crown_metrics: false,
             tops_shp: true,
             cloud_ids: false,
             across: true,
@@ -1338,6 +1343,14 @@ impl Tools {
                 ui.checkbox(&mut self.crowns_shp, "Polígonos de copa (shapefile)");
                 ui.checkbox(&mut self.tops_shp, "Ápices (shapefile PointZ)");
                 ui.checkbox(
+                    &mut self.trees_gpkg,
+                    "GeoPackage: ápices y copas en un solo archivo (.gpkg)",
+                );
+                ui.checkbox(
+                    &mut self.crown_metrics,
+                    "Métricas de la nube en cada copa (las de Extraer muestras; más lento, usa alturas normalizadas)",
+                );
+                ui.checkbox(
                     &mut self.cloud_ids,
                     "Nube LAS/LAZ con atributo treeID por punto",
                 );
@@ -1649,6 +1662,8 @@ impl Tools {
                         }),
                         around: Vec::new(),
                         margin: if self.across { self.across_margin } else { 0.0 },
+                        gpkg: self.trees_gpkg,
+                        crown_metrics: if self.crown_metrics { vec![input.clone()] } else { Vec::new() },
                     });
                 }
                 // each sheet looks at the models of the others, which tell which are its neighbours

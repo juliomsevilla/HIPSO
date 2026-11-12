@@ -707,9 +707,13 @@ impl App {
         h: usize,
         range: std::ops::Range<usize>,
     ) {
-        for k in range {
+        for k in range.clone() {
             self.paint_refs(painter, rect, w, h, k..k + 1);
             self.paint_vectors(painter, rect, w, h, k..k + 1);
+        }
+        // the labels go over everything, so they are drawn once, with the last range
+        if range.end >= self.refs.len() {
+            self.paint_vector_labels(painter, rect, w, h, 0..self.refs.len());
         }
     }
 
