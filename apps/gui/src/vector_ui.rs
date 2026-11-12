@@ -98,7 +98,7 @@ impl Op {
             Op::Zonal => "Para cada polígono calcula, con las celdas del ráster cuyo centro cae dentro: número de celdas, mínimo, máximo, media, suma, desviación típica y mediana. El resultado es una capa de polígonos nueva con los campos originales y un campo más por cada estadístico. Sirve, por ejemplo, para obtener el CHM medio de cada rodal.",
             Op::Validate => "Busca polígonos con anillos sin cerrar, autointersecciones, huecos fuera del polígono o partes solapadas.",
             Op::Repair => "Repara los polígonos no válidos con la regla par-impar (un lazo se convierte en dos partes, los bordes repetidos se cancelan). Los válidos no se tocan y la tabla de atributos se conserva.",
-            Op::Buffer => "Amplía cada polígono la distancia indicada (negativa: lo reduce), con esquinas redondeadas. La distancia va en las unidades de la capa: metros en un sistema proyectado, grados en uno geográfico.",
+            Op::Buffer => "Amplía cada polígono la distancia indicada (negativa: lo reduce), con esquinas redondeadas. En una capa de puntos da un círculo de ese radio alrededor de cada punto. La distancia va en las unidades de la capa: metros en un sistema proyectado, grados en uno geográfico.",
             Op::Dissolve => "Une los polígonos que comparten el valor de un campo (o todos, si no eliges campo). El campo «n» cuenta cuántos se unieron.",
             Op::Intersect => "Se queda solo con las piezas que están en las dos capas, con los campos de ambas (los de la segunda precedidos por «b_»). Lo que solo está en una de ellas se descarta.",
             Op::Difference => "A la primera capa le quita lo que cubre la segunda; cada pieza que queda conserva los campos de la primera. Los polígonos que quedan cubiertos del todo desaparecen.",
@@ -359,7 +359,24 @@ impl App {
                         vector::write_layer(&target, &result, kind, prj.as_deref())?;
                         return Ok(format!("{note} -> {}", target.display()));
                     }
-                    let mut l = geomops::read_polygons(&layer)?;
+                    // the buffer of points is the circle of the distance around each one
+                    let points = op == Op::Buffer
+                        && vecops::read_layer(&layer)
+                            .is_ok_and(|(_, k, _)| k == hipso_core::view::GeomKind::Point);
+                    if points && distance <= 0.0 {
+                        return Err(hipso_core::Error::Param(
+                            "el búfer de puntos pide una distancia mayor que 0: es el radio del círculo alrededor de cada punto".into(),
+                        ));
+                    }
+                    let mut l = if points {
+                        let opts = vector::ReadOptions {
+                            radius: Some(distance),
+                            ..Default::default()
+                        };
+                        geomops::read_polygons_with(&layer, &opts)?
+                    } else {
+                        geomops::read_polygons(&layer)?
+                    };
                     if repair {
                         l = geomops::make_valid(&l)?.0;
                     }
@@ -377,6 +394,7 @@ impl App {
                             let total = r.features.len();
                             (r, format!("{n} de {total} polígonos reparados"))
                         }
+                        Op::Buffer if points => (l.clone(), format!("círculos de radio {distance} alrededor de los puntos")),
                         Op::Buffer => (geomops::buffer(&l, distance)?, format!("buffer de {distance}")),
                         Op::Dissolve => {
                             let r = geomops::dissolve(&l, (!field.is_empty()).then_some(field.as_str()))?;

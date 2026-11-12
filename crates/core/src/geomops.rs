@@ -63,7 +63,12 @@ pub(crate) fn rings_of(region: &Region) -> Vec<Vec<[f64; 2]>> {
 
 /// Reads the polygons of a shapefile, GeoJSON or GeoPackage layer with their attributes.
 pub fn read_polygons(path: &Path) -> Result<PolyLayer> {
-    let regions = vector::read_regions(path, &vector::ReadOptions::default())?;
+    read_polygons_with(path, &vector::ReadOptions::default())
+}
+
+/// Like [`read_polygons`], with options: a point layer becomes circles of `opts.radius`.
+pub fn read_polygons_with(path: &Path, opts: &vector::ReadOptions) -> Result<PolyLayer> {
+    let regions = vector::read_regions(path, opts)?;
     let features = regions
         .iter()
         .map(|r| Feature {

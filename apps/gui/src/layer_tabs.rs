@@ -133,6 +133,22 @@ impl App {
                         classify |= ui.checkbox(&mut v.sym.invert, "Invertir").changed();
                     });
                 });
+                if v.sym.kind == SymKind::Unique && !v.sym.categories.is_empty() {
+                    egui::ScrollArea::vertical()
+                        .id_salt("sym_cats")
+                        .max_height(60.0)
+                        .show(ui, |ui| {
+                            ui.horizontal_wrapped(|ui| {
+                                for (k, name) in v.sym.categories.iter().enumerate() {
+                                    if let Some(c) = v.sym.colors.get_mut(k) {
+                                        egui::color_picker::color_edit_button_srgb(ui, c)
+                                            .on_hover_text(name.as_str());
+                                        ui.label(name.as_str());
+                                    }
+                                }
+                            });
+                        });
+                }
                 ui.add_enabled_ui(v.sym.kind == SymKind::Proportional, |ui| {
                     ui.horizontal(|ui| {
                         ui.label("Radio");

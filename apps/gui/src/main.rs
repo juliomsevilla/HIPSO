@@ -2958,16 +2958,21 @@ ui.menu_button("⚙", |ui| {
                         .stroke(Stroke::new(1.0, t.border)),
                 )
                 .show(ui, |ui| {
+                    // one text box, read only: the text can be selected across lines and copied
+                    let mut text = self.log.join("\n");
                     egui::ScrollArea::vertical()
+                        .id_salt("log_scroll")
                         .stick_to_bottom(true)
+                        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            for l in &self.log {
-                                ui.add(
-                                    egui::Label::new(egui::RichText::new(l).monospace().size(11.5))
-                                        .selectable(true),
-                                );
-                            }
+                            ui.add_sized(
+                                ui.available_size(),
+                                egui::TextEdit::multiline(&mut text)
+                                    .font(egui::TextStyle::Monospace)
+                                    .frame(egui::Frame::NONE)
+                                    .desired_width(f32::INFINITY),
+                            );
                         });
                 });
         }
