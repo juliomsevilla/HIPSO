@@ -374,6 +374,19 @@ Los puntos del edificio hasta 1,5 m por encima de su tejado son clase 6; lo que 
 
 Funciona con edificios de tejado plano o a dos aguas, y con tejados con algo de arbolado encima; los tejados muy irregulares o más pequeños que la superficie mínima quedan como vegetación. Necesita densidad: pide al menos tres semillas por celda de 1 m, y con una nube de 0,7 puntos/m² no encuentra ningún edificio.
 
+###### Prueba de edificios con DALES
+
+DALES (Varney et al., 2020) es un conjunto de nubes ALS urbanas y rurales etiquetadas a mano por técnicos, y su versión 2, con las etiquetas revisadas, está publicada con licencia MIT. Se han usado seis de sus hojas de prueba de 500 × 500 m (de la 5080_54470 a la 5175_54395), con unos 45 puntos/m², y la misma nube reducida a una de cada cinco puntos (unos 9 puntos/m², la densidad del PNOA). Los puntos se clasifican sin tener en cuenta la clase que traen (ruido de puntos aislados, suelo SMRF, edificios, cables y postes con sus valores por defecto) y se compara punto a punto, en el interior de 400 × 400 m de cada hoja, con las clases 12 a 14 de la referencia (los tres tipos de edificio), con el suelo (clase 0) y con los cables y los postes. Las clases de vehículos y las vallas de la referencia se cuentan como «otros».
+
+| Clase | 45 puntos/m², precisión / exhaustividad | 9 puntos/m², precisión / exhaustividad |
+|---|---|---|
+| Edificios | 95 % / 91 % | 96 % / 87 % |
+| Suelo | 96 % / 100 % | 95 % / 100 % |
+| Cables | 81 % / 2 % | 35 % / 3 % |
+| Postes | 14 % / 1 % | 12 % / 1 % |
+
+Los edificios se encuentran bien con las dos densidades (la exhaustividad baja cuatro puntos al reducir los puntos). El suelo no deja casi nada sin marcar, pero toma por suelo parte del resto (un 4 o 5 % de los puntos marcados no lo son). En cambio los cables y los postes casi no se encuentran: con los valores por defecto el paso de cables recupera el 2 o 3 % de los puntos de cable de la referencia, y el de postes, el 1 %. Esos pasos no deben darse por buenos sin revisarlos. La prueba se repite con `cargo run --release -p hipso-core --example pnoa_bench -- --dales --recipe receta.txt hoja.laz`, con `--thin 5` para reducir los puntos.
+
 ##### Vegetación por alturas
 
 Se mide la altura del punto sobre el suelo de su entorno: baja (3) por debajo del primer límite, media (4) hasta el segundo y alta (5) por encima. Es una clasificación geométrica y no botánica, de modo que la vegetación arbustiva alta cuenta como vegetación media o alta.
@@ -1205,6 +1218,7 @@ Referencias de los métodos descritos en este manual.
 - Qin, N., Tan, W., Ma, L., Zhang, D., Guan, H. y Li, J. (2023). Deep learning for filtering the ground from ALS point clouds: A dataset, evaluations and issues. *ISPRS Journal of Photogrammetry and Remote Sensing*, 202, 246–261.
 - Sithole, G. y Vosselman, G. (2004). Experimental comparison of filter algorithms for bare-Earth extraction from airborne laser scanning point clouds. *ISPRS Journal of Photogrammetry and Remote Sensing*, 59(1–2), 85–101.
 - Demantké, J., Mallet, C., David, N. y Vallet, B. (2011). Dimensionality based scale selection in 3D lidar point clouds. *The International Archives of the Photogrammetry, Remote Sensing and Spatial Information Sciences*, XXXVIII-5/W12, 97–102.
+- Varney, N., Asari, V. K. y Graehling, Q. (2020). DALES: A large-scale aerial LiDAR data set for semantic segmentation. *2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW)*, 717–726.
 - Weinmann, M., Jutzi, B., Hinz, S. y Mallet, C. (2015). Semantic point cloud interpretation based on optimal neighborhoods, relevant features and efficient classifiers. *ISPRS Journal of Photogrammetry and Remote Sensing*, 105, 286–304.
 - Zhang, K., Chen, S.-C., Whitman, D., Shyu, M.-L., Yan, J. y Zhang, C. (2003). A progressive morphological filter for removing nonground measurements from airborne LIDAR data. *IEEE Transactions on Geoscience and Remote Sensing*, 41(4), 872–882.
 - Zhang, W., Qi, J., Wan, P., Wang, H., Xie, D., Wang, X. y Yan, G. (2016). An easy-to-use airborne LiDAR data filtering method based on cloth simulation. *Remote Sensing*, 8(6), 501.

@@ -29,6 +29,19 @@ fn slot(c: u8) -> usize {
         .unwrap_or(CLASSES.len())
 }
 
+/// DALES 2 class codes as the standard ones: ground 2, vegetation and trees 5, power line 14,
+/// poles 15, buildings 6; cars, fences and the rest 1.
+fn dales_class(c: u8) -> u8 {
+    match c {
+        0 => 2,
+        1 | 5 => 5,
+        3 => 14,
+        9..=11 => 15,
+        12..=14 => 6,
+        _ => 1,
+    }
+}
+
 fn read_window(f: &str, size: f64) -> Result<Points, Box<dyn std::error::Error>> {
     let r = Reader::open(std::path::Path::new(f))?;
     let hb = r.header.bounds;
@@ -51,6 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (mut files, mut recipe_path) = (Vec::new(), None);
     let (mut size, mut inner, mut analyze) = (500.0_f64, 400.0_f64, false);
+    let (mut dales, mut thin) = (false, 1usize);
     let (mut wire_spec, mut pole_spec) = (String::new(), String::new());
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -59,6 +73,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--size" => size = it.next().ok_or("--size needs a value")?.parse()?,
             "--inner" => inner = it.next().ok_or("--inner needs a value")?.parse()?,
             "--analyze" => analyze = true,
+            "--dales" => dales = true,
+            "--thin" => thin = it.next().ok_or("--thin needs n")?.parse()?,
             "--wire" => wire_spec = it.next().ok_or("--wire needs k=v")?.clone(),
             "--pole" => pole_spec = it.next().ok_or("--pole needs k=v")?.clone(),
             f => files.push(f.to_string()),
@@ -154,9 +170,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("{f}: not read");
                 return;
             };
+            let mut reference_thin: Vec<u8> = Vec::new();
             let b = w.bounds;
             let (cx, cy) = ((b[0] + b[3]) / 2.0, (b[1] + b[4]) / 2.0);
-            let reference: Vec<u8> = w.pts.iter().map(|q| q.class).collect();
+            let reference: Vec<u8> = w
+                .pts
+                .iter()
+                .map(|q| if dales { dales_class(q.class) } else { q.class })
+                .collect();
+            if thin > 1 {
+                // keep every n-th point (the reference travels with the points)
+                let keep: Vec<usize> = (0..w.pts.len()).filter(|k| k % thin == 0).collect();
+                let pts: Vec<_> = keep.iter().map(|&k| w.pts[k]).collect();
+                reference_thin = keep.iter().map(|&k| reference[k]).collect();
+                w = Points::new(pts);
+            }
+            let reference = if thin > 1 { reference_thin } else { reference };
             // the recipe must find every class itself: none of the file's survives into its input
             for q in &mut w.pts {
                 q.class = 1;
