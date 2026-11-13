@@ -12,6 +12,7 @@ use crate::idw;
 use crate::las::{self, Points, Reader, Writer};
 use crate::mcc::{self, MccParams};
 use crate::noise::{self, NoiseParams};
+use crate::overlap;
 use crate::pmf::{self, PmfParams};
 use crate::rules::{self, ClassRule};
 use crate::smrf::{self, SmrfParams};
@@ -55,6 +56,9 @@ pub enum Noise {
 /// What to classify.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Steps {
+    /// Set aside the points of the flight lines that overlap another's (class 12), with cells of
+    /// this many metres, before anything else.
+    pub overlap: Option<f64>,
     pub noise: Option<Noise>,
     pub ground: Ground,
     pub buildings: Option<BuildingParams>,
@@ -113,6 +117,17 @@ struct TileClasses {
 fn classify_tile(work: &mut Points, s: &Steps) -> Result<TileClasses> {
     let n = work.pts.len();
     let mut class: Vec<Option<u8>> = vec![None; n];
+    // Overlap points are set aside first and left out of every step that follows, as noise is.
+    if let Some(cell) = s.overlap {
+        for (k, over) in overlap::find(&work.pts, cell).into_iter().enumerate() {
+            if over {
+                class[k] = Some(overlap::OVERLAP);
+                if let Some(q) = work.pts.get_mut(k) {
+                    q.withheld = true;
+                }
+            }
+        }
+    }
     // Points found to be noise are marked in place, so the later steps skip them.
     if let Some(method) = &s.noise {
         let flags = match method {
@@ -176,6 +191,19 @@ fn classify_tile(work: &mut Points, s: &Steps) -> Result<TileClasses> {
         ground,
         ruled,
     })
+}
+
+/// The class of every point after the steps, for points held in memory (one tile's worth): the
+/// class a step decided, or the point's own when none did. Noise found by the steps is marked in
+/// `work` too.
+pub fn classify_points(work: &mut Points, s: &Steps) -> Result<Vec<u8>> {
+    let TileClasses { class, .. } = classify_tile(work, s)?;
+    Ok(work
+        .pts
+        .iter()
+        .zip(class)
+        .map(|(q, c)| c.unwrap_or(q.class))
+        .collect())
 }
 
 fn open_all(inputs: &[std::path::PathBuf]) -> Result<Vec<Reader>> {

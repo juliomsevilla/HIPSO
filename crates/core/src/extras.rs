@@ -138,7 +138,7 @@ impl Extras {
 }
 
 /// Surface through the ground points, for heights above ground.
-fn ground_surface(pts: &[Point], ground: &[bool], cell: f64) -> Option<Grid> {
+pub(crate) fn ground_surface(pts: &[Point], ground: &[bool], cell: f64) -> Option<Grid> {
     let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     for q in pts.iter().filter(|q| !q.is_noise()) {
         (x0, y0, x1, y1) = (x0.min(q.x), y0.min(q.y), x1.max(q.x), y1.max(q.y));

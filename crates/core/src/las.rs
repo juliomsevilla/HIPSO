@@ -55,6 +55,8 @@ pub struct Point {
     pub withheld: bool,
     /// Scan angle in degrees, positive to one side of the flight line (0 when the file has none).
     pub scan_angle: f32,
+    /// The flight line (point source ID; 0 when the file has none).
+    pub source_id: u16,
 }
 
 impl Point {
@@ -520,6 +522,11 @@ pub(crate) fn decode(h: &Header, rec: &[u8]) -> Option<Point> {
         class,
         withheld,
         scan_angle,
+        source_id: if h.format >= 6 {
+            u16_at(rec, 20).unwrap_or(0)
+        } else {
+            u16_at(rec, 18).unwrap_or(0)
+        },
     })
 }
 

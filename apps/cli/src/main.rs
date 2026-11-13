@@ -450,6 +450,14 @@ fn parse_rule(text: &str) -> std::result::Result<ClassRule, String> {
 struct StepArgs {
     #[command(flatten)]
     ground: GroundArgs,
+    /// Set aside, as class 12 (overlap), the points of the flight lines that overlap another's,
+    /// before anything else: where several lines cover a cell, the one with the smallest mean
+    /// scan angle keeps it
+    #[arg(long)]
+    overlap: bool,
+    /// Overlap: cell side in metres
+    #[arg(long, default_value_t = 5.0)]
+    overlap_cell: f64,
     /// Classify noise (class 7) first, with this method
     #[arg(long, value_enum)]
     noise: Option<NoiseMethod>,
@@ -484,16 +492,25 @@ struct StepArgs {
     /// Classify poles and towers (15): narrow, isolated structures that rise from the ground
     #[arg(long)]
     poles: bool,
-    /// Classify by echo and scan angle, last and in order. Repeat for several rules. Parts,
-    /// separated by `;`: to=CLASS (needed), from=1,2 (or ~7), returns=F|L|A|1..9, angle=25..90
-    /// (absolute degrees; `angle=25` is 25 and over). For example: `angle=25;to=12`
+    /// Classify by rules, last and in order. Repeat for several rules. Parts, separated by `;`:
+    /// to=CLASS (needed), from=1,2 (or ~7), returns=F|L|A|1..9, angle=25..90 (absolute degrees;
+    /// `angle=25` is 25 and over), height=0.5..2 (m above the ground), intensity=0..100, and the
+    /// shape of the neighbourhood within radius=1 (m): slope=60.. (degrees), planarity, linearity,
+    /// sphericity (0 to 1), roughness (m), neighbours (count). For example: `angle=25;to=12` or
+    /// `from=1;height=0.5..2;to=4`
     #[arg(long = "rule", value_parser = parse_rule)]
     rules: Vec<ClassRule>,
     /// Classify buildings (6) and high vegetation (5), and drop roofs from the ground
     #[arg(long)]
     buildings: bool,
+    /// Read more of these options from a text file, one or more per line (`#` starts a comment
+    /// line): a classification written down once and run on any sheet or block. The file's options
+    /// go where `--recipe` is, so they may not be repeated on the command line, except `--rule`
+    #[arg(long, value_name = "FILE")]
+    #[allow(dead_code)] // read before parsing, in expand_recipes
+    recipe: Option<PathBuf>,
     /// Buildings: height above the terrain from which points are buildings or trees
-    #[arg(long, default_value_t = 2.0)]
+    #[arg(long, default_value_t = 2.5)]
     building_offset: f64,
     /// Buildings: widest building expected
     #[arg(long, default_value_t = 60.0)]
@@ -557,6 +574,7 @@ impl StepArgs {
     fn steps_with(&self, default: GroundMethod) -> Steps {
         let g = &self.ground;
         Steps {
+            overlap: self.overlap.then_some(self.overlap_cell),
             noise: self.noise.map(|m| match m {
                 NoiseMethod::Isolated => Noise::Isolated(NoiseParams {
                     step_xy: self.noise_step,
@@ -5026,12 +5044,43 @@ fn run(cmd: Cmd) -> Result<()> {
     Ok(())
 }
 
+/// Replaces each `--recipe FILE` with the arguments the file holds (see `rules::recipe_args`).
+fn expand_recipes(args: Vec<String>) -> Result<Vec<String>> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut it = args.into_iter();
+    while let Some(a) = it.next() {
+        let path = if a == "--recipe" {
+            Some(
+                it.next()
+                    .ok_or_else(|| Error::Param("--recipe necesita un archivo".into()))?,
+            )
+        } else {
+            a.strip_prefix("--recipe=").map(str::to_string)
+        };
+        match path {
+            Some(p) => {
+                let text = std::fs::read_to_string(&p)
+                    .map_err(|e| Error::Param(format!("no se lee la receta '{p}': {e}")))?;
+                out.extend(hipso_core::rules::recipe_args(&text)?);
+            }
+            None => out.push(a),
+        }
+    }
+    Ok(out)
+}
+
 fn main() -> ExitCode {
     // Parsing and `run` hold every command's arguments; debug builds need more than the main thread's stack.
     let result = std::thread::Builder::new()
         .stack_size(64 << 20)
         .spawn(|| {
-            let cli = Cli::parse();
+            let cli = match expand_recipes(std::env::args().collect()) {
+                Ok(args) => Cli::parse_from(args),
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    std::process::exit(2);
+                }
+            };
             paths::set_output_dir(cli.results_dir);
             run(cli.cmd)
         })
@@ -5046,5 +5095,43 @@ fn main() -> ExitCode {
             eprintln!("error: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod recipe_tests {
+    use super::*;
+    use hipso_core::recipe;
+
+    #[derive(Parser)]
+    struct Probe {
+        #[command(flatten)]
+        steps: StepArgs,
+    }
+
+    /// What the classification window writes as a recipe is read by the command line as the same
+    /// classification, for every ground and noise method.
+    #[test]
+    fn a_written_recipe_gives_the_command_line_the_same_steps() -> Result<()> {
+        let texts = [
+            "--overlap --overlap-cell 4 --ground kraus --iterations 7 --g -3 --noise sor --sor-k 8 --sor-m 2.5 --tile 300 --buffer 20 --threads 2",
+            "--ground mcc --mcc-spacing 2 --mcc-threshold 0.4 --noise isolated --noise-step 3 --isolated 4",
+            "--ground csf --csf-resolution 1 --csf-rigidness 2 --csf-threshold 0.3",
+            "--ground pmf --pmf-window 30 --pmf-slope 0.5",
+            "--ground smrf --smrf-cell 0.5 --smrf-slope 0.3 --smrf-threshold 0.4 --smrf-scalar 1.5",
+            "--ground axelsson --axelsson-seed-cell 30 --axelsson-angle 10 --axelsson-dist 1 --axelsson-flat 0.2 --buildings --building-offset 2.5 --building-window 40 --building-area 30",
+            "--ground classes --noise elm --elm-cell 12 --elm-threshold 2.5 --vegetation --wires --poles --rule from=1;height=..0.5;to=3 --rule angle=25;to=12",
+        ];
+        for text in texts {
+            let loaded = recipe::parse(text)?;
+            let written = recipe::write(&loaded.recipe);
+            let mut args = vec!["hipso".to_string()];
+            args.extend(hipso_core::rules::recipe_args(&written)?);
+            let probe = Probe::try_parse_from(args).map_err(|e| Error::Param(e.to_string()))?;
+            assert_eq!(probe.steps.steps(), loaded.recipe.steps, "{text}");
+            assert_eq!(probe.steps.tile, loaded.recipe.tiling.size, "{text}");
+            assert_eq!(probe.steps.threads, loaded.recipe.tiling.threads, "{text}");
+        }
+        Ok(())
     }
 }

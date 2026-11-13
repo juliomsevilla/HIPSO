@@ -1,0 +1,21 @@
+# Clasificación parecida a la del PNOA de segunda cobertura y producto NPC03, el más fino
+# (hojas de Navarra 2024): solape entre pasadas, ruido, suelo, edificios, cables, carreteras
+# y estratos de vegetación por altura sobre el suelo
+--overlap
+--overlap-cell 5
+--noise isolated
+--ground smrf
+--smrf-threshold 0.2
+--smrf-scalar 0.5
+--buildings
+--building-area 25
+--building-offset 2
+--wires
+# lo que queda al ras del suelo es suelo
+--rule "from=1;height=..0.12;to=2"
+# estratos: baja de 0,12 a 0,5 m, media de 0,5 a 3 m, alta desde 3 m
+--rule "from=1,5;height=0.12..0.5;to=3"
+--rule "from=1,3,5;height=0.5..3;to=4"
+--rule "from=1,3,4;height=3..;to=5"
+# carreteras: suelo liso, llano y de intensidad baja (asfalto)
+--rule "from=2;intensity=..10000;roughness=..0.03;slope=..5;radius=1.5;to=11"

@@ -33,6 +33,7 @@ fn base() -> DtmJob {
         cell: 1.0,
         surface: Surface::Tin,
         steps: Steps {
+            overlap: None,
             noise: None,
             ground: Ground::Classes,
             buildings: None,
@@ -307,6 +308,7 @@ fn classifying_with_neighbours_sees_across_the_edge_and_writes_only_the_sheet() 
         write_in(&dir, "este", &east)?,
     );
     let steps = Steps {
+        overlap: None,
         noise: Some(Noise::Isolated(NoiseParams::default())),
         ground: Ground::Classes,
         buildings: None,

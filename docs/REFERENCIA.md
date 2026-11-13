@@ -75,10 +75,15 @@ Métodos disponibles:
   - `mcc`: Evans y Hudak (2007).
   - `csf`: simulación de tela, Zhang 2016.
   - `pmf`: morfológico progresivo, Zhang 2003.
+  - `smrf`: morfológico simple, Pingel et al. 2013.
+  - `axelsson`: TIN progresivo, Axelsson 2000.
   - `classes`: usa la clase 2 ya existente.
 - **Ruido (`--noise`):**
   - `isolated`: celdas 3×3×3.
   - `sor`: estadístico sobre los k vecinos más cercanos.
+  - `elm`: mínimo local extendido, para el ruido bajo.
+- **Reglas (`--rule`, repetible):** `to=`, `from=`, `returns=`, `angle=`, `height=` (m sobre el suelo), `intensity=`, `slope=`, `planarity=`, `linearity=`, `sphericity=`, `roughness=`, `neighbours=` y `radius=`; se aplican en orden, al final.
+- **Recetas (`--recipe ARCHIVO`):** las opciones del archivo (una o más por línea; `#` comenta) ocupan el lugar de la opción. La ventana de clasificación del GUI las guarda y las carga (*Guardar receta…*, *Cargar receta…*).
 
 - **Estructura (`metrics --structure`):** fracción de huecos, LAI (Beer–Lambert), FHD (Shannon), VCI y CBH a partir de las alturas de los retornos de cada celda, en un archivo `_estructura`; `--structure-layer`, `--structure-top`, `--gap-height`, `--extinction`, `--cbh-floor`, `--cbh-share`.
 - **Cambio (`change`):** `--min-change`, `--cover-height`, `--min-patch`, `--years`, `--stands`, `--trees` (cimas de las dos fechas, emparejadas por distancia, `--match-dist`); el informe da el acuerdo vertical de los dos modelos.
@@ -116,17 +121,19 @@ Métodos disponibles:
 - **MCC-LIDAR 2.1:** el 94,8 % de los puntos coincide. En el MDT resultante la mediana de diferencias es 0 m y el p90 2,5 cm.
 - **lidR 4.3 (caja negra):** los ápices coinciden exactamente (11 007, 4 352 y 8 528 árboles en tres configuraciones sobre un CHM de 2,1 M de celdas). Las copas cubren casi las mismas celdas (Dalponte 99,99 %, Silva 99,7 %) y asignan el mismo árbol en el 97 % (Dalponte) y el 99 % (Silva) de ellas; la diferencia está en píxeles disputados entre dos árboles.
 - **Inventario de campo** (`datos_1`, 16 unidades de muestreo, 125 árboles): con ventana variable 3 + 0,1·h se acierta el 86 % de los árboles (precisión 76 %, F = 0,81) con un sesgo de altura de +0,55 m.
-- **Edificios:** detecta el 83 % de los puntos de edificio que clasificó el proveedor de `fusa`, con un 98 % de precisión.
+- **Edificios:** el 83 % de los puntos de edificio que clasificó el proveedor de `fusa`, con un 98 % de precisión, medido con el método anterior; el método actual (puntos de tejado, no un ráster) se contrastó con hojas PNOA 2024 de Asturias, véase el manual.
 
 ## Rendimiento
 
 | Nube de 6,9 M de puntos, 4 núcleos | HIPSO | lidR 4.3 (R) |
 |---|---|---|
-| Suelo CSF | 26 s · 176 MB | 620 s |
+| Suelo CSF (*) | 26 s · 176 MB | 620 s |
 | MDT por TIN | 5 s · 142 MB | 46 s |
 | CHM sin huecos | 8 s · 269 MB | 72 s |
 | Métricas | 4 s · 48 MB | 10 s |
 | Árboles | 0,4 s · 57 MB | 25 s |
+
+(*) Medido antes de que la tela de CSF uniera cada partícula con sus ocho vecinos (antes, con los cuatro contiguos); ahora tarda entre 1,0 y 2,4 veces más, según la nube.
 
 | Nube de 27,8 M de puntos | FUSION | HIPSO (LAS) | HIPSO (LAZ) |
 |---|---|---|---|

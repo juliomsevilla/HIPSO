@@ -20,6 +20,8 @@ use hipso_core::noise::NoiseParams;
 use hipso_core::paths;
 use hipso_core::pipeline::{Ground, Noise, PitFree, Steps, Surface, Tiling};
 use hipso_core::pmf::PmfParams;
+use hipso_core::classes::ClassSet;
+use hipso_core::recipe::{self, Loaded, Recipe};
 use hipso_core::rules::ClassRule;
 use hipso_core::smrf::SmrfParams;
 use hipso_core::trees::{CrownParams, Segmenter, Shape, Smoothing, TopParams};
@@ -219,7 +221,54 @@ enum GroundChoice {
     Classes,
 }
 
-/// A rule on the echo and the scan angle as the window shows it.
+/// A condition on a value (height above the ground, intensity, a shape feature) as the window
+/// shows it: on or off, from and to, each end open if asked (no lower or no upper limit).
+#[derive(Clone, Copy)]
+struct Cond {
+    on: bool,
+    lo: f64,
+    hi: f64,
+    lo_open: bool,
+    hi_open: bool,
+}
+
+impl Cond {
+    fn new(lo: f64, hi: f64) -> Self {
+        Self {
+            on: false,
+            lo,
+            hi,
+            lo_open: false,
+            hi_open: false,
+        }
+    }
+
+    fn range(&self) -> Option<(f64, f64)> {
+        let (lo, hi) = if self.lo_open || self.hi_open || self.lo <= self.hi {
+            (self.lo, self.hi)
+        } else {
+            (self.hi, self.lo)
+        };
+        self.on.then_some((
+            if self.lo_open { f64::NEG_INFINITY } else { lo },
+            if self.hi_open { f64::INFINITY } else { hi },
+        ))
+    }
+}
+
+/// The shape conditions of a rule: slope (°), planarity, linearity, sphericity, roughness (m)
+/// and number of neighbours, with the range each can take and the unit it is shown in.
+const SHAPE: [(&str, f64, &str); 6] = [
+    ("Pendiente", 90.0, "°"),
+    ("Planaridad", 1.0, ""),
+    ("Linealidad", 1.0, ""),
+    ("Esfericidad", 1.0, ""),
+    ("Rugosidad", 5.0, " m"),
+    ("Vecinos", 10_000.0, ""),
+];
+
+/// A rule as the window shows it: class, echo, scan angle, height above the ground, intensity and
+/// the shape of the neighbourhood.
 #[derive(Clone)]
 struct RuleRow {
     on: bool,
@@ -230,6 +279,13 @@ struct RuleRow {
     angle_on: bool,
     /// Absolute scan angle from and to, degrees.
     angle: (f64, f64),
+    /// Height above the ground (m) and intensity.
+    height: Cond,
+    intensity: Cond,
+    /// Slope, planarity, linearity, sphericity, roughness and neighbours (see `SHAPE`).
+    shape: [Cond; 6],
+    /// Radius of the neighbourhood the shape conditions look at (m).
+    radius: f64,
     to: f64,
 }
 
@@ -241,8 +297,50 @@ impl RuleRow {
             echo,
             angle_on,
             angle: (25.0, 90.0),
+            height: Cond::new(0.0, 100.0),
+            intensity: Cond::new(0.0, 65535.0),
+            shape: SHAPE.map(|(_, max, _)| Cond::new(0.0, max)),
+            radius: 1.0,
             to,
         }
+    }
+
+    /// The row a rule reads as: the inverse of `rule`. Return numbers (1 to 9) have no place in a
+    /// row, only the kinds of echo.
+    fn from_rule(r: &ClassRule) -> Self {
+        let mut default_from = ClassSet::all();
+        default_from.set(7, false);
+        default_from.set(18, false);
+        let from = if r.from == default_from {
+            String::new()
+        } else {
+            (0..=255u8)
+                .filter(|c| r.from.contains(*c))
+                .map(|c| c.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        let cond = |range: Option<(f64, f64)>, default: Cond| match range {
+            Some((lo, hi)) => Cond {
+                on: true,
+                lo: if lo.is_finite() { lo } else { default.lo },
+                hi: if hi.is_finite() { hi } else { default.hi },
+                lo_open: !lo.is_finite(),
+                hi_open: !hi.is_finite(),
+            },
+            None => default,
+        };
+        let mut row = Self::new(r.returns.kinds, r.angle.is_some(), &from, f64::from(r.to));
+        row.on = true;
+        row.angle = r.angle.unwrap_or(row.angle);
+        row.height = cond(r.height, row.height);
+        row.intensity = cond(r.intensity, row.intensity);
+        let ranges = [r.slope, r.planarity, r.linearity, r.sphericity, r.roughness, r.neighbours];
+        for (c, range) in row.shape.iter_mut().zip(ranges) {
+            *c = cond(range, *c);
+        }
+        row.radius = r.radius;
+        row
     }
 
     /// The rules the window starts with, all off.
@@ -271,6 +369,16 @@ impl RuleRow {
             };
         }
         rule.angle = self.angle_on.then_some(self.angle);
+        rule.height = self.height.range();
+        rule.intensity = self.intensity.range();
+        let [slope, planarity, linearity, sphericity, roughness, neighbours] = self.shape;
+        rule.slope = slope.range();
+        rule.planarity = planarity.range();
+        rule.linearity = linearity.range();
+        rule.sphericity = sphericity.range();
+        rule.roughness = roughness.range();
+        rule.neighbours = neighbours.range();
+        rule.radius = self.radius.max(0.05);
         Some(rule)
     }
 }
@@ -300,6 +408,9 @@ pub struct Tools {
     smrf: SmrfParams,
     ax: AxelssonParams,
     rule_rows: Vec<RuleRow>,
+    /// Set aside the overlap between flight lines (class 12), with this cell (m).
+    overlap: bool,
+    overlap_cell: f64,
     noise: NoiseChoice,
     np: NoiseParams,
     sor_k: usize,
@@ -315,6 +426,10 @@ pub struct Tools {
     pp: PoleParams,
     bp: BuildingParams,
     tiling: Tiling,
+    /// What the last save or load of a recipe did.
+    recipe_note: String,
+    /// The tab of the classification window: steps, rules, tiles.
+    class_tab: usize,
     // rasters
     dtm_cell: f64,
     dtm_surface: Surface,
@@ -408,6 +523,8 @@ impl Default for Tools {
             smrf: SmrfParams::default(),
             ax: AxelssonParams::default(),
             rule_rows: RuleRow::defaults(),
+            overlap: false,
+            overlap_cell: 5.0,
             noise: NoiseChoice::None,
             np: NoiseParams::default(),
             sor_k: 10,
@@ -423,6 +540,8 @@ impl Default for Tools {
             pp: PoleParams::default(),
             bp: BuildingParams::default(),
             tiling: Tiling::default(),
+            recipe_note: String::new(),
+            class_tab: 0,
             dtm_cell: 1.0,
             dtm_surface: Surface::Tin,
             chm_cell: 0.5,
@@ -492,6 +611,42 @@ impl Default for Tools {
 }
 
 /// The settings of the Simple Morphological Filter.
+/// A row of a rule: the checkbox, and from and to when it is on.
+fn cond_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    c: &mut Cond,
+    range: std::ops::RangeInclusive<f64>,
+    speed: f64,
+    suffix: &str,
+) {
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut c.on, label);
+        ui.add_enabled(
+            c.on && !c.lo_open,
+            crate::numfield::NumField::new(&mut c.lo)
+                .range(range.clone())
+                .speed(speed)
+                .suffix(suffix),
+        );
+        ui.label("a");
+        ui.add_enabled(
+            c.on && !c.hi_open,
+            crate::numfield::NumField::new(&mut c.hi)
+                .range(range)
+                .speed(speed)
+                .suffix(suffix),
+        );
+    });
+    if c.on {
+        ui.horizontal(|ui| {
+            ui.add_space(24.0);
+            ui.checkbox(&mut c.lo_open, "sin mínimo");
+            ui.checkbox(&mut c.hi_open, "sin máximo");
+        });
+    }
+}
+
 fn smrf_fields(ui: &mut egui::Ui, p: &mut SmrfParams) {
     num(ui, "Celda", &mut p.cell, 0.1..=10.0, 0.1);
     num(
@@ -607,8 +762,114 @@ impl Tools {
         });
     }
 
+    /// Puts a recipe's steps and tiling in the window.
+    fn apply_recipe(&mut self, r: &Recipe) {
+        let st = &r.steps;
+        self.overlap = st.overlap.is_some();
+        if let Some(c) = st.overlap {
+            self.overlap_cell = c;
+        }
+        match &st.ground {
+            Ground::Fusion(p) => (self.ground, self.gp) = (GroundChoice::Fusion, p.clone()),
+            Ground::Mcc(p) => (self.ground, self.mcc) = (GroundChoice::Mcc, p.clone()),
+            Ground::Csf(p) => (self.ground, self.csf) = (GroundChoice::Csf, p.clone()),
+            Ground::Pmf(p) => (self.ground, self.pmf) = (GroundChoice::Pmf, p.clone()),
+            Ground::Smrf(p) => (self.ground, self.smrf) = (GroundChoice::Smrf, p.clone()),
+            Ground::Axelsson(p) => (self.ground, self.ax) = (GroundChoice::Axelsson, p.clone()),
+            Ground::Classes => self.ground = GroundChoice::Classes,
+        }
+        match &st.noise {
+            None => self.noise = NoiseChoice::None,
+            Some(Noise::Isolated(p)) => (self.noise, self.np) = (NoiseChoice::Isolated, p.clone()),
+            Some(Noise::Sor { k, m }) => {
+                (self.noise, self.sor_k, self.sor_m) = (NoiseChoice::Sor, *k, *m);
+            }
+            Some(Noise::Elm { cell, threshold }) => {
+                (self.noise, self.elm_cell, self.elm_drop) = (NoiseChoice::Elm, *cell, *threshold);
+            }
+        }
+        self.buildings = st.buildings.is_some();
+        if let Some(b) = &st.buildings {
+            self.bp = b.clone();
+        }
+        self.ex_veg = st.extras.vegetation.is_some();
+        self.ex_wire = st.extras.wires.is_some();
+        self.ex_pole = st.extras.poles.is_some();
+        if let Some(v) = &st.extras.vegetation {
+            self.vp = v.clone();
+        }
+        if let Some(w) = &st.extras.wires {
+            self.wp = w.clone();
+        }
+        if let Some(p) = &st.extras.poles {
+            self.pp = p.clone();
+        }
+        self.rule_rows = if st.rules.is_empty() {
+            RuleRow::defaults()
+        } else {
+            st.rules.iter().map(RuleRow::from_rule).collect()
+        };
+        self.tiling = r.tiling.clone();
+    }
+
+    /// The two buttons that save the window's classification as a recipe and load one.
+    fn recipe_buttons(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            if ui
+                .button("Guardar receta…")
+                .on_hover_text("Guarda esta clasificación en un archivo de texto, para aplicarla otra vez aquí o con `hipso classify --recipe`")
+                .clicked()
+                && let Some(path) = crate::prefs::dialog()
+                    .add_filter("Receta de clasificación", &["txt"])
+                    .set_file_name("receta_clasificacion.txt")
+                    .save_file()
+            {
+                let r = Recipe {
+                    steps: self.steps(),
+                    tiling: self.tiling.clone(),
+                };
+                self.recipe_note = match std::fs::write(&path, recipe::write(&r)) {
+                    Ok(()) if recipe::is_exact(&r) => format!("Receta guardada en {}.", path.display()),
+                    Ok(()) => format!(
+                        "Receta guardada en {}. Algún parámetro avanzado de la ventana no tiene opción en la línea de comandos y no se guarda: al cargarla tendrá su valor por defecto.",
+                        path.display()
+                    ),
+                    Err(e) => format!("No se pudo guardar la receta: {e}"),
+                };
+            }
+            if ui
+                .button("Cargar receta…")
+                .on_hover_text("Pone en esta ventana la clasificación de un archivo de receta")
+                .clicked()
+                && let Some(path) = crate::prefs::dialog()
+                    .add_filter("Receta de clasificación", &["txt"])
+                    .pick_file()
+            {
+                self.recipe_note = match std::fs::read_to_string(&path).map_err(hipso_core::Error::Io).and_then(|t| recipe::parse(&t)) {
+                    Ok(Loaded { recipe, ignored }) => {
+                        self.apply_recipe(&recipe);
+                        if ignored.is_empty() {
+                            format!("Receta cargada de {}.", path.display())
+                        } else {
+                            format!(
+                                "Receta cargada de {}. No se usan en la clasificación: {}.",
+                                path.display(),
+                                ignored.join(" ")
+                            )
+                        }
+                    }
+                    Err(e) => format!("No se pudo cargar la receta: {e}"),
+                };
+            }
+        });
+        if !self.recipe_note.is_empty() {
+            ui.label(egui::RichText::new(self.recipe_note.clone()).size(11.0));
+        }
+    }
+
     fn steps(&self) -> Steps {
         Steps {
+            overlap: self.overlap.then_some(self.overlap_cell),
             noise: match self.noise {
                 NoiseChoice::None => None,
                 NoiseChoice::Isolated => Some(Noise::Isolated(self.np.clone())),
@@ -921,6 +1182,69 @@ impl Tools {
     }
 
     fn steps_form(&mut self, ui: &mut egui::Ui) {
+        self.recipe_buttons(ui);
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            for (i, name) in ["Clasificación", "Reglas", "Teselas y rendimiento"]
+                .iter()
+                .enumerate()
+            {
+                ui.selectable_value(&mut self.class_tab, i, *name);
+            }
+        });
+        ui.separator();
+        if self.class_tab == 0 {
+        egui::CollapsingHeader::new("Solape entre pasadas").show(ui, |ui| {
+            ui.checkbox(&mut self.overlap, "Apartar el solape (clase 12)");
+            ui.label(
+                egui::RichText::new(
+                    "Donde varias pasadas cubren una celda, la de menor ángulo de barrido medio se queda con ella y los puntos de las otras pasan a la clase 12, que los pasos siguientes no usan.",
+                )
+                .small()
+                .weak(),
+            );
+            if self.overlap {
+                num(ui, "Celda (m)", &mut self.overlap_cell, 1.0..=100.0, 1.0);
+            }
+        });
+        egui::CollapsingHeader::new("Ruido").show(ui, |ui| {
+            ui.radio_value(&mut self.noise, NoiseChoice::None, "Sin filtro");
+            ui.radio_value(
+                &mut self.noise,
+                NoiseChoice::Isolated,
+                "Puntos aislados (celdas 3×3×3)",
+            );
+            ui.radio_value(&mut self.noise, NoiseChoice::Sor, "Estadístico (SOR)");
+            ui.radio_value(
+                &mut self.noise,
+                NoiseChoice::Elm,
+                "Puntos bajos (ELM)",
+            );
+            match self.noise {
+                NoiseChoice::Isolated => {
+                    num(ui, "Celda xy", &mut self.np.step_xy, 0.1..=50.0, 0.1);
+                    num(ui, "Celda z", &mut self.np.step_z, 0.1..=50.0, 0.1);
+                }
+                NoiseChoice::Sor => {
+                    let mut k = self.sor_k as f64;
+                    num(ui, "Vecinos (k)", &mut k, 2.0..=100.0, 1.0);
+                    self.sor_k = k as usize;
+                    num(ui, "Desviaciones (m)", &mut self.sor_m, 0.5..=10.0, 0.1);
+                }
+                NoiseChoice::Elm => {
+                    num(ui, "Celda", &mut self.elm_cell, 1.0..=100.0, 0.5);
+                    num(ui, "Bajada mínima (m)", &mut self.elm_drop, 0.5..=50.0, 0.1);
+                    ui.label(
+                        egui::RichText::new(
+                            "Marca como ruido el punto más bajo de una celda que queda esa distancia por debajo del resto de su celda y de las vecinas.",
+                        )
+                        .small()
+                        .weak(),
+                    );
+                }
+                NoiseChoice::None => {}
+            }
+        });
         egui::CollapsingHeader::new("Suelo")
             .default_open(true)
             .show(ui, |ui| {
@@ -936,21 +1260,9 @@ impl Tools {
                     ),
                     (GroundChoice::Classes, "Clase 2 existente"),
                 ];
-                ui.horizontal(|ui| {
-                    ui.label("Método");
-                    egui::ComboBox::from_id_salt("Método")
-                        .selected_text(
-                            names
-                                .iter()
-                                .find(|n| n.0 == self.ground)
-                                .map_or("", |n| n.1),
-                        )
-                        .show_ui(ui, |ui| {
-                            for (c, n) in names {
-                                ui.selectable_value(&mut self.ground, c, n);
-                            }
-                        });
-                });
+                for (c, n) in names {
+                    ui.radio_value(&mut self.ground, c, n);
+                }
                 match self.ground {
                     GroundChoice::Fusion => {
                         num(
@@ -1006,90 +1318,6 @@ impl Tools {
                     GroundChoice::Classes => {}
                 }
             });
-        egui::CollapsingHeader::new("Reglas por eco y ángulo").show(ui, |ui| {
-            ui.label(egui::RichText::new("Cambian la clase de los puntos según el eco del pulso y el ángulo de barrido, al final y en orden. Los puntos con ángulo grande son menos exactos; los primeros ecos de pulsos con varios retornos son copa y bordes. El ruido (7 y 18) no se toca salvo que lo pidas en «De clases».").size(11.0));
-            for (k, row) in self.rule_rows.iter_mut().enumerate() {
-                ui.separator();
-                ui.checkbox(&mut row.on, format!("Regla {}", k + 1));
-                if !row.on {
-                    continue;
-                }
-                ui.horizontal(|ui| {
-                    ui.label("De clases");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut row.from)
-                            .hint_text("todas menos ruido; p. ej. 1,2 o ~7")
-                            .desired_width(190.0),
-                    );
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Eco");
-                    for (e, name) in ["Único", "Primero", "Intermedio", "Último"]
-                        .iter()
-                        .enumerate()
-                    {
-                        ui.checkbox(&mut row.echo[e], *name);
-                    }
-                });
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut row.angle_on, "Ángulo |a| de");
-                    ui.add_enabled(
-                        row.angle_on,
-                        crate::numfield::NumField::new(&mut row.angle.0)
-                            .range(0.0..=90.0)
-                            .speed(0.5)
-                            .suffix("°"),
-                    );
-                    ui.label("a");
-                    ui.add_enabled(
-                        row.angle_on,
-                        crate::numfield::NumField::new(&mut row.angle.1)
-                            .range(0.0..=180.0)
-                            .speed(0.5)
-                            .suffix("°"),
-                    );
-                });
-                num(ui, "A la clase", &mut row.to, 0.0..=255.0, 1.0);
-            }
-        });
-        egui::CollapsingHeader::new("Ruido").show(ui, |ui| {
-            ui.radio_value(&mut self.noise, NoiseChoice::None, "Sin filtro");
-            ui.radio_value(
-                &mut self.noise,
-                NoiseChoice::Isolated,
-                "Puntos aislados (celdas 3×3×3)",
-            );
-            ui.radio_value(&mut self.noise, NoiseChoice::Sor, "Estadístico (SOR)");
-            ui.radio_value(
-                &mut self.noise,
-                NoiseChoice::Elm,
-                "Puntos bajos (ELM)",
-            );
-            match self.noise {
-                NoiseChoice::Isolated => {
-                    num(ui, "Celda xy", &mut self.np.step_xy, 0.1..=50.0, 0.1);
-                    num(ui, "Celda z", &mut self.np.step_z, 0.1..=50.0, 0.1);
-                }
-                NoiseChoice::Sor => {
-                    let mut k = self.sor_k as f64;
-                    num(ui, "Vecinos (k)", &mut k, 2.0..=100.0, 1.0);
-                    self.sor_k = k as usize;
-                    num(ui, "Desviaciones (m)", &mut self.sor_m, 0.5..=10.0, 0.1);
-                }
-                NoiseChoice::Elm => {
-                    num(ui, "Celda", &mut self.elm_cell, 1.0..=100.0, 0.5);
-                    num(ui, "Bajada mínima (m)", &mut self.elm_drop, 0.5..=50.0, 0.1);
-                    ui.label(
-                        egui::RichText::new(
-                            "Marca como ruido el punto más bajo de una celda que queda esa distancia por debajo del resto de su celda y de las vecinas.",
-                        )
-                        .small()
-                        .weak(),
-                    );
-                }
-                NoiseChoice::None => {}
-            }
-        });
         egui::CollapsingHeader::new("Edificios").show(ui, |ui| {
             ui.checkbox(
                 &mut self.buildings,
@@ -1185,7 +1413,75 @@ impl Tools {
                 );
             }
         });
-        egui::CollapsingHeader::new("Teselas y rendimiento").show(ui, |ui| {
+        }
+        if self.class_tab == 1 {
+            ui.label(egui::RichText::new("Cambian la clase de los puntos que cumplen todas las condiciones de la regla (eco, ángulo, altura sobre el suelo, intensidad y forma del entorno), al final y en orden: una regla ve lo que hizo la anterior. Para hacer estratos de vegetación, una regla por altura (por ejemplo, de la clase 1, altura de 0,5 a 2 m, a la clase 4). El ruido (7 y 18) no se toca salvo que lo pidas en «De clases».").size(11.0));
+            for (k, row) in self.rule_rows.iter_mut().enumerate() {
+                ui.separator();
+                ui.checkbox(&mut row.on, format!("Regla {}", k + 1));
+                if !row.on {
+                    continue;
+                }
+                ui.horizontal(|ui| {
+                    ui.label("De clases");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut row.from)
+                            .hint_text("todas menos ruido; p. ej. 1,2 o ~7")
+                            .desired_width(190.0),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Eco");
+                    for (e, name) in ["Único", "Primero", "Intermedio", "Último"]
+                        .iter()
+                        .enumerate()
+                    {
+                        ui.checkbox(&mut row.echo[e], *name);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut row.angle_on, "Ángulo |a| de");
+                    ui.add_enabled(
+                        row.angle_on,
+                        crate::numfield::NumField::new(&mut row.angle.0)
+                            .range(0.0..=90.0)
+                            .speed(0.5)
+                            .suffix("°"),
+                    );
+                    ui.label("a");
+                    ui.add_enabled(
+                        row.angle_on,
+                        crate::numfield::NumField::new(&mut row.angle.1)
+                            .range(0.0..=180.0)
+                            .speed(0.5)
+                            .suffix("°"),
+                    );
+                });
+                cond_row(ui, "Altura sobre el suelo", &mut row.height, 0.0..=1000.0, 0.1, " m");
+                cond_row(ui, "Intensidad", &mut row.intensity, 0.0..=65535.0, 10.0, "");
+                ui.label(
+                    egui::RichText::new("Forma del entorno (de los vecinos dentro del radio)")
+                        .size(11.0),
+                );
+                num(ui, "Radio", &mut row.radius, 0.1..=20.0, 0.1);
+                for ((name, max, unit), cond) in SHAPE.iter().zip(row.shape.iter_mut()) {
+                    cond_row(ui, name, cond, 0.0..=*max, max / 200.0, unit);
+                }
+                num(ui, "A la clase", &mut row.to, 0.0..=255.0, 1.0);
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Añadir regla").clicked() {
+                    let mut row = RuleRow::new([true; 4], false, "1", 4.0);
+                    row.on = true;
+                    self.rule_rows.push(row);
+                }
+                if self.rule_rows.len() > 1 && ui.button("Quitar la última").clicked() {
+                    self.rule_rows.pop();
+                }
+            });
+        }
+        if self.class_tab == 2 {
             num(
                 ui,
                 "Tamaño de tesela",
@@ -1197,7 +1493,7 @@ impl Tools {
             let mut th = self.tiling.threads as f64;
             num(ui, "Hilos (0 = todos)", &mut th, 0.0..=256.0, 1.0);
             self.tiling.threads = th as usize;
-        });
+        }
     }
 
     fn trees_form(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf]) {
@@ -1847,4 +2143,56 @@ pub fn output_row(ui: &mut egui::Ui, out_dir: &mut String) {
     });
     let dir = out_dir.trim();
     hipso_core::paths::set_output_dir((!dir.is_empty()).then(|| std::path::PathBuf::from(dir)));
+}
+
+#[cfg(test)]
+mod recipe_tests {
+    use super::*;
+
+    /// A rule loaded from a recipe into a row of the window gives back the same rule, and a recipe
+    /// applied to the window and written again is the same recipe.
+    #[test]
+    fn a_recipe_goes_through_the_window_unchanged() -> hipso_core::Result<()> {
+        for text in [
+            "to=5",
+            "from=1,2;returns=F;angle=25..90;to=12",
+            "from=1;height=..0.5;to=3",
+            "from=1;height=0.5..2;intensity=10..200;to=4",
+            "height=2..;slope=60..;planarity=0.7..;roughness=..0.2;neighbours=5..;radius=2.5;to=6",
+        ] {
+            let rule = ClassRule::parse(text)?;
+            assert_eq!(RuleRow::from_rule(&rule).rule(), Some(rule), "{text}");
+        }
+        let text = "--noise elm --elm-cell 12 --ground axelsson --axelsson-angle 10 --buildings --building-window 40 --vegetation --wires \
+                    --rule from=1;height=..0.5;to=3 --rule angle=25;to=12 --tile 200 --buffer 40 --threads 4";
+        let loaded = recipe::parse(text)?;
+        let mut tools = Tools::default();
+        tools.apply_recipe(&loaded.recipe);
+        let back = Recipe {
+            steps: tools.steps(),
+            tiling: tools.tiling.clone(),
+        };
+        assert_eq!(back, loaded.recipe);
+        Ok(())
+    }
+
+    /// The example recipe of the manual loads in the window without losing anything and comes
+    /// back out the same.
+    #[test]
+    fn the_example_recipe_loads_in_the_window() -> hipso_core::Result<()> {
+        let text = include_str!("../../../docs/recetas/clasificacion_pnoa.txt");
+        let loaded = recipe::parse(text)?;
+        assert!(loaded.ignored.is_empty(), "{:?}", loaded.ignored);
+        assert!(recipe::is_exact(&loaded.recipe));
+        let mut tools = Tools::default();
+        tools.apply_recipe(&loaded.recipe);
+        let back = Recipe {
+            steps: tools.steps(),
+            tiling: tools.tiling.clone(),
+        };
+        assert_eq!(back, loaded.recipe);
+        assert_eq!(back.steps.rules.len(), 5);
+        assert!(back.steps.overlap.is_some() && back.steps.extras.wires.is_some());
+        Ok(())
+    }
 }

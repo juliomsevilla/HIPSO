@@ -251,6 +251,35 @@ pub fn ground(pts: &[Point], p: &AxelssonParams) -> Result<Vec<bool>> {
     for &i in lowest.values() {
         ground[i] = true;
     }
+    // Seeds interior to their cells leave the edge of the cloud outside their hull, where no
+    // triangle tests a point: along each side of the extent, the lowest point of each stretch of
+    // half a seed cell, taken in a band at the edge, is a seed as well.
+    let band = (p.seed_cell / 10.0).max(1.0);
+    let stretch = p.seed_cell / 2.0;
+    let mut sides: HashMap<(u8, i64), usize> = HashMap::new();
+    for &i in &valid {
+        let (x, y) = xy[i];
+        for (side, near, along) in [
+            (0u8, x <= band, y),
+            (1, extent.0 - x <= band, y),
+            (2, y <= band, x),
+            (3, extent.1 - y <= band, x),
+        ] {
+            if near {
+                sides
+                    .entry((side, (along / stretch).floor() as i64))
+                    .and_modify(|j| {
+                        if z[i] < z[*j] {
+                            *j = i;
+                        }
+                    })
+                    .or_insert(i);
+            }
+        }
+    }
+    for &i in sides.values() {
+        ground[i] = true;
+    }
     let mut candidates: Vec<usize> = valid.iter().copied().filter(|&i| !ground[i]).collect();
     for _ in 0..p.max_iterations {
         crate::check_cancel()?;
@@ -261,13 +290,39 @@ pub fn ground(pts: &[Point], p: &AxelssonParams) -> Result<Vec<bool>> {
         if ids.len() < 3 {
             break;
         }
-        let corners: Vec<delaunator::Point> = ids
+        let mut corners: Vec<delaunator::Point> = ids
             .iter()
             .map(|&i| delaunator::Point {
                 x: xy[i].0,
                 y: xy[i].1,
             })
             .collect();
+        // The seeds are interior to their cells, so their hull leaves a strip along the edge of
+        // the cloud that no triangle covers: four virtual vertices at the corners of the extent,
+        // at the height of the nearest ground point, extend the TIN over it. They only give
+        // planes to test the points of the strip against and are never ground themselves.
+        let real = ids.len();
+        let mut corner_z = [0.0f64; 4];
+        for (c, (cx, cy)) in [
+            (0.0, 0.0),
+            (extent.0, 0.0),
+            (extent.0, extent.1),
+            (0.0, extent.1),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let nearest = ids
+                .iter()
+                .min_by(|&&i, &&j| {
+                    let di = (xy[i].0 - cx).powi(2) + (xy[i].1 - cy).powi(2);
+                    let dj = (xy[j].0 - cx).powi(2) + (xy[j].1 - cy).powi(2);
+                    di.total_cmp(&dj)
+                })
+                .copied();
+            corner_z[c] = nearest.map_or(0.0, |i| z[i]);
+            corners.push(delaunator::Point { x: cx, y: cy });
+        }
         let t = delaunator::triangulate(&corners);
         if t.triangles.is_empty() {
             break;
@@ -276,7 +331,7 @@ pub fn ground(pts: &[Point], p: &AxelssonParams) -> Result<Vec<bool>> {
         let vertex = |k: usize| V {
             x: corners[k].x,
             y: corners[k].y,
-            z: z[ids[k]],
+            z: if k < real { z[ids[k]] } else { corner_z[k - real] },
         };
         let found: Vec<usize> = t
             .triangles
@@ -394,6 +449,35 @@ mod tests {
             .filter(|((truth, got), q)| !**truth && **got && (40.0..58.0).contains(&q.x))
             .count();
         assert!(roof_taken > 0);
+        Ok(())
+    }
+
+    #[test]
+    fn the_strip_along_the_edge_that_the_seeds_do_not_cover_is_ground_too() -> Result<()> {
+        // flat ground on a 0.5 m lattice over 50 x 50 m with 20 m seed cells: the lowest point of
+        // each cell is inside it, so the hull of the seeds leaves a strip along the edge
+        let mut pts = Vec::new();
+        let mut x = 0.0;
+        while x <= 50.0 {
+            let mut y = 0.0;
+            while y <= 50.0 {
+                // a little relief so the lowest point of a cell is not at its corner
+                pts.push(pt(x, y, 0.05 * ((x * 0.7).sin() + (y * 0.9).cos())));
+                y += 0.5;
+            }
+            x += 0.5;
+        }
+        let g = ground(&pts, &AxelssonParams::default())?;
+        let edge = |q: &Point| q.x < 8.0 || q.y < 8.0 || q.x > 42.0 || q.y > 42.0;
+        let (taken, total) = pts
+            .iter()
+            .zip(&g)
+            .filter(|(q, _)| edge(q))
+            .fold((0, 0), |(t, n), (_, g)| (t + usize::from(*g), n + 1));
+        assert!(
+            taken as f64 / total as f64 > 0.99,
+            "{taken} of {total} edge points taken"
+        );
         Ok(())
     }
 

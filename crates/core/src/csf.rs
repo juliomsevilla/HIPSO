@@ -115,7 +115,8 @@ pub fn ground(pts: &[Point], p: &CsfParams) -> Result<Vec<bool>> {
             z[k] = now + (now - old[k]) * (1.0 - DAMPING) + accel;
             old[k] = now;
         }
-        // Springs between 4-neighbours: each particle pulls on each of its neighbours once, so
+        // Springs between the 8 neighbours (the 4 nearest and the 4 diagonals, as in the authors'
+        // library): each particle pulls on each of its neighbours once, so
         // every spring is relaxed from both ends; the move tables already stand for `rigidness`
         // repetitions of the constraint.
         for rr in 0..rows {
@@ -126,6 +127,10 @@ pub fn ground(pts: &[Point], p: &CsfParams) -> Result<Vec<bool>> {
                     (c + 1 < cols).then(|| k + 1),
                     (rr > 0).then(|| k - cols),
                     (rr + 1 < rows).then(|| k + cols),
+                    (c > 0 && rr > 0).then(|| k - cols - 1),
+                    (c + 1 < cols && rr > 0).then(|| k - cols + 1),
+                    (c > 0 && rr + 1 < rows).then(|| k + cols - 1),
+                    (c + 1 < cols && rr + 1 < rows).then(|| k + cols + 1),
                 ]
                 .into_iter()
                 .flatten()
@@ -292,6 +297,44 @@ mod tests {
         let g = ground(&pts, &CsfParams::default())?;
         assert!(g[..3600].iter().filter(|g| **g).count() > 3500);
         assert!(g[3600..].iter().all(|g| !g));
+        Ok(())
+    }
+
+    #[test]
+    fn a_soft_cloth_does_not_sink_into_a_wide_roof() -> Result<()> {
+        // rolling ground with a 15 x 12 m flat roof 7 m above it: the cloth is held up across the
+        // roof by the springs to its 8 neighbours (the shear springs among them), as in the
+        // authors' library; with only the 4 nearest it sags into the middle of the roof
+        let terrain = |x: f64, y: f64| 100.0 + 6.0 * (x / 30.0).sin() + 4.0 * (y / 25.0).cos();
+        let mut pts = Vec::new();
+        let mut roof = Vec::new();
+        for i in 0..286 {
+            for j in 0..286 {
+                let (x, y) = (f64::from(i) * 0.7, f64::from(j) * 0.7);
+                let on_roof = (60.0..75.0).contains(&x) && (60.0..72.0).contains(&y);
+                roof.push(on_roof);
+                pts.push(pt(x, y, terrain(x, y) + if on_roof { 7.0 } else { 0.0 }));
+            }
+        }
+        let g = ground(&pts, &CsfParams::default())?;
+        let (mut roof_taken, mut roof_n, mut ground_lost, mut ground_n) = (0, 0, 0, 0);
+        for (k, on_roof) in roof.iter().enumerate() {
+            if *on_roof {
+                roof_n += 1;
+                roof_taken += usize::from(g[k]);
+            } else {
+                ground_n += 1;
+                ground_lost += usize::from(!g[k]);
+            }
+        }
+        assert!(
+            roof_taken * 100 <= roof_n,
+            "{roof_taken} of {roof_n} roof points taken"
+        );
+        assert!(
+            ground_lost * 100 <= ground_n,
+            "{ground_lost} of {ground_n} ground points lost"
+        );
         Ok(())
     }
 }
