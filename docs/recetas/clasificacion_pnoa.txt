@@ -1,5 +1,5 @@
-# Clasificación parecida a la del PNOA de segunda cobertura y producto NPC03, el más fino
-# (hojas de Navarra 2024): solape entre pasadas, ruido, suelo, edificios, cables, carreteras
+# Clasificación parecida a la del PNOA producto NPC03, el más fino
+# (hojas de Navarra 2024 y Cantabria 2023): solape entre pasadas, ruido, suelo, edificios, cables, carreteras
 # y estratos de vegetación por altura sobre el suelo
 --overlap
 --overlap-cell 5

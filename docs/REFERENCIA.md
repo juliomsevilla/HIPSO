@@ -121,7 +121,7 @@ Métodos disponibles:
 - **MCC-LIDAR 2.1:** el 94,8 % de los puntos coincide. En el MDT resultante la mediana de diferencias es 0 m y el p90 2,5 cm.
 - **lidR 4.3 (caja negra):** los ápices coinciden exactamente (11 007, 4 352 y 8 528 árboles en tres configuraciones sobre un CHM de 2,1 M de celdas). Las copas cubren casi las mismas celdas (Dalponte 99,99 %, Silva 99,7 %) y asignan el mismo árbol en el 97 % (Dalponte) y el 99 % (Silva) de ellas; la diferencia está en píxeles disputados entre dos árboles.
 - **Inventario de campo** (`datos_1`, 16 unidades de muestreo, 125 árboles): con ventana variable 3 + 0,1·h se acierta el 86 % de los árboles (precisión 76 %, F = 0,81) con un sesgo de altura de +0,55 m.
-- **Edificios:** el 83 % de los puntos de edificio que clasificó el proveedor de `fusa`, con un 98 % de precisión, medido con el método anterior; el método actual (puntos de tejado, no un ráster) se contrastó con hojas PNOA 2024 de Asturias, véase el manual.
+- **Edificios:** el 83 % de los puntos de edificio que clasificó el proveedor de `fusa`, con un 98 % de precisión, medido con el método anterior; el método actual usa puntos de tejado, no un ráster.
 
 ## Rendimiento
 

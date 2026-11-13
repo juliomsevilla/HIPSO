@@ -268,7 +268,7 @@ Aplica los pasos que se elijan, por teselas y en este orden: solape entre pasada
 
 Donde dos pasadas de vuelo cubren el mismo terreno, sus puntos lo describen dos veces. Este paso aparta los puntos de las pasadas que sobran y los pasa a la clase 12 (la clase ASPRS de puntos de solape), de modo que ninguno de los pasos siguientes (ruido, suelo, edificios...) los usa, ni tampoco las reglas ni el MDT.
 
-El terreno se divide en celdas cuadradas (5 m por defecto). En una celda a la que llegan varias pasadas, la que tiene el menor ángulo de barrido medio, en valor absoluto, es la que mejor la ve (la más cercana al nadir) y se queda con la celda; los puntos de las demás son solape. Una celda con una sola pasada no tiene solape, y un archivo sin identificador de pasada ni ángulo de barrido tampoco. Se activa con *Apartar el solape* en la ventana de clasificación o con `--overlap` (`--overlap-cell`) en la línea de comandos. Con las hojas PNOA 2023 y 2024 reproduce la clase 12 del proveedor con una precisión del 93 % y una exhaustividad del 94 % en 12 hojas, y del 87 % y el 89 % en otras 9 que no se usaron para ajustar nada; falla sobre todo en hojas con tres pasadas cruzadas, donde el proveedor decide de otra manera en parte de las celdas.
+El terreno se divide en celdas cuadradas (5 m por defecto). En una celda a la que llegan varias pasadas, la que tiene el menor ángulo de barrido medio, en valor absoluto, es la que mejor la ve (la más cercana al nadir) y se queda con la celda; los puntos de las demás son solape. Una celda con una sola pasada no tiene solape, y un archivo sin identificador de pasada ni ángulo de barrido tampoco. Se activa con *Apartar el solape* en la ventana de clasificación o con `--overlap` (`--overlap-cell`) en la línea de comandos.
 
 ##### Ruido
 
@@ -324,19 +324,6 @@ Trabaja sobre la rejilla del punto más bajo de cada celda. Unas aperturas con v
 
 Parte de una red triangular de semillas, que son el punto más bajo de cada celda grande (mayor que el edificio más grande, 20 m por defecto). Después añade los puntos que están cerca del plano de su triángulo (*distancia de iteración*, 1,4 m) y cuyas líneas a los tres vértices forman con el plano un ángulo pequeño (*ángulo de iteración*, 8°); se rehace la red y se repite hasta que no entra ningún punto. Los puntos a menos de la *tolerancia llana* (10 cm) del plano son suelo sea cual sea el ángulo, porque cerca de un vértice el ángulo sale grande incluso para un punto que está sobre la superficie (Axelsson, 2000). Los puntos que quedan fuera del casco de las semillas no los examina ningún triángulo, y las semillas, interiores a sus celdas, dejan sin cubrir una franja a lo largo del borde de los datos; por eso se añaden como semillas el punto más bajo de cada tramo de media celda en una banda junto al borde y cuatro vértices virtuales en las esquinas.
 
-###### Ajuste frente a la clasificación del PNOA
-
-Los seis métodos se han contrastado con parámetros por defecto en recortes de 500 × 500 m del centro de ocho hojas PNOA (seis de 2023, de 1,3 a 5,5 millones de puntos cada recorte, y dos de 2010, de 1 a 2 puntos/m²), con la clase 2 del propio PNOA como referencia. Esa referencia es la del proveedor y no la verdad del terreno, así que las cifras miden el grado de acuerdo con ella. Se compararon los puntos (exactitud global, kappa, suelo de referencia que se pierde y puntos que se toman por suelo) y los MDT de 1 m, una red triangular del suelo de cada método frente a la del suelo de referencia. Los puntos de la clase 12 (solape entre pasadas), que no llevan referencia, se dejan fuera.
-
-| Hojas | Resultado |
-|---|---|
-| PNOA 2023 (seis hojas) | Exactitud global del 75 al 99 % y kappa de 0,50 a 0,96, según la hoja y el método; los mejores resultados, en terreno abierto o de vegetación rala (kappa 0,87–0,96) y los peores, en la hoja de bosque más denso (kappa 0,50–0,69). Error medio absoluto del MDT inferior a 3 cm salvo en esa hoja, donde es de 6 a 9 cm con cinco métodos y de 15 cm con Axelsson. La raíz del error cuadrático (RMSE) mediana del MDT es de 5 cm para PMF, MCC y SMRF, de 10 a 11 cm para CSF y Kraus y Pfeifer, y de 15 cm para Axelsson. |
-| PNOA 2010 (dos hojas, densidad baja) | Peor ajuste: RMSE del MDT de 12 a 58 cm. Kraus y Pfeifer (15–18 cm) y MCC (12–18 cm) son los mejores; PMF, SMRF, CSF y Axelsson toman vegetación baja por suelo (sesgo del MDT de +12 a +18 cm en los tres primeros y de +6 a +10 cm en Axelsson; del 2 al 9 % de sus puntos de suelo quedan a más de 0,5 m sobre la referencia). MCC pierde del 16 al 17 % del suelo de referencia. |
-
-Lo que se toma por suelo sin serlo es casi siempre vegetación baja y puntos sin clasificar que el PNOA deja justo sobre el terreno (clases 3 y 1), y no vegetación alta ni edificios (en las hojas de 2023, menos del 1 % de los puntos de suelo de cada método queda a más de 0,5 m de la referencia, salvo en el bosque denso, donde CSF llega al 1,4 %, SMRF al 4 % y Axelsson al 11 %). Por eso el porcentaje de puntos tomados por suelo (de 6 a 35 % en las hojas de 2023) es engañoso, y conviene mirar el error del MDT. El suelo de referencia que se pierde es de alrededor del 1 % como mucho en CSF y SMRF con las hojas de 2023, y llega al 4 % en los demás métodos en bosque denso. En resumen, con la densidad del PNOA 2023 el MDT que sale de MCC, SMRF o PMF difiere de la clasificación del proveedor en unos pocos centímetros en cualquier terreno salvo el bosque más cerrado, donde llega a 16–23 cm de RMSE; con nubes de 1 a 2 puntos/m² el desacuerdo es mayor y hay que probar varios métodos.
-
-El tiempo, en un solo hilo, sobre el recorte de 500 m: SMRF, de 0,06 a 0,08 s; PMF, de 0,2 a 0,4 s; Kraus y Pfeifer, de 0,1 a 0,4 s; CSF, de 1,1 a 2,3 s; MCC, de 2 a 19 s, y Axelsson, de 5 a 37 s con los parámetros por defecto, a pesar de que es el único que reparte el trabajo entre hilos. Con SMRF, PMF o Kraus y Pfeifer una hoja entera cuesta segundos, y con MCC o Axelsson, minutos. La prueba se repite con `cargo run --release -p hipso-core --example ground_bench -- hoja.laz --size 500`.
-
 ###### Prueba de filtrado de la ISPRS
 
 Se han repetido los seis métodos con las 15 muestras de la prueba de filtrado del grupo de trabajo III/3 de la ISPRS (Sithole y Vosselman, 2004), que tienen referencia manual del suelo: ocho sitios urbanos y de bosque con 0,2 a 0,7 puntos/m², con pendientes fuertes y discontinuidades, un caso mucho más duro que el PNOA actual. Con los parámetros por defecto, promedio de las 15 muestras (el error total es 100 menos la exactitud global):
@@ -352,7 +339,22 @@ Se han repetido los seis métodos con las 15 muestras de la prueba de filtrado d
 
 Los dos morfológicos (SMRF y PMF) se ajustan bien incluso con tan pocos puntos. Los demás dejan sin clasificar mucho suelo en las laderas empinadas, porque sus parámetros por defecto están pensados para nubes densas y de poco ruido: Axelsson, por ejemplo, tolera 10 cm de ruido del sensor, y con 50 cm la exactitud de sus resultados sube del 85 al 89 %. Ajustar las escalas a la separación de los puntos con una sola regla (celdas iguales a la separación, de 1,5 o 2,5 m, y rigidez 2 en CSF) no mejoró ninguno de los seis, y con 2,5 m empeoraron todos. Quitar antes el ruido bajo con ELM mejora poco (hasta 1,4 puntos de exactitud, en Axelsson y CSF). Las muestras son de 2001 y pequeñas (7 000 a 52 000 puntos), por lo que el resultado dice poco sobre el comportamiento en una hoja entera y mucho sobre la robustez ante el relieve.
 
-La elección depende más del terreno que del método. Con relieve fuerte o zona urbana y pocos puntos, SMRF o PMF (ISPRS); en bosque denso con pocos puntos de suelo, Kraus y Pfeifer o MCC (PNOA 2010), donde los morfológicos toman vegetación baja por suelo.
+La elección depende más del terreno que del método. Con relieve fuerte o zona urbana y pocos puntos, SMRF o PMF (ISPRS); en bosque denso con pocos puntos de suelo, Kraus y Pfeifer o MCC, donde los morfológicos pueden tomar vegetación baja por suelo.
+
+###### Prueba con OpenGF
+
+OpenGF (Qin et al., 2023) es un conjunto de nubes ALS abiertas de varios países con el suelo etiquetado con detalle. Se han usado dos de sus tres hojas de prueba (T1 y T3), de 5 a 8,5 puntos/m², la densidad del PNOA, en una ventana de 1 000 × 1 000 m en el centro de cada una (7,6 y 6,8 millones de puntos; el suelo de la referencia es el 35 % y el 29 %). Con los parámetros por defecto, sin buffer ni limpieza previa del ruido, promedio de las dos hojas:
+
+| Método | Exactitud | Suelo perdido (tipo I) | No suelo tomado por suelo (tipo II) | Kappa | Error del MDT (RMSE) | Tiempo por ventana |
+|---|---|---|---|---|---|---|
+| PMF | 96,8 % | 1,7 % | 3,9 % | 0,93 | 0,59 m | 0,8 s |
+| MCC | 96,3 % | 9,6 % | 1,1 % | 0,91 | 0,52 m | de 21 a 26 s |
+| Kraus y Pfeifer | 96,2 % | 8,4 % | 1,8 % | 0,91 | 0,71 m | 0,3 s |
+| SMRF | 94,7 % | 1,1 % | 7,2 % | 0,88 | 1,58 m | 0,2 s |
+| Axelsson | 92,9 % | 7,5 % | 7,1 % | 0,84 | 2,63 m | de 18 a 25 s |
+| CSF | 92,3 % | 0,7 % | 10,9 % | 0,83 | 1,74 m | de 22 a 30 s |
+
+Con esta densidad PMF, MCC y Kraus y Pfeifer se parecen mucho a la referencia (más del 96 %). SMRF y CSF pierden muy poco suelo, pero toman por suelo vegetación y estructuras bajas (el 7 % y el 11 % del no suelo), y por eso el MDT sale 1 o 2 m más alto en la hoja con más relieve (T3). Axelsson queda por detrás, a un coste de decenas de segundos. Es solo una referencia de dos hojas: la referencia es una clasificación hecha con detalle, no una medida de campo, y la tercera hoja de prueba (T2, zona llana y urbana con ruido bajo) no se ha usado. La prueba se repite con `cargo run --release -p hipso-core --example ground_bench -- hoja.laz --size 1000`.
 
 ###### Límites y comprobaciones
 
@@ -371,8 +373,6 @@ Las celdas de 1 m con al menos tres semillas son el núcleo de un tejado. Los n�
 Los puntos del edificio hasta 1,5 m por encima de su tejado son clase 6; lo que queda más arriba (una copa sobre el tejado) y el resto de lo que supera la altura mínima son vegetación alta (5). Un tejado que el filtro de suelo había tomado por suelo se encuentra igual y se reclasifica; para no confundirlo con una ladera, a esos puntos se les exige además que la región tenga algún lado que baje bruscamente al terreno.
 
 Funciona con edificios de tejado plano o a dos aguas, y con tejados con algo de arbolado encima; los tejados muy irregulares o más pequeños que la superficie mínima quedan como vegetación. Necesita densidad: pide al menos tres semillas por celda de 1 m, y con una nube de 0,7 puntos/m² no encuentra ningún edificio.
-
-*Ajuste frente al PNOA.* Se ha contrastado con la clase 6 de hojas PNOA 2024 de Asturias (1 km², de 0,5 a 8 millones de puntos), usando como suelo el suyo y comparando punto a punto. Esa clase 6 es la del proveedor y tiene errores visibles (en una de las hojas marca como edificio franjas de bosque), así que las cifras miden el acuerdo con ella y subestiman el ajuste real. En seis hojas con zonas urbanas e industriales, que sirvieron para elegir los parámetros, el acuerdo es de F1 = 0,68 (precisión 76 %, recuperación 61 %), frente a 0,46 del método anterior (65 % y 35 %); en otras seis hojas, de zonas rurales, que no intervinieron en esa elección, F1 = 0,50 (precisión 58 %, recuperación 44 %) frente a 0,31 (35 % y 29 %). Falla sobre todo en tejados pequeños o tapados por árboles, y en las construcciones que el proveedor rodea de una franja más ancha que el propio tejado. La prueba se repite con `cargo run --release -p hipso-core --example building_bench -- hoja.laz`.
 
 ##### Vegetación por alturas
 
@@ -445,8 +445,8 @@ Debajo de los botones se lee lo que ha pasado. Solo se guardan los parámetros q
 El PNOA entrega sus hojas LiDAR con la clase de cada punto, y su producto más fino es el NPC03. Esta receta recibe una nube sin clasificar y devuelve una clasificación parecida a la de ese producto. Está en `docs/recetas/clasificacion_pnoa.txt`, se carga con *Cargar receta…* en la ventana de clasificación, o se aplica con `hipso classify hoja.laz --recipe clasificacion_pnoa.txt`:
 
 ```
-# Clasificación parecida a la del PNOA de segunda cobertura y producto NPC03, el más fino
-# (hojas de Navarra 2024): solape entre pasadas, ruido, suelo, edificios, cables, carreteras
+# Clasificación parecida a la del PNOA producto NPC03, el más fino
+# (hojas de Navarra 2024 y Cantabria 2023): solape entre pasadas, ruido, suelo, edificios, cables, carreteras
 # y estratos de vegetación por altura sobre el suelo
 --overlap
 --overlap-cell 5
@@ -468,37 +468,9 @@ El PNOA entrega sus hojas LiDAR con la clase de cada punto, y su producto más f
 --rule "from=2;intensity=..10000;roughness=..0.03;slope=..5;radius=1.5;to=11"
 ```
 
-Cómo se llegó a ella. Se midió, sobre las clases de las hojas NPC03 de Navarra 2024 y de Cantabria 2023 (11 hojas de 1 km²), a qué altura sobre su propio suelo está cada clase del proveedor, y se probó cada cambio de método y de parámetro comparando punto a punto con ellas (recortes de 500 × 500 m en el centro de cada hoja, con el interior de 400 × 400 m como parte evaluada). De ahí salen estas decisiones:
+Qué busca. Reproduce el aspecto de la clasificación del NPC03: solape entre pasadas como clase 12, suelo generoso (SMRF con umbral 0,2 m y escala 0,5), edificios con un margen de 2 m sobre el suelo, cables, vegetación en tres estratos por altura (baja hasta 0,5 m, media hasta 3 m y alta desde 3 m) y carreteras como suelo liso, llano y de intensidad baja (el asfalto devuelve menos intensidad que la tierra; el umbral de 10 000 depende del sensor y del vuelo, y puede necesitar otro valor en otro bloque).
 
-- La clase 12 del proveedor (puntos de solape entre pasadas) resultó ser, casi siempre, la de las pasadas de mayor ángulo de barrido donde se cruzan varias, y de ahí el paso de solape.
-- SMRF fue mejor método de suelo que Kraus y Pfeifer, MCC, CSF, PMF y Axelsson. El suelo del NPC03 es generoso: con un umbral de 0,2 m y una escala de 0,5 se parece más que con los valores por defecto. Lo que queda a menos de 12 cm del suelo es suelo.
-- La vegetación alta empieza a 3 m. La baja (clase 3) es rara (menos del 5 % de los puntos) y no se separa de la media solo por la altura; se dejó una franja de 12 a 50 cm. Es la clase que peor se parece.
-- Las carreteras (clase 11) se parecen a un suelo liso, llano y de intensidad baja (el asfalto devuelve la mitad de intensidad que la tierra): de ahí la regla del final. La intensidad depende del sensor y del vuelo, así que el umbral de 10 000 puede necesitar otro valor en otro bloque.
-- Un margen de 2 m sobre el suelo para los edificios (`--building-offset`) encuentra más tejados bajos que el valor por defecto, 2,5 m.
-
-Qué tal se parece. Es la coincidencia punto a punto con la clase que trae cada hoja, en los 400 × 400 m interiores:
-
-| Clase del proveedor | Navarra 2024 (7 hojas), precisión / exhaustividad | Cantabria 2023 (4 hojas), precisión / exhaustividad |
-|---|---|---|
-| 2 suelo | 98 % / 97 % | 87 % / 71 % |
-| 3 vegetación baja | 14 % / 56 % | 76 % / 18 % |
-| 4 vegetación media | 88 % / 78 % | 58 % / 89 % |
-| 5 vegetación alta | 97 % / 97 % | 99 % / 98 % |
-| 6 edificios | 74 % / 81 % | 84 % / 87 % |
-| 7 ruido | no hay | 100 % / 58 % |
-| 11 carreteras | 58 % / 53 % | no hay |
-| 12 solape | 99 % / 100 % | 99 % / 99 % |
-
-La exactitud global es del 95,2 % en Navarra y del 88,2 % en Cantabria; la F1 media de las clases presentes, 0,76 y 0,77. Sobre las 11 hojas completas (con los bordes, sin buffer) la exactitud es del 90,2 %. Los cables (clase 14) dan una precisión del 20 % y una exhaustividad del 37 % en las hojas completas.
-
-Lo que no consigue:
-
-- Las torres de transmisión (15), los tableros de puente (17) y el agua (9) no salen con ninguna regla ni con el paso de postes: los puentes quedan como edificios y el agua como suelo.
-- El ruido bajo del proveedor (Navarra) no lo encuentra ningún método del manual; el alto (Cantabria) sí en parte.
-- Las carreteras salen como suelo liso sin saber si forman una red, y se mezclan con campos llanos oscuros y con aparcamientos. Cantabria 2023 no trae carreteras clasificadas, y allí la regla marca como carretera una parte del suelo que el proveedor deja como suelo.
-- Los parámetros se eligieron con las mismas hojas con las que se mide, así que las cifras son optimistas, y el proveedor no es una verdad del terreno: miden parecido, no acierto. Otros bloques pueden responder distinto.
-
-La prueba se repite con `cargo run --release -p hipso-core --example pnoa_bench -- --recipe receta.txt hoja.laz`.
+Qué no es. Los parámetros se eligieron para que el resultado se parezca a las hojas NPC03 de Navarra 2024 y de Cantabria 2023, pero esa clasificación es la del proveedor y no una verdad del terreno, de modo que la receta no garantiza un acierto medido. No clasifica torres de transmisión, tableros de puente ni agua, ni el ruido bajo; las carreteras salen como suelo liso sin saber si forman una red, y se mezclan con campos llanos oscuros y aparcamientos. Para medir cuánto acierta un método de suelo con una referencia más fiable, véanse las pruebas de la ISPRS y de OpenGF.
 
 ###### Reglas y recetas no son lo mismo
 
@@ -1230,6 +1202,7 @@ Referencias de los métodos descritos en este manual.
 - Rusu, R. B., Marton, Z. C., Blodow, N., Dolha, M. y Beetz, M. (2008). Towards 3D point cloud based object maps for household environments. *Robotics and Autonomous Systems*, 56(11), 927–941.
 - Shepard, D. (1968). A two-dimensional interpolation function for irregularly-spaced data. *Proceedings of the 23rd ACM National Conference*, 517–524.
 - Pingel, T. J., Clarke, K. C. y McBride, W. A. (2013). An improved simple morphological filter for the terrain classification of airborne LIDAR data. *ISPRS Journal of Photogrammetry and Remote Sensing*, 77, 21–30.
+- Qin, N., Tan, W., Ma, L., Zhang, D., Guan, H. y Li, J. (2023). Deep learning for filtering the ground from ALS point clouds: A dataset, evaluations and issues. *ISPRS Journal of Photogrammetry and Remote Sensing*, 202, 246–261.
 - Sithole, G. y Vosselman, G. (2004). Experimental comparison of filter algorithms for bare-Earth extraction from airborne laser scanning point clouds. *ISPRS Journal of Photogrammetry and Remote Sensing*, 59(1–2), 85–101.
 - Demantké, J., Mallet, C., David, N. y Vallet, B. (2011). Dimensionality based scale selection in 3D lidar point clouds. *The International Archives of the Photogrammetry, Remote Sensing and Spatial Information Sciences*, XXXVIII-5/W12, 97–102.
 - Weinmann, M., Jutzi, B., Hinz, S. y Mallet, C. (2015). Semantic point cloud interpretation based on optimal neighborhoods, relevant features and efficient classifiers. *ISPRS Journal of Photogrammetry and Remote Sensing*, 105, 286–304.
