@@ -18,10 +18,11 @@ pub enum Op {
     Centroids,
     PointOnSurface,
     SpatialJoin,
+    Voronoi,
 }
 
 impl Op {
-    pub const ALL: [Op; 12] = [
+    pub const ALL: [Op; 13] = [
         Op::Zonal,
         Op::Validate,
         Op::Repair,
@@ -34,6 +35,7 @@ impl Op {
         Op::Centroids,
         Op::PointOnSurface,
         Op::SpatialJoin,
+        Op::Voronoi,
     ];
 
     /// The short name of the button.
@@ -51,6 +53,7 @@ impl Op {
             Op::Centroids => "Centroides",
             Op::PointOnSurface => "Puntos en superficie",
             Op::SpatialJoin => "Unir por localización",
+            Op::Voronoi => "Voronoi",
         }
     }
 
@@ -68,6 +71,7 @@ impl Op {
             Op::Centroids => "@centroid",
             Op::PointOnSurface => "@pointonsurf",
             Op::SpatialJoin => "@spatialjoin",
+            Op::Voronoi => "@voronoi",
         }
     }
 
@@ -90,6 +94,7 @@ impl Op {
             Op::Centroids => "Centroides (un punto por elemento)",
             Op::PointOnSurface => "Puntos en la superficie (un punto dentro de cada elemento)",
             Op::SpatialJoin => "Unir atributos por localización",
+            Op::Voronoi => "Diagrama de Voronoi (un polígono por punto)",
         }
     }
 
@@ -105,6 +110,7 @@ impl Op {
             Op::SymDifference => "Se queda con lo que está solo en una de las dos capas: lo de la primera con sus campos, lo de la segunda con los suyos precedidos por «b_». Lo que está en las dos se descarta.",
             Op::Centroids => "Una capa de puntos con el centroide de cada elemento (polígono o línea) y sus mismos atributos. En un polígono cóncavo o con huecos el centroide puede caer fuera: para eso están los puntos en la superficie.",
             Op::PointOnSurface => "Una capa de puntos con un punto que cae siempre dentro de cada polígono (o sobre cada línea), aunque sea cóncavo o tenga huecos, y con los mismos atributos. Sirve para etiquetar o para extraer valores de un ráster.",
+            Op::Voronoi => "Una capa de polígonos con la celda de Voronoi de cada punto: el área que está más cerca de él que de ningún otro, con los mismos atributos del punto. Las celdas de los puntos del borde no tienen fin: sin recorte se dejan fuera, y con una caja o una capa de polígonos se cortan por ella. Con las aristas de Delaunay se guarda además otra capa con las líneas entre los puntos vecinos.",
             Op::SpatialJoin => "Copia a cada elemento de la primera capa campos de los elementos de la segunda que cumplen la relación elegida (por ejemplo, los puntos que caen dentro de cada polígono). Añade siempre «n_coinc» con cuántos coinciden. Con el primero se copian los campos del primer coincidente; con el resumen, la suma y la media de los campos numéricos de todos.",
             Op::Union => "Superpone dos capas: da las piezas que están en las dos (con los campos de ambas, los de la segunda precedidos por «b_»), solo en la primera y solo en la segunda.",
         }
@@ -124,6 +130,9 @@ pub struct VectorTool {
     pub rel: vecops::Relation,
     pub join_mode: vecops::JoinMode,
     pub report: String,
+    /// Voronoi: 0 no clip, 1 a box a little bigger than the points, 2 a polygon layer (`second`).
+    pub clip_mode: u8,
+    pub delaunay: bool,
 }
 
 /// One tool (and window) per operation, in the order of [`Op::ALL`].
@@ -146,6 +155,8 @@ impl VectorTool {
             rel: vecops::Relation::Intersects,
             join_mode: vecops::JoinMode::First,
             report: String::new(),
+            clip_mode: 1,
+            delaunay: false,
         }
     }
 }
@@ -240,6 +251,8 @@ impl App {
                 let two = matches!(t.op, Op::Union | Op::Intersect | Op::Difference | Op::SymDifference | Op::SpatialJoin);
                 let label = if two {
                     "Primera capa"
+                } else if t.op == Op::Voronoi {
+                    "Puntos"
                 } else if matches!(t.op, Op::Centroids | Op::PointOnSurface) {
                     "Capa"
                 } else {
@@ -269,6 +282,18 @@ impl App {
                             ui.add(egui::TextEdit::singleline(&mut t.field).desired_width(120.0));
                         });
                     }
+                    Op::Voronoi => {
+                        ui.horizontal(|ui| {
+                            ui.label("Recorte");
+                            ui.radio_value(&mut t.clip_mode, 0, "Sin recorte");
+                            ui.radio_value(&mut t.clip_mode, 1, "Una caja algo mayor que los puntos");
+                            ui.radio_value(&mut t.clip_mode, 2, "Una capa de polígonos");
+                        });
+                        if t.clip_mode == 2 {
+                            pick_vector(&mut t.second, ui, "Polígonos de recorte", &vectors);
+                        }
+                        ui.checkbox(&mut t.delaunay, "Guardar también las aristas de Delaunay");
+                    }
                     Op::SpatialJoin => {
                         ui.horizontal(|ui| {
                             ui.label("Un elemento de la primera capa cumple si…");
@@ -296,7 +321,8 @@ impl App {
                 }
                 let ready = t.layer.is_some()
                     && (t.op != Op::Zonal || t.raster.is_some())
-                    && (!two || t.second.is_some());
+                    && (!two || t.second.is_some())
+                    && (t.op != Op::Voronoi || t.clip_mode != 2 || t.second.is_some());
                 ui.horizontal(|ui| {
                     if ui.add_enabled(ready && self.running.is_none(), egui::Button::new("▶ Ejecutar")).clicked() {
                         go = true;
@@ -337,14 +363,25 @@ impl App {
                     Op::Centroids => "centroides",
                     Op::PointOnSurface => "puntos_sup",
                     Op::SpatialJoin => "unido",
+                    Op::Voronoi => "voronoi",
                     Op::Validate => unreachable!(),
                 };
                 let out = paths::unique(&paths::product(&layer, tag, "shp"));
                 let (raster, second) = (t.raster.clone(), t.second.clone());
                 let (prefix, distance, field, repair) = (t.prefix.clone(), t.distance, t.field.trim().to_string(), t.repair_first);
                 let (rel, join_mode) = (t.rel, t.join_mode);
+                let (clip_mode, delaunay) = (t.clip_mode, t.delaunay);
                 let target = out.clone();
                 let task: tools::Task = Box::new(move || {
+                    if op == Op::Voronoi {
+                        let (d, _, _) = vecops::read_layer(&layer)?;
+                        let clip = match clip_mode {
+                            0 => hipso_core::voronoi::Clip::None,
+                            1 => hipso_core::voronoi::clip_box_of(&d),
+                            _ => hipso_core::voronoi::clip_from_layer(second.as_deref().ok_or_else(|| hipso_core::Error::Param("falta la capa de recorte".into()))?)?,
+                        };
+                        return hipso_core::voronoi::run(&layer, &target, &clip, delaunay);
+                    }
                     if matches!(op, Op::Centroids | Op::PointOnSurface | Op::SpatialJoin) {
                         let (d, k, prj) = vecops::read_layer(&layer)?;
                         let (result, kind, note) = if op == Op::SpatialJoin {
@@ -428,7 +465,7 @@ impl App {
                             let n = r.features.len();
                             (r, format!("{n} piezas"))
                         }
-                        Op::Centroids | Op::PointOnSurface | Op::SpatialJoin | Op::Validate => return Ok(String::new()),
+                        Op::Centroids | Op::PointOnSurface | Op::SpatialJoin | Op::Voronoi | Op::Validate => return Ok(String::new()),
                     };
                     geomops::write_polygons(&result, &target)?;
                     Ok(format!("{note} -> {}", target.display()))

@@ -473,8 +473,8 @@ mod tests {
     use super::*;
 
     /// A gently tilted plane with two bowls and a small one inside the big one.
-    fn terrain() -> Grid {
-        let mut g = Grid::new(0.0, 0.0, 0.5, 80, 60).unwrap();
+    fn terrain() -> Result<Grid> {
+        let mut g = Grid::new(0.0, 0.0, 0.5, 80, 60)?;
         for r in 0..g.rows {
             for c in 0..g.cols {
                 let (x, y) = g.center(c, r);
@@ -494,14 +494,14 @@ mod tests {
                 g.data[r * g.cols + c] = z as f32;
             }
         }
-        g
+        Ok(g)
     }
 
     #[test]
-    fn finds_the_ponds_and_measures_them() {
-        let g = terrain();
+    fn finds_the_ponds_and_measures_them() -> Result<()> {
+        let g = terrain()?;
         let job = PondJob::new("x".into(), "y".into());
-        let p = find(&g, &job).unwrap();
+        let p = find(&g, &job)?;
         // the shallow bowl is below 5 cm; the deep one is a single pond, nested one included
         assert_eq!(p.list.len(), 1, "{:?}", p.list);
         let pond = &p.list[0];
@@ -510,32 +510,34 @@ mod tests {
         assert!((pond.area - 28.3).abs() < 3.0, "{pond:?}");
         assert!(pond.volume > 1.0 && pond.volume < pond.area * pond.max_depth, "{pond:?}");
         assert_eq!(p.labels.ids.iter().filter(|i| **i == 1).count() as u64, pond.cells);
+        Ok(())
     }
 
     #[test]
-    fn a_lower_minimum_depth_finds_both_and_the_size_filter_drops_one() {
-        let g = terrain();
+    fn a_lower_minimum_depth_finds_both_and_the_size_filter_drops_one() -> Result<()> {
+        let g = terrain()?;
         let mut job = PondJob::new("x".into(), "y".into());
         job.min_depth = 0.02;
-        assert_eq!(find(&g, &job).unwrap().list.len(), 2);
+        assert_eq!(find(&g, &job)?.list.len(), 2);
         job.min_area = 20.0;
-        assert_eq!(find(&g, &job).unwrap().list.len(), 1);
+        assert_eq!(find(&g, &job)?.list.len(), 1);
         job.max_slope = Some(0.0001);
-        assert_eq!(find(&g, &job).unwrap().list.len(), 0);
+        assert_eq!(find(&g, &job)?.list.len(), 0);
+        Ok(())
     }
 
     #[test]
     fn the_results_are_written() -> Result<()> {
         let dir = std::env::temp_dir().join(format!("hipso_ponds_{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
-        terrain().write_tiff(&dir.join("mdt.tif"), Some(25830))?;
+        terrain()?.write_tiff(&dir.join("mdt.tif"), Some(25830))?;
         let mut job = PondJob::new(dir.join("mdt.tif"), dir.join("charcos.shp"));
         job.gpkg = true;
         job.depth_raster = true;
         let text = run(&job)?;
         assert!(text.contains("1 charcos"), "{text}");
         let ids = Grid::read(&dir.join("charcos.tif"))?;
-        assert!(ids.data.iter().any(|v| *v == 1.0));
+        assert!(ids.data.contains(&1.0));
         let depth = Grid::read(&dir.join("charcos_profundidad.tif"))?;
         assert!(depth.data.iter().any(|v| *v > 0.15));
         assert_eq!(crate::view::read_vector(&dir.join("charcos.shp"))?.features.len(), 1);

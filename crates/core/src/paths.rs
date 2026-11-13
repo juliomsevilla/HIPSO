@@ -102,18 +102,17 @@ impl Formats {
     }
 }
 
-/// `path` with its `.shp` or `.csv` extension (if it has one) replaced by `ext`; any other dot
-/// in the name (`chm_0.5m`) is kept.
+/// `path` with its `.shp`, `.csv`, `.tif`, `.tiff` or `.gpkg` extension (if it has one) replaced
+/// by `ext`; any other dot in the name (`chm_0.5m`) is kept.
 pub fn swap_ext(path: &Path, ext: &str) -> PathBuf {
     let name = path
         .file_name()
         .map_or(String::new(), |n| n.to_string_lossy().into_owned());
     let lower = name.to_ascii_lowercase();
-    let stem = if lower.ends_with(".shp") || lower.ends_with(".csv") {
-        &name[..name.len() - 4]
-    } else {
-        &name
-    };
+    let stem = [".shp", ".csv", ".tif", ".gpkg", ".tiff"]
+        .iter()
+        .find(|e| lower.ends_with(**e))
+        .map_or(&name[..], |e| &name[..name.len() - e.len()]);
     path.with_file_name(format!("{stem}.{ext}"))
 }
 
@@ -257,6 +256,17 @@ pub fn find_dsm(input: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn swapping_an_extension_replaces_the_known_ones_only() {
+        let sw = |p: &str, e: &str| swap_ext(Path::new(p), e).display().to_string();
+        assert_eq!(sw("a/chm_0.5m.shp", "csv"), "a/chm_0.5m.csv");
+        assert_eq!(sw("a/x_vdensidad.tif", "csv"), "a/x_vdensidad.csv");
+        assert_eq!(sw("a/x_vdensidad.TIF", "tif"), "a/x_vdensidad.tif");
+        assert_eq!(sw("a/x.gpkg", "shp"), "a/x.shp");
+        // a dot that is not an extension stays
+        assert_eq!(sw("a/chm_0.5m", "tif"), "a/chm_0.5m.tif");
+    }
+
     use super::*;
 
     #[test]

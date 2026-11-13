@@ -610,10 +610,16 @@ pub struct TreesJob {
     pub crown_metrics: Vec<PathBuf>,
 }
 
+/// A row of a layer built in memory: the rings of a feature and its attribute values.
+type LayerRow = (Vec<Vec<[f64; 2]>>, Vec<String>);
+
+/// The crown metrics of each tree, as columns and as a row of values for each tree.
+type CrownTable = (Vec<String>, std::collections::HashMap<u32, Vec<String>>);
+
 /// A vector layer built in memory: one feature per row, its rings and its attribute values.
 fn vector_of(
     fields: Vec<String>,
-    rows: Vec<(Vec<Vec<[f64; 2]>>, Vec<String>)>,
+    rows: Vec<LayerRow>,
     polygons: bool,
 ) -> crate::view::VectorData {
     let mut d = crate::view::VectorData {
@@ -651,7 +657,7 @@ fn crown_metrics(
     trees: &[trees::Tree],
     hulls: &std::collections::BTreeMap<u32, Vec<[f64; 2]>>,
     base: &std::path::Path,
-) -> Result<(Vec<String>, std::collections::HashMap<u32, Vec<String>>)> {
+) -> Result<CrownTable> {
     use crate::clip::{ClipJob, ClipMode, SampleMetrics};
     use crate::vector::{Polygon, Region, Shape2};
     let regions: Vec<Region> = trees

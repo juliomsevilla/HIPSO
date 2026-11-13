@@ -33,6 +33,12 @@ mod rs;
 mod rstools;
 mod symbology;
 mod terrain;
+mod cutfill_ui;
+mod flood_ui;
+mod lines_ui;
+mod route_ui;
+mod pick;
+mod piles_ui;
 mod ponds_ui;
 mod theme;
 mod tips;
@@ -354,6 +360,16 @@ enum Action {
     TerrainProduct(u8),
     /// Opens the ponding tool (Hidrología).
     Ponds,
+    /// Opens the stockpile volumes tool.
+    Piles,
+    /// Opens the flood simulation.
+    Flood,
+    /// Opens ridge and drainage lines.
+    Lines,
+    /// Opens the least-cost route.
+    Route,
+    /// Opens cut and fill.
+    CutFill,
     Obia,
     Align,
     Reproject,
@@ -480,6 +496,11 @@ struct App {
     rt: rstools::RasterTools,
     tt: Vec<terrain::TerrainTool>,
     pt: ponds_ui::PondTool,
+    pl: piles_ui::PileTool,
+    fl: flood_ui::FloodTool,
+    ln: lines_ui::LinesTool,
+    rt_route: route_ui::RouteTool,
+    cf: cutfill_ui::CutFillTool,
     ot: obia_ui::ObiaTool,
     at: align_ui::AlignTool,
     rp: reproject_ui::ReprojectTool,
@@ -622,6 +643,11 @@ impl Default for App {
                 .map(|p| terrain::TerrainTool::new(*p))
                 .collect(),
             pt: ponds_ui::PondTool::default(),
+            pl: piles_ui::PileTool::default(),
+            fl: flood_ui::FloodTool::default(),
+            ln: lines_ui::LinesTool::default(),
+            rt_route: route_ui::RouteTool::default(),
+            cf: cutfill_ui::CutFillTool::default(),
             ot: obia_ui::ObiaTool::default(),
             at: align_ui::AlignTool::default(),
             rp: reproject_ui::ReprojectTool::default(),
@@ -793,6 +819,9 @@ impl App {
                         Some("clip") => Some(ToolId::Clip),
                         Some("export") => Some(ToolId::Export),
                         Some("tls") => Some(ToolId::Tls),
+                        Some("vdensity") => Some(ToolId::VDensity),
+                        Some("flightlines") => Some(ToolId::FlightLines),
+                        Some("swath") => Some(ToolId::Swath),
                         _ => None,
                     }
                 }
@@ -1100,11 +1129,17 @@ impl App {
                 icon: "@compare",
                 big: vec![],
                 menus: vec![],
-                columns: vec![vec![
-                    tool("@compare", "Comparar nubes", ToolId::Compare),
-                    tool("@icp", "Ajustar nubes", ToolId::Fit),
-                    tool("@swath", "Entre pasadas", ToolId::Swath),
-                ]],
+                columns: vec![
+                    vec![
+                        tool("@compare", "Comparar nubes", ToolId::Compare),
+                        tool("@icp", "Ajustar nubes", ToolId::Fit),
+                        tool("@swath", "Entre pasadas", ToolId::Swath),
+                    ],
+                    vec![
+                        tool("@flightline", "Líneas de vuelo", ToolId::FlightLines),
+                        tool("@vdensity", "Densidad de Voronoi", ToolId::VDensity),
+                    ],
+                ],
             },
             Group {
                 caption: "Superficies",
@@ -1112,17 +1147,15 @@ impl App {
                 big: vec![
                     tool("@dtm", "MDT", ToolId::Dtm),
                     tool("@chm", "MDS / CHM", ToolId::Chm),
-                ],
-                menus: vec![],
-                columns: vec![vec![
-                    tool("@volume", "Volumen sobre MDT", ToolId::Volume),
                     other(
                         "@change",
-                        "Cambio de la cubierta vegetal",
+                        "Cambio de la\ncubierta vegetal",
                         self.ct.open,
                         Action::Change,
                     ),
-                ]],
+                ],
+                menus: vec![],
+                columns: vec![],
             },
             Group {
                 caption: "ALS",
@@ -1286,18 +1319,22 @@ impl App {
                     },
                 ],
                 menus: vec![],
-                columns: vec![
-                    rasterops_ui::Op::ALL
-                        .iter()
-                        .enumerate()
-                        .map(|(k, op)| Item {
-                            icon: op.icon(),
-                            label: op.label(),
-                            on: self.ro.get(k).is_some_and(|t| t.open),
-                            action: Action::RasterOp(k as u8),
-                        })
-                        .collect(),
-                ],
+                // columns of up to three small buttons
+                columns: rasterops_ui::Op::ALL
+                    .chunks(3)
+                    .enumerate()
+                    .map(|(n, ops)| {
+                        ops.iter()
+                            .enumerate()
+                            .map(|(j, op)| Item {
+                                icon: op.icon(),
+                                label: op.label(),
+                                on: self.ro.get(n * 3 + j).is_some_and(|t| t.open),
+                                action: Action::RasterOp((n * 3 + j) as u8),
+                            })
+                            .collect()
+                    })
+                    .collect(),
             },
             Group {
                 caption: "Análisis del terreno",
@@ -1307,7 +1344,7 @@ impl App {
                     ("@terrain_relief", "Relieve", 0..3),
                     ("@terrain_form", "Forma del\nterreno", 3..9),
                     ("@terrain_hydro", "Hidrología", 9..14),
-                    ("@terrain_view", "Visibilidad", 14..15),
+                    ("@terrain_view", "Visibilidad\ny rutas", 14..15),
                 ]
                 .into_iter()
                 .map(|(icon, label, range)| {
@@ -1331,9 +1368,55 @@ impl App {
                             on: self.pt.open,
                             action: Action::Ponds,
                         });
+                        items.push(Item {
+                            icon: "@flood",
+                            label: "Inundación",
+                            on: self.fl.open,
+                            action: Action::Flood,
+                        });
+                    }
+                    if icon == "@terrain_form" {
+                        items.push(Item {
+                            icon: "@ridge",
+                            label: "Crestas y drenaje",
+                            on: self.ln.open,
+                            action: Action::Lines,
+                        });
+                    }
+                    if icon == "@terrain_view" {
+                        items.push(Item {
+                            icon: "@leastcost",
+                            label: "Ruta de menor coste",
+                            on: self.rt_route.open,
+                            action: Action::Route,
+                        });
                     }
                     ribbon::Menu { icon, label, items }
                 })
+                .chain(std::iter::once(ribbon::Menu {
+                    icon: "@volume",
+                    label: "Volúmenes",
+                    items: vec![
+                        Item {
+                            icon: "@volume",
+                            label: "Volumen sobre MDT",
+                            on: self.tools.open == Some(ToolId::Volume),
+                            action: Action::Tool(ToolId::Volume),
+                        },
+                        Item {
+                            icon: "@pile",
+                            label: "Cubicación de pilas",
+                            on: self.pl.open,
+                            action: Action::Piles,
+                        },
+                        Item {
+                            icon: "@cutfill",
+                            label: "Desmonte y terraplén",
+                            on: self.cf.open,
+                            action: Action::CutFill,
+                        },
+                    ],
+                }))
                 .collect(),
                 columns: vec![],
             },
@@ -2028,6 +2111,11 @@ impl App {
             Action::RasterTool(k) => self.rt.open = Some(k),
             Action::Terrain => self.tt[0].open = true,
             Action::Ponds => self.pt.open = true,
+            Action::Piles => self.pl.open = true,
+            Action::Flood => self.fl.open = true,
+            Action::Lines => self.ln.open = true,
+            Action::Route => self.rt_route.open = true,
+            Action::CutFill => self.cf.open = true,
             Action::TerrainProduct(k) => {
                 if let Some(t) = self.tt.get_mut(usize::from(k)) {
                     t.open = true;
@@ -2179,6 +2267,8 @@ impl App {
                         ("Comparar nubes (cambios)", Action::Tool(ToolId::Compare)),
             ("Ajustar una nube a otra", Action::Tool(ToolId::Fit)),
             ("Separación entre pasadas", Action::Tool(ToolId::Swath)),
+            ("Líneas de vuelo", Action::Tool(ToolId::FlightLines)),
+            ("Densidad de Voronoi", Action::Tool(ToolId::VDensity)),
             ("Calcular MDT", Action::Tool(ToolId::Dtm)),
             ("Calcular MDS / CHM", Action::Tool(ToolId::Chm)),
             ("Métricas por celda", Action::Tool(ToolId::Metrics)),
@@ -4788,6 +4878,11 @@ impl eframe::App for App {
         self.raster_tools_window(&ctx);
         self.terrain_windows(&ctx);
         self.ponds_window(&ctx);
+        self.piles_window(&ctx);
+        self.flood_window(&ctx);
+        self.lines_window(&ctx);
+        self.route_window(&ctx);
+        self.cutfill_window(&ctx);
         self.obia_window(&ctx);
         self.align_window(&ctx);
         self.reproject_window(&ctx);

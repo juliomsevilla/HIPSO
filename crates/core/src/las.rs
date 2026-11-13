@@ -584,6 +584,22 @@ pub fn set_class(format: u8, rec: &mut [u8], class: u8) {
     }
 }
 
+/// Sets a record's point source id (the flight line): bytes 18-19 in the legacy formats, 20-21 in
+/// formats 6 and up.
+pub fn set_source_id(format: u8, rec: &mut [u8], id: u16) {
+    let at = if format >= 6 { 20 } else { 18 };
+    if let Some(b) = rec.get_mut(at..at + 2) {
+        b.copy_from_slice(&id.to_le_bytes());
+    }
+}
+
+/// Sets a record's user data byte (byte 17 in every format).
+pub fn set_user_data(rec: &mut [u8], value: u8) {
+    if let Some(b) = rec.get_mut(17) {
+        *b = value;
+    }
+}
+
 /// The LAS 1.4 point format that keeps what a legacy `format` keeps and holds a full class byte
 /// (classes above 31 do not fit the 5 bits of formats 0–5). `None`: no such format here.
 pub fn upgraded_format(format: u8) -> Option<u8> {
@@ -809,7 +825,7 @@ impl Reader {
                 continue;
             }
             let mut at = usize::from(core_len(self.header.format)?);
-            for d in data.chunks_exact(192) {
+            for d in data.as_chunks::<192>().0 {
                 let code = d[2];
                 let size = match code {
                     0 => usize::from(d[3]),
@@ -1498,6 +1514,25 @@ fn read_up_to<R: Read>(r: &mut R, buf: &mut [u8]) -> Result<usize> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn source_id_and_user_data_go_to_their_bytes() {
+        let mut old = [0u8; 28];
+        set_source_id(1, &mut old, 0x1234);
+        set_user_data(&mut old, 7);
+        assert_eq!((old[18], old[19], old[17]), (0x34, 0x12, 7));
+        assert_eq!(old[20], 0);
+        let mut new = [0u8; 40];
+        set_source_id(6, &mut new, 0x1234);
+        set_user_data(&mut new, 9);
+        assert_eq!((new[20], new[21], new[17]), (0x34, 0x12, 9));
+        assert_eq!((new[18], new[19]), (0, 0));
+        // a record too short is left alone
+        let mut short = [0u8; 10];
+        set_source_id(6, &mut short, 5);
+        set_user_data(&mut short, 5);
+        assert_eq!(short, [0u8; 10]);
+    }
+
     #[test]
     fn gps_times_become_dates() {
         // adjusted GPS time 6.0962773e7 s: 1e9 + 6.0962773e7 s after 1980-01-06

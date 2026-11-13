@@ -56,6 +56,13 @@ pub fn tip(label: &str) -> Option<&'static str> {
             "Quita los parches pequeños de un ráster de clases: toman el valor del vecino mayor."
         }
         "Proximidad" => "Calcula para cada celda la distancia a la celda más cercana de unos valores.",
+        "Voronoi" => "Un polígono de Voronoi por cada punto de una capa, con sus atributos.",
+        "Calculadora" => {
+            "Calcula una expresión celda a celda con varios rásteres: operaciones, funciones y condiciones."
+        }
+        "Vectorizar" => {
+            "Convierte un ráster en polígonos con el valor como atributo: por clase, por rango o por intervalos."
+        }
         "Rellenar huecos" => {
             "Rellena las celdas vacías de un ráster con las celdas con valor de alrededor."
         }
@@ -108,9 +115,26 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Adelgazar nube" => "Reduce la densidad de la nube conservando su forma.",
         "Comparar nubes" => "Mide las diferencias entre dos nubes del mismo lugar.",
         "Ajustar nubes" => "Alinea una nube a otra de referencia.",
+        "Líneas de vuelo" => "Encuentra las líneas de vuelo de una nube aérea por los huecos en el tiempo GPS.",
+        "Densidad de Voronoi" => "Densidad de puntos por celda con celdas de Voronoi, con el porcentaje que llega a un umbral.",
         "Entre pasadas" => "Mide cuánto se separan entre sí las pasadas de vuelo.",
         "MDT" => "Modelo digital del terreno a partir de los puntos de suelo.",
         "MDS / CHM" => "Modelo digital de superficie y de alturas de la vegetación (CHM).",
+        "Cubicación\nde pilas" | "Cubicación de pilas" => {
+            "Mide el volumen de material de cada pila sobre una superficie base hecha desde su contorno."
+        }
+        "Desmonte y\nterraplén" | "Desmonte y terraplén" => {
+            "Calcula la tierra a quitar y a añadir para llevar un terreno a un diseño."
+        }
+        "Inundación" => {
+            "Simula el agua de uno o varios niveles sobre un MDT desde un origen: área, volumen y profundidad."
+        }
+        "Crestas y drenaje" => {
+            "Traza las líneas de cresta o de drenaje de un MDT, con el orden de Strahler."
+        }
+        "Ruta de menor coste" => {
+            "Busca el camino más barato sobre un MDT entre puntos, por pendiente, tiempo de marcha o un ráster de costes."
+        }
         "Zonas encharcadas" => {
             "Delimita donde se queda el agua en un MDT: cada charco con su área, profundidad, volumen y cota de desborde."
         }
@@ -124,7 +148,7 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Modelos lineales" => {
             "Relaciona una variable de campo con las métricas LiDAR de las unidades de muestreo y la valida."
         }
-        "Cambio de la cubierta vegetal" => {
+        "Cambio de la cubierta vegetal" | "Cambio de la\ncubierta vegetal" => {
             "Compara dos fechas y mide la pérdida y la ganancia de altura y de cubierta vegetal."
         }
         "Corredores eléctricos" => {

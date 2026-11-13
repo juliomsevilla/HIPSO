@@ -42,6 +42,23 @@ pub struct State {
     pub sw_cell: f64,
     pub sw_returns: usize,
     pub sw_by_cloud: bool,
+    /// Swaths from the gaps in the GPS time (s) when set.
+    pub sw_gps: bool,
+    pub sw_gap: f64,
+    pub fl_gap: f64,
+    pub fl_min_points: f64,
+    /// Where the line number goes: 0 nowhere, 1 point source ID, 2 user data.
+    pub fl_assign: usize,
+    pub fl_csv: bool,
+    pub fl_vector: bool,
+    pub vd_cell: f64,
+    pub vd_threshold: f64,
+    pub vd_max_area: f64,
+    /// Returns (A, F, L or numbers) and classes (2,5 or ~7,18; empty: all but noise) to measure.
+    pub vd_returns: String,
+    pub vd_classes: String,
+    pub vd_pass: bool,
+    pub vd_csv: bool,
     pub vol_source: usize,
     /// Rasters chosen by hand (empty: the one found for each cloud).
     pub vol_surface: String,
@@ -104,6 +121,20 @@ impl Default for State {
             sw_cell: 1.0,
             sw_returns: 0,
             sw_by_cloud: false,
+            sw_gps: false,
+            sw_gap: 30.0,
+            fl_gap: 30.0,
+            fl_min_points: 1000.0,
+            fl_assign: 0,
+            fl_csv: true,
+            fl_vector: true,
+            vd_cell: 5.0,
+            vd_threshold: 8.0,
+            vd_max_area: 100.0,
+            vd_returns: "F".to_string(),
+            vd_classes: String::new(),
+            vd_pass: true,
+            vd_csv: true,
             vol_source: 0,
             vol_surface: String::new(),
             vol_dtm: String::new(),
@@ -728,6 +759,76 @@ impl Tools {
             &mut s.sw_by_cloud,
             "Cada nube cargada es una pasada (en vez del ID de fuente)",
         );
+        ui.horizontal(|ui| {
+            ui.checkbox(
+                &mut s.sw_gps,
+                "Las pasadas salen de los huecos en el tiempo GPS, mayores de",
+            );
+            if s.sw_gps {
+                ui.add(crate::numfield::NumField::new(&mut s.sw_gap).range(1.0..=3600.0).suffix(" s"));
+            }
+        });
+        ui.label(egui::RichText::new("Útil cuando el ID de fuente no distingue las pasadas (todos los puntos con el mismo valor).").color(t.weak).size(11.0));
+    }
+
+    pub fn flightlines_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        let s = &mut self.lx;
+        ui.label(egui::RichText::new("Encuentra las líneas de vuelo de una nube aérea por los huecos en el tiempo GPS: el avión vuela una línea, gira decenas de segundos sin registrar y vuela la siguiente. Da cuántas líneas hay, cuándo, cuántos puntos y dónde. Con varias nubes, el tiempo cuenta para todas juntas. Hace falta una nube con tiempo GPS (formatos de punto 1 y 3 en adelante). Si el tiempo es de semana (no ajustado) y el vuelo cruza el domingo a medianoche, se avisa y no se corrige.").color(t.weak).size(11.0));
+        num(ui, "Hueco que separa dos líneas (s)", &mut s.fl_gap, 1.0..=3600.0, 1.0);
+        num(ui, "Puntos mínimos de una línea", &mut s.fl_min_points, 1.0..=1.0e9, 100.0);
+        ui.horizontal(|ui| {
+            ui.label("Escribir el número de línea en");
+            ui.radio_value(&mut s.fl_assign, 0, "ninguna parte");
+            ui.radio_value(&mut s.fl_assign, 1, "ID de fuente (hasta 65 535)");
+            ui.radio_value(&mut s.fl_assign, 2, "dato de usuario (hasta 255)");
+        });
+        ui.checkbox(&mut s.fl_vector, "Capa de polígonos con el contorno de cada línea");
+        ui.checkbox(&mut s.fl_csv, "Tabla de las líneas (CSV)");
+    }
+
+    pub fn vdensity_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        let s = &mut self.lx;
+        ui.label(egui::RichText::new("Densidad de puntos con celdas de Voronoi, para el control de calidad: en cada celda del ráster, n / suma de las áreas de Voronoi de sus puntos, que no depende de por dónde caiga el borde de la celda. Las celdas de Voronoi mayores que el límite son huecos de datos (agua, tejados sin retorno) y no cuentan para la densidad; su área se da aparte. Se guarda el ráster de densidad, el de cumple / no cumple y una tabla con la media, la mediana, los percentiles 5 y 95 y el porcentaje que llega al umbral.").color(t.weak).size(11.0));
+        num(ui, "Celda del ráster (m)", &mut s.vd_cell, 0.5..=1000.0, 0.5);
+        num(ui, "Umbral (puntos/m²)", &mut s.vd_threshold, 0.0..=10000.0, 0.5);
+        num(ui, "Hueco de datos: celda de Voronoi mayor que (m²)", &mut s.vd_max_area, 0.1..=1.0e6, 1.0);
+        ui.horizontal(|ui| {
+            ui.label("Retornos");
+            ui.add(
+                egui::TextEdit::singleline(&mut s.vd_returns)
+                    .hint_text("F, L, A o números: 1,2")
+                    .desired_width(110.0),
+            );
+            for (label, text) in [("Primeros", "F"), ("Últimos", "L"), ("Todos", "A"), ("1.º y 2.º", "1,2")] {
+                if ui.small_button(label).clicked() {
+                    s.vd_returns = text.to_string();
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Clases");
+            ui.add(
+                egui::TextEdit::singleline(&mut s.vd_classes)
+                    .hint_text("vacío: todas menos ruido; 2,5 o ~7,18")
+                    .desired_width(180.0),
+            );
+            for (label, text) in [("Todas", ""), ("Suelo", "2"), ("Vegetación", "3,4,5"), ("Edificios", "6")] {
+                if ui.small_button(label).clicked() {
+                    s.vd_classes = text.to_string();
+                }
+            }
+        });
+        ui.label(egui::RichText::new("Retornos: F primeros y únicos (los pulsos), L últimos, A todos, o los números de retorno. Clases: una lista como 2,5 o, con «~», todas menos esas. Con las clases vacías se dejan fuera el ruido (7 y 18) y los puntos retenidos.").color(t.weak).size(11.0));
+        if let Err(e) = hipso_core::filter::ReturnSel::parse(&s.vd_returns) {
+            ui.label(egui::RichText::new(e.to_string()).color(egui::Color32::from_rgb(200, 60, 40)).size(11.0));
+        }
+        if !s.vd_classes.trim().is_empty()
+            && let Err(e) = hipso_core::filter::ClassSel::parse(&s.vd_classes)
+        {
+            ui.label(egui::RichText::new(e.to_string()).color(egui::Color32::from_rgb(200, 60, 40)).size(11.0));
+        }
+        ui.checkbox(&mut s.vd_pass, "Ráster de cumple / no cumple");
+        ui.checkbox(&mut s.vd_csv, "Tabla (CSV)");
     }
 
     /// A text box for a path with a file picker; empty means "the one found for each cloud".
@@ -1179,6 +1280,13 @@ impl Tools {
             ToolId::Swath => {
                 let s = &self.lx;
                 let (cell, by_cloud) = (s.sw_cell, s.sw_by_cloud);
+                let by = if s.sw_gps {
+                    cloudtools::SwathBy::GpsGap(s.sw_gap)
+                } else if by_cloud {
+                    cloudtools::SwathBy::Cloud
+                } else {
+                    cloudtools::SwathBy::SourceId
+                };
                 let returns = [
                     cloudtools::SwathReturns::Last,
                     cloudtools::SwathReturns::All,
@@ -1188,14 +1296,101 @@ impl Tools {
                 let outputs = vec![out.clone()];
                 let show = vec![out.clone()];
                 let task: Task = Box::new(move || {
-                    let rep =
-                        cloudtools::swath_separation(&inputs_v, &out, cell, returns, by_cloud)?;
+                    let rep = cloudtools::swath_separation_by(&inputs_v, &out, cell, returns, by)?;
                     Ok(cloudtools::swath_text(&rep, &out))
                 });
                 return Some(Launch {
                     label,
                     task,
                     show,
+                    outputs,
+                });
+            }
+            ToolId::FlightLines => {
+                let s = &self.lx;
+                let into = [
+                    hipso_core::flightlines::Write::None,
+                    hipso_core::flightlines::Write::SourceId,
+                    hipso_core::flightlines::Write::UserData,
+                ][s.fl_assign.min(2)];
+                let dir = paths::output_dir().unwrap_or_else(|| paths::results_dir(&first));
+                let params = hipso_core::flightlines::FlightParams {
+                    gap: s.fl_gap,
+                    min_points: s.fl_min_points.round().max(1.0) as u64,
+                    ..Default::default()
+                };
+                let mut outputs: Vec<PathBuf> = Vec::new();
+                let mut show = Vec::new();
+                if s.fl_csv {
+                    outputs.push(dir.join(format!("{}_lineas_de_vuelo.csv", paths::stem(&first))));
+                }
+                if s.fl_vector {
+                    let v = dir.join(format!("{}_lineas_de_vuelo.shp", paths::stem(&first)));
+                    outputs.extend(super::related(&v));
+                    show.push(v);
+                }
+                if into != hipso_core::flightlines::Write::None {
+                    for p in inputs {
+                        let ext = Self::lx_ext(p);
+                        let o = dir.join(format!("{}_lineas.{ext}", paths::stem(p)));
+                        outputs.push(o.clone());
+                        show.push(o);
+                    }
+                }
+                let job = hipso_core::flightlines::FlightJob {
+                    inputs: inputs_v,
+                    params,
+                    into,
+                    output_dir: dir,
+                    csv: s.fl_csv,
+                    vector: s.fl_vector,
+                };
+                let task: Task = Box::new(move || hipso_core::flightlines::run(&job));
+                return Some(Launch {
+                    label,
+                    task,
+                    show,
+                    outputs,
+                });
+            }
+            ToolId::VDensity => {
+                let s = &self.lx;
+                let out = paths::unique(&paths::product(&first, "vdensidad", "tif"));
+                let mut job = hipso_core::vdensity::VDensityJob::new(inputs_v, out.clone());
+                job.cell = s.vd_cell;
+                job.threshold = s.vd_threshold;
+                job.max_cell_area = s.vd_max_area;
+                match hipso_core::filter::ReturnSel::parse(&s.vd_returns) {
+                    Ok(r) => job.filter.returns = r,
+                    Err(e) => {
+                        _log.push(format!("Retornos: {e}"));
+                        return None;
+                    }
+                }
+                if !s.vd_classes.trim().is_empty() {
+                    match hipso_core::filter::ClassSel::parse(&s.vd_classes) {
+                        Ok(c) => {
+                            job.filter.classes = c;
+                            // a class asked for by name is not left out as noise
+                            job.filter.skip_noise = false;
+                        }
+                        Err(e) => {
+                            _log.push(format!("Clases: {e}"));
+                            return None;
+                        }
+                    }
+                }
+                (job.pass_fail, job.csv) = (s.vd_pass, s.vd_csv);
+                let outputs = vec![
+                    out.clone(),
+                    paths::swap_ext(&out, "csv"),
+                    out.with_file_name(format!("{}_cumple.tif", paths::stem(&out))),
+                ];
+                let task: Task = Box::new(move || hipso_core::vdensity::run(&job));
+                return Some(Launch {
+                    label,
+                    task,
+                    show: vec![out],
                     outputs,
                 });
             }

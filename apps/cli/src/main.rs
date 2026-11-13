@@ -263,6 +263,21 @@ enum FormatArg {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
+enum FloodRelative {
+    /// Over the lowest cell of the model
+    Min,
+    /// Over the elevation of the first seed
+    Seed,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum CalcDtype {
+    F32,
+    U8,
+    U16,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
 enum AlignResample {
     Auto,
     /// For classes and identifiers
@@ -1673,6 +1688,218 @@ enum Cmd {
         #[arg(long, default_value_t = 1000.0)]
         max_distance: f64,
     },
+    /// Flood simulation on a DTM: the area, volume and depth of the water at one or several
+    /// levels, from some seeds. With connectivity, a pit behind a ridge stays dry
+    Flood {
+        /// The DTM (a GeoTIFF in a projected system)
+        input: PathBuf,
+        /// A seed of the water, `x,y`; repeat it for several. Without seeds, `--border`
+        #[arg(long, value_name = "X,Y", num_args = 1)]
+        seed: Vec<String>,
+        /// The water comes from the edge of the model (and from next to empty cells)
+        #[arg(long)]
+        border: bool,
+        /// The bathtub model: everything under the level is flooded, connected or not
+        #[arg(long, conflicts_with_all = ["seed", "border"])]
+        bathtub: bool,
+        /// One level of the water, repeat it for several
+        #[arg(long, value_name = "Z")]
+        level: Vec<f64>,
+        /// A series of levels `from:to:step`
+        #[arg(long, value_name = "A:B:STEP")]
+        levels: Option<String>,
+        /// The levels are heights over `min` (the lowest cell) or over the `seed`; default: elevations
+        #[arg(long, value_enum)]
+        relative: Option<FloodRelative>,
+        /// 4 or 8 neighbours let the water through
+        #[arg(long, default_value_t = 8)]
+        connectivity: u8,
+        /// A polygon layer with the flooded area of each level
+        #[arg(long)]
+        extent: bool,
+        /// No raster of depth per level
+        #[arg(long)]
+        no_depth: bool,
+        /// No CSV table
+        #[arg(long)]
+        no_csv: bool,
+        /// Base path of the results; default: <results>/<input>_inundacion
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Ridge or drainage lines traced from a DTM, as 3D lines with Strahler order, length and
+    /// mean slope
+    Ridges {
+        /// The DTM (a GeoTIFF in a projected system)
+        input: PathBuf,
+        /// Trace the drainage lines instead of the crests
+        #[arg(long)]
+        drainage: bool,
+        /// Drained area that makes a line (m2)
+        #[arg(long, default_value_t = 1000.0)]
+        min_area: f64,
+        /// Drop lines shorter than this (m)
+        #[arg(long, default_value_t = 0.0)]
+        min_length: f64,
+        /// Smoothing passes (Chaikin); 0 keeps the cells
+        #[arg(long, default_value_t = 0)]
+        smooth: u8,
+        /// The lines; default: <results>/<input>_crestas.shp (or _drenaje)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Least-cost route over a DTM, from an origin to a destination with optional stops
+    #[command(name = "leastcost")]
+    LeastCost {
+        /// The DTM (a GeoTIFF in a projected system)
+        input: PathBuf,
+        /// The origin `x,y`
+        #[arg(long = "from", value_name = "X,Y")]
+        from: String,
+        /// The destination `x,y`; repeat it with --nearest to go to the cheapest of several
+        #[arg(long = "to", value_name = "X,Y", required = true)]
+        to: Vec<String>,
+        /// A stop on the way `x,y`, in order
+        #[arg(long = "via", value_name = "X,Y")]
+        via: Vec<String>,
+        /// `slope`, `tobler`, `uniform` or `raster:<tif>` (cost per metre on the cells of the DTM)
+        #[arg(long, default_value = "slope")]
+        model: String,
+        /// Slope model: exponent, and the slope (%) where the cost per metre is doubled
+        #[arg(long, default_value_t = 2.0)]
+        power: f64,
+        #[arg(long, default_value_t = 10.0)]
+        reference_slope: f64,
+        /// Cells steeper than this (%) cannot be crossed
+        #[arg(long)]
+        max_slope: Option<f64>,
+        /// Polygons that cannot be crossed
+        #[arg(long)]
+        barriers: Option<PathBuf>,
+        /// Polygons where the cost is multiplied by --prefer-factor
+        #[arg(long)]
+        prefer: Option<PathBuf>,
+        #[arg(long, default_value_t = 0.5)]
+        prefer_factor: f64,
+        /// Go to the cheapest of the destinations
+        #[arg(long)]
+        nearest: bool,
+        /// Also a raster of the cost of reaching each cell from the origin
+        #[arg(long)]
+        cost_distance: bool,
+        /// The route; default: <results>/<input>_ruta.shp
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Stockpile volumes: the material over a base surface inside the outline of each pile. The
+    /// base is made for each pile (a level, the lowest or median height of its outline, a plane
+    /// through the outline, a surface interpolated from it, or a terrain model of the site before)
+    Piles {
+        /// The surface model (a GeoTIFF, DSM)
+        surface: PathBuf,
+        /// The outlines of the piles (a polygon layer)
+        #[arg(long)]
+        piles: PathBuf,
+        /// `plane`, `lowest`, `median`, `interpolated`, `level:<z>` or `dtm:<file>`
+        #[arg(long, default_value = "plane")]
+        base: String,
+        /// Heights closer than this to the base count as nothing (m)
+        #[arg(long, default_value_t = 0.0)]
+        min_height: f64,
+        /// Density of the material (t/m3): the layer and the table get a mass
+        #[arg(long)]
+        density: Option<f64>,
+        /// Base path of the results; default: <results>/<surface>_pilas
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// No CSV table
+        #[arg(long)]
+        no_csv: bool,
+        /// Also a raster with the base surface
+        #[arg(long)]
+        base_raster: bool,
+        /// Also a raster with the height over the base
+        #[arg(long)]
+        height_raster: bool,
+    },
+    /// Cut and fill between an existing terrain and a design: dz = design - existing; positive is
+    /// fill (earth to add), negative is cut (earth to remove)
+    #[command(name = "cutfill")]
+    CutFill {
+        /// The existing terrain (a GeoTIFF)
+        existing: PathBuf,
+        /// The design: a raster file, `level:<z>`, or `plane:<z0>,<slope %>,<aspect deg>,<x>,<y>`
+        /// (elevation z0 at x,y, going down towards the aspect)
+        #[arg(long)]
+        design: String,
+        /// Polygons to measure one by one (the whole raster is always measured too)
+        #[arg(long)]
+        regions: Option<PathBuf>,
+        /// Differences up to this size count as unchanged (m)
+        #[arg(long, default_value_t = 0.05)]
+        tolerance: f64,
+        /// Base path of the results; default: <results>/<existing>_cutfill
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// No CSV table
+        #[arg(long)]
+        no_csv: bool,
+        /// Also a raster of whole numbers: 1 cut, 2 fill, 0 unchanged
+        #[arg(long)]
+        classified: bool,
+    },
+    /// Raster calculator: an expression over rasters with names, cell by cell. Functions: abs sqrt
+    /// ln log10 exp pow min max floor ceil round sin cos tan atan2 clamp if isnan; comparisons,
+    /// `and`, `or`, `not`, `%`, `^`. `A.2` is band 2 of A. Example: `hipso calc "if(A>0, A, 0)"
+    /// A=chm.tif -o out.tif`
+    Calc {
+        /// The expression, in quotes
+        expr: String,
+        /// The rasters, as `NAME=file.tif` (`A=chm.tif B=other.tif`); with a single one, a bare
+        /// file also works and its bands are B1, B2…
+        #[arg(required = true)]
+        inputs: Vec<String>,
+        /// The result; default: <results>/<first raster>_calc.tif
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Sample type of the result
+        #[arg(long, value_enum, default_value = "f32")]
+        dtype: CalcDtype,
+        /// The overviews keep the first valid pixel instead of the mean (classes)
+        #[arg(long)]
+        nearest: bool,
+        /// Rasters whose cells differ from the first one's are put on them with this resampling;
+        /// without it they are refused
+        #[arg(long, value_enum)]
+        align: Option<AlignResample>,
+    },
+    /// Vectorize a raster: cells that share a class, fall in a range or lie between two cuts
+    /// become polygons with the value, the area and the number of cells as attributes
+    Vectorize {
+        /// The raster (a GeoTIFF)
+        input: PathBuf,
+        /// The polygons: `.shp` or `.gpkg`; default: <results>/<input>_poligonos.shp
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Group by range: `lo,hi`, both included; the rest is left out
+        #[arg(long, value_delimiter = ',', num_args = 2, conflicts_with_all = ["breaks", "classes"])]
+        range: Vec<f64>,
+        /// Group by the intervals between these cuts, from lowest to highest: `0,5,10`
+        #[arg(long, value_delimiter = ',', conflicts_with = "classes")]
+        breaks: Vec<f64>,
+        /// Group by class (equal whole values); the default
+        #[arg(long)]
+        classes: bool,
+        /// Drop parts of fewer cells than this
+        #[arg(long, default_value_t = 1)]
+        min_cells: u32,
+        /// Simplify the boundaries (map units); 0 keeps the stairs of the cells
+        #[arg(long, default_value_t = 0.0)]
+        simplify: f64,
+        /// Cells that touch by a corner are one part
+        #[arg(long)]
+        diagonal: bool,
+    },
     /// Ponds: where water stays on a DTM. The model is filled until it drains, and each connected
     /// patch of water deeper than the minimum is a pond, measured by area, depth, volume, spill
     /// level and drained area
@@ -1922,8 +2149,92 @@ enum Cmd {
         #[arg(long, default_value = "last")]
         returns: String,
         /// Take each cloud as one flight line instead of the point source id
-        #[arg(long)]
+        #[arg(long, conflicts_with = "gps_gap")]
         by_cloud: bool,
+        /// Find the flight lines from the gaps in the GPS time longer than this (s), when the
+        /// point source id does not hold them
+        #[arg(long)]
+        gps_gap: Option<f64>,
+    },
+    /// Flight lines of an airborne cloud found from the gaps in the GPS time: how many, when, how
+    /// many points and where. With --assign, copies of the clouds that carry the line number
+    #[command(name = "flightlines")]
+    FlightLines {
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// A silence in the GPS time longer than this (s) separates two lines
+        #[arg(long, default_value_t = 30.0)]
+        gap: f64,
+        /// Stretches with fewer points are not lines
+        #[arg(long, default_value_t = 1000)]
+        min_points: u64,
+        /// Stretches shorter than this (s) are not lines
+        #[arg(long, default_value_t = 0.0)]
+        min_duration: f64,
+        /// Write the line number to copies of the clouds: `source-id` or `user-data`
+        #[arg(long)]
+        assign: Option<String>,
+        /// No CSV table
+        #[arg(long)]
+        no_csv: bool,
+        /// No polygon layer with the outline of each line
+        #[arg(long)]
+        no_vector: bool,
+        /// Folder of the table and the copies; default: the results folder of the first cloud
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Voronoi polygons (and, with --delaunay, the Delaunay edges) of a layer of points, with
+    /// the attributes of each point
+    Voronoi {
+        /// A layer of points
+        input: PathBuf,
+        /// The cells are cut by `bbox` (the points' box, a little bigger) or by a polygon layer;
+        /// without it, the cells of the points on the edge are left out
+        #[arg(long)]
+        clip: Option<String>,
+        /// Also the edges of the Delaunay triangulation
+        #[arg(long)]
+        delaunay: bool,
+        /// The polygons: `.shp`, `.gpkg` or `.geojson`; default: <results>/<input>_voronoi.shp
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Point density by Voronoi cells, to check a cloud: n / sum of the areas of the cells of the
+    /// points of each raster cell, with the share of cells that reach a threshold
+    #[command(name = "voronoi-density")]
+    VoronoiDensity {
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// Cell of the density raster (m)
+        #[arg(long, default_value_t = 5.0)]
+        cell: f64,
+        /// Points per m2 the density must reach
+        #[arg(long, default_value_t = 8.0)]
+        threshold: f64,
+        /// Returns to use: A, F, L or numbers; default F (first returns: pulses)
+        #[arg(long, default_value = "F")]
+        returns: String,
+        /// Classes to use: 2,5 or ~7,18
+        #[arg(long)]
+        class: Option<String>,
+        /// A Voronoi cell larger than this (m2) is a gap in the data
+        #[arg(long, default_value_t = 100.0)]
+        max_cell_area: f64,
+        /// No raster of 1 where the threshold is reached and 0 where it is not
+        #[arg(long)]
+        no_pass_fail: bool,
+        /// No CSV table
+        #[arg(long)]
+        no_csv: bool,
+        /// Side of the tiles and their margin (m)
+        #[arg(long, default_value_t = 250.0)]
+        tile: f64,
+        #[arg(long, default_value_t = 20.0)]
+        buffer: f64,
+        /// Base path of the results; default: <results>/<first cloud>_vdensidad
+        #[arg(short, long)]
+        output: Option<PathBuf>,
     },
     /// Draws a cloud (plan, 3D or profile) into a PNG, as the viewer does
     Render {
@@ -2078,6 +2389,14 @@ fn numbers(text: &str, n: usize, what: &str) -> Result<Vec<f64>> {
 
 /// The output path: the one given, else `<results>/<input>_<tag>.<ext>` (a free name: an earlier
 /// product is never overwritten unless its path is given).
+/// A point `x,y` of an option.
+fn xy(text: &str, option: &str) -> std::result::Result<[f64; 2], hipso_core::Error> {
+    let bad = || hipso_core::Error::Param(format!("{option}: «{text}» no es x,y"));
+    let (x, y) = text.split_once(',').ok_or_else(bad)?;
+    let n = |t: &str| t.trim().parse::<f64>().map_err(|_| bad());
+    Ok([n(x)?, n(y)?])
+}
+
 fn out_path(given: Option<PathBuf>, input: &Path, tag: &str, ext: &str) -> PathBuf {
     given.unwrap_or_else(|| paths::unique(&paths::product(input, tag, ext)))
 }
@@ -3624,6 +3943,340 @@ fn run(cmd: Cmd) -> Result<()> {
             job.compression = tiles.compression();
             mosaic(&job)?
         }
+        Cmd::FlightLines {
+            inputs,
+            gap,
+            min_points,
+            min_duration,
+            assign,
+            no_csv,
+            no_vector,
+            output,
+        } => {
+            use hipso_core::flightlines::{FlightJob, FlightParams, Write};
+            let into = match assign.as_deref() {
+                None => Write::None,
+                Some("source-id") => Write::SourceId,
+                Some("user-data") => Write::UserData,
+                Some(o) => {
+                    return Err(hipso_core::Error::Param(format!("--assign: «{o}» no válido (source-id, user-data)")));
+                }
+            };
+            let first = inputs.first().cloned().unwrap_or_default();
+            let dir = output.unwrap_or_else(|| paths::results_dir(&first));
+            hipso_core::flightlines::run(&FlightJob {
+                inputs,
+                params: FlightParams { gap, min_points, min_duration, ..Default::default() },
+                into,
+                output_dir: dir,
+                csv: !no_csv,
+                vector: !no_vector,
+            })?
+        }
+        Cmd::Voronoi {
+            input,
+            clip,
+            delaunay,
+            output,
+        } => {
+            use hipso_core::voronoi::Clip;
+            let (d, _, _) = hipso_core::vecops::read_layer(&input)?;
+            let clip = match clip.as_deref() {
+                None => Clip::None,
+                Some("bbox") => hipso_core::voronoi::clip_box_of(&d),
+                Some(p) => hipso_core::voronoi::clip_from_layer(std::path::Path::new(p))?,
+            };
+            let out = out_path(output, &input, "voronoi", "shp");
+            hipso_core::voronoi::run(&input, &out, &clip, delaunay)?
+        }
+        Cmd::VoronoiDensity {
+            inputs,
+            cell,
+            threshold,
+            returns,
+            class,
+            max_cell_area,
+            no_pass_fail,
+            no_csv,
+            tile,
+            buffer,
+            output,
+        } => {
+            use hipso_core::filter::{ClassSel, Filter, ReturnSel};
+            let first = inputs.first().cloned().unwrap_or_default();
+            let out = output.unwrap_or_else(|| paths::product(&first, "vdensidad", "tif"));
+            let mut job = hipso_core::vdensity::VDensityJob::new(inputs, out);
+            job.cell = cell;
+            job.threshold = threshold;
+            job.max_cell_area = max_cell_area;
+            job.filter = Filter {
+                classes: class.as_deref().map_or(Ok(ClassSel::all()), ClassSel::parse)?,
+                returns: ReturnSel::parse(&returns)?,
+                skip_noise: true,
+                ..Filter::default()
+            };
+            job.pass_fail = !no_pass_fail;
+            job.csv = !no_csv;
+            job.tiling.size = tile;
+            job.tiling.buffer = buffer;
+            hipso_core::vdensity::run(&job)?
+        }
+        Cmd::Flood {
+            input,
+            seed,
+            border,
+            bathtub,
+            level,
+            levels,
+            relative,
+            connectivity,
+            extent,
+            no_depth,
+            no_csv,
+            output,
+        } => {
+            use hipso_core::flood::{FloodJob, Relative, Seeds};
+            let seeds = if bathtub {
+                Seeds::All
+            } else if !seed.is_empty() {
+                Seeds::Points(seed.iter().map(|s| xy(s, "--seed")).collect::<std::result::Result<_, _>>()?)
+            } else if border {
+                Seeds::Border
+            } else {
+                return Err(hipso_core::Error::Param("indica de dónde viene el agua: --seed x,y, --border o --bathtub".into()).into());
+            };
+            let mut all = level;
+            if let Some(r) = levels {
+                let p: Vec<f64> = r.split(':').filter_map(|v| v.trim().replace(',', ".").parse().ok()).collect();
+                let [a, b, st] = p[..] else {
+                    return Err(hipso_core::Error::Param(format!("--levels: «{r}» no válido (desde:hasta:paso)")).into());
+                };
+                if !(st > 0.0) || b < a || (b - a) / st > 1000.0 {
+                    return Err(hipso_core::Error::Param("--levels: el paso debe ser positivo y salir 1000 niveles como máximo".into()).into());
+                }
+                let n = ((b - a) / st + 1e-9).floor() as usize;
+                all.extend((0..=n).map(|k| a + k as f64 * st));
+            }
+            let out = output.unwrap_or_else(|| paths::product(&input, "inundacion", "shp"));
+            let mut job = FloodJob::new(input, seeds, all, out);
+            job.relative = match relative {
+                None => Relative::Absolute,
+                Some(FloodRelative::Min) => Relative::MinZ,
+                Some(FloodRelative::Seed) => Relative::Seed,
+            };
+            job.connectivity = connectivity;
+            job.extent = extent;
+            job.depth = !no_depth;
+            job.csv = !no_csv;
+            hipso_core::flood::run(&job)?
+        }
+        Cmd::Ridges {
+            input,
+            drainage,
+            min_area,
+            min_length,
+            smooth,
+            output,
+        } => {
+            use hipso_core::terrainlines::{Kind, LinesJob};
+            let kind = if drainage { Kind::Drainage } else { Kind::Ridge };
+            let out = output.unwrap_or_else(|| paths::product(&input, if drainage { "drenaje" } else { "crestas" }, "shp"));
+            let mut job = LinesJob::new(input, kind, out);
+            job.min_area = min_area;
+            job.min_length = min_length;
+            job.smooth = smooth;
+            hipso_core::terrainlines::run(&job)?
+        }
+        Cmd::LeastCost {
+            input,
+            from,
+            to,
+            via,
+            model,
+            power,
+            reference_slope,
+            max_slope,
+            barriers,
+            prefer,
+            prefer_factor,
+            nearest,
+            cost_distance,
+            output,
+        } => {
+            use hipso_core::pathfind::{CostModel, PathJob};
+            let mut pts = vec![xy(&from, "--from")?];
+            for v in &via {
+                pts.push(xy(v, "--via")?);
+            }
+            for t in &to {
+                pts.push(xy(t, "--to")?);
+            }
+            if to.len() > 1 && !nearest {
+                return Err(hipso_core::Error::Param("varios --to piden --nearest".into()).into());
+            }
+            let model = match model.as_str() {
+                "slope" => CostModel::Slope { power, reference_pct: reference_slope },
+                "tobler" => CostModel::Tobler,
+                "uniform" => CostModel::Uniform,
+                m => match m.split_once(':') {
+                    Some(("raster", f)) => CostModel::Raster(PathBuf::from(f)),
+                    _ => return Err(hipso_core::Error::Param(format!("--model: «{m}» no válido (slope, tobler, uniform, raster:<tif>)")).into()),
+                },
+            };
+            let out = output.unwrap_or_else(|| paths::product(&input, "ruta", "shp"));
+            let mut job = PathJob::new(input, pts, out);
+            job.model = model;
+            job.constraints.max_slope_pct = max_slope;
+            job.constraints.barriers = barriers;
+            job.constraints.prefer = prefer.map(|p| (p, prefer_factor));
+            job.nearest = nearest;
+            job.cost_distance = cost_distance;
+            hipso_core::pathfind::run(&job)?
+        }
+        Cmd::Piles {
+            surface,
+            piles,
+            base,
+            min_height,
+            density,
+            output,
+            no_csv,
+            base_raster,
+            height_raster,
+        } => {
+            use hipso_core::piles::{Base, PileJob};
+            let bad = |t: &str| {
+                hipso_core::Error::Param(format!(
+                    "--base: «{t}» no válido (plane, lowest, median, interpolated, level:<z>, dtm:<archivo>)"
+                ))
+            };
+            let base = match base.as_str() {
+                "plane" => Base::Plane,
+                "lowest" => Base::LowestPerimeter,
+                "median" => Base::MedianPerimeter,
+                "interpolated" => Base::Interpolated,
+                t => match t.split_once(':') {
+                    Some(("level", z)) => Base::Level(z.trim().parse().map_err(|_| bad(t))?),
+                    Some(("dtm", f)) => Base::Dtm(PathBuf::from(f)),
+                    _ => return Err(bad(t).into()),
+                },
+            };
+            let out = output.unwrap_or_else(|| paths::product(&surface, "pilas", "shp"));
+            let out = if out.extension().is_some() { out } else { out.with_extension("shp") };
+            let mut job = PileJob::new(surface, piles, out);
+            job.base = base;
+            job.min_height = min_height;
+            job.density = density;
+            job.csv = !no_csv;
+            job.base_raster = base_raster;
+            job.height_raster = height_raster;
+            hipso_core::piles::run(&job)?
+        }
+        Cmd::CutFill {
+            existing,
+            design,
+            regions,
+            tolerance,
+            output,
+            no_csv,
+            classified,
+        } => {
+            use hipso_core::cutfill::{CutFillJob, Design};
+            let bad = |t: &str| {
+                hipso_core::Error::Param(format!(
+                    "--design: «{t}» no válido (un archivo, level:<z> o plane:<z0>,<pendiente %>,<orientación>,<x>,<y>)"
+                ))
+            };
+            let number = |t: &str, whole: &str| t.trim().replace(',', ".").parse::<f64>().map_err(|_| bad(whole));
+            let design = match design.split_once(':') {
+                Some(("level", z)) => Design::Level(number(z, &design)?),
+                Some(("plane", v)) => {
+                    let p: Vec<&str> = v.split(',').collect();
+                    if p.len() != 5 {
+                        return Err(bad(&design).into());
+                    }
+                    Design::Plane {
+                        z0: number(p[0], &design)?,
+                        slope_pct: number(p[1], &design)?,
+                        aspect_deg: number(p[2], &design)?,
+                        origin: [number(p[3], &design)?, number(p[4], &design)?],
+                    }
+                }
+                _ => Design::Surface(PathBuf::from(&design)),
+            };
+            let out = output.unwrap_or_else(|| paths::product(&existing, "cutfill", "tif"));
+            let mut job = CutFillJob::new(existing, design, out);
+            job.regions = regions;
+            job.tolerance = tolerance;
+            job.csv = !no_csv;
+            job.classified = classified;
+            hipso_core::cutfill::run(&job)?
+        }
+        Cmd::Calc {
+            expr,
+            inputs,
+            output,
+            dtype,
+            nearest,
+            align,
+        } => {
+            use hipso_core::rastertools::{Dtype, Resample};
+            let mut named: Vec<(String, PathBuf)> = Vec::new();
+            for (i, a) in inputs.iter().enumerate() {
+                match a.split_once('=') {
+                    Some((n, p)) => named.push((n.trim().to_string(), PathBuf::from(p))),
+                    None if inputs.len() == 1 => named.push(("A".to_string(), PathBuf::from(a))),
+                    None => {
+                        return Err(hipso_core::Error::Param(format!(
+                            "«{a}» (ráster {}): con varios rásteres cada uno va como NOMBRE=archivo",
+                            i + 1
+                        ))
+                        .into());
+                    }
+                }
+            }
+            let out = out_path(output, &named[0].1, "calc", "tif");
+            let mut job = hipso_core::rastercalc::CalcJob::new(expr, named, out);
+            job.dtype = match dtype {
+                CalcDtype::F32 => Dtype::F32,
+                CalcDtype::U8 => Dtype::U8,
+                CalcDtype::U16 => Dtype::U16,
+            };
+            job.nearest = nearest;
+            job.align = align.and_then(|a| match a {
+                AlignResample::Auto => Some(Resample::Bilinear),
+                AlignResample::Nearest => Some(Resample::Nearest),
+                AlignResample::Bilinear => Some(Resample::Bilinear),
+                AlignResample::Average => Some(Resample::Average),
+                AlignResample::Cubic => Some(Resample::Cubic),
+                AlignResample::Mode => Some(Resample::Mode),
+            });
+            hipso_core::rastercalc::run(&job)?
+        }
+        Cmd::Vectorize {
+            input,
+            output,
+            range,
+            breaks,
+            classes: _,
+            min_cells,
+            simplify,
+            diagonal,
+        } => {
+            let out = out_path(output, &input, "poligonos", "shp");
+            let mut job = hipso_core::rastervec::VecJob::new(input, out);
+            job.mode = if let [lo, hi] = range[..] {
+                hipso_core::rastervec::Mode::Range { lo, hi }
+            } else if !breaks.is_empty() {
+                hipso_core::rastervec::Mode::Breaks(breaks)
+            } else {
+                hipso_core::rastervec::Mode::Classes
+            };
+            job.min_cells = min_cells;
+            job.simplify = simplify;
+            job.diagonal = diagonal;
+            hipso_core::rastervec::run(&job)?
+        }
         Cmd::Ponds {
             input,
             output,
@@ -4017,8 +4670,9 @@ fn run(cmd: Cmd) -> Result<()> {
             cell,
             returns,
             by_cloud,
+            gps_gap,
         } => {
-            use hipso_core::cloudtools::{SwathReturns, swath_separation, swath_text};
+            use hipso_core::cloudtools::{SwathBy, SwathReturns, swath_separation_by, swath_text};
             let returns = match returns.as_str() {
                 "all" => SwathReturns::All,
                 "last" => SwathReturns::Last,
@@ -4031,7 +4685,12 @@ fn run(cmd: Cmd) -> Result<()> {
             };
             let first = inputs.first().cloned().unwrap_or_default();
             let out = out_path(output, &first, "pasadas", "tif");
-            let rep = swath_separation(&inputs, &out, cell, returns, by_cloud)?;
+            let by = match (gps_gap, by_cloud) {
+                (Some(g), _) => SwathBy::GpsGap(g),
+                (None, true) => SwathBy::Cloud,
+                (None, false) => SwathBy::SourceId,
+            };
+            let rep = swath_separation_by(&inputs, &out, cell, returns, by)?;
             swath_text(&rep, &out)
         }
         Cmd::StemVolume {

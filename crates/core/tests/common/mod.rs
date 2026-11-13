@@ -15,6 +15,18 @@ pub fn write_las_with(
     pts: &[[f64; 3]],
     attrs: impl Fn(usize) -> (u8, u16),
 ) -> Result<PathBuf> {
+    write_las_with_gps(name, pts, |i| {
+        let (class, source) = attrs(i);
+        (class, source, 0.0)
+    })
+}
+
+/// Like [`write_las_with`], with the GPS time of each point too (the other writers leave 0).
+pub fn write_las_with_gps(
+    name: &str,
+    pts: &[[f64; 3]],
+    attrs: impl Fn(usize) -> (u8, u16, f64),
+) -> Result<PathBuf> {
     let min = pts.iter().fold([f64::INFINITY; 3], |m, p| {
         [m[0].min(p[0]), m[1].min(p[1]), m[2].min(p[2])]
     });
@@ -44,7 +56,7 @@ pub fn write_las_with(
         h[at..at + 8].copy_from_slice(&v.to_le_bytes());
     }
     for (i, p) in pts.iter().enumerate() {
-        let (class, source) = attrs(i);
+        let (class, source, gps) = attrs(i);
         let mut rec = [0u8; 28];
         for k in 0..3 {
             rec[4 * k..4 * k + 4].copy_from_slice(&((p[k] * 1000.0).round() as i32).to_le_bytes());
@@ -52,6 +64,7 @@ pub fn write_las_with(
         rec[14] = 0x09;
         rec[15] = class;
         rec[18..20].copy_from_slice(&source.to_le_bytes());
+        rec[20..28].copy_from_slice(&gps.to_le_bytes());
         h.extend_from_slice(&rec);
     }
     let path = std::env::temp_dir().join(format!("hipso_{name}_{}.las", std::process::id()));

@@ -13,7 +13,7 @@ use crate::grid::Grid;
 use crate::{Error, Result};
 
 /// The eight neighbours as (column, row) steps: E, SE, S, SW, W, NW, N, NE.
-const STEP: [(isize, isize); 8] = [
+pub(crate) const STEP: [(isize, isize); 8] = [
     (1, 0),
     (1, 1),
     (0, 1),
@@ -23,11 +23,11 @@ const STEP: [(isize, isize); 8] = [
     (0, -1),
     (1, -1),
 ];
-const NONE: u8 = 255;
+pub(crate) const NONE: u8 = 255;
 
 /// The index of the neighbour of `i` in direction `k`, if inside the grid.
 #[inline]
-fn neighbour(g: &Grid, i: usize, k: usize) -> Option<usize> {
+pub(crate) fn neighbour(g: &Grid, i: usize, k: usize) -> Option<usize> {
     let (c, r) = ((i % g.cols) as isize, (i / g.cols) as isize);
     let (c, r) = (c + STEP[k].0, r + STEP[k].1);
     if c < 0 || r < 0 || c >= g.cols as isize || r >= g.rows as isize {
@@ -39,7 +39,7 @@ fn neighbour(g: &Grid, i: usize, k: usize) -> Option<usize> {
 
 /// Distance to the neighbour in direction `k`, in cells.
 #[inline]
-fn reach(k: usize) -> f64 {
+pub(crate) fn reach(k: usize) -> f64 {
     if k.is_multiple_of(2) {
         1.0
     } else {
@@ -49,7 +49,7 @@ fn reach(k: usize) -> f64 {
 
 /// A float as an integer that sorts the same way.
 #[inline]
-fn key(v: f32) -> u32 {
+pub(crate) fn key(v: f32) -> u32 {
     let b = v.to_bits();
     if b >> 31 == 1 { !b } else { b | 0x8000_0000 }
 }
@@ -149,7 +149,7 @@ pub fn fill_depth(g: &Grid, z: f64) -> Grid {
 }
 
 /// Cells that drain through each cell (itself included), and the order upstream first.
-fn accumulate(g: &Grid, dir: &[u8]) -> (Vec<u32>, Vec<u32>) {
+pub(crate) fn accumulate(g: &Grid, dir: &[u8]) -> (Vec<u32>, Vec<u32>) {
     let n = dir.len();
     let mut indeg = vec![0u8; n];
     for (i, d) in dir.iter().enumerate() {
@@ -222,7 +222,7 @@ pub fn wetness(g: &Grid, z: f64) -> Grid {
     out
 }
 
-fn threshold_cells(g: &Grid, area: f64) -> Result<u32> {
+pub(crate) fn threshold_cells(g: &Grid, area: f64) -> Result<u32> {
     if !(area > 0.0) {
         return Err(Error::Param(
             "el área mínima de la red debe ser positiva".into(),

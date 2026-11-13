@@ -54,7 +54,7 @@ pub fn multipolygon_of(rings: &[Vec<[f64; 2]>]) -> MultiPolygon<f64> {
     MultiPolygon::new(out)
 }
 
-pub(crate) fn rings_of(region: &Region) -> Vec<Vec<[f64; 2]>> {
+pub fn rings_of(region: &Region) -> Vec<Vec<[f64; 2]>> {
     match &region.shape {
         Shape2::Polygon(p) => p.rings.clone(),
         other => crate::plots::rings(other),

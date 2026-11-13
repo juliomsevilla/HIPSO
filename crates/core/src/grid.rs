@@ -100,6 +100,23 @@ impl Grid {
         Ok(out)
     }
 
+    /// This surface on the cells of `like`: each cell takes the bilinear value at its centre
+    /// ([`Grid::sample`]); cells outside this grid, or where it is empty, stay empty.
+    pub fn resampled_onto(&self, like: &Grid) -> Grid {
+        let mut out = like.like();
+        for r in 0..out.rows {
+            for c in 0..out.cols {
+                let (x, y) = out.center(c, r);
+                if self.index(x, y).is_some()
+                    && let Some(v) = self.sample(x, y)
+                {
+                    out.data[r * out.cols + c] = v;
+                }
+            }
+        }
+        out
+    }
+
     /// An empty grid with the same cells.
     pub fn like(&self) -> Self {
         Self {
@@ -564,6 +581,25 @@ mod tests {
         assert_eq!(g.col_row(13.9, 22.0), Some((3, 0)));
         assert_eq!(g.col_row(9.9, 21.0), None);
         assert_eq!(g.center(0, 2), (10.5, 20.5));
+        Ok(())
+    }
+
+    #[test]
+    fn resampling_onto_other_cells() -> Result<()> {
+        // a ramp z = x on 1 m cells, read on 0.5 m cells that start inside and stick out
+        let mut g = Grid::new(0.0, 0.0, 1.0, 4, 2)?;
+        for r in 0..2 {
+            for c in 0..4 {
+                g.data[r * 4 + c] = c as f32 + 0.5;
+            }
+        }
+        let like = Grid::new(1.0, 0.0, 0.5, 8, 4)?;
+        let out = g.resampled_onto(&like);
+        // the centre of the first cell is x = 1.25: the ramp gives 1.25
+        assert!((out.data[0] - 1.25).abs() < 1e-5, "{}", out.data[0]);
+        // beyond x = 4 there is nothing
+        assert!(out.data[7].is_nan());
+        assert_eq!(out.cols, 8);
         Ok(())
     }
 

@@ -59,6 +59,10 @@ pub enum ToolId {
     Compare,
     Fit,
     Swath,
+    /// Flight lines from the gaps in the GPS time.
+    FlightLines,
+    /// Point density by Voronoi cells.
+    VDensity,
     Volume,
     Hag,
     Colorize,
@@ -84,6 +88,8 @@ impl ToolId {
             ToolId::Compare => "Comparar nubes (cambios)",
             ToolId::Fit => "Ajustar una nube a otra",
             ToolId::Swath => "Separación entre pasadas",
+            ToolId::FlightLines => "Líneas de vuelo (por el tiempo GPS)",
+            ToolId::VDensity => "Densidad de Voronoi",
             ToolId::Volume => "Volúmenes respecto al MDT",
             ToolId::Hag => "Alturas sobre el suelo",
             ToolId::Colorize => "Colorear la nube con una imagen (RGB)",
@@ -848,6 +854,8 @@ impl Tools {
                             ToolId::Compare => self.compare_form(ui, t),
                             ToolId::Fit => self.fit_form(ui, t),
                             ToolId::Swath => self.swath_form(ui, t),
+                            ToolId::FlightLines => self.flightlines_form(ui, t),
+                            ToolId::VDensity => self.vdensity_form(ui, t),
                             ToolId::Volume => self.volume_form(ui, t, inputs, aois),
                             ToolId::Trees => self.trees_form(ui, t, inputs),
                             ToolId::Clip => self.plots_form(ui, t, aois),
@@ -1515,6 +1523,8 @@ impl Tools {
             | ToolId::Compare
             | ToolId::Fit
             | ToolId::Swath
+            | ToolId::FlightLines
+            | ToolId::VDensity
             | ToolId::Colorize
             | ToolId::Intensity => {
                 return self.build_lidar(tool, inputs, log);
@@ -1563,6 +1573,8 @@ impl Tools {
             | ToolId::Compare
             | ToolId::Fit
             | ToolId::Swath
+            | ToolId::FlightLines
+            | ToolId::VDensity
             | ToolId::Colorize
             | ToolId::Intensity
             | ToolId::ClipPoly

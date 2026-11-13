@@ -144,12 +144,16 @@ impl Tiled {
             .ok_or_else(|| Error::Param("no hay archivos de entrada".into()))?;
         let header = first.header.clone();
         let rec_len = usize::from(header.record_len);
+        // the clock of some systems ticks in microseconds: a counter keeps two spools started
+        // together apart
+        static SPOOLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "hipso-tiles-{}-{}",
+            "hipso-tiles-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_nanos())
+                .map_or(0, |d| d.as_nanos()),
+            SPOOLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&dir)?;
         let dir = TempDir(dir);

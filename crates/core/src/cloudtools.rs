@@ -1005,9 +1005,51 @@ pub fn swath_separation(
     returns: SwathReturns,
     each_cloud_a_swath: bool,
 ) -> Result<SwathReport> {
+    let by = if each_cloud_a_swath {
+        SwathBy::Cloud
+    } else {
+        SwathBy::SourceId
+    };
+    swath_separation_by(inputs, output, cell, returns, by)
+}
+
+/// What tells one swath from another.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SwathBy {
+    /// The point source ID of the points.
+    SourceId,
+    /// Each cloud is a swath.
+    Cloud,
+    /// The flight lines found from the gaps in the GPS time (seconds), when the lines have not
+    /// been written to the source ID.
+    GpsGap(f64),
+}
+
+/// [`swath_separation`] with the way of telling the swaths apart chosen.
+pub fn swath_separation_by(
+    inputs: &[PathBuf],
+    output: &Path,
+    cell: f64,
+    returns: SwathReturns,
+    by: SwathBy,
+) -> Result<SwathReport> {
     if !(cell > 0.0) {
         return Err(Error::Param("la celda debe ser positiva".into()));
     }
+    let lines = match by {
+        SwathBy::GpsGap(gap) => Some(
+            crate::flightlines::detect(
+                inputs,
+                &crate::flightlines::FlightParams {
+                    gap,
+                    min_points: 1,
+                    ..Default::default()
+                },
+            )?
+            .index,
+        ),
+        _ => None,
+    };
     let mut bounds = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
     let readers: Vec<Reader> = inputs
         .iter()
@@ -1039,10 +1081,10 @@ pub fn swath_separation(
                     continue;
                 }
                 let Some(i) = g.index(q.x, q.y) else { continue };
-                let id = if each_cloud_a_swath {
-                    k as u32
-                } else {
-                    u32::from(r.decode_extra(rec).source_id)
+                let id = match (&lines, by) {
+                    (Some(idx), _) => idx.line_at(r.decode_extra(rec).gps_time),
+                    (None, SwathBy::Cloud) => k as u32,
+                    _ => u32::from(r.decode_extra(rec).source_id),
                 };
                 let list = acc.entry(i as u32).or_default();
                 match list.iter_mut().find(|e| e.0 == id) {
