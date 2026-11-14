@@ -227,6 +227,12 @@ impl Grid {
     /// Fills empty cells from the outside in: each takes the mean of its already-valued
     /// neighbours (8-connected), layer by layer, in one pass over the grid.
     pub fn fill_holes(&mut self) {
+        self.fill_holes_within(usize::MAX);
+    }
+
+    /// As [`Grid::fill_holes`], but only up to `layers` cells in from the edge of a hole: a
+    /// larger hole keeps its middle empty (water, a gap in the flight).
+    pub fn fill_holes_within(&mut self, layers: usize) {
         let (cols, rows) = (self.cols as isize, self.rows as isize);
         let neighbours = |i: usize| {
             let (c, r) = ((i % self.cols) as isize, (i / self.cols) as isize);
@@ -246,7 +252,9 @@ impl Grid {
             }
         }
         let mut next = VecDeque::new();
-        while !layer.is_empty() {
+        let mut done = 0usize;
+        while !layer.is_empty() && done < layers {
+            done += 1;
             // Values of this layer come only from earlier layers: computed first, then set.
             let values: Vec<f32> = layer
                 .iter()
@@ -287,6 +295,44 @@ impl Grid {
         epsg: Option<u16>,
         vertical: Option<u16>,
     ) -> Result<()> {
+        let out: Vec<f32> = self
+            .data
+            .iter()
+            .map(|v| if v.is_nan() { NODATA } else { *v })
+            .collect();
+        self.write_as::<colortype::Gray32Float>(path, epsg, vertical, &NODATA.to_string(), &out)
+    }
+
+    /// Writes an 8-bit grey GeoTIFF (an image): `lo` becomes 1 and `hi` 255, values outside are
+    /// clipped, and empty cells are 0, declared as no data. The same `lo` and `hi` for several
+    /// sheets give them one tone scale, so they join without seams.
+    pub fn write_tiff_u8(&self, path: &Path, epsg: Option<u16>, lo: f32, hi: f32) -> Result<()> {
+        let k = if hi > lo { 254.0 / (hi - lo) } else { 0.0 };
+        let out: Vec<u8> = self
+            .data
+            .iter()
+            .map(|v| {
+                if v.is_nan() {
+                    0
+                } else {
+                    (1.0 + ((*v - lo) * k).clamp(0.0, 254.0)).round() as u8
+                }
+            })
+            .collect();
+        self.write_as::<colortype::Gray8>(path, epsg, None, "0", &out)
+    }
+
+    fn write_as<C: colortype::ColorType>(
+        &self,
+        path: &Path,
+        epsg: Option<u16>,
+        vertical: Option<u16>,
+        nodata: &str,
+        data: &[C::Inner],
+    ) -> Result<()>
+    where
+        [C::Inner]: tiff::encoder::TiffValue,
+    {
         let w = BufWriter::new(File::create(path)?);
         let mut enc = TiffEncoder::new(w)
             .map_err(tiff_err)?
@@ -295,9 +341,7 @@ impl Grid {
             u32::try_from(self.cols).map_err(|_| too_big())?,
             u32::try_from(self.rows).map_err(|_| too_big())?,
         );
-        let mut img = enc
-            .new_image::<colortype::Gray32Float>(width, height)
-            .map_err(tiff_err)?;
+        let mut img = enc.new_image::<C>(width, height).map_err(tiff_err)?;
         let e = img.encoder();
         e.write_tag(Tag::ModelPixelScaleTag, &[self.cell, self.cell, 0.0][..])
             .map_err(tiff_err)?;
@@ -319,14 +363,8 @@ impl Grid {
         }
         e.write_tag(Tag::GeoKeyDirectoryTag, &keys[..])
             .map_err(tiff_err)?;
-        e.write_tag(Tag::GdalNodata, NODATA.to_string().as_str())
-            .map_err(tiff_err)?;
-        let out: Vec<f32> = self
-            .data
-            .iter()
-            .map(|v| if v.is_nan() { NODATA } else { *v })
-            .collect();
-        img.write_data(&out).map_err(tiff_err)?;
+        e.write_tag(Tag::GdalNodata, nodata).map_err(tiff_err)?;
+        img.write_data(data).map_err(tiff_err)?;
         Ok(())
     }
 
@@ -605,6 +643,35 @@ fn too_big() -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fill_holes_within_leaves_big_holes_open() -> Result<()> {
+        let mut g = Grid::new(0.0, 0.0, 1.0, 9, 1)?;
+        g.data[0] = 1.0;
+        g.data[8] = 1.0;
+        g.fill_holes_within(2);
+        // two layers in from each end: the four cells are filled, the middle cell is not
+        assert!(g.data[1..=2].iter().all(|v| !v.is_nan()));
+        assert!(g.data[6..=7].iter().all(|v| !v.is_nan()));
+        assert!(g.data[3..=5].iter().all(|v| v.is_nan()));
+        Ok(())
+    }
+
+    #[test]
+    fn u8_image_stretches_and_keeps_empty_cells_as_zero() -> Result<()> {
+        let mut g = Grid::new(100.0, 200.0, 1.0, 3, 1)?;
+        g.data[0] = 10.0;
+        g.data[1] = 110.0;
+        let path = std::env::temp_dir().join(format!("hipso_u8_{}.tif", std::process::id()));
+        g.write_tiff_u8(&path, Some(25830), 10.0, 110.0)?;
+        let back = Grid::read(&path)?;
+        let _ = std::fs::remove_file(&path);
+        assert_eq!((back.cols, back.rows), (3, 1));
+        assert_eq!(back.data[0], 1.0);
+        assert_eq!(back.data[1], 255.0);
+        assert!(back.data[2].is_nan() || back.data[2] == 0.0);
+        Ok(())
+    }
 
     #[test]
     fn trimmed_keeps_the_cells_with_data() -> Result<()> {

@@ -41,6 +41,10 @@ const CROWD_TOLERANCE: f64 = 1.1;
 /// How many times its own points a thin pole may have around its top (a trunk has its crown).
 const CAP_TOLERANCE: f64 = 3.0;
 
+/// Points per metre of height that a tower may have at 9 points/m² (a high-voltage tower with
+/// several crossarms has more than a pole).
+const TOWER_POINTS_PER_METRE: f64 = 40.0;
+
 /// A structure at least this tall is a tower, whose points grow with the density of the survey; a
 /// narrow tree of that height at 45 points/m² has as many, so lower ones keep the count of 9.
 const TOWER_HEIGHT: f64 = 15.0;
@@ -51,6 +55,9 @@ const TRUNK_DENSITY: f64 = 20.0;
 /// Lowest pieces of conductor linked across gaps are above the ground (m): a survey sees them
 /// in pieces only when the line is high above everything.
 const LINKED_MIN_HEIGHT: f64 = 10.0;
+
+/// The 5 %-to-95 % spread of a chain on the plan is this much of its width.
+const CORE_WIDTH_FACTOR: f64 = 1.25;
 
 /// Lowest a tower head is above the ground (m).
 const HEAD_MIN_HEIGHT: f64 = 8.0;
@@ -984,15 +991,53 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
         };
         // a structure stands on the ground, is narrow for its height and is sparse; a crown is
         // wide and dense, a forest is one chain far wider than any tower
+        // the plan of each chain, to measure its width without what is attached to it: the
+        // conductors that reach a tower, or a branch that touches a pole, stretch its box
+        let mut plan: HashMap<usize, (Vec<f64>, Vec<f64>)> = HashMap::new();
+        for (&k, g) in set.iter().zip(&group) {
+            let e = plan.entry(*g).or_default();
+            e.0.push(pts[k].x);
+            e.1.push(pts[k].y);
+        }
+        let core_width = |g: &usize| -> f64 {
+            let spread = |v: &[f64]| -> f64 {
+                let mut v = v.to_vec();
+                v.sort_by(f64::total_cmp);
+                let at = |q: f64| v[((v.len() - 1) as f64 * q).round() as usize];
+                (at(0.95) - at(0.05)) * CORE_WIDTH_FACTOR
+            };
+            plan.get(g).map_or(0.0, |(x, y)| spread(x).max(spread(y)))
+        };
+        // the points of a chain inside its core: those of a tower, without the conductors attached
+        let core_points = |g: &usize, width: f64| -> usize {
+            let Some((x, y)) = plan.get(g) else { return 0 };
+            let mid = |v: &[f64]| {
+                let mut v = v.to_vec();
+                v.sort_by(f64::total_cmp);
+                v[v.len() / 2]
+            };
+            let (mx, my) = (mid(x), mid(y));
+            let half = width / 2.0 + 0.5;
+            x.iter()
+                .zip(y)
+                .filter(|(a, b)| (**a - mx).abs() <= half && (**b - my).abs() <= half)
+                .count()
+        };
         let is_pole = |g: &usize| -> bool {
-            let (b, n) = boxes[g];
-            let width = (b[3] - b[0]).max(b[4] - b[1]);
+            let (b, _) = boxes[g];
+            let width = core_width(g);
+            let n = core_points(g, width);
             let extent = b[5] - b[2];
             n >= 5
                 && width <= p.max_width
                 && extent >= p.min_extent
                 && width <= 0.35 * extent
-                && (n as f64) <= 12.0 * extent * if extent >= TOWER_HEIGHT { density } else { 1.0 }
+                && (n as f64)
+                    <= if extent >= TOWER_HEIGHT {
+                        TOWER_POINTS_PER_METRE * extent * density
+                    } else {
+                        12.0 * extent
+                    }
         };
         let low = |g: &usize| -> bool {
             // reaches the ground: some point of the chain is within 3 m of it

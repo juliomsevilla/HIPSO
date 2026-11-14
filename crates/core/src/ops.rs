@@ -33,6 +33,18 @@ pub fn raster_stat(
     stat: Stat,
     filter: &Filter,
 ) -> Result<(Grid, Option<u16>)> {
+    raster_stat_weighted(inputs, cell, stat, filter, None)
+}
+
+/// As [`raster_stat`], with the value of each point multiplied by `weight` of the point when
+/// given (used for the intensity).
+fn raster_stat_weighted(
+    inputs: &[PathBuf],
+    cell: f64,
+    stat: Stat,
+    filter: &Filter,
+    weight: Option<fn(&crate::las::Point) -> f64>,
+) -> Result<(Grid, Option<u16>)> {
     let unified = crate::crs::unify(inputs, false)?;
     let inputs = unified.all(inputs);
     let inputs = inputs.as_slice();
@@ -75,7 +87,9 @@ pub fn raster_stat(
             }
             let Some(i) = g.index(p.x, p.y) else { return };
             let v = match stat {
-                Stat::MeanIntensity | Stat::MaxIntensity => f64::from(p.intensity),
+                Stat::MeanIntensity | Stat::MaxIntensity => {
+                    f64::from(p.intensity) * weight.map_or(1.0, |w| w(p))
+                }
                 _ => p.z,
             };
             count[i] += 1;
@@ -109,21 +123,98 @@ pub fn raster_stat(
     Ok((g, epsg))
 }
 
-/// Point density (points per square map unit) as an image of the data: cells without points are
-/// empty (not zero), so the picture is transparent where nothing was flown and sheets can be
-/// joined in a mosaic, and the grid is cut to the cells that have points, not to the header's
-/// box, which for oblique flight strips or a wrong header holds a lot of nothing.
-pub fn density_image(inputs: &[PathBuf], cell: f64, filter: &Filter) -> Result<(Grid, Option<u16>)> {
-    let (mut g, epsg) = raster_stat(inputs, cell, Stat::Density, filter)?;
-    for v in &mut g.data {
-        if *v <= 0.0 {
-            *v = f32::NAN;
-        }
+/// The mean spacing between the points of a cloud, from its header: the square root of the
+/// area of its box over its number of points. It is an estimate (an oblique strip fills only
+/// part of its box, and the spacing of the first returns alone is larger).
+pub fn mean_spacing(input: &Path) -> Option<f64> {
+    let h = Reader::open(input).ok()?.header;
+    let area = (h.bounds[3] - h.bounds[0]) * (h.bounds[4] - h.bounds[1]);
+    (h.count > 0 && area > 0.0).then(|| (area / h.count as f64).sqrt())
+}
+
+/// The factor that brings the intensity of a point to what it would be at the nadir of its
+/// flight line. The energy that returns falls with the square of the range, and the range grows
+/// as 1 / cos(scan angle) over flat ground, so the factor is 1 / cos²: the flying height cancels,
+/// and no trajectory is needed. Angles over 45° are not corrected further.
+fn angle_factor(p: &crate::las::Point) -> f64 {
+    let c = f64::from(p.scan_angle.abs().min(45.0)).to_radians().cos();
+    1.0 / (c * c)
+}
+
+/// Mean intensity per cell as an image of the data: holes of up to `fill` cells across are filled
+/// from their neighbours (larger gaps, such as water, stay empty), and the grid is cut to the
+/// cells that have points, not to the header's box, which for oblique flight strips or a wrong
+/// header holds a lot of nothing. With `angle` the intensity is first corrected for the scan
+/// angle ([`angle_factor`]). Empty cells are no data.
+pub fn intensity_image(
+    inputs: &[PathBuf],
+    cell: f64,
+    filter: &Filter,
+    fill: usize,
+    angle: bool,
+) -> Result<(Grid, Option<u16>)> {
+    let (mut g, epsg) = raster_stat_weighted(
+        inputs,
+        cell,
+        Stat::MeanIntensity,
+        filter,
+        angle.then_some(angle_factor as fn(&crate::las::Point) -> f64),
+    )?;
+    if fill > 0 {
+        g.fill_holes_within(fill);
     }
-    let g = g
-        .trimmed()
-        .ok_or_else(|| Error::Param("ningún punto pasa el filtro: no hay densidad que guardar".into()))?;
+    let g = g.trimmed().ok_or_else(|| {
+        Error::Param("ningún punto pasa el filtro: no hay intensidad que guardar".into())
+    })?;
     Ok((g, epsg))
+}
+
+/// The tone range of a set of intensity grids: the 2nd and 98th percentile of all their cells
+/// together, so every sheet is stretched alike. Two histogram passes: the first, over the whole
+/// range, finds where the bulk of the values lies (a few huge values would otherwise make every
+/// bin too wide), the second measures the percentiles inside that.
+pub fn tone_range(grids: &[&Grid]) -> Option<(f32, f32)> {
+    let vals = || {
+        grids
+            .iter()
+            .flat_map(|g| g.data.iter().copied().filter(|v| v.is_finite()))
+    };
+    let (lo, hi) = vals().fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), v| {
+        (a.min(v), b.max(v))
+    });
+    if !lo.is_finite() {
+        return None;
+    }
+    if hi <= lo {
+        return Some((lo, lo + 1.0));
+    }
+    const BINS: usize = 4096;
+    // value at a share of the cells, from a histogram over [from, to]; cells outside count at
+    // the ends
+    let quantiles = |from: f32, to: f32, shares: [f64; 2]| -> [f32; 2] {
+        let mut hist = vec![0u64; BINS];
+        let k = (BINS - 1) as f32 / (to - from);
+        let mut n = 0u64;
+        for v in vals() {
+            hist[(((v - from) * k).max(0.0) as usize).min(BINS - 1)] += 1;
+            n += 1;
+        }
+        shares.map(|share| {
+            let target = (n as f64 * share) as u64;
+            let mut acc = 0u64;
+            for (i, c) in hist.iter().enumerate() {
+                acc += c;
+                if acc > target {
+                    return from + i as f32 / k;
+                }
+            }
+            to
+        })
+    };
+    let [a0, b0] = quantiles(lo, hi, [0.01, 0.99]);
+    let (a0, b0) = if b0 > a0 { (a0, b0) } else { (lo, hi) };
+    let [a, b] = quantiles(a0, b0, [0.02, 0.98]);
+    Some(if b > a { (a, b) } else { (a0, b0) })
 }
 
 /// Contour lines of a surface as chained polylines `(level, vertices)`.
@@ -309,6 +400,34 @@ pub fn polygons_of(regions: &[Region]) -> Vec<crate::edit::Region> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tone_range_ignores_the_extremes_and_empty_cells() -> Result<()> {
+        let mut g = Grid::new(0.0, 0.0, 1.0, 1000, 1)?;
+        for (i, v) in g.data.iter_mut().enumerate() {
+            *v = i as f32;
+        }
+        g.data[0] = f32::NAN;
+        for v in &mut g.data[995..] {
+            *v = 1.0e6; // outliers, half a percent of the cells
+        }
+        let (lo, hi) = tone_range(&[&g]).ok_or(Error::Param("sin rango".into()))?;
+        assert!((10.0..40.0).contains(&lo), "lo {lo}");
+        assert!((900.0..1000.0).contains(&hi), "hi {hi}");
+        assert!(tone_range(&[&Grid::new(0.0, 0.0, 1.0, 2, 2)?]).is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn angle_factor_is_one_at_nadir_and_grows_with_the_angle() {
+        let p = |a: f32| crate::las::Point {
+            scan_angle: a,
+            ..Default::default()
+        };
+        assert_eq!(angle_factor(&p(0.0)), 1.0);
+        assert!((angle_factor(&p(-20.0)) - 1.0 / 20f64.to_radians().cos().powi(2)).abs() < 1e-9);
+        assert_eq!(angle_factor(&p(60.0)), angle_factor(&p(45.0)));
+    }
 
     #[test]
     fn contours_chain_into_one_line_per_level() -> Result<()> {

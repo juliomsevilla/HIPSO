@@ -48,6 +48,32 @@ pub fn mosaic(paths: &[PathBuf], output: &Path, how: Overlap, _epsg: Option<u16>
     Ok(())
 }
 
+/// Joins 8-bit images whose empty pixels are 0 into one, taking the mean where they overlap.
+pub fn mosaic_image(paths: &[PathBuf], output: &Path) -> Result<()> {
+    use crate::rastertools::{self, Dtype, RasterJob, Source};
+    if paths.is_empty() {
+        return Err(Error::Param("no hay nada que unir".into()));
+    }
+    let unified = crate::crs::unify(paths, false)?;
+    let paths = unified.all(paths);
+    let mut job = RasterJob::new(
+        paths
+            .into_iter()
+            .map(|path| Source {
+                path,
+                bands: Vec::new(),
+            })
+            .collect(),
+        output.to_path_buf(),
+    );
+    job.overlap = rastertools::Overlap::Mean;
+    job.dtype = Some(Dtype::U8);
+    job.src_nodata = Some(0.0);
+    job.nodata = 0.0;
+    rastertools::mosaic(&job)?;
+    Ok(())
+}
+
 fn check_neighbors(neighbors: f64) -> Result<()> {
     if neighbors >= 0.0 && neighbors.is_finite() {
         Ok(())
