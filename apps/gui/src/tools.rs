@@ -1361,7 +1361,7 @@ impl Tools {
             if self.ex_road {
                 num(
                     ui,
-                    "Intensidad máxima",
+                    "Intensidad máxima (0: relativa al suelo)",
                     &mut self.rdp.max_intensity,
                     0.0..=65535.0,
                     100.0,
@@ -1388,7 +1388,7 @@ impl Tools {
             if self.ex_water {
                 num(
                     ui,
-                    "Intensidad máxima",
+                    "Intensidad máxima (0: relativa al suelo)",
                     &mut self.wtp.max_intensity,
                     0.0..=65535.0,
                     100.0,

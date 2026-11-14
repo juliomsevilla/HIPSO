@@ -3,27 +3,46 @@
 
 use std::collections::HashMap;
 
-/// Union-find over `n` items. The root of a set is its smallest index, so the groups come out the
-/// same whatever the order the pairs were joined in.
-pub struct Dsu(Vec<usize>);
+/// Union-find over `n` items (indices kept as `u32`: it is used on rasters of hundreds of millions
+/// of cells). The root of a set is its smallest index, so the groups come out the same whatever
+/// the order the pairs were joined in.
+pub struct Dsu(Vec<u32>);
 
 impl Dsu {
     pub fn new(n: usize) -> Self {
-        Self((0..n).collect())
+        assert!(u32::try_from(n).is_ok(), "too many items for a union-find");
+        Self((0..n as u32).collect())
     }
 
-    pub fn find(&mut self, mut i: usize) -> usize {
-        while self.0[i] != i {
-            self.0[i] = self.0[self.0[i]];
-            i = self.0[i];
+    /// A new item, alone in its set; returns its index.
+    pub fn push(&mut self) -> usize {
+        let i = u32::try_from(self.0.len()).expect("too many items for a union-find");
+        self.0.push(i);
+        i as usize
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn find(&mut self, i: usize) -> usize {
+        let mut x = i as u32;
+        while self.0[x as usize] != x {
+            let p = self.0[x as usize];
+            self.0[x as usize] = self.0[p as usize];
+            x = self.0[x as usize];
         }
-        i
+        x as usize
     }
 
     pub fn union(&mut self, a: usize, b: usize) {
         let (a, b) = (self.find(a), self.find(b));
         if a != b {
-            self.0[a.max(b)] = a.min(b);
+            self.0[a.max(b)] = a.min(b) as u32;
         }
     }
 }

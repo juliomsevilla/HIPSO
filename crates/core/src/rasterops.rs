@@ -31,14 +31,7 @@ pub fn sieve(g: &Grid, threshold: usize, conn: Connectivity) -> Grid {
     let (cols, rows) = (g.cols, g.rows);
     let n = cols * rows;
     // label connected components with union-find
-    let mut parent: Vec<u32> = (0..n as u32).collect();
-    fn find(p: &mut [u32], mut i: u32) -> u32 {
-        while p[i as usize] != i {
-            p[i as usize] = p[p[i as usize] as usize];
-            i = p[i as usize];
-        }
-        i
-    }
+    let mut dsu = crate::cluster::Dsu::new(n);
     let offs: &[(isize, isize)] = match conn {
         Connectivity::Four => &[(0, -1), (-1, 0)],
         Connectivity::Eight => &[(0, -1), (-1, -1), (-1, 0), (-1, 1)],
@@ -57,15 +50,12 @@ pub fn sieve(g: &Grid, threshold: usize, conn: Connectivity) -> Grid {
                 }
                 let j = rr as usize * cols + cc as usize;
                 if same(g.data[j], v) {
-                    let (a, b) = (find(&mut parent, i as u32), find(&mut parent, j as u32));
-                    if a != b {
-                        parent[a.max(b) as usize] = a.min(b);
-                    }
+                    dsu.union(i, j);
                 }
             }
         }
     }
-    let mut root: Vec<u32> = (0..n as u32).map(|i| find(&mut parent, i)).collect();
+    let mut root: Vec<u32> = (0..n).map(|i| dsu.find(i) as u32).collect();
     let mut size = vec![0usize; n];
     for (i, v) in g.data.iter().enumerate() {
         if !v.is_nan() {

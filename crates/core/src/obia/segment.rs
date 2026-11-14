@@ -10,6 +10,7 @@
 use rayon::prelude::*;
 
 use super::{Labels, Lattice, LayerStack};
+use crate::cluster::Dsu;
 use crate::{Error, Result, check_cancel};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -63,28 +64,6 @@ pub struct SegmentParams {
     pub min_cells: u32,
 }
 
-#[inline]
-fn find(parent: &mut [u32], mut x: u32) -> u32 {
-    while parent[x as usize] != x {
-        let p = parent[x as usize];
-        parent[x as usize] = parent[p as usize];
-        x = parent[x as usize];
-    }
-    x
-}
-
-/// Joins the sets of `a` and `b`; the smaller root survives, so results do not depend on the
-/// order of the unions.
-#[inline]
-fn union_min(parent: &mut [u32], a: u32, b: u32) {
-    let (ra, rb) = (find(parent, a), find(parent, b));
-    match ra.cmp(&rb) {
-        std::cmp::Ordering::Less => parent[rb as usize] = ra,
-        std::cmp::Ordering::Greater => parent[ra as usize] = rb,
-        std::cmp::Ordering::Equal => {}
-    }
-}
-
 /// Connected components of the cells for which `valid` holds, two neighbours being joined when
 /// `same` says so. Labels run from 1 in reading order of each component's first cell; 0 marks
 /// the cells that are not valid. Returns the labels and how many components there are.
@@ -96,7 +75,7 @@ pub(crate) fn label_components(
     same: impl Fn(usize, usize) -> bool,
 ) -> Result<(Vec<u32>, u32)> {
     let mut lab = vec![0u32; cols * rows];
-    let mut parent: Vec<u32> = vec![0];
+    let mut parent = Dsu::new(1);
     for y in 0..rows {
         if y % 1024 == 0 {
             check_cancel()?;
@@ -129,22 +108,22 @@ pub(crate) fn label_components(
                 }
             }
             if m == 0 {
-                let l = u32::try_from(parent.len())
-                    .map_err(|_| Error::Param("demasiados objetos iniciales".into()))?;
-                parent.push(l);
-                lab[i] = l;
+                if parent.len() >= u32::MAX as usize {
+                    return Err(Error::Param("demasiados objetos iniciales".into()));
+                }
+                lab[i] = parent.push() as u32;
             } else {
                 for &c in &cand[1..m] {
-                    union_min(&mut parent, cand[0], c);
+                    parent.union(cand[0] as usize, c as usize);
                 }
-                lab[i] = find(&mut parent, cand[0]);
+                lab[i] = parent.find(cand[0] as usize) as u32;
             }
         }
     }
     let mut dense = vec![0u32; parent.len()];
     let mut next = 0u32;
     for l in lab.iter_mut().filter(|l| **l != 0) {
-        let r = find(&mut parent, *l) as usize;
+        let r = parent.find(*l as usize);
         if dense[r] == 0 {
             next += 1;
             dense[r] = next;
@@ -290,19 +269,19 @@ impl Rag {
 
     /// Merges the patches joined in `parent` (a union-find with the smallest member as root);
     /// returns where each old patch went.
-    fn merge(&mut self, parent: &mut [u32]) -> Vec<u32> {
+    fn merge(&mut self, parent: &mut Dsu) -> Vec<u32> {
         let old = self.n.len();
         let mut new_id = vec![0u32; old];
         let mut remap = vec![0u32; old];
         let mut count = 0u32;
         for (r, id) in new_id.iter_mut().enumerate() {
-            if find(parent, r as u32) as usize == r {
+            if parent.find(r) == r {
                 *id = count;
                 count += 1;
             }
         }
         for (r, m) in remap.iter_mut().enumerate() {
-            *m = new_id[find(parent, r as u32) as usize];
+            *m = new_id[parent.find(r)];
         }
         let cnt = count as usize;
         let k = self.k;
@@ -546,12 +525,12 @@ fn merge(stack: &LayerStack, m: &MergeParams, min_cells: u32) -> Result<(Vec<u32
     loop {
         check_cancel()?;
         let (cost, nb) = rag.best();
-        let mut parent: Vec<u32> = (0..rag.n.len() as u32).collect();
+        let mut parent = Dsu::new(rag.n.len());
         let mut merges = 0usize;
         for e in &rag.edges {
             let (a, b) = (e.a as usize, e.b as usize);
             if nb[a] == e.b && nb[b] == e.a && cost[a] < limit {
-                union_min(&mut parent, e.a, e.b);
+                parent.union(e.a as usize, e.b as usize);
                 merges += 1;
             }
         }
@@ -566,11 +545,11 @@ fn merge(stack: &LayerStack, m: &MergeParams, min_cells: u32) -> Result<(Vec<u32
         loop {
             check_cancel()?;
             let (_, nb) = rag.best();
-            let mut parent: Vec<u32> = (0..rag.n.len() as u32).collect();
+            let mut parent = Dsu::new(rag.n.len());
             let mut merges = 0usize;
             for (a, &b) in nb.iter().enumerate() {
                 if rag.n[a] < min_cells && b != u32::MAX {
-                    union_min(&mut parent, a as u32, b);
+                    parent.union(a, b as usize);
                     merges += 1;
                 }
             }

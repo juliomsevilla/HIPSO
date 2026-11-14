@@ -161,14 +161,7 @@ fn gaussian(g: &Grid, sigma: f64) -> Grid {
 /// raster order; the number of components.
 fn components(mask: &[bool], cols: usize, rows: usize) -> (Vec<u32>, u32) {
     let n = mask.len();
-    let mut parent: Vec<u32> = (0..n as u32).collect();
-    fn find(p: &mut [u32], mut i: u32) -> u32 {
-        while p[i as usize] != i {
-            p[i as usize] = p[p[i as usize] as usize];
-            i = p[i as usize];
-        }
-        i
-    }
+    let mut dsu = crate::cluster::Dsu::new(n);
     for r in 0..rows {
         for c in 0..cols {
             let i = r * cols + c;
@@ -177,10 +170,7 @@ fn components(mask: &[bool], cols: usize, rows: usize) -> (Vec<u32>, u32) {
             }
             for j in [(c > 0).then(|| i - 1), (r > 0).then(|| i - cols)].into_iter().flatten() {
                 if mask[j] {
-                    let (a, b) = (find(&mut parent, i as u32), find(&mut parent, j as u32));
-                    if a != b {
-                        parent[a.max(b) as usize] = a.min(b);
-                    }
+                    dsu.union(i, j);
                 }
             }
         }
@@ -192,7 +182,7 @@ fn components(mask: &[bool], cols: usize, rows: usize) -> (Vec<u32>, u32) {
         if !mask[i] {
             continue;
         }
-        let root = find(&mut parent, i as u32) as usize;
+        let root = dsu.find(i);
         if number[root] == 0 {
             count += 1;
             number[root] = count;

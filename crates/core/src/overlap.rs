@@ -6,6 +6,11 @@
 //! The ground is cut into square cells; in a cell reached by more than one flight line, the line
 //! with the smallest mean absolute scan angle keeps its points and the points of the other lines
 //! are overlap. A cell with one line, or a file with no flight line or scan angle, has none.
+//!
+//! Side overlap between strips puts two lines over a cell (three at the corners). A cell reached by
+//! more lines than [`MAX_LINES`] is a survey that flies over the same ground again and again (a
+//! drone with several passes, crossing flights): there the passes add to each other, and above all
+//! add points to wires and thin structures, so nothing is set aside.
 
 use std::collections::HashMap;
 
@@ -16,6 +21,9 @@ type Line = (u16, f64, u32);
 
 /// The class of overlap points.
 pub const OVERLAP: u8 = 12;
+
+/// Most flight lines over a cell for the extra ones to be overlap.
+pub const MAX_LINES: usize = 2;
 
 /// Which points are overlap, with cells of `cell` metres. Noise and withheld points take no part.
 pub fn find(pts: &[Point], cell: f64) -> Vec<bool> {
@@ -40,7 +48,7 @@ pub fn find(pts: &[Point], cell: f64) -> Vec<bool> {
     // the line to keep in each cell reached by several
     let best: HashMap<(i64, i64), u16> = cells
         .iter()
-        .filter(|(_, lines)| lines.len() > 1)
+        .filter(|(_, lines)| lines.len() > 1 && lines.len() <= MAX_LINES)
         .filter_map(|(k, lines)| {
             lines
                 .iter()
@@ -93,6 +101,17 @@ mod tests {
     fn the_angle_is_compared_in_absolute_value_and_ties_go_to_the_lower_line() {
         let pts = [pt(1.0, 1.0, 20, -8.0), pt(2.0, 2.0, 21, 8.0)];
         assert_eq!(find(&pts, 5.0), [false, true]);
+    }
+
+    #[test]
+    fn a_cell_flown_over_many_times_keeps_every_pass() {
+        let pts = [
+            pt(1.0, 1.0, 10, 4.0),
+            pt(2.0, 2.0, 11, 5.0),
+            pt(1.5, 1.5, 12, 6.0),
+            pt(1.2, 1.2, 13, 7.0),
+        ];
+        assert_eq!(find(&pts, 5.0), [false, false, false, false]);
     }
 
     #[test]

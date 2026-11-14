@@ -167,8 +167,12 @@ impl Default for PoleParams {
 /// measured is the shape of the ground points within `radius`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RoadParams {
-    /// Highest intensity of a road point (the scale is the sensor's: asphalt is dark).
+    /// Highest intensity of a road point, in the sensor's own scale (asphalt is dark); 0: a share
+    /// (`relative_intensity`) of the median intensity of the ground of the tile, which is the
+    /// same whatever the sensor, its scale (16 bits, 0 to 255) or the flight.
     pub max_intensity: f64,
+    /// With `max_intensity` 0, the share of the median ground intensity that a road may reach.
+    pub relative_intensity: f64,
     /// Roughest the surface may be: standard deviation to the local plane (m).
     pub max_roughness: f64,
     /// Steepest the local plane may be (degrees).
@@ -180,7 +184,8 @@ pub struct RoadParams {
 impl Default for RoadParams {
     fn default() -> Self {
         Self {
-            max_intensity: 10_000.0,
+            max_intensity: 0.0,
+            relative_intensity: 0.6,
             max_roughness: 0.03,
             max_slope: 5.0,
             radius: 1.5,
@@ -194,8 +199,11 @@ impl Default for RoadParams {
 /// least `min_area` square metres and its heights deviate less than `max_deviation`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WaterParams {
-    /// Highest intensity of a water point.
+    /// Highest intensity of a water point, in the sensor's own scale; 0: a share
+    /// (`relative_intensity`) of the median intensity of the ground of the tile.
     pub max_intensity: f64,
+    /// With `max_intensity` 0, the share of the median ground intensity that water may reach.
+    pub relative_intensity: f64,
     /// Steepest the local plane may be (degrees).
     pub max_slope: f64,
     /// Side of the cells that are joined (m).
@@ -209,7 +217,8 @@ pub struct WaterParams {
 impl Default for WaterParams {
     fn default() -> Self {
         Self {
-            max_intensity: 6_000.0,
+            max_intensity: 0.0,
+            relative_intensity: 0.375,
             max_slope: 3.0,
             cell: 2.0,
             min_area: 30.0,
@@ -460,10 +469,9 @@ fn ground_only(pts: &[Point], ground: &[bool], class: &[Option<u8>]) -> Vec<Poin
 
 /// Road points: ground that is smooth, flat and dark.
 fn roads(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], p: &RoadParams) {
+    let limit = intensity_limit(pts, ground, class, p.max_intensity, p.relative_intensity);
     let wanted: Vec<bool> = (0..pts.len())
-        .map(|k| {
-            plain_ground(pts, ground, class, k) && f64::from(pts[k].intensity) <= p.max_intensity
-        })
+        .map(|k| plain_ground(pts, ground, class, k) && f64::from(pts[k].intensity) <= limit)
         .collect();
     let only = ground_only(pts, ground, class);
     let f = crate::features::compute(&only, &wanted, p.radius);
@@ -477,13 +485,36 @@ fn roads(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], p: &RoadParam
     }
 }
 
+/// The highest intensity that counts as dark: `absolute` when it is set, else `relative` times the
+/// median intensity of the plain ground of the tile (0 when there is none).
+fn intensity_limit(
+    pts: &[Point],
+    ground: &[bool],
+    class: &[Option<u8>],
+    absolute: f64,
+    relative: f64,
+) -> f64 {
+    if absolute > 0.0 {
+        return absolute;
+    }
+    let mut v: Vec<f64> = (0..pts.len())
+        .filter(|&k| plain_ground(pts, ground, class, k))
+        .map(|k| f64::from(pts[k].intensity))
+        .collect();
+    if v.is_empty() {
+        return 0.0;
+    }
+    relative * crate::cluster::median(&mut v)
+}
+
 /// Water points: extended level regions of dark single-return ground.
 fn water(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], p: &WaterParams) {
+    let limit = intensity_limit(pts, ground, class, p.max_intensity, p.relative_intensity);
     let wanted: Vec<bool> = (0..pts.len())
         .map(|k| {
             plain_ground(pts, ground, class, k)
                 && pts[k].number_of_returns <= 1
-                && f64::from(pts[k].intensity) <= p.max_intensity
+                && f64::from(pts[k].intensity) <= limit
         })
         .collect();
     if !wanted.iter().any(|w| *w) {
@@ -1395,7 +1426,10 @@ mod tests {
         let ground = vec![true; pts.len()];
         let mut class = vec![None; pts.len()];
         let e = Extras {
-            roads: Some(RoadParams::default()),
+            roads: Some(RoadParams {
+                max_intensity: 10_000.0,
+                ..RoadParams::default()
+            }),
             ..Extras::default()
         };
         apply(&pts, &ground, &mut class, &e);
@@ -1403,6 +1437,32 @@ mod tests {
         assert!(road(5, 5) && road(10, 30), "the dark flat strip is road");
         assert!(!road(30, 5), "bright soil is not");
         assert!(!road(30, 30), "rough ground is not");
+    }
+
+    /// Without a set limit, dark is relative to the ground of the tile: the same scene is found
+    /// with intensities of 16 bits and with intensities of 0 to 255.
+    #[test]
+    fn the_road_limit_follows_the_scale_of_the_sensor() {
+        for scale in [1.0, 65535.0 / 255.0] {
+            let mut pts = Vec::new();
+            for i in 0..40 {
+                for j in 0..40 {
+                    let mut q = pt(f64::from(i) * 0.5, f64::from(j) * 0.5, 0.0);
+                    // a dark strip of a fifth of the ground, bright soil elsewhere
+                    q.intensity = if i < 8 { 20.0 * scale } else { 120.0 * scale } as u16;
+                    pts.push(q);
+                }
+            }
+            let ground = vec![true; pts.len()];
+            let mut class = vec![None; pts.len()];
+            let e = Extras {
+                roads: Some(RoadParams::default()),
+                ..Extras::default()
+            };
+            apply(&pts, &ground, &mut class, &e);
+            assert!(class[4 * 40 + 20] == Some(ROAD), "scale {scale}");
+            assert!(class[30 * 40 + 20] != Some(ROAD), "scale {scale}");
+        }
     }
 
     /// A big level sheet of dark single returns is water; a small one is not.
@@ -1428,7 +1488,10 @@ mod tests {
         let ground = vec![true; pts.len()];
         let mut class = vec![None; pts.len()];
         let e = Extras {
-            water: Some(WaterParams::default()),
+            water: Some(WaterParams {
+                max_intensity: 6_000.0,
+                ..WaterParams::default()
+            }),
             ..Extras::default()
         };
         apply(&pts, &ground, &mut class, &e);
