@@ -268,6 +268,34 @@ fn join_pieces(pts: &[[f64; 3]], groups: Vec<Vec<usize>>, p: &CorridorParams) ->
     }
     let mut out: Vec<Vec<usize>> = merged.into_values().collect();
     out.sort_by_key(|g| g[0]);
+    // pieces of a metre or two, too short to tell their direction, are joined by standing in a
+    // row: the same test the classification uses for the pieces of a conductor
+    let centres: Vec<[f64; 3]> = out
+        .iter()
+        .map(|g| {
+            let n = g.len() as f64;
+            let mut c = [0.0; 3];
+            for &i in g {
+                for (k, v) in c.iter_mut().enumerate() {
+                    *v += pts[i][k] / n;
+                }
+            }
+            c
+        })
+        .collect();
+    let mut row = crate::cluster::in_a_row(
+        &centres,
+        2.0 * p.link,
+        p.gap_max,
+        0.5,
+        crate::cluster::STRAIGHT,
+    );
+    let mut rows: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (k, g) in out.into_iter().enumerate() {
+        rows.entry(row.find(k)).or_default().extend(g);
+    }
+    let mut out: Vec<Vec<usize>> = rows.into_values().collect();
+    out.sort_by_key(|g| g[0]);
     out
 }
 
@@ -1314,6 +1342,27 @@ mod tests {
         zs.sort_by(f64::total_cmp);
         assert!((zs[1] - zs[0] - 1.0).abs() < 0.1, "{zs:?}");
         assert!(paths.iter().all(|c| c.length() > 50.0));
+    }
+
+    /// A survey with few passes sees a conductor in pieces a metre long, ten metres apart: too short
+    /// to tell their direction, they are one conductor because they stand in a row.
+    #[test]
+    fn pieces_of_a_metre_in_a_row_are_one_conductor() {
+        let p = CorridorParams::default();
+        let mut pts = Vec::new();
+        for k in 0..12 {
+            for i in 0..20 {
+                pts.push([f64::from(k) * 10.0 + f64::from(i) * 0.05, f64::from(k) * 0.1, 30.0]);
+            }
+        }
+        let groups = join_pieces(&pts, cluster(&pts, p.link, true), &p);
+        assert_eq!(groups.len(), 1, "{}", groups.len());
+        assert_eq!(groups[0].len(), pts.len());
+        // a piece off the line stays alone
+        pts.push([55.0, 40.0, 30.0]);
+        pts.push([55.5, 40.0, 30.0]);
+        let groups = join_pieces(&pts, cluster(&pts, p.link, true), &p);
+        assert_eq!(groups.len(), 2);
     }
 
     #[test]

@@ -735,52 +735,14 @@ fn linked_wires(pts: &[Point], set: &[usize], w: &WireParams, link: f64) -> Vec<
     if pieces.len() < 3 {
         return out;
     }
-    let cell = |c: &[f64; 3]| -> Cell {
-        (
-            (c[0] / w.link_gap).floor() as i32,
-            (c[1] / w.link_gap).floor() as i32,
-            (c[2] / w.link_gap).floor() as i32,
-        )
-    };
-    let mut by_cell: HashMap<Cell, Vec<usize>> = HashMap::new();
-    for (j, p) in pieces.iter().enumerate() {
-        by_cell.entry(cell(&p.1)).or_default().push(j);
-    }
-    let mut dsu = crate::cluster::Dsu::new(pieces.len());
-    // cosine of the turn at the middle piece of three in a row (8°)
-    const STRAIGHT: f64 = 0.99;
-    let step = |a: &[f64; 3], b: &[f64; 3]| -> Option<[f64; 3]> {
-        let v = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-        let d = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-        (d >= 2.0 * link && d <= w.link_gap && (v[2] / d).abs() <= w.max_slope)
-            .then(|| [v[0] / d, v[1] / d, v[2] / d])
-    };
-    for (j, p) in pieces.iter().enumerate() {
-        let (cx, cy, cz) = cell(&p.1);
-        // the pieces near this one, as the unit step from it
-        let mut near: Vec<(usize, [f64; 3])> = Vec::new();
-        for dx in -1..=1 {
-            for dy in -1..=1 {
-                for dz in -1..=1 {
-                    for &o in by_cell.get(&(cx + dx, cy + dy, cz + dz)).into_iter().flatten() {
-                        if let Some(u) = step(&p.1, &pieces[o].1) {
-                            near.push((o, u));
-                        }
-                    }
-                }
-            }
-        }
-        // two pieces on opposite sides of this one, on the same line
-        for a in 0..near.len() {
-            for b in a + 1..near.len() {
-                let (u, v) = (near[a].1, near[b].1);
-                if -(u[0] * v[0] + u[1] * v[1] + u[2] * v[2]) >= STRAIGHT {
-                    dsu.union(j, near[a].0);
-                    dsu.union(j, near[b].0);
-                }
-            }
-        }
-    }
+    let centres_of: Vec<[f64; 3]> = pieces.iter().map(|p| p.1).collect();
+    let mut dsu = crate::cluster::in_a_row(
+        &centres_of,
+        2.0 * link,
+        w.link_gap,
+        w.max_slope,
+        crate::cluster::STRAIGHT,
+    );
     let mut rows: HashMap<usize, (usize, [f64; 6])> = HashMap::new();
     for (j, p) in pieces.iter().enumerate() {
         let r = dsu.find(j);

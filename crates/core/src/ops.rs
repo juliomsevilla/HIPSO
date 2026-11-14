@@ -109,6 +109,23 @@ pub fn raster_stat(
     Ok((g, epsg))
 }
 
+/// Point density (points per square map unit) as an image of the data: cells without points are
+/// empty (not zero), so the picture is transparent where nothing was flown and sheets can be
+/// joined in a mosaic, and the grid is cut to the cells that have points, not to the header's
+/// box, which for oblique flight strips or a wrong header holds a lot of nothing.
+pub fn density_image(inputs: &[PathBuf], cell: f64, filter: &Filter) -> Result<(Grid, Option<u16>)> {
+    let (mut g, epsg) = raster_stat(inputs, cell, Stat::Density, filter)?;
+    for v in &mut g.data {
+        if *v <= 0.0 {
+            *v = f32::NAN;
+        }
+    }
+    let g = g
+        .trimmed()
+        .ok_or_else(|| Error::Param("ningún punto pasa el filtro: no hay densidad que guardar".into()))?;
+    Ok((g, epsg))
+}
+
 /// Contour lines of a surface as chained polylines `(level, vertices)`.
 pub fn contour_lines(g: &Grid, interval: f64) -> Vec<(f64, Vec<[f64; 2]>)> {
     let q = |v: f64| (v / (g.cell * 1e-3)).round() as i64;

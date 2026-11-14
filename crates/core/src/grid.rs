@@ -100,6 +100,40 @@ impl Grid {
         Ok(out)
     }
 
+    /// The part of this grid that holds data: the smallest block of whole cells containing
+    /// every non-empty cell, on the same cells. `None` when no cell has data.
+    pub fn trimmed(&self) -> Option<Self> {
+        let (mut c0, mut c1, mut r0, mut r1) = (usize::MAX, 0, usize::MAX, 0);
+        for r in 0..self.rows {
+            let row = &self.data[r * self.cols..(r + 1) * self.cols];
+            let Some(first) = row.iter().position(|v| !v.is_nan()) else {
+                continue;
+            };
+            let last = row.iter().rposition(|v| !v.is_nan()).unwrap_or(first);
+            c0 = c0.min(first);
+            c1 = c1.max(last);
+            r0 = r0.min(r);
+            r1 = r;
+        }
+        if r0 == usize::MAX {
+            return None;
+        }
+        let (cols, rows) = (c1 - c0 + 1, r1 - r0 + 1);
+        let mut out = Self::new(
+            self.x0 + c0 as f64 * self.cell,
+            self.y0 + (self.rows - 1 - r1) as f64 * self.cell,
+            self.cell,
+            cols,
+            rows,
+        )
+        .ok()?;
+        for r in 0..rows {
+            let from = (r0 + r) * self.cols + c0;
+            out.data[r * cols..(r + 1) * cols].copy_from_slice(&self.data[from..from + cols]);
+        }
+        Some(out)
+    }
+
     /// This surface on the cells of `like`: each cell takes the bilinear value at its centre
     /// ([`Grid::sample`]); cells outside this grid, or where it is empty, stay empty.
     pub fn resampled_onto(&self, like: &Grid) -> Grid {
@@ -571,6 +605,21 @@ fn too_big() -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trimmed_keeps_the_cells_with_data() -> Result<()> {
+        let mut g = Grid::new(100.0, 200.0, 2.0, 6, 5)?;
+        // data in column 2..=3 and rows 1..=2 only
+        g.data[6 + 2] = 1.0;
+        g.data[2 * 6 + 3] = 4.0;
+        let t = g.trimmed().ok_or(Error::Param("vacía".into()))?;
+        assert_eq!((t.cols, t.rows), (2, 2));
+        assert_eq!((t.x0, t.y0), (104.0, 204.0));
+        assert_eq!(t.sample(105.0, 207.0), Some(1.0));
+        assert_eq!(t.data[3], 4.0);
+        assert!(Grid::new(0.0, 0.0, 1.0, 3, 3)?.trimmed().is_none());
+        Ok(())
+    }
 
     #[test]
     fn covering_aligns_and_indexes() -> Result<()> {
