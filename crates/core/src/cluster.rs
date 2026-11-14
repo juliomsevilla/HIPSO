@@ -175,6 +175,20 @@ pub fn groups(labels: &[usize]) -> Vec<Vec<usize>> {
     out
 }
 
+/// How far the values spread without their stragglers: the distance between the 5th and the 95th
+/// percentile, times 1.25 (so that it is the width of a uniform spread, whatever the stragglers).
+/// A tower's width on the plan is this, and not the box of its points, which what hangs from it
+/// (the conductors that reach it, a branch that touches it) stretches.
+pub fn core_spread(v: &[f64]) -> f64 {
+    if v.is_empty() {
+        return 0.0;
+    }
+    let mut v = v.to_vec();
+    v.sort_by(f64::total_cmp);
+    let at = |q: f64| v[((v.len() - 1) as f64 * q).round() as usize];
+    (at(0.95) - at(0.05)) * 1.25
+}
+
 /// The median of `v` (the upper middle one with an even count); reorders `v`.
 pub fn median(v: &mut [f64]) -> f64 {
     let m = v.len() / 2;
@@ -221,6 +235,16 @@ mod tests {
         assert_eq!(d.find(0), d.find(1));
         assert_ne!(d.find(3), d.find(0), "a right-angle bend is not in the row");
         assert_ne!(d.find(4), d.find(5), "two points are not a row");
+    }
+
+    #[test]
+    fn the_core_spread_leaves_out_a_few_stragglers() {
+        let mut v: Vec<f64> = (0..100).map(|i| f64::from(i) * 0.05).collect();
+        v.push(40.0);
+        v.push(-30.0);
+        let w = core_spread(&v);
+        assert!((5.5..7.0).contains(&w), "{w}");
+        assert_eq!(core_spread(&[]), 0.0);
     }
 
     #[test]

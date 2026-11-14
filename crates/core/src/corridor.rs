@@ -696,7 +696,11 @@ fn find_poles(pts: &[[f64; 3]], p: &CorridorParams) -> Vec<Pole> {
                     .fold(f64::NEG_INFINITY, f64::max),
             );
             Pole {
-                width: (w1 - w0).max(v1 - v0),
+                width: crate::cluster::core_spread(&g.iter().map(|&i| pts[i][0]).collect::<Vec<_>>())
+                    .max(crate::cluster::core_spread(
+                        &g.iter().map(|&i| pts[i][1]).collect::<Vec<_>>(),
+                    ))
+                    .min((w1 - w0).max(v1 - v0)),
                 x: g.iter().map(|&i| pts[i][0]).sum::<f64>() / n,
                 y: g.iter().map(|&i| pts[i][1]).sum::<f64>() / n,
                 base_z: g.iter().map(|&i| pts[i][2]).fold(f64::INFINITY, f64::min),

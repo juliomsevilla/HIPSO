@@ -36,7 +36,7 @@ const ALONE: f64 = 2.5;
 const POLE_Z_SCALE: f64 = 0.19;
 
 /// How many times its own points a pole may have of crown around it (above a third of its height).
-const CROWD_TOLERANCE: f64 = 1.1;
+const CROWD_TOLERANCE: f64 = 1.6;
 
 /// How many times its own points a thin pole may have around its top (a trunk has its crown).
 const CAP_TOLERANCE: f64 = 3.0;
@@ -56,8 +56,8 @@ const TRUNK_DENSITY: f64 = 20.0;
 /// in pieces only when the line is high above everything.
 const LINKED_MIN_HEIGHT: f64 = 10.0;
 
-/// The 5 %-to-95 % spread of a chain on the plan is this much of its width.
-const CORE_WIDTH_FACTOR: f64 = 1.25;
+/// Spacing (m) from which wires are looked at in more than one radius.
+const WIRE_SPARSE_SPACING: f64 = 0.25;
 
 /// Lowest a tower head is above the ground (m).
 const HEAD_MIN_HEIGHT: f64 = 8.0;
@@ -85,8 +85,10 @@ impl Default for VegParams {
 pub struct WireParams {
     /// Lowest height above ground of a wire.
     pub min_height: f64,
-    /// Radius of the neighbourhood (m; 0: six times the spacing of the points, between 0.6 and
-    /// 3 m: the same wire is a line at 1 m with 45 points/m² and only at 2.5 m with 9).
+    /// Radius of the neighbourhood (m; 0: six times the spacing of the points, between 0.6 and 3 m,
+    /// and with a spacing of 0.25 m or more also 1.5 and 2 times that, up to 4.5 m: the same wire is
+    /// a line at 1 m with 45 points/m² and only at 2 to 4 m with 9, where a conductor has a point
+    /// every metre or two and crowns beside it make it a line at some radii and not at others).
     pub radius: f64,
     /// Smallest linearity (0–1).
     pub linearity: f64,
@@ -594,6 +596,20 @@ fn spacing(pts: &[Point]) -> Option<f64> {
     (n >= 100 && area > 0.0).then(|| (area / n as f64).sqrt())
 }
 
+/// The radii at which a point is looked at to see if it is part of a wire: the one of the tile
+/// (or the one the parameters give) and, in a sparse survey (0.25 m between points or more), 1.5 and
+/// 2 times it. A wire is a line at the radius that reaches its next point and has no crown beside it,
+/// and that radius is not the same along the line.
+fn wire_radii(pts: &[Point], w: &WireParams) -> Vec<f64> {
+    let (base, _) = wire_scale(pts, w);
+    let sparse = w.radius <= 0.0 && spacing(pts).is_some_and(|s| s >= WIRE_SPARSE_SPACING);
+    if sparse {
+        vec![base, (1.5 * base).min(4.5), (2.0 * base).min(4.5)]
+    } else {
+        vec![base]
+    }
+}
+
 /// Radius of the neighbourhood and widest it may be across, for the wires of a tile: the
 /// parameters, or (when 0) from the spacing of its points.
 fn wire_scale(pts: &[Point], w: &WireParams) -> (f64, f64) {
@@ -831,7 +847,7 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
         // survey): in a neighbourhood of points a clump is a blob, not a line. The points are
         // collapsed to the centres of the voxels they fill, so that the shape seen is the one of
         // the structure, whatever the density
-        let (radius, max_width) = wire_scale(pts, w);
+        let (radius, _) = wire_scale(pts, w);
         let vs = w.voxel.max(0.05);
         let mut voxel_of: HashMap<(i32, i32, i32), usize> = HashMap::new();
         let mut centres: Vec<Point> = Vec::new();
@@ -856,26 +872,29 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
             })
             .collect();
         let all: Vec<usize> = (0..centres.len()).collect();
-        let crowd = neighbour_counts(&centres, &all, 2.0 * radius);
-        let mut cand: Vec<usize> = Vec::new();
-        for ((&v, f), n) in all
-            .iter()
-            .zip(line_features(&centres, &all, radius))
-            .zip(crowd)
-        {
-            if let Some((lin, dz, width)) = f
-                && lin >= w.linearity
-                && dz <= w.max_slope
-                && width <= max_width
-                && n <= w.max_neighbours
-            {
-                cand.push(v);
+        // a voxel is a candidate if it looks like a wire at some radius
+        let mut is_cand = vec![false; centres.len()];
+        let mut reach = radius;
+        for r in wire_radii(pts, w) {
+            reach = reach.max(r);
+            let width_limit = if w.max_width > 0.0 { w.max_width } else { 0.35 * r };
+            let crowd = neighbour_counts(&centres, &all, 2.0 * r);
+            for ((&v, f), n) in all.iter().zip(line_features(&centres, &all, r)).zip(crowd) {
+                if let Some((lin, dz, width)) = f
+                    && lin >= w.linearity
+                    && dz <= w.max_slope
+                    && width <= width_limit
+                    && n <= w.max_neighbours
+                {
+                    is_cand[v] = true;
+                }
             }
         }
+        let cand: Vec<usize> = all.iter().copied().filter(|&v| is_cand[v]).collect();
         let keep = straight_chains(
             &centres,
             &cand,
-            radius,
+            reach,
             w.min_length,
             w.min_straightness,
         );
@@ -1000,13 +1019,9 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
             e.1.push(pts[k].y);
         }
         let core_width = |g: &usize| -> f64 {
-            let spread = |v: &[f64]| -> f64 {
-                let mut v = v.to_vec();
-                v.sort_by(f64::total_cmp);
-                let at = |q: f64| v[((v.len() - 1) as f64 * q).round() as usize];
-                (at(0.95) - at(0.05)) * CORE_WIDTH_FACTOR
-            };
-            plan.get(g).map_or(0.0, |(x, y)| spread(x).max(spread(y)))
+            plan.get(g).map_or(0.0, |(x, y)| {
+                crate::cluster::core_spread(x).max(crate::cluster::core_spread(y))
+            })
         };
         // the points of a chain inside its core: those of a tower, without the conductors attached
         let core_points = |g: &usize, width: f64| -> usize {
@@ -1319,6 +1334,23 @@ mod tests {
     /// A survey with few passes sees a conductor in pieces a metre long with metres of nothing
     /// between: three or more in a row, far from anything else, are a wire; two are not, and
     /// pieces with crown around them are not.
+    /// A sparse survey looks at a wire from three radii, a dense one from one.
+    #[test]
+    fn wires_are_looked_at_from_more_radii_in_a_sparse_survey() {
+        let w = WireParams::default();
+        let dense = flat_ground(60, 60, 0.1);
+        let sparse = flat_ground(60, 60, 0.4);
+        assert_eq!(wire_radii(&dense, &w).len(), 1);
+        let r = wire_radii(&sparse, &w);
+        assert_eq!(r.len(), 3);
+        assert!(r[0] < r[1] && r[1] < r[2] && r[2] <= 4.5, "{r:?}");
+        let fixed = WireParams {
+            radius: 2.0,
+            ..w
+        };
+        assert_eq!(wire_radii(&sparse, &fixed), vec![2.0]);
+    }
+
     #[test]
     fn pieces_of_conductor_in_a_row_are_wire() {
         let mut pts = flat_ground(120, 40, 0.5);
