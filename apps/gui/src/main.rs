@@ -820,6 +820,7 @@ impl App {
                         Some("export") => Some(ToolId::Export),
                         Some("tls") => Some(ToolId::Tls),
                         Some("vdensity") => Some(ToolId::VDensity),
+                        Some("densitytiff") => Some(ToolId::DensityTiff),
                         Some("flightlines") => Some(ToolId::FlightLines),
                         Some("swath") => Some(ToolId::Swath),
                         _ => None,
@@ -1121,6 +1122,7 @@ impl App {
                     vec![
                         tool("@colorize", "Colorear con imagen", ToolId::Colorize),
                         tool("@intensity", "Normalizar intensidad", ToolId::Intensity),
+                        tool("@density", "Exportar TIFF de densidad", ToolId::DensityTiff),
                     ],
                 ],
             },
@@ -2269,6 +2271,10 @@ impl App {
             ("Separación entre pasadas", Action::Tool(ToolId::Swath)),
             ("Líneas de vuelo", Action::Tool(ToolId::FlightLines)),
             ("Densidad de Voronoi", Action::Tool(ToolId::VDensity)),
+            (
+                "Exportar TIFF de densidad",
+                Action::Tool(ToolId::DensityTiff),
+            ),
             ("Calcular MDT", Action::Tool(ToolId::Dtm)),
             ("Calcular MDS / CHM", Action::Tool(ToolId::Chm)),
             ("Métricas por celda", Action::Tool(ToolId::Metrics)),

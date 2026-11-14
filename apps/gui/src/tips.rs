@@ -116,6 +116,7 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Comparar nubes" => "Mide las diferencias entre dos nubes del mismo lugar.",
         "Ajustar nubes" => "Alinea una nube a otra de referencia.",
         "Líneas de vuelo" => "Encuentra las líneas de vuelo de una nube aérea por los huecos en el tiempo GPS.",
+        "Exportar TIFF de densidad" => "Guarda un ráster GeoTIFF con los puntos por metro cuadrado de cada celda, por nube.",
         "Densidad de Voronoi" => "Densidad de puntos por celda con celdas de Voronoi, con el porcentaje que llega a un umbral.",
         "Entre pasadas" => "Mide cuánto se separan entre sí las pasadas de vuelo.",
         "MDT" => "Modelo digital del terreno a partir de los puntos de suelo.",

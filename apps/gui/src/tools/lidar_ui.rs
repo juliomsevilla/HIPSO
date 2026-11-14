@@ -59,6 +59,9 @@ pub struct State {
     pub vd_classes: String,
     pub vd_pass: bool,
     pub vd_csv: bool,
+    pub dn_cell: f64,
+    pub dn_returns: String,
+    pub dn_classes: String,
     pub vol_source: usize,
     /// Rasters chosen by hand (empty: the one found for each cloud).
     pub vol_surface: String,
@@ -135,6 +138,9 @@ impl Default for State {
             vd_classes: String::new(),
             vd_pass: true,
             vd_csv: true,
+            dn_cell: 0.5,
+            dn_returns: "A".to_string(),
+            dn_classes: String::new(),
             vol_source: 0,
             vol_surface: String::new(),
             vol_dtm: String::new(),
@@ -786,6 +792,46 @@ impl Tools {
         ui.checkbox(&mut s.fl_csv, "Tabla de las líneas (CSV)");
     }
 
+    pub fn density_tiff_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        let s = &mut self.lx;
+        ui.label(egui::RichText::new("Guarda, por cada nube, un GeoTIFF con los puntos por metro cuadrado de cada celda (las celdas sin puntos valen 0), en el sistema de la nube. Con una celda fina (0,25 a 1 m) sirve de base para la ortofoto: se coloca como imagen de fondo, o se le aplica una rampa de color. Es el recuento de puntos entre el área de la celda, así que depende del tamaño de celda; para el control de calidad de la cobertura está la densidad de Voronoi. Se hace en una pasada y la memoria sigue al tamaño del ráster.").color(t.weak).size(11.0));
+        num(ui, "Celda del ráster (m)", &mut s.dn_cell, 0.05..=1000.0, 0.05);
+        ui.horizontal(|ui| {
+            ui.label("Retornos");
+            ui.add(
+                egui::TextEdit::singleline(&mut s.dn_returns)
+                    .hint_text("F, L, A o números: 1,2")
+                    .desired_width(110.0),
+            );
+            for (label, text) in [("Primeros", "F"), ("Últimos", "L"), ("Todos", "A")] {
+                if ui.small_button(label).clicked() {
+                    s.dn_returns = text.to_string();
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Clases");
+            ui.add(
+                egui::TextEdit::singleline(&mut s.dn_classes)
+                    .hint_text("vacío: todas menos ruido; 2,5 o ~7,18")
+                    .desired_width(180.0),
+            );
+            for (label, text) in [("Todas", ""), ("Suelo", "2"), ("Vegetación", "3,4,5"), ("Edificios", "6")] {
+                if ui.small_button(label).clicked() {
+                    s.dn_classes = text.to_string();
+                }
+            }
+        });
+        if let Err(e) = hipso_core::filter::ReturnSel::parse(&s.dn_returns) {
+            ui.label(egui::RichText::new(e.to_string()).color(egui::Color32::from_rgb(200, 60, 40)).size(11.0));
+        }
+        if !s.dn_classes.trim().is_empty()
+            && let Err(e) = hipso_core::filter::ClassSel::parse(&s.dn_classes)
+        {
+            ui.label(egui::RichText::new(e.to_string()).color(egui::Color32::from_rgb(200, 60, 40)).size(11.0));
+        }
+    }
+
     pub fn vdensity_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         let s = &mut self.lx;
         ui.label(egui::RichText::new("Densidad de puntos con celdas de Voronoi, para el control de calidad: en cada celda del ráster, n / suma de las áreas de Voronoi de sus puntos, que no depende de por dónde caiga el borde de la celda. Las celdas de Voronoi mayores que el límite son huecos de datos (agua, tejados sin retorno) y no cuentan para la densidad; su área se da aparte. Se guarda el ráster de densidad, el de cumple / no cumple y una tabla con la media, la mediana, los percentiles 5 y 95 y el porcentaje que llega al umbral.").color(t.weak).size(11.0));
@@ -1391,6 +1437,58 @@ impl Tools {
                     label,
                     task,
                     show: vec![out],
+                    outputs,
+                });
+            }
+            ToolId::DensityTiff => {
+                use hipso_core::ops::{Stat, raster_stat};
+                let s = &self.lx;
+                let cell = s.dn_cell;
+                let mut filter = Filter {
+                    skip_noise: true,
+                    ..Filter::default()
+                };
+                match hipso_core::filter::ReturnSel::parse(&s.dn_returns) {
+                    Ok(r) => filter.returns = r,
+                    Err(e) => {
+                        _log.push(format!("Retornos: {e}"));
+                        return None;
+                    }
+                }
+                if !s.dn_classes.trim().is_empty() {
+                    match hipso_core::filter::ClassSel::parse(&s.dn_classes) {
+                        Ok(c) => {
+                            filter.classes = c;
+                            filter.skip_noise = false;
+                        }
+                        Err(e) => {
+                            _log.push(format!("Clases: {e}"));
+                            return None;
+                        }
+                    }
+                }
+                let outs = names_ext(&format!("densidad_{}m", paths::num(cell)), "tif");
+                let outputs: Vec<PathBuf> = outs.values().cloned().collect();
+                let show: Vec<PathBuf> = inputs_v
+                    .iter()
+                    .filter_map(|p| outs.get(p).cloned())
+                    .collect();
+                let task: Task = Box::new(move || {
+                    let mut lines = Vec::new();
+                    for p in &inputs_v {
+                        hipso_core::check_cancel()?;
+                        let out = outs.get(p).cloned().unwrap_or_default();
+                        let (g, epsg) = raster_stat(std::slice::from_ref(p), cell, Stat::Density, &filter)?;
+                        paths::ensure_parent(&out)?;
+                        g.write_tiff(&out, epsg)?;
+                        lines.push(format!("{} x {} celdas: {}", g.cols, g.rows, out.display()));
+                    }
+                    Ok(lines.join("\n"))
+                });
+                return Some(Launch {
+                    label,
+                    task,
+                    show,
                     outputs,
                 });
             }

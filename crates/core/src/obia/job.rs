@@ -184,7 +184,7 @@ pub fn obia(j: &ObiaJob) -> Result<String> {
     }
     if j.strata.is_some() && j.classify == ClassifyBy::Nothing {
         return Err(Error::Param(
-            "los estratos salen de una clasificación: elige reglas, muestras o agrupar por parecido".into(),
+            "los estratos salen de una clasificación: elige reglas, muestras o agrupar por similitud".into(),
         ));
     }
     let canopy =

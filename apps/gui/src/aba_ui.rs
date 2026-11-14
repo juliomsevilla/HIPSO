@@ -503,10 +503,10 @@ impl App {
                             t.cells.clear();
                         }
                     });
-                    ui.label(egui::RichText::new("Son las tablas de texto (.csv) de «Métricas por celda» (una por hoja). Deben calcularse igual que las de las unidades de muestreo: mismo corte de altura, mismas clases y retornos, y celdas de tamaño parecido al de las unidades de muestreo. Solo se ofrecen las métricas que están en las dos tablas.").color(weak).size(11.0));
+                    ui.label(egui::RichText::new("Son las tablas de texto (.csv) de «Métricas por celda» (una por hoja). Deben calcularse igual que las de las unidades de muestreo: mismo corte de altura, mismas clases y retornos, y celdas de tamaño similar al de las unidades de muestreo. Solo se ofrecen las métricas que están en las dos tablas.").color(weak).size(11.0));
                     ui.checkbox(&mut t.interval, "Guardar también el intervalo de predicción del 95 % (semiancho)");
                     ui.checkbox(&mut t.extrapolate, "Estimar también las celdas fuera del rango de las unidades de muestreo");
-                    ui.label(egui::RichText::new("Por defecto esas celdas quedan vacías: el modelo no ha visto nada parecido y extrapolar da cifras sin respaldo.").color(weak).size(11.0));
+                    ui.label(egui::RichText::new("Por defecto esas celdas quedan vacías: el modelo no ha visto nada similar y extrapolar da cifras sin respaldo.").color(weak).size(11.0));
                     if !t.out_manual {
                         t.out = if t.plots.trim().is_empty() {
                             String::new()

@@ -242,7 +242,7 @@ impl App {
                             ui.radio_value(&mut t.classify, 0, "Solo describir");
                             ui.radio_value(&mut t.classify, 1, "Con reglas");
                             ui.radio_value(&mut t.classify, 2, "Con muestras (bosque aleatorio)");
-                            ui.radio_value(&mut t.classify, 3, "Agrupar por parecido");
+                            ui.radio_value(&mut t.classify, 3, "Agrupar por similitud");
                         });
                         if t.classify == 3 {
                             ui.horizontal(|ui| {
@@ -314,7 +314,7 @@ impl App {
                             });
                         });
                         if t.classify == 0 {
-                            ui.label(egui::RichText::new("Los estratos salen de una clasificación: elige reglas, muestras o agrupar por parecido.").color(weak).size(11.0));
+                            ui.label(egui::RichText::new("Los estratos salen de una clasificación: elige reglas, muestras o agrupar por similitud.").color(weak).size(11.0));
                         }
                     });
                 ui.separator();

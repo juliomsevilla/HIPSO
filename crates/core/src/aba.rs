@@ -2699,7 +2699,7 @@ pub fn run(job: &AbaJob) -> Result<String> {
             );
             let _ = writeln!(
                 text,
-                "  {} celdas ({:.1} %) quedan vacías por tener alguna métrica fuera del rango de las muestras: el modelo no ha visto nada parecido.",
+                "  {} celdas ({:.1} %) quedan vacías por tener alguna métrica fuera del rango de las muestras: el modelo no ha visto nada similar.",
                 st.outside_range,
                 100.0 * st.outside_range as f64 / st.cells as f64
             );
