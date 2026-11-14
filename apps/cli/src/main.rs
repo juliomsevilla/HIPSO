@@ -492,6 +492,12 @@ struct StepArgs {
     /// Classify poles and towers (15): narrow, isolated structures that rise from the ground
     #[arg(long)]
     poles: bool,
+    /// Classify roads (11): ground that is smooth, flat and dark (low intensity)
+    #[arg(long)]
+    roads: bool,
+    /// Classify water (9): extended, level regions of dark single-return ground
+    #[arg(long)]
+    water: bool,
     /// Classify by rules, last and in order. Repeat for several rules. Parts, separated by `;`:
     /// to=CLASS (needed), from=1,2 (or ~7), returns=F|L|A|1..9, angle=25..90 (absolute degrees;
     /// `angle=25` is 25 and over), height=0.5..2 (m above the ground), intensity=0..100, and the
@@ -563,11 +569,13 @@ impl StepArgs {
     }
 
     fn extras(&self) -> hipso_core::extras::Extras {
-        use hipso_core::extras::{Extras, PoleParams, VegParams, WireParams};
+        use hipso_core::extras::{Extras, PoleParams, RoadParams, VegParams, WaterParams, WireParams};
         Extras {
             vegetation: self.vegetation.then(VegParams::default),
             wires: self.wires.then(WireParams::default),
             poles: self.poles.then(PoleParams::default),
+            roads: self.roads.then(RoadParams::default),
+            water: self.water.then(WaterParams::default),
         }
     }
 

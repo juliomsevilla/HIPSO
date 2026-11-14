@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use crate::axelsson::AxelssonParams;
 use crate::buildings::BuildingParams;
 use crate::csf::CsfParams;
-use crate::extras::{Extras, PoleParams, VegParams, WireParams};
+use crate::extras::{Extras, PoleParams, RoadParams, VegParams, WaterParams, WireParams};
 use crate::ground::GroundParams;
 use crate::mcc::MccParams;
 use crate::noise::NoiseParams;
@@ -36,7 +36,15 @@ pub struct Loaded {
 }
 
 /// Options that stand alone, with no value.
-const SWITCHES: [&str; 5] = ["overlap", "vegetation", "wires", "poles", "buildings"];
+const SWITCHES: [&str; 7] = [
+    "overlap",
+    "vegetation",
+    "wires",
+    "poles",
+    "roads",
+    "water",
+    "buildings",
+];
 
 fn number(key: &str, value: &str) -> Result<f64> {
     value
@@ -212,6 +220,8 @@ pub fn parse(text: &str) -> Result<Loaded> {
         vegetation: options.contains_key("vegetation").then(VegParams::default),
         wires: options.contains_key("wires").then(WireParams::default),
         poles: options.contains_key("poles").then(PoleParams::default),
+        roads: options.contains_key("roads").then(RoadParams::default),
+        water: options.contains_key("water").then(WaterParams::default),
     };
     let rules = rule_texts
         .iter()
@@ -246,7 +256,7 @@ pub fn parse(text: &str) -> Result<Loaded> {
 }
 
 /// Every option a recipe reads.
-const KNOWN: [&str; 46] = [
+const KNOWN: [&str; 48] = [
     "ground",
     "filter-cell",
     "iterations",
@@ -282,6 +292,8 @@ const KNOWN: [&str; 46] = [
     "vegetation",
     "wires",
     "poles",
+    "roads",
+    "water",
     "buildings",
     "building-offset",
     "building-window",
@@ -359,7 +371,7 @@ pub fn write(r: &Recipe) -> String {
         ));
     }
     if s.extras.any() {
-        o.push_str("# vegetación por alturas, cables y postes\n");
+        o.push_str("# vegetación por alturas, cables, postes, carreteras y agua\n");
         if s.extras.vegetation.is_some() {
             o.push_str("--vegetation\n");
         }
@@ -368,6 +380,12 @@ pub fn write(r: &Recipe) -> String {
         }
         if s.extras.poles.is_some() {
             o.push_str("--poles\n");
+        }
+        if s.extras.roads.is_some() {
+            o.push_str("--roads\n");
+        }
+        if s.extras.water.is_some() {
+            o.push_str("--water\n");
         }
     }
     if !s.rules.is_empty() {
@@ -416,6 +434,8 @@ mod tests {
                     vegetation: Some(VegParams::default()),
                     wires: Some(WireParams::default()),
                     poles: None,
+                    roads: Some(RoadParams::default()),
+                    water: None,
                 },
                 rules: vec![
                     ClassRule::parse("from=1;height=..0.5;to=3")

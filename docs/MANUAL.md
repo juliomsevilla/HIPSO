@@ -354,7 +354,7 @@ OpenGF (Qin et al., 2023) es un conjunto de nubes ALS abiertas de varios países
 | Axelsson | 92,9 % | 7,5 % | 7,1 % | 0,84 | 2,63 m | de 18 a 25 s |
 | CSF | 92,3 % | 0,7 % | 10,9 % | 0,83 | 1,74 m | de 22 a 30 s |
 
-Con esta densidad PMF, MCC y Kraus y Pfeifer se parecen mucho a la referencia (más del 96 %). SMRF y CSF pierden muy poco suelo, pero toman por suelo vegetación y estructuras bajas (el 7 % y el 11 % del no suelo), y por eso el MDT sale 1 o 2 m más alto en la hoja con más relieve (T3). Axelsson queda por detrás, a un coste de decenas de segundos. Es solo una referencia de dos hojas: la referencia es una clasificación hecha con detalle, no una medida de campo, y la tercera hoja de prueba (T2, zona llana y urbana con ruido bajo) no se ha usado. La prueba se repite con `cargo run --release -p hipso-core --example ground_bench -- hoja.laz --size 1000`.
+Con esta densidad PMF, MCC y Kraus y Pfeifer se parecen mucho a la referencia (más del 96 %). SMRF y CSF pierden muy poco suelo, pero toman por suelo vegetación y estructuras bajas (el 7 % y el 11 % del no suelo), y por eso el MDT sale 1 o 2 m más alto en la hoja con más relieve (T3). Axelsson queda por detrás, a un coste de decenas de segundos. Es solo una referencia de dos hojas: la referencia es una clasificación hecha con detalle, no una medida de campo, y la tercera hoja de prueba (T2) no se ha usado: es una zona urbana con una plataforma plana de unos 200 × 200 m a 13 m sobre el suelo, que la referencia no da por suelo y que ningún filtro con una ventana de hasta 80 m distingue del terreno (la precisión del suelo no pasa del 76 % ni quitando antes el ruido bajo). La prueba se repite con `cargo run --release -p hipso-core --example ground_bench -- hoja.laz --size 1000`.
 
 ###### Límites y comprobaciones
 
@@ -382,10 +382,10 @@ DALES (Varney et al., 2020) es un conjunto de nubes ALS urbanas y rurales etique
 |---|---|---|
 | Edificios | 95 % / 91 % | 96 % / 87 % |
 | Suelo | 96 % / 100 % | 95 % / 100 % |
-| Cables | 81 % / 2 % | 35 % / 3 % |
-| Postes | 14 % / 1 % | 12 % / 1 % |
+| Cables | 66 % / 41 % | 44 % / 12 % |
+| Postes | 40 % / 6 % | 22 % / 7 % |
 
-Los edificios se encuentran bien con las dos densidades (la exhaustividad baja cuatro puntos al reducir los puntos). El suelo no deja casi nada sin marcar, pero toma por suelo parte del resto (un 4 o 5 % de los puntos marcados no lo son). En cambio los cables y los postes casi no se encuentran: con los valores por defecto el paso de cables recupera el 2 o 3 % de los puntos de cable de la referencia, y el de postes, el 1 %. Esos pasos no deben darse por buenos sin revisarlos. La prueba se repite con `cargo run --release -p hipso-core --example pnoa_bench -- --dales --recipe receta.txt hoja.laz`, con `--thin 5` para reducir los puntos.
+Los edificios se encuentran bien con las dos densidades (la exhaustividad baja cuatro puntos al reducir los puntos). El suelo no deja casi nada sin marcar, pero toma por suelo parte del resto (un 4 o 5 % de los puntos marcados no lo son). Los cables y los postes se encuentran mal. Los cables mejoran con la densidad: con 45 puntos/m² se recoge el 41 % de los puntos de cable con un 66 % de precisión, y con 9 puntos/m² el 12 % con un 44 %. Los postes finos de DALES (farolas y postes de servicio, entre árboles y edificios) se recogen en un 6 o 7 %. Sobre las hojas NPC03 de Navarra con cables (dos hojas completas), el paso de cables da una precisión del 77 % y una exhaustividad del 40 %, en las que el proveedor ya los clasifica. Esos pasos no deben darse por buenos sin revisarlos: sirven para proponer una clasificación que se corrige a mano. La prueba se repite con `cargo run --release -p hipso-core --example pnoa_bench -- --dales --recipe receta.txt hoja.laz`, con `--thin 5` para reducir los puntos.
 
 ##### Vegetación por alturas
 
@@ -393,9 +393,21 @@ Se mide la altura del punto sobre el suelo de su entorno: baja (3) por debajo de
 
 ##### Cables (clase 14) y postes o torres (clase 15)
 
-Un punto es cable si está a más de una altura mínima sobre el suelo y tiene vecinos alineados (linealidad = (λ₁ − λ₂)/λ₁ de la matriz de covarianza del entorno, mínimo 0,9) y de dirección casi horizontal. Además, un cable está en el aire (pocos puntos a su alrededor) y es continuo: las cadenas de puntos de cable de menos de 4 m se descartan, porque las líneas de barrido hacen que un trozo de copa parezca recto durante uno o dos metros. Los postes y torres son estructuras verticales estrechas (poco anchas para su altura, de al menos 6 m), sin puntos alrededor que las unan a las copas y que arrancan del suelo.
+Un punto es cable si está a más de una altura mínima sobre el suelo (5 m) y tiene vecinos alineados (linealidad = (λ₁ − λ₂)/λ₁ de la matriz de covarianza del entorno, mínimo 0,7), con poca anchura a lo ancho de esa línea y de dirección casi horizontal. Los puntos de un conductor llegan en racimos con huecos entre ellos (las líneas de barrido del vuelo), de modo que el radio del entorno se toma de la densidad de la nube: seis veces la separación de los puntos, entre 0,6 y 3 m (1 m con 45 puntos/m² y unos 2,5 m con 9). Las cadenas de puntos de cable se aceptan si miden al menos 10 m y son rectas (su largo es diez veces su ancho), porque las líneas de barrido hacen que un trozo de copa parezca recto durante uno o dos metros. Los postes y torres son estructuras verticales estrechas (poco anchas para su altura, de al menos 6 m), sin puntos alrededor que las unan a las copas y que arrancan del suelo; además se buscan postes finos (farolas y postes de servicio) como líneas verticales de al menos 3 m.
 
 Con la densidad del PNOA suele volver solo la cabeza del apoyo (una cruceta de unos metros, a más de 8 m, sin nada debajo). Una cadena corta, recta y aislada a esa altura se toma por cabeza de apoyo y se clasifica como 15 (la longitud máxima es ajustable, y 0 la desactiva). El método se ha contrastado con tres apoyos marcados sobre ortofoto en una hoja PNOA: en uno volvió la cabeza y se clasifica, y en los otros dos no volvió ni un solo punto, de manera que no hay nada que clasificar. Es útil para limpiar el CHM de líneas eléctricas, que de otro modo salen como árboles estrechos.
+
+##### Carreteras (clase 11)
+
+Es suelo liso, llano y oscuro para el láser: el asfalto devuelve menos intensidad que la tierra, y una calzada es un plano. Un punto de suelo es carretera si su intensidad no pasa de un máximo (10 000 por defecto), su entorno de 1,5 m tiene una rugosidad pequeña (hasta 3 cm, la desviación de los puntos respecto del plano local) y una pendiente local de hasta 5°. Se activa con *Carreteras* en la ventana de clasificación (apartado *Carreteras y agua*) o con `--roads`.
+
+Solo mira la forma y la intensidad del suelo: no sabe si los puntos forman una red, de modo que también marca como carretera cualquier otro suelo liso y oscuro (campos llanos y aparcamientos). La intensidad depende del sensor y del vuelo, así que el máximo puede necesitar otro valor en otro bloque. No se ha medido con una referencia hecha a mano; solo se ha comparado con la clase 11 de hojas NPC03 de Navarra, donde coincide en algo más de la mitad de los puntos (precisión del 56 % y exhaustividad del 53 %), y esa clase la hace el propio proveedor.
+
+##### Agua (clase 9)
+
+El agua es una lámina llana que devuelve casi nada al láser. Se toman los puntos de suelo de un solo retorno y de intensidad baja (hasta 6 000 por defecto) cuyo entorno es llano (pendiente local de hasta 3°), se unen las celdas de 2 m que los contienen en regiones, y una región es agua si ocupa al menos 30 m² y la desviación típica de las cotas de sus puntos no pasa de 20 cm. Se activa con *Agua* en la ventana de clasificación (apartado *Carreteras y agua*) o con `--water`.
+
+Es una herramienta sin validar y de partida. Contra la clase 9 de las hojas NPC03 de Navarra, que son charcas pequeñas y con pocos puntos, coincide muy poco (precisión del 5 % y exhaustividad del 28 %): encuentra algo de agua, pero marca también como agua otro suelo llano y oscuro, y por eso no está en la receta de ejemplo. Conviene revisar el resultado antes de usarlo, y probar con el máximo de intensidad y la superficie mínima del lago que se quiere recoger.
 
 ##### Reglas
 
@@ -471,14 +483,14 @@ El PNOA entrega sus hojas LiDAR con la clase de cada punto, y su producto más f
 --building-area 25
 --building-offset 2
 --wires
+# carreteras: suelo liso, llano y de intensidad baja (asfalto)
+--roads
 # lo que queda al ras del suelo es suelo
 --rule "from=1;height=..0.12;to=2"
 # estratos: baja de 0,12 a 0,5 m, media de 0,5 a 3 m, alta desde 3 m
 --rule "from=1,5;height=0.12..0.5;to=3"
 --rule "from=1,3,5;height=0.5..3;to=4"
 --rule "from=1,3,4;height=3..;to=5"
-# carreteras: suelo liso, llano y de intensidad baja (asfalto)
---rule "from=2;intensity=..10000;roughness=..0.03;slope=..5;radius=1.5;to=11"
 ```
 
 Qué busca. Reproduce el aspecto de la clasificación del NPC03: solape entre pasadas como clase 12, suelo generoso (SMRF con umbral 0,2 m y escala 0,5), edificios con un margen de 2 m sobre el suelo, cables, vegetación en tres estratos por altura (baja hasta 0,5 m, media hasta 3 m y alta desde 3 m) y carreteras como suelo liso, llano y de intensidad baja (el asfalto devuelve menos intensidad que la tierra; el umbral de 10 000 depende del sensor y del vuelo, y puede necesitar otro valor en otro bloque).

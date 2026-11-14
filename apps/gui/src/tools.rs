@@ -9,7 +9,7 @@ use hipso_core::axelsson::AxelssonParams;
 use hipso_core::buildings::BuildingParams;
 use hipso_core::csf::CsfParams;
 use hipso_core::export::{self, AsciiJob, Item};
-use hipso_core::extras::{Extras, PoleParams, VegParams, WireParams};
+use hipso_core::extras::{Extras, PoleParams, RoadParams, VegParams, WaterParams, WireParams};
 use hipso_core::filter::{ClassSel, Filter, ReturnSel};
 use hipso_core::ground::GroundParams;
 use hipso_core::jobs::{self, ChmMethod};
@@ -421,9 +421,13 @@ pub struct Tools {
     ex_veg: bool,
     ex_wire: bool,
     ex_pole: bool,
+    ex_road: bool,
+    ex_water: bool,
     vp: VegParams,
     wp: WireParams,
     pp: PoleParams,
+    rdp: RoadParams,
+    wtp: WaterParams,
     bp: BuildingParams,
     tiling: Tiling,
     /// What the last save or load of a recipe did.
@@ -535,9 +539,13 @@ impl Default for Tools {
             ex_veg: false,
             ex_wire: false,
             ex_pole: false,
+            ex_road: false,
+            ex_water: false,
             vp: VegParams::default(),
             wp: WireParams::default(),
             pp: PoleParams::default(),
+            rdp: RoadParams::default(),
+            wtp: WaterParams::default(),
             bp: BuildingParams::default(),
             tiling: Tiling::default(),
             recipe_note: String::new(),
@@ -795,6 +803,14 @@ impl Tools {
         self.ex_veg = st.extras.vegetation.is_some();
         self.ex_wire = st.extras.wires.is_some();
         self.ex_pole = st.extras.poles.is_some();
+        self.ex_road = st.extras.roads.is_some();
+        self.ex_water = st.extras.water.is_some();
+        if let Some(r) = &st.extras.roads {
+            self.rdp = r.clone();
+        }
+        if let Some(w) = &st.extras.water {
+            self.wtp = w.clone();
+        }
         if let Some(v) = &st.extras.vegetation {
             self.vp = v.clone();
         }
@@ -902,6 +918,8 @@ impl Tools {
             vegetation: self.ex_veg.then(|| self.vp.clone()),
             wires: self.ex_wire.then(|| self.wp.clone()),
             poles: self.ex_pole.then(|| self.pp.clone()),
+            roads: self.ex_road.then(|| self.rdp.clone()),
+            water: self.ex_water.then(|| self.wtp.clone()),
         }
     }
 
@@ -1335,6 +1353,62 @@ impl Tools {
                 num(ui, "Área mínima", &mut self.bp.min_area, 1.0..=10000.0, 1.0);
             }
         });
+        egui::CollapsingHeader::new("Carreteras y agua").show(ui, |ui| {
+            ui.checkbox(
+                &mut self.ex_road,
+                "Carreteras (11): suelo liso, llano y de intensidad baja",
+            );
+            if self.ex_road {
+                num(
+                    ui,
+                    "Intensidad máxima",
+                    &mut self.rdp.max_intensity,
+                    0.0..=65535.0,
+                    100.0,
+                );
+                num(
+                    ui,
+                    "Rugosidad máxima (m)",
+                    &mut self.rdp.max_roughness,
+                    0.005..=0.2,
+                    0.005,
+                );
+                num(
+                    ui,
+                    "Pendiente máxima (°)",
+                    &mut self.rdp.max_slope,
+                    0.5..=30.0,
+                    0.5,
+                );
+            }
+            ui.checkbox(
+                &mut self.ex_water,
+                "Agua (9): superficies llanas extensas de intensidad muy baja",
+            );
+            if self.ex_water {
+                num(
+                    ui,
+                    "Intensidad máxima",
+                    &mut self.wtp.max_intensity,
+                    0.0..=65535.0,
+                    100.0,
+                );
+                num(
+                    ui,
+                    "Superficie mínima (m²)",
+                    &mut self.wtp.min_area,
+                    10.0..=100000.0,
+                    10.0,
+                );
+                num(
+                    ui,
+                    "Desviación máxima de la cota (m)",
+                    &mut self.wtp.max_deviation,
+                    0.02..=2.0,
+                    0.02,
+                );
+            }
+        });
         egui::CollapsingHeader::new("Vegetación, cables y postes").show(ui, |ui| {
             ui.checkbox(
                 &mut self.ex_veg,
@@ -1358,9 +1432,9 @@ impl Tools {
                 );
                 num(
                     ui,
-                    "Radio del entorno (m)",
+                    "Radio del entorno (m, 0 = según la densidad)",
                     &mut self.wp.radius,
-                    0.3..=10.0,
+                    0.0..=10.0,
                     0.1,
                 );
                 num(
@@ -2191,7 +2265,8 @@ mod recipe_tests {
             tiling: tools.tiling.clone(),
         };
         assert_eq!(back, loaded.recipe);
-        assert_eq!(back.steps.rules.len(), 5);
+        assert_eq!(back.steps.rules.len(), 4);
+        assert!(back.steps.extras.roads.is_some());
         assert!(back.steps.overlap.is_some() && back.steps.extras.wires.is_some());
         Ok(())
     }

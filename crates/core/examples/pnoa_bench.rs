@@ -145,6 +145,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "max_slope" => w.max_slope = v,
                     "max_neighbours" => w.max_neighbours = v as usize,
                     "min_length" => w.min_length = v,
+                    "max_width" => w.max_width = v,
+                    "min_straightness" => w.min_straightness = v,
+                    "voxel" => w.voxel = v,
                     _ => return Err(format!("unknown wire parameter {k}").into()),
                 }
             }
@@ -155,6 +158,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "max_width" => w.max_width = v,
                     "min_extent" => w.min_extent = v,
                     "head_length" => w.head_length = v,
+                    "thin_extent" => w.thin_extent = v,
                     _ => return Err(format!("unknown pole parameter {k}").into()),
                 }
             }
