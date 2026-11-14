@@ -713,7 +713,7 @@ Delimita dónde se queda el agua en un MDT. El modelo se rellena hasta que todas
 
 De cada charco se miden el área (`area_m2`), la profundidad máxima (`prof_max`) y la media (`prof_med`), el volumen (`vol_m3`), la cota a la que desborda (`cota_desb`), la superficie que vierte a él (`cuenca_m2`) y la pendiente media del terreno bajo él, en grados (`pend_med`).
 
-Se elige el MDT y el tipo de terreno, que fija los valores de partida. *Nivelado (cultivo)* pide una profundidad mínima de 5 cm y un área mínima de 1 m². *Irregular (monte)* pide 15 cm, 4 m² y una pendiente media bajo el charco de 8° como máximo, porque un MDT de monte tiene hoyos que no son charcos. *A medida* deja todo libre. Son valores de partida y no están calibrados con charcos medidos en campo, de modo que conviene ajustarlos al MDT.
+Se elige el MDT y el tipo de terreno, que fija los valores de partida. *Nivelado (cultivo)* pide una profundidad mínima de 5 cm y un área mínima de 1 m². *Irregular (monte)* pide 15 cm, 4 m² y una pendiente media bajo el charco de 8° como máximo, porque un MDT de monte tiene hoyos que no son charcos. *A medida* deja todo libre.
 
 Además se pueden descartar las balsas y las zanjas con un área máxima y una profundidad máxima. *Suavizar el MDT antes* (gauss, en metros; 0 es no suavizar) alisa el ruido de un MDT fotogramétrico o de pocos retornos, pero en un campo con caballones no conviene, porque borra las calles. Si el MDT no declara el valor de 'sin datos' y trae ceros, los toma por tal solo cuando cubren buena parte del modelo y los demás valores están bien por encima de 0 (`--nodata` lo fija).
 
