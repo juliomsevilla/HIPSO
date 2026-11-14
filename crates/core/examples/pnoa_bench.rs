@@ -148,6 +148,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "max_width" => w.max_width = v,
                     "min_straightness" => w.min_straightness = v,
                     "voxel" => w.voxel = v,
+                    "link_gap" => w.link_gap = v,
                     _ => return Err(format!("unknown wire parameter {k}").into()),
                 }
             }

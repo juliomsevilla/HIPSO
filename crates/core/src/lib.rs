@@ -10,6 +10,7 @@ pub mod change;
 pub mod chm;
 pub mod classes;
 pub mod clip;
+pub mod cluster;
 pub mod cloudtools;
 pub mod cog;
 pub mod colorize;

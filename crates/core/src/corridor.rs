@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use crate::cluster::{Dsu, median};
 use crate::filter::ClassSel;
 use crate::grid::Grid;
 use crate::las::Reader;
@@ -42,6 +43,9 @@ pub struct CorridorParams {
     pub link: f64,
     /// Spacing of the vertices of a conductor's path.
     pub step: f64,
+    /// Conductors that run side by side are told apart when their points are farther than this
+    /// from each other across the line (side and height, m).
+    pub lane: f64,
     /// A conductor made of fewer points is dropped.
     pub min_points: usize,
     /// A conductor shorter than this is dropped: a span is tens of metres, while the short
@@ -77,6 +81,7 @@ impl Default for CorridorParams {
             pole_class: POLE,
             link: 2.5,
             step: 2.0,
+            lane: 1.0,
             min_points: 30,
             min_length: 25.0,
             min_pole_height: 6.0,
@@ -135,73 +140,15 @@ impl CorridorJob {
 
 // ----------------------------------------------------------------------------- clustering
 
-fn find(parent: &mut [u32], mut x: u32) -> u32 {
-    while parent[x as usize] != x {
-        let p = parent[x as usize];
-        parent[x as usize] = parent[p as usize];
-        x = parent[x as usize];
-    }
-    x
-}
-
 /// Groups of points closer than `link` (chained), in 3D when `three_d`, else in plan.
 fn cluster(pts: &[[f64; 3]], link: f64, three_d: bool) -> Vec<Vec<usize>> {
-    let key = |p: &[f64; 3]| {
-        (
-            (p[0] / link).floor() as i64,
-            (p[1] / link).floor() as i64,
-            if three_d {
-                (p[2] / link).floor() as i64
-            } else {
-                0
-            },
-        )
-    };
-    let mut grid: HashMap<(i64, i64, i64), Vec<u32>> = HashMap::new();
-    for (i, p) in pts.iter().enumerate() {
-        grid.entry(key(p)).or_default().push(i as u32);
-    }
-    let mut parent: Vec<u32> = (0..pts.len() as u32).collect();
-    let dz = i64::from(three_d);
-    for (i, p) in pts.iter().enumerate() {
-        let (kx, ky, kz) = key(p);
-        for dx in -1..=1 {
-            for dy in -1..=1 {
-                for dzz in -dz..=dz {
-                    for &j in grid
-                        .get(&(kx + dx, ky + dy, kz + dzz))
-                        .into_iter()
-                        .flatten()
-                    {
-                        let q = &pts[j as usize];
-                        let d2 = (p[0] - q[0]).powi(2)
-                            + (p[1] - q[1]).powi(2)
-                            + if three_d { (p[2] - q[2]).powi(2) } else { 0.0 };
-                        if d2 <= link * link {
-                            let (a, b) = (find(&mut parent, i as u32), find(&mut parent, j));
-                            if a != b {
-                                parent[a.max(b) as usize] = a.min(b);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    let mut groups: HashMap<u32, Vec<usize>> = HashMap::new();
-    for i in 0..pts.len() {
-        let r = find(&mut parent, i as u32);
-        groups.entry(r).or_default().push(i);
-    }
-    let mut out: Vec<Vec<usize>> = groups.into_values().collect();
-    out.sort_by_key(|g| g[0]);
-    out
-}
-
-fn median(v: &mut [f64]) -> f64 {
-    let m = v.len() / 2;
-    v.select_nth_unstable_by(m, |a, b| a.total_cmp(b));
-    v[m]
+    let labels = crate::cluster::link_labels(
+        pts.len(),
+        |i| pts[i],
+        link,
+        if three_d { 1.0 } else { 0.0 },
+    );
+    crate::cluster::groups(&labels)
 }
 
 /// Least-squares parabola `z = a + b t + c t²` through `(t, z)`; `None` when it is degenerate.
@@ -286,7 +233,7 @@ fn join_pieces(pts: &[[f64; 3]], groups: Vec<Vec<usize>>, p: &CorridorParams) ->
             }
         })
         .collect();
-    let mut parent: Vec<u32> = (0..groups.len() as u32).collect();
+    let mut dsu = Dsu::new(groups.len());
     for a in 0..groups.len() {
         for b in a + 1..groups.len() {
             let (pa, pb) = (&pieces[a], &pieces[b]);
@@ -311,17 +258,13 @@ fn join_pieces(pts: &[[f64; 3]], groups: Vec<Vec<usize>>, p: &CorridorParams) ->
             let along_b = (v[0] * pb.axis[0] + v[1] * pb.axis[1]).abs();
             let slope_ok = (eb[2] - ea[2]).abs() <= 0.3 * d + 1.0;
             if cos > 0.985 && along_a > 0.97 && along_b > 0.97 && slope_ok {
-                let (ra, rb) = (find(&mut parent, a as u32), find(&mut parent, b as u32));
-                if ra != rb {
-                    parent[ra.max(rb) as usize] = ra.min(rb);
-                }
+                dsu.union(a, b);
             }
         }
     }
-    let mut merged: HashMap<u32, Vec<usize>> = HashMap::new();
+    let mut merged: HashMap<usize, Vec<usize>> = HashMap::new();
     for (k, g) in groups.into_iter().enumerate() {
-        let r = find(&mut parent, k as u32);
-        merged.entry(r).or_default().extend(g);
+        merged.entry(dsu.find(k)).or_default().extend(g);
     }
     let mut out: Vec<Vec<usize>> = merged.into_values().collect();
     out.sort_by_key(|g| g[0]);
@@ -375,43 +318,39 @@ impl Conductor {
     }
 }
 
-/// The conductor paths of a cluster of wire points (more than one when a long gap cuts it).
-fn fit(points: &[[f64; 3]], p: &CorridorParams) -> Vec<Conductor> {
-    let n = points.len() as f64;
-    let (mx, my) = (
-        points.iter().map(|q| q[0]).sum::<f64>() / n,
-        points.iter().map(|q| q[1]).sum::<f64>() / n,
-    );
-    let (mut sxx, mut syy, mut sxy) = (0.0, 0.0, 0.0);
-    for q in points {
-        let (dx, dy) = (q[0] - mx, q[1] - my);
-        sxx += dx * dx;
-        syy += dy * dy;
-        sxy += dx * dy;
-    }
-    let angle = 0.5 * (2.0 * sxy).atan2(sxx - syy);
-    let (ux, uy) = (angle.cos(), angle.sin());
-    let along = |q: &[f64; 3]| (q[0] - mx) * ux + (q[1] - my) * uy;
-    let side = |q: &[f64; 3]| -(q[0] - mx) * uy + (q[1] - my) * ux;
-    let smin = points.iter().map(&along).fold(f64::INFINITY, f64::min);
-    let smax = points.iter().map(&along).fold(f64::NEG_INFINITY, f64::max);
-    let nbins = ((smax - smin) / p.step).floor() as usize + 1;
-    let mut bins: Vec<(Vec<f64>, Vec<f64>)> = vec![(Vec::new(), Vec::new()); nbins];
-    for q in points {
-        let b = (((along(q) - smin) / p.step).floor() as usize).min(nbins - 1);
-        bins[b].0.push(side(q));
-        bins[b].1.push(q[2]);
-    }
-    // the vertex of each bin that has points: (s, side, z)
-    let mut vs: Vec<Option<(f64, f64, f64)>> = bins
-        .iter_mut()
-        .enumerate()
-        .map(|(b, (d, z))| {
-            (!z.is_empty()).then(|| (smin + (b as f64 + 0.5) * p.step, median(d), median(z)))
+/// The samples of one stretch of a cluster: its points in (side, height) grouped within `lane`
+/// of each other, as (median side, median height, points). Parallel conductors, a metre or
+/// three apart, are separate groups; one conductor is one.
+fn lane_samples(side: &[f64], z: &[f64], lane: f64) -> Vec<(f64, f64, usize)> {
+    let labels = crate::cluster::link_labels(side.len(), |i| [side[i], z[i], 0.0], lane, 0.0);
+    crate::cluster::groups(&labels)
+        .into_iter()
+        .map(|g| {
+            let mut d: Vec<f64> = g.iter().map(|&i| side[i]).collect();
+            let mut h: Vec<f64> = g.iter().map(|&i| z[i]).collect();
+            (median(&mut d), median(&mut h), g.len())
         })
-        .collect();
-    // fill the empty bins between full ones with a parabola of the neighbours, unless the gap is
-    // too long; pieces are the runs that remain
+        .collect()
+}
+
+/// One conductor followed along the cluster: the vertex of each stretch where it has points,
+/// (distance along, side, height), and how many points it has.
+struct Lane {
+    vs: Vec<Option<(f64, f64, f64)>>,
+    last: (f64, f64),
+    last_bin: usize,
+    points: usize,
+}
+
+/// A path through the stretches of a lane, with the empty ones between full ones filled by a
+/// parabola of their neighbours (unless the gap is longer than `gap_max`): the pieces that remain,
+/// how many gaps were filled and how many were too long.
+fn trace(
+    mut vs: Vec<Option<(f64, f64, f64)>>,
+    smin: f64,
+    p: &CorridorParams,
+) -> (Vec<Vec<(f64, f64, f64)>>, usize, usize) {
+    let nbins = vs.len();
     let mut pieces: Vec<Vec<(f64, f64, f64)>> = Vec::new();
     let mut cur: Vec<(f64, f64, f64)> = Vec::new();
     let mut gaps = 0usize;
@@ -467,17 +406,95 @@ fn fit(points: &[[f64; 3]], p: &CorridorParams) -> Vec<Conductor> {
     if !cur.is_empty() {
         pieces.push(cur);
     }
-    pieces
-        .into_iter()
-        .filter(|v| v.len() >= 2)
-        .map(|v| {
+    (pieces, gaps, breaks)
+}
+
+/// The conductor paths of a cluster of wire points: one for each conductor in it (the lanes of
+/// points that run side by side along its main direction), and more than one of those when a long
+/// gap cuts it.
+fn fit(points: &[[f64; 3]], p: &CorridorParams) -> Vec<Conductor> {
+    let n = points.len() as f64;
+    let (mx, my) = (
+        points.iter().map(|q| q[0]).sum::<f64>() / n,
+        points.iter().map(|q| q[1]).sum::<f64>() / n,
+    );
+    let (mut sxx, mut syy, mut sxy) = (0.0, 0.0, 0.0);
+    for q in points {
+        let (dx, dy) = (q[0] - mx, q[1] - my);
+        sxx += dx * dx;
+        syy += dy * dy;
+        sxy += dx * dy;
+    }
+    let angle = 0.5 * (2.0 * sxy).atan2(sxx - syy);
+    let (ux, uy) = (angle.cos(), angle.sin());
+    let along = |q: &[f64; 3]| (q[0] - mx) * ux + (q[1] - my) * uy;
+    let side = |q: &[f64; 3]| -(q[0] - mx) * uy + (q[1] - my) * ux;
+    let smin = points.iter().map(&along).fold(f64::INFINITY, f64::min);
+    let smax = points.iter().map(&along).fold(f64::NEG_INFINITY, f64::max);
+    let nbins = ((smax - smin) / p.step).floor() as usize + 1;
+    let mut bins: Vec<(Vec<f64>, Vec<f64>)> = vec![(Vec::new(), Vec::new()); nbins];
+    for q in points {
+        let b = (((along(q) - smin) / p.step).floor() as usize).min(nbins - 1);
+        bins[b].0.push(side(q));
+        bins[b].1.push(q[2]);
+    }
+    // follow the conductors from stretch to stretch: a sample goes to the lane whose last vertex
+    // is closest in (side, height), if within two lane widths, else it starts a new lane
+    let max_jump = 2.0 * p.lane;
+    let max_idle = (p.gap_max / p.step).ceil() as usize + 1;
+    let mut lanes: Vec<Lane> = Vec::new();
+    for (b, (d, z)) in bins.iter().enumerate() {
+        if z.is_empty() {
+            continue;
+        }
+        let s = smin + (b as f64 + 0.5) * p.step;
+        let mut taken = vec![false; lanes.len()];
+        let mut samples = lane_samples(d, z, p.lane);
+        samples.sort_by_key(|v| std::cmp::Reverse(v.2));
+        for (sd, sz, cnt) in samples {
+            let near = lanes
+                .iter()
+                .enumerate()
+                .filter(|(k, l)| !taken[*k] && b - l.last_bin <= max_idle)
+                .map(|(k, l)| (k, (l.last.0 - sd).hypot(l.last.1 - sz)))
+                .filter(|(_, dist)| *dist <= max_jump)
+                .min_by(|a, b| a.1.total_cmp(&b.1));
+            let k = match near {
+                Some((k, _)) => k,
+                None => {
+                    lanes.push(Lane {
+                        vs: vec![None; nbins],
+                        last: (sd, sz),
+                        last_bin: b,
+                        points: 0,
+                    });
+                    taken.push(false);
+                    lanes.len() - 1
+                }
+            };
+            taken[k] = true;
+            let l = &mut lanes[k];
+            l.vs[b] = Some((s, sd, sz));
+            l.last = (sd, sz);
+            l.last_bin = b;
+            l.points += cnt;
+        }
+    }
+    let mut out = Vec::new();
+    for l in lanes {
+        if l.vs.iter().flatten().count() < 3 {
+            continue;
+        }
+        let (pieces, gaps, breaks) = trace(l.vs, smin, p);
+        for v in pieces.into_iter().filter(|v| v.len() >= 2) {
             let verts = v
                 .iter()
                 .map(|&(s, d, z)| [mx + s * ux - d * uy, my + s * uy + d * ux, z])
                 .collect();
-            Conductor::from_verts(verts, points.len(), gaps, breaks)
-        })
-        .collect()
+            out.push(Conductor::from_verts(verts, l.points, gaps, breaks));
+        }
+    }
+    out
 }
 
 // ----------------------------------------------------------------------------- the scene
@@ -1272,6 +1289,31 @@ mod tests {
         assert!(analyse(&bad).is_err());
         std::fs::remove_dir_all(&dir)?;
         Ok(())
+    }
+
+    /// Conductors closer than the linking distance end up in one cluster of points; they must
+    /// still come out as one path each, not as a path through the middle of both.
+    #[test]
+    fn parallel_conductors_in_one_cluster_are_told_apart() {
+        let p = CorridorParams::default();
+        let mut pts = Vec::new();
+        let mut s = 0.0_f64;
+        while s <= 60.0 {
+            // 2 m apart across and 1 m apart in height
+            for (side, z) in [(0.0, 20.0), (2.0, 21.0)] {
+                pts.push([s, side, z - 0.002 * (s - 30.0).powi(2)]);
+            }
+            s += 0.5;
+        }
+        let paths = fit(&pts, &p);
+        assert_eq!(paths.len(), 2, "{paths:?}");
+        let mut zs: Vec<f64> = paths
+            .iter()
+            .map(|c| c.verts.iter().map(|v| v[2]).sum::<f64>() / c.verts.len() as f64)
+            .collect();
+        zs.sort_by(f64::total_cmp);
+        assert!((zs[1] - zs[0] - 1.0).abs() < 0.1, "{zs:?}");
+        assert!(paths.iter().all(|c| c.length() > 50.0));
     }
 
     #[test]

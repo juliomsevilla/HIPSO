@@ -6,31 +6,8 @@
 
 use std::collections::{BTreeSet, HashMap};
 
+use crate::cluster::Dsu;
 use crate::tls::{Cubing, Log, Section, TlsParams, TreeResult, smalian};
-
-/// Union-find over the trees.
-struct Dsu(Vec<usize>);
-
-impl Dsu {
-    fn new(n: usize) -> Self {
-        Self((0..n).collect())
-    }
-
-    fn find(&mut self, mut i: usize) -> usize {
-        while self.0[i] != i {
-            self.0[i] = self.0[self.0[i]];
-            i = self.0[i];
-        }
-        i
-    }
-
-    fn union(&mut self, a: usize, b: usize) {
-        let (a, b) = (self.find(a), self.find(b));
-        if a != b {
-            self.0[b.max(a)] = b.min(a);
-        }
-    }
-}
 
 /// Two sections are the same circle: centres closer than 40 % of the wider diameter, and
 /// diameters within 35 % of it.

@@ -25,6 +25,33 @@ pub const POLE: u8 = 15;
 pub const WATER: u8 = 9;
 pub const ROAD: u8 = 11;
 
+/// Spacing of the points (m) at which a tower has 12 points per metre of height or fewer.
+const POLE_REFERENCE_SPACING: f64 = 0.33;
+
+/// Radius (m) in which a piece of conductor has no other points but its own.
+const ALONE: f64 = 2.5;
+
+/// Vertical distances count this much in linking the points of a tower: its pieces are rows of
+/// points a few metres apart (a lattice scanned from above), and a vertical gap of 8 m links.
+const POLE_Z_SCALE: f64 = 0.19;
+
+/// How many times its own points a pole may have of crown around it (above a third of its height).
+const CROWD_TOLERANCE: f64 = 1.1;
+
+/// How many times its own points a thin pole may have around its top (a trunk has its crown).
+const CAP_TOLERANCE: f64 = 3.0;
+
+/// A structure at least this tall is a tower, whose points grow with the density of the survey; a
+/// narrow tree of that height at 45 points/m² has as many, so lower ones keep the count of 9.
+const TOWER_HEIGHT: f64 = 15.0;
+
+/// Density factor (see `POLE_REFERENCE_SPACING`) above which tree trunks are resolved as lines.
+const TRUNK_DENSITY: f64 = 20.0;
+
+/// Lowest pieces of conductor linked across gaps are above the ground (m): a survey sees them
+/// in pieces only when the line is high above everything.
+const LINKED_MIN_HEIGHT: f64 = 10.0;
+
 /// Lowest a tower head is above the ground (m).
 const HEAD_MIN_HEIGHT: f64 = 8.0;
 
@@ -75,6 +102,11 @@ pub struct WireParams {
     pub min_straightness: f64,
     /// Side of the voxels the points are collapsed to before looking at their shape (m).
     pub voxel: f64,
+    /// A survey with a few passes over a line sees a conductor only where its scan lines cross
+    /// it: short straight pieces (a metre or two) with metres of nothing between them. Pieces
+    /// that point at each other, that far apart at most (m, 0 to turn off), make a wire when
+    /// three or more line up over at least twice `min_length`.
+    pub link_gap: f64,
 }
 
 impl Default for WireParams {
@@ -89,6 +121,7 @@ impl Default for WireParams {
             min_length: 10.0,
             min_straightness: 10.0,
             voxel: 0.05,
+            link_gap: 15.0,
         }
     }
 }
@@ -368,50 +401,27 @@ type ChainBoxes = HashMap<usize, ([f64; 6], usize)>;
 /// other are in the same one. Returns each point's group and each group's bounding box
 /// `[x0, y0, z0, x1, y1, z1]` and size.
 fn chains(pts: &[Point], cand: &[usize], link: f64) -> (Vec<usize>, ChainBoxes) {
-    fn root(parent: &mut [usize], mut i: usize) -> usize {
-        while parent[i] != i {
-            parent[i] = parent[parent[i]];
-            i = parent[i];
-        }
-        i
-    }
-    let key = |q: &Point| -> Cell {
-        (
-            (q.x / link).floor() as i32,
-            (q.y / link).floor() as i32,
-            (q.z / link).floor() as i32,
-        )
-    };
-    let mut cells: HashMap<Cell, Vec<usize>> = HashMap::new();
-    for (j, &i) in cand.iter().enumerate() {
-        cells.entry(key(&pts[i])).or_default().push(j);
-    }
-    let mut parent: Vec<usize> = (0..cand.len()).collect();
-    let l2 = link * link;
-    for (j, &i) in cand.iter().enumerate() {
-        let q = &pts[i];
-        let (cx, cy, cz) = key(q);
-        for dx in -1..=1 {
-            for dy in -1..=1 {
-                for dz in -1..=1 {
-                    for &o in cells
-                        .get(&(cx + dx, cy + dy, cz + dz))
-                        .into_iter()
-                        .flatten()
-                    {
-                        let w = &pts[cand[o]];
-                        if o > j
-                            && (w.x - q.x).powi(2) + (w.y - q.y).powi(2) + (w.z - q.z).powi(2) <= l2
-                        {
-                            let (a, b) = (root(&mut parent, j), root(&mut parent, o));
-                            parent[a] = b;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    let group: Vec<usize> = (0..cand.len()).map(|j| root(&mut parent, j)).collect();
+    chains_z(pts, cand, link, 1.0)
+}
+
+/// [`chains`] where heights count `zscale` times as much as distances on the plan (below 1, two
+/// points that far apart vertically are still linked: the pieces of a lattice tower are rows of
+/// points with metres between them).
+fn chains_z(
+    pts: &[Point],
+    cand: &[usize],
+    link: f64,
+    zscale: f64,
+) -> (Vec<usize>, ChainBoxes) {
+    let group = crate::cluster::link_labels(
+        cand.len(),
+        |j| {
+            let q = &pts[cand[j]];
+            [q.x, q.y, q.z]
+        },
+        link,
+        zscale,
+    );
     let mut boxes: HashMap<usize, ([f64; 6], usize)> = HashMap::new();
     for (&g, &i) in group.iter().zip(cand) {
         let q = &pts[i];
@@ -535,23 +545,24 @@ fn water(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], p: &WaterPara
     }
 }
 
+/// Mean distance between the points of a tile (square root of the area per point, the bounding
+/// box over the points that are not noise); `None` with fewer than 100 points.
+fn spacing(pts: &[Point]) -> Option<f64> {
+    let (mut x0, mut y0, mut x1, mut y1, mut n) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN, 0u64);
+    for q in pts.iter().filter(|q| !q.is_noise()) {
+        (x0, y0, x1, y1, n) = (x0.min(q.x), y0.min(q.y), x1.max(q.x), y1.max(q.y), n + 1);
+    }
+    let area = (x1 - x0) * (y1 - y0);
+    (n >= 100 && area > 0.0).then(|| (area / n as f64).sqrt())
+}
+
 /// Radius of the neighbourhood and widest it may be across, for the wires of a tile: the
 /// parameters, or (when 0) from the spacing of its points.
 fn wire_scale(pts: &[Point], w: &WireParams) -> (f64, f64) {
     let radius = if w.radius > 0.0 {
         w.radius
     } else {
-        let (mut x0, mut y0, mut x1, mut y1, mut n) =
-            (f64::MAX, f64::MAX, f64::MIN, f64::MIN, 0u64);
-        for q in pts.iter().filter(|q| !q.is_noise()) {
-            (x0, y0, x1, y1, n) = (x0.min(q.x), y0.min(q.y), x1.max(q.x), y1.max(q.y), n + 1);
-        }
-        let area = (x1 - x0) * (y1 - y0);
-        if n < 100 || area <= 0.0 {
-            1.5
-        } else {
-            (6.0 * (area / n as f64).sqrt()).clamp(0.6, 3.0)
-        }
+        spacing(pts).map_or(1.5, |s| (6.0 * s).clamp(0.6, 3.0))
     };
     let width = if w.max_width > 0.0 {
         w.max_width
@@ -596,6 +607,177 @@ fn straight_chains(
         .iter()
         .map(|g| straight.get(g).copied().unwrap_or(false))
         .collect()
+}
+
+/// Which of the points `set` are pieces of a conductor linked across gaps: short compact pieces
+/// (0.4 to 4 m, points within `link` of each other, collapsed to voxels; thin, and level) that
+/// stand in a row: three of them, each at most `link_gap` from the next, with the turn at the
+/// middle one under 8° and the steepness of both steps within `max_slope`, make a chain; chains
+/// that span at least twice `min_length` are wire. The pieces are what a survey with few passes
+/// sees of a conductor: the scan lines cross it here and there, and between them there are
+/// metres without a point. Three pieces in a row by chance, that far apart, hardly happens in
+/// a crown.
+fn linked_wires(pts: &[Point], set: &[usize], w: &WireParams, link: f64) -> Vec<bool> {
+    let vs = w.voxel.max(0.05);
+    let mut voxel_of: HashMap<(i32, i32, i32), usize> = HashMap::new();
+    let mut centres: Vec<Point> = Vec::new();
+    let in_voxel: Vec<usize> = set
+        .iter()
+        .map(|&k| {
+            let q = &pts[k];
+            let key = (
+                (q.x / vs).floor() as i32,
+                (q.y / vs).floor() as i32,
+                (q.z / vs).floor() as i32,
+            );
+            *voxel_of.entry(key).or_insert_with(|| {
+                centres.push(Point {
+                    x: (f64::from(key.0) + 0.5) * vs,
+                    y: (f64::from(key.1) + 0.5) * vs,
+                    z: (f64::from(key.2) + 0.5) * vs,
+                    ..Point::default()
+                });
+                centres.len() - 1
+            })
+        })
+        .collect();
+    let all: Vec<usize> = (0..centres.len()).collect();
+    let (group, boxes) = chains(&centres, &all, link);
+    let mut members: HashMap<usize, Vec<[f64; 3]>> = HashMap::new();
+    for (&g, &i) in group.iter().zip(&all) {
+        let (b, n) = boxes[&g];
+        let diag = ((b[3] - b[0]).powi(2) + (b[4] - b[1]).powi(2) + (b[5] - b[2]).powi(2)).sqrt();
+        if n >= 8 && (0.4..=4.0).contains(&diag) && b[5] - b[2] <= 1.0 {
+            members
+                .entry(g)
+                .or_default()
+                .push([centres[i].x, centres[i].y, centres[i].z]);
+        }
+    }
+    // what stands around a piece: a conductor hangs alone, a piece of crown has crown around it
+    let mut around: HashMap<Cell, Vec<usize>> = HashMap::new();
+    for (i, c) in centres.iter().enumerate() {
+        around
+            .entry((
+                (c.x / ALONE).floor() as i32,
+                (c.y / ALONE).floor() as i32,
+                (c.z / ALONE).floor() as i32,
+            ))
+            .or_default()
+            .push(i);
+    }
+    let alone = |g: usize, c: &[f64; 3]| -> bool {
+        let (cx, cy, cz) = (
+            (c[0] / ALONE).floor() as i32,
+            (c[1] / ALONE).floor() as i32,
+            (c[2] / ALONE).floor() as i32,
+        );
+        let mut others = 0;
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    for &i in around.get(&(cx + dx, cy + dy, cz + dz)).into_iter().flatten() {
+                        let q = &centres[i];
+                        if group[i] != g
+                            && (q.x - c[0]).powi(2) + (q.y - c[1]).powi(2) + (q.z - c[2]).powi(2)
+                                <= ALONE * ALONE
+                        {
+                            others += 1;
+                        }
+                    }
+                }
+            }
+        }
+        others <= 2
+    };
+    // (group, centre) of the pieces that are thin and alone
+    let mut pieces: Vec<(usize, [f64; 3])> = Vec::new();
+    for (g, m) in &members {
+        let (c, cov, _) = crate::tls::covariance(m.iter().copied());
+        let (vals, _) = crate::tls::eigen(cov);
+        if vals[1].max(0.0).sqrt() <= 0.3 && alone(*g, &c) {
+            pieces.push((*g, c));
+        }
+    }
+    pieces.sort_by_key(|p| p.0);
+    let mut out = vec![false; set.len()];
+    if pieces.len() < 3 {
+        return out;
+    }
+    let cell = |c: &[f64; 3]| -> Cell {
+        (
+            (c[0] / w.link_gap).floor() as i32,
+            (c[1] / w.link_gap).floor() as i32,
+            (c[2] / w.link_gap).floor() as i32,
+        )
+    };
+    let mut by_cell: HashMap<Cell, Vec<usize>> = HashMap::new();
+    for (j, p) in pieces.iter().enumerate() {
+        by_cell.entry(cell(&p.1)).or_default().push(j);
+    }
+    let mut dsu = crate::cluster::Dsu::new(pieces.len());
+    // cosine of the turn at the middle piece of three in a row (8°)
+    const STRAIGHT: f64 = 0.99;
+    let step = |a: &[f64; 3], b: &[f64; 3]| -> Option<[f64; 3]> {
+        let v = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let d = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        (d >= 2.0 * link && d <= w.link_gap && (v[2] / d).abs() <= w.max_slope)
+            .then(|| [v[0] / d, v[1] / d, v[2] / d])
+    };
+    for (j, p) in pieces.iter().enumerate() {
+        let (cx, cy, cz) = cell(&p.1);
+        // the pieces near this one, as the unit step from it
+        let mut near: Vec<(usize, [f64; 3])> = Vec::new();
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    for &o in by_cell.get(&(cx + dx, cy + dy, cz + dz)).into_iter().flatten() {
+                        if let Some(u) = step(&p.1, &pieces[o].1) {
+                            near.push((o, u));
+                        }
+                    }
+                }
+            }
+        }
+        // two pieces on opposite sides of this one, on the same line
+        for a in 0..near.len() {
+            for b in a + 1..near.len() {
+                let (u, v) = (near[a].1, near[b].1);
+                if -(u[0] * v[0] + u[1] * v[1] + u[2] * v[2]) >= STRAIGHT {
+                    dsu.union(j, near[a].0);
+                    dsu.union(j, near[b].0);
+                }
+            }
+        }
+    }
+    let mut rows: HashMap<usize, (usize, [f64; 6])> = HashMap::new();
+    for (j, p) in pieces.iter().enumerate() {
+        let r = dsu.find(j);
+        let (n, b) = rows.entry(r).or_insert((
+            0,
+            [f64::MAX, f64::MAX, f64::MAX, f64::MIN, f64::MIN, f64::MIN],
+        ));
+        *n += 1;
+        for k in 0..3 {
+            b[k] = b[k].min(p.1[k]);
+            b[k + 3] = b[k + 3].max(p.1[k]);
+        }
+    }
+    let wire_group: std::collections::HashSet<usize> = pieces
+        .iter()
+        .enumerate()
+        .filter(|(j, _)| {
+            let (n, b) = rows[&dsu.find(*j)];
+            let span =
+                ((b[3] - b[0]).powi(2) + (b[4] - b[1]).powi(2) + (b[5] - b[2]).powi(2)).sqrt();
+            n >= 3 && span >= 2.0 * w.min_length
+        })
+        .map(|(_, p)| p.0)
+        .collect();
+    for (o, &v) in out.iter_mut().zip(&in_voxel) {
+        *o = wire_group.contains(&group[v]);
+    }
+    out
 }
 
 /// Gives the extra classes to the points of a tile. `class` holds the class each step decided
@@ -706,6 +888,18 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
                 class[k] = Some(WIRE);
             }
         }
+        if w.link_gap > 0.0 {
+            let rest: Vec<usize> = set
+                .iter()
+                .copied()
+                .filter(|&k| class[k] != Some(WIRE) && height(k) >= LINKED_MIN_HEIGHT)
+                .collect();
+            for (&k, hit) in rest.iter().zip(linked_wires(pts, &rest, w, radius)) {
+                if hit {
+                    class[k] = Some(WIRE);
+                }
+            }
+        }
     }
     if let Some(p) = &e.poles {
         let set: Vec<usize> = above
@@ -714,29 +908,35 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
             .filter(|&k| height(k) >= p.min_height && now(class, k) != WIRE)
             .collect();
         // what stands around a structure: points more than 3 m above the ground, by 3 m cell
-        let mut under: HashMap<(i32, i32), Vec<[f64; 3]>> = HashMap::new();
+        let mut under: HashMap<(i32, i32), Vec<[f64; 4]>> = HashMap::new();
         for &k in &above {
-            if height(k) >= 3.0 {
+            // conductors reach the tower: they are not crown around it
+            if height(k) >= 3.0 && class[k] != Some(WIRE) {
                 under
                     .entry((
                         (pts[k].x / 3.0).floor() as i32,
                         (pts[k].y / 3.0).floor() as i32,
                     ))
                     .or_default()
-                    .push([pts[k].x, pts[k].y, pts[k].z]);
+                    .push([pts[k].x, pts[k].y, pts[k].z, height(k)]);
             }
         }
-        let (group, boxes) = chains(pts, &set, p.radius);
-        let mut members: HashMap<usize, usize> = HashMap::new();
+        // how many points a structure may have, and how many strays a tower tolerates, grow with
+        // the density of the survey: 12 per metre of height is the count of a tower at 9 points/m²
+        let density = spacing(pts).map_or(1.0, |s| (POLE_REFERENCE_SPACING / s).powi(2).max(1.0));
+        let (group, boxes) = chains_z(pts, &set, p.radius, POLE_Z_SCALE);
+        let mut members: HashMap<usize, Vec<f64>> = HashMap::new();
         for (&k, g) in set.iter().zip(&group) {
             if height(k) >= 3.0 {
-                *members.entry(*g).or_default() += 1;
+                members.entry(*g).or_default().push(height(k));
             }
         }
-        // points more than 3 m above the ground within 3 m of the chain on the plan, those of
-        // the chain apart: a tower in a corridor has none, a tree at the edge of a stand has
-        let crowded = |g: &usize| -> bool {
-            let (b, _) = boxes[g];
+        // points high above the ground within 3 m of the chain on the plan, those of the chain
+        // apart: a tower in a corridor has none, a tree at the edge of a stand has. "High" is 3 m
+        // or a third of the height of the structure, whichever is more: a crop of low trees at the
+        // foot of a tower is not crown around it
+        let crowd = |b: &[f64; 6], own: &[f64], tolerance: f64| -> bool {
+            let high = (0.3 * (b[5] - b[2])).max(3.0);
             let (cx0, cx1) = (
                 (b[0] / 3.0).floor() as i32 - 1,
                 (b[3] / 3.0).floor() as i32 + 1,
@@ -750,10 +950,44 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
                 .filter_map(|c| under.get(&c))
                 .flatten()
                 .filter(|q| {
-                    q[0] > b[0] - 3.0 && q[0] < b[3] + 3.0 && q[1] > b[1] - 3.0 && q[1] < b[4] + 3.0
+                    q[3] >= high
+                        && q[0] > b[0] - 3.0
+                        && q[0] < b[3] + 3.0
+                        && q[1] > b[1] - 3.0
+                        && q[1] < b[4] + 3.0
                 })
                 .count();
-            near > members.get(g).copied().unwrap_or(0) + 2
+            let own = own.iter().filter(|h| **h >= high).count() as f64;
+            near as f64 > own * tolerance + 2.0 * density
+        };
+        // a trunk goes up into its crown: around its top, from 2 m under it, there are many more
+        // points than its own. A lamp post, a pole, has a lamp and little else up there.
+        let capped = |b: &[f64; 6], own: usize| -> bool {
+            let (cx0, cx1) = (
+                ((b[0] - 2.0) / 3.0).floor() as i32,
+                ((b[3] + 2.0) / 3.0).floor() as i32,
+            );
+            let (cy0, cy1) = (
+                ((b[1] - 2.0) / 3.0).floor() as i32,
+                ((b[4] + 2.0) / 3.0).floor() as i32,
+            );
+            let near: usize = (cx0..=cx1)
+                .flat_map(|cx| (cy0..=cy1).map(move |cy| (cx, cy)))
+                .filter_map(|c| under.get(&c))
+                .flatten()
+                .filter(|q| {
+                    q[2] >= b[5] - 2.0
+                        && q[0] > b[0] - 2.0
+                        && q[0] < b[3] + 2.0
+                        && q[1] > b[1] - 2.0
+                        && q[1] < b[4] + 2.0
+                })
+                .count();
+            near as f64 > own as f64 * CAP_TOLERANCE + 2.0 * density
+        };
+        let crowded = |g: &usize| -> bool {
+            let (b, _) = boxes[g];
+            crowd(&b, members.get(g).map_or(&[][..], |v| v.as_slice()), CROWD_TOLERANCE)
         };
         // a structure stands on the ground, is narrow for its height and is sparse; a crown is
         // wide and dense, a forest is one chain far wider than any tower
@@ -765,7 +999,7 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
                 && width <= p.max_width
                 && extent >= p.min_extent
                 && width <= 0.35 * extent
-                && (n as f64) <= 12.0 * extent
+                && (n as f64) <= 12.0 * extent * if extent >= TOWER_HEIGHT { density } else { 1.0 }
         };
         let low = |g: &usize| -> bool {
             // reaches the ground: some point of the chain is within 3 m of it
@@ -899,12 +1133,27 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
                         .map(|_| v)
                 })
                 .collect();
+            // trunks show as vertical lines only when the survey is dense (above ~180 points/m²)
+            let trunks_resolved = density >= TRUNK_DENSITY;
             let (group, boxes) = chains(&centres, &cand, radius);
+            // the heights of the points of each chain, to tell a pole from a trunk: a trunk
+            // has its crown around it
+            let group_of: HashMap<usize, usize> =
+                cand.iter().copied().zip(group.iter().copied()).collect();
+            let mut own: HashMap<usize, Vec<f64>> = HashMap::new();
+            for (&k, v) in set.iter().zip(&in_voxel) {
+                if let Some(g) = group_of.get(v) {
+                    own.entry(*g).or_default().push(height(k));
+                }
+            }
             let good: std::collections::HashSet<usize> = boxes
                 .iter()
-                .filter(|(_, (b, n))| {
+                .filter(|(g, (b, n))| {
                     let plan = (b[3] - b[0]).hypot(b[4] - b[1]);
-                    *n >= 4 && b[5] - b[2] >= p.thin_extent && plan <= 0.5 * (b[5] - b[2]).max(1.0)
+                    *n >= 4
+                        && b[5] - b[2] >= p.thin_extent
+                        && plan <= 0.5 * (b[5] - b[2]).max(1.0)
+                        && !(trunks_resolved && capped(b, own.get(g).map_or(0, Vec::len)))
                 })
                 .map(|(g, _)| *g)
                 .collect();
@@ -1017,6 +1266,105 @@ mod tests {
             "{:?}",
             &class[head_from..head_to]
         );
+    }
+
+    fn flat_ground(w: i32, h: i32, step: f64) -> Vec<Point> {
+        let mut pts = Vec::new();
+        for i in 0..(f64::from(w) / step) as i32 {
+            for j in 0..(f64::from(h) / step) as i32 {
+                pts.push(pt(f64::from(i) * step, f64::from(j) * step, 0.0));
+            }
+        }
+        pts
+    }
+
+    /// A survey with few passes sees a conductor in pieces a metre long with metres of nothing
+    /// between: three or more in a row, far from anything else, are a wire; two are not, and
+    /// pieces with crown around them are not.
+    #[test]
+    fn pieces_of_conductor_in_a_row_are_wire() {
+        let mut pts = flat_ground(120, 40, 0.5);
+        let n_ground = pts.len();
+        let piece = |pts: &mut Vec<Point>, x: f64, y: f64, z: f64| {
+            for i in 0..20 {
+                pts.push(pt(x + f64::from(i) * 0.05, y, z));
+            }
+        };
+        // six pieces 10 m apart at 14 m, and another two apart from them
+        let wire_from = pts.len();
+        for k in 0..6 {
+            piece(&mut pts, 5.0 + 10.0 * f64::from(k), 25.0, 14.0);
+        }
+        let wire_to = pts.len();
+        piece(&mut pts, 5.0, 5.0, 14.0);
+        piece(&mut pts, 15.0, 5.0, 14.0);
+        let pair_to = pts.len();
+        // three pieces in a row, each in the middle of a blob of crown points
+        for k in 0..3 {
+            let x = 70.0 + 10.0 * f64::from(k);
+            piece(&mut pts, x, 25.0, 14.0);
+            for a in 0..6 {
+                for b in 0..6 {
+                    for c in 0..6 {
+                        pts.push(pt(
+                            x - 0.6 + f64::from(a) * 0.25,
+                            24.0 + f64::from(b) * 0.25,
+                            13.0 + f64::from(c) * 0.25,
+                        ));
+                    }
+                }
+            }
+        }
+        let mut ground = vec![false; pts.len()];
+        ground[..n_ground].fill(true);
+        let mut class = vec![None; pts.len()];
+        let e = Extras {
+            wires: Some(WireParams::default()),
+            ..Extras::default()
+        };
+        apply(&pts, &ground, &mut class, &e);
+        let wires = |a: usize, b: usize| class[a..b].iter().filter(|c| **c == Some(WIRE)).count();
+        assert_eq!(wires(wire_from, wire_to), wire_to - wire_from);
+        assert_eq!(wires(wire_to, pair_to), 0, "two pieces are not a line");
+        assert_eq!(wires(pair_to, pts.len()), 0, "pieces inside crown are not wire");
+    }
+
+    /// At the density of a survey a lattice tower has thousands of points, a loose column with
+    /// metres between its rows; low crops at its foot are not crown around it.
+    #[test]
+    fn a_dense_survey_tower_among_low_crops_is_a_pole() {
+        let mut pts = flat_ground(40, 40, 0.1);
+        let n_ground = pts.len();
+        let tower_from = pts.len();
+        for k in 0..13 {
+            let z = 3.0 + 3.0 * f64::from(k);
+            for i in 0..50 {
+                let d = -1.5 + f64::from(i) * 0.06;
+                pts.push(pt(20.0 + d, 20.0, z));
+                pts.push(pt(20.0, 20.0 + d, z));
+            }
+        }
+        let tower_to = pts.len();
+        // crops 3.5 m high in a ring 4 to 6 m from the tower
+        for i in 0..400 {
+            let a = f64::from(i) * 0.37;
+            let r = 4.0 + f64::from(i % 20) * 0.1;
+            pts.push(pt(20.0 + r * a.cos(), 20.0 + r * a.sin(), 3.5));
+        }
+        let mut ground = vec![false; pts.len()];
+        ground[..n_ground].fill(true);
+        let mut class = vec![None; pts.len()];
+        let e = Extras {
+            poles: Some(PoleParams::default()),
+            ..Extras::default()
+        };
+        apply(&pts, &ground, &mut class, &e);
+        let poles = class[tower_from..tower_to]
+            .iter()
+            .filter(|c| **c == Some(POLE))
+            .count();
+        assert!(poles >= (tower_to - tower_from) * 9 / 10, "{poles}");
+        assert!(class[tower_to..].iter().all(|c| *c != Some(POLE)));
     }
 
     /// A flat dark strip of ground is a road; bright ground beside it and rough ground are not.
