@@ -2276,4 +2276,23 @@ mod recipe_tests {
         assert!(back.steps.overlap.is_some() && back.steps.extras.wires.is_some());
         Ok(())
     }
+
+    /// The power-line recipe of the manual loads in the window without losing anything.
+    #[test]
+    fn the_power_line_recipe_loads_in_the_window() -> hipso_core::Result<()> {
+        let text = include_str!("../../../docs/recetas/clasificacion_lineas_electricas.txt");
+        let loaded = recipe::parse(text)?;
+        assert!(loaded.ignored.is_empty(), "{:?}", loaded.ignored);
+        assert!(recipe::is_exact(&loaded.recipe));
+        let mut tools = Tools::default();
+        tools.apply_recipe(&loaded.recipe);
+        let back = Recipe {
+            steps: tools.steps(),
+            tiling: tools.tiling.clone(),
+        };
+        assert_eq!(back, loaded.recipe);
+        assert!(back.steps.extras.wires.is_some() && back.steps.extras.poles.is_some());
+        assert!(back.steps.overlap.is_none() && back.steps.extras.roads.is_none());
+        Ok(())
+    }
 }

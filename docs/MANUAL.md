@@ -234,7 +234,7 @@ La edición, en resumen, nunca toca el original y siempre es reversible hasta el
 
 ## 7. LiDAR
 
-La pestaña LiDAR reúne las herramientas en cinco grupos, ordenados como suelen usarse en un trabajo real. *Preparar* contiene *Clasificar*; *Asignar proyección*, *Exportar puntos* (también en el panel *Edición*, junto a la selección que exporta, y con el formato COPC) y *Recortar con polígonos*; *Adelgazar nube*, *Alturas sobre suelo* y *Quitar duplicados*; y *Colorear con imagen* y *Normalizar intensidad*. La información de las nubes y de las demás capas está en la pestaña *Información* del panel lateral. *Calidad* reúne *Comparar nubes*, *Ajustar nubes* y *Entre pasadas*. *Superficies* contiene *MDT*, *MDS / CHM*, *Análisis de terreno*, *Volumen sobre MDT* y *Cambio de la cubierta vegetal*, todas ellas sobre el relieve y la altura de la vegetación. El inventario de la vegetación se divide según el tipo de nube. El grupo ALS (nubes aéreas) tiene tres botones grandes (*Extraer muestras*, *Métricas por celda* y *Modelos lineales*) y dos pequeños (*Segmentar individuos* y *Análisis por objetos*, OBIA). El grupo TLS (escáner terrestre) tiene el botón *Medición de troncos*. Por último, *Infraestructuras* contiene *Corredores eléctricos*.
+La pestaña LiDAR reúne las herramientas en cinco grupos, ordenados como suelen usarse en un trabajo real. *Preparar* contiene *Clasificar*; *Asignar proyección*, *Exportar puntos* (también en el panel *Edición*, junto a la selección que exporta, y con el formato COPC) y *Recortar con polígonos*; *Adelgazar nube*, *Alturas sobre suelo* y *Quitar duplicados*; *Colorear con imagen*, *Normalizar intensidad* y *Exportar TIFF de densidad*. La información de las nubes y de las demás capas está en la pestaña *Información* del panel lateral. *Calidad* reúne *Comparar nubes*, *Ajustar nubes* y *Entre pasadas*. *Superficies* contiene *MDT*, *MDS / CHM*, *Análisis de terreno*, *Volumen sobre MDT* y *Cambio de la cubierta vegetal*, todas ellas sobre el relieve y la altura de la vegetación. El inventario de la vegetación se divide según el tipo de nube. El grupo ALS (nubes aéreas) tiene tres botones grandes (*Extraer muestras*, *Métricas por celda* y *Modelos lineales*) y dos pequeños (*Segmentar individuos* y *Análisis por objetos*, OBIA). El grupo TLS (escáner terrestre) tiene el botón *Medición de troncos*. Por último, *Infraestructuras* contiene *Corredores eléctricos*.
 
 La cinta se adapta al ancho de la ventana. Si no caben todos los grupos, los de la derecha se pliegan en un botón grande con su nombre y una flecha (▾) que despliega sus herramientas, así que todas quedan siempre a un clic.
 
@@ -262,7 +262,20 @@ Reduce la densidad sin cambiar la extensión. Se usa para llevar a la misma dens
 
 #### Clasificar
 
-Aplica los pasos que se elijan, por teselas y en este orden: solape entre pasadas, ruido, suelo, edificios, vegetación por alturas, cables y postes, y por último las reglas. La ventana de clasificación tiene tres pestañas: *Clasificación* (los pasos, uno por apartado y en el mismo orden en que se ejecutan), *Reglas* y *Teselas y rendimiento*. En cada paso con varios métodos (ruido, suelo) se elige uno con un botón de selección. Las edificaciones van antes que la vegetación porque la vegetación solo toma los puntos que no son suelo ni edificio, y las reglas van al final porque ven y pueden cambiar lo que hizo cualquier paso anterior.
+Aplica los pasos que se elijan, por teselas y en este orden: solape entre pasadas, ruido, suelo, edificios, vegetación por alturas, cables y postes, carreteras y agua, y por último las reglas. La ventana de clasificación tiene tres pestañas: *Clasificación* (los pasos, uno por apartado y en el mismo orden en que se ejecutan), *Reglas* y *Teselas y rendimiento*. En cada paso con varios métodos (ruido, suelo) se elige uno con un botón de selección. Las edificaciones van antes que la vegetación porque la vegetación solo toma los puntos que no son suelo ni edificio, y las reglas van al final porque ven y pueden cambiar lo que hizo cualquier paso anterior.
+
+##### Una clasificación para distintos sensores
+
+Cada paso es independiente: se activan solo los que hacen falta y se escribe el orden y los valores en una receta (véase *Recetas*), de modo que la misma herramienta sirve para una hoja del PNOA, para un vuelo de dron y para una línea eléctrica. Lo que depende de la densidad de puntos o de la escala del sensor se ajusta solo:
+
+| Paso | Qué se ajusta solo |
+|---|---|
+| Cables | El radio del entorno es seis veces la separación de los puntos de la tesela (de 0,6 a 3 m), y los trozos de conductor que un vuelo con pocas pasadas ve separados se unen si van en fila |
+| Postes y torres | Los puntos que puede tener una torre crecen con la densidad (en estructuras de 15 m o más), y los cultivos bajos al pie no cuentan como copa |
+| Carreteras y agua | El límite de intensidad es una parte de la intensidad mediana del suelo de la tesela, de modo que vale con 16 bits o con valores de 0 a 255 |
+| Solape | No aparta las celdas a las que llegan más de dos pasadas (un vuelo con pasadas repetidas las suma) |
+
+Lo que no se ajusta solo es lo propio de cada terreno y de cada uso: el método de suelo y su umbral, la altura de los estratos de vegetación, el margen de los edificios y las reglas. Se eligen en la ventana, se guardan en una receta y se aplican igual a todas las hojas de un bloque. Los pasos se han medido con hojas del PNOA (clasificación del proveedor, que no es una verdad) y con las nubes etiquetadas a mano de DALES (aéreas, de 9 y 45 puntos/m²). Se han probado, sin etiquetas a mano, con un vuelo de dron de unos 100 puntos/m² y con tiras sobre líneas eléctricas de 290 y 471 puntos/m², y no se han probado con escáneres móviles ni terrestres. Lo medido está en cada paso y en el apartado de recetas.
 
 ##### Solape entre pasadas (clase 12)
 
@@ -456,7 +469,7 @@ Las características de forma se calculan solo para los puntos que pasan las dem
 
 ##### Recetas
 
-La ventana de clasificación ya funciona como una receta: se marcan los pasos que se quieren (ruido, suelo, edificios, vegetación, cables y postes, reglas) con sus parámetros, y se ejecutan uno detrás de otro, siempre en ese orden. Una receta es esa misma configuración escrita en un archivo de texto, para guardarla y aplicarla otra vez, a otra hoja o a un bloque entero, con el mismo criterio, y para dejar escrito cómo se clasificó.
+La ventana de clasificación ya funciona como una receta: se marcan los pasos que se quieren (solape, ruido, suelo, edificios, vegetación, cables y postes, carreteras y agua, reglas) con sus parámetros, y se ejecutan uno detrás de otro, siempre en ese orden. Una receta es esa misma configuración escrita en un archivo de texto, para guardarla y aplicarla otra vez, a otra hoja o a un bloque entero, con el mismo criterio, y para dejar escrito cómo se clasificó.
 
 ###### Guardar y cargar una receta
 
@@ -498,6 +511,32 @@ El PNOA entrega sus hojas LiDAR con la clase de cada punto, y su producto más f
 Qué busca. Reproduce el aspecto de la clasificación del NPC03: solape entre pasadas como clase 12, suelo generoso (SMRF con umbral 0,2 m y escala 0,5), edificios con un margen de 2 m sobre el suelo, cables, vegetación en tres estratos por altura (baja hasta 0,5 m, media hasta 3 m y alta desde 3 m) y carreteras como suelo liso, llano y de intensidad baja (el asfalto devuelve menos intensidad que la tierra; el límite de intensidad es relativo al suelo de cada tesela, y puede darse un valor absoluto).
 
 Qué no es. Los parámetros se eligieron para que el resultado sea similar al de las hojas NPC03, pero esa clasificación es la del proveedor y no una verdad del terreno, de modo que la receta no garantiza un acierto medido. No clasifica torres de transmisión (el paso de postes existe, pero la receta no lo activa), tableros de puente ni agua, ni el ruido bajo; las carreteras salen como suelo liso sin saber si forman una red, y se mezclan con campos llanos oscuros y aparcamientos. La receta se probó también con otros vuelos (una tira de cuatro pasadas con 290 puntos/m² y un dron con intensidad de 0 a 255): el solape aparta el 1,3 % de los puntos de la tira y las carreteras el 1,1 % de la ventana de cultivos, porque el solape ignora las celdas con más de dos pasadas y el límite de intensidad de las carreteras es relativo al suelo de la tesela. Para medir cuánto acierta un método de suelo con una referencia más fiable, véanse las pruebas de la ISPRS y de OpenGF.
+
+###### Receta de ejemplo: una línea eléctrica en un vuelo denso
+
+Para un vuelo de dron o de avión a baja altura sobre una línea eléctrica (de 100 a 500 puntos/m²), `docs/recetas/clasificacion_lineas_electricas.txt` activa el ruido, el suelo SMRF, los edificios, los cables, los postes y torres y los estratos de vegetación. No lleva solape ni carreteras, que en esos vuelos no hacen falta.
+
+```
+# Clasificación de una línea eléctrica en un vuelo denso (dron o avión a baja altura, de 100 a 500 puntos/m²):
+# ruido, suelo, edificios, cables, postes y torres, y estratos de vegetación por altura sobre el suelo
+--noise isolated
+--ground smrf
+--smrf-threshold 0.2
+--smrf-scalar 0.5
+--buildings
+--building-area 25
+--building-offset 2
+--wires
+--poles
+# lo que queda al ras del suelo es suelo
+--rule "from=1;height=..0.12;to=2"
+# estratos: baja de 0,12 a 0,5 m, media de 0,5 a 3 m, alta desde 3 m
+--rule "from=1,5;height=0.12..0.5;to=3"
+--rule "from=1,3,5;height=0.5..3;to=4"
+--rule "from=1,3,4;height=3..;to=5"
+```
+
+Se probó en un vuelo de dron de unos 100 puntos/m² y en tiras de 290 y 471 puntos/m² (resultados en *Cables y postes*), sin etiquetas hechas a mano. El suelo SMRF y los márgenes son los de la receta del PNOA, y no se han ajustado a estos vuelos. Después, *Corredores eléctricos* mide la vegetación que amenaza la línea sobre la nube clasificada con esta receta.
 
 ###### Reglas y recetas no son lo mismo
 
@@ -555,6 +594,12 @@ La imagen se lee una vez por nube y solo en su extensión; si esa ventana no cab
 Parte de un hecho físico: la energía que vuelve al escáner cae con el cuadrado de la distancia, y la misma superficie sale por ello más oscura en el borde de una pasada o desde una pasada más alta. Cada intensidad se multiplica por (R / R_ref)^a (Höfle y Pfeifer, 2007), con *a* = 2 para superficies extensas (suelo, copas) y en torno a 3 para cables y bordes; R_ref es por defecto la distancia media de la nube, para que los valores conserven su tamaño habitual.
 
 La distancia R de cada punto sale de la trayectoria del vuelo (un archivo de texto con líneas 'tiempo x y z', en el tiempo GPS y el sistema de la nube, que es lo más exacto) o, en su defecto, de la altitud de vuelo constante y el ángulo de escaneo: R = (altitud − z) / cos(ángulo). Los puntos sin distancia calculable (fuera de la trayectoria) conservan su intensidad, y el informe dice cuántos son. Escribe `…_intensidad`. Conviene aplicarla antes de usar la intensidad en clasificaciones, métricas o comparaciones entre pasadas y vuelos. No corrige el ángulo de incidencia sobre la superficie, ni la atmósfera, ni las diferencias entre sensores. En la línea de comandos: `hipso intensity nube.laz --trajectory tray.txt` o `--altitude 3200`.
+
+#### Exportar TIFF de densidad
+
+Guarda, por cada nube cargada, un GeoTIFF con los puntos por metro cuadrado de cada celda: el recuento de puntos de la celda dividido por su área, en el sistema de la nube. Las celdas sin puntos valen 0, no «sin dato». Con una celda fina (de 0,25 a 1 m) el ráster se parece a una imagen en tonos de gris de la cobertura y sirve de base para la ortofoto: se coloca como fondo o se le aplica una rampa de color. No es una imagen en color; para el color de los puntos está *Colorear con imagen*.
+
+Se ajusta la celda (0,5 m por defecto), los retornos (F primeros y únicos, L últimos, A todos, o los números de retorno) y las clases (una lista como 2,5 o, con «~», todas menos esas; con las clases vacías se dejan fuera el ruido y los puntos retenidos). Se hace en una sola pasada y la memoria sigue al tamaño del ráster, no al de la nube, así que una celda muy fina sobre una hoja grande da un ráster grande. Escribe `…_densidad_0.5m.tif`. El valor depende del tamaño de celda: para comprobar la cobertura frente a un umbral, que no depende de por dónde caiga el borde de la celda, está *Densidad de Voronoi*. En la línea de comandos: `hipso raster nube.laz --stat density --cell 0.5`.
 
 #### Exportar puntos
 

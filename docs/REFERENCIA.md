@@ -42,7 +42,7 @@ hipso export nube.laz -o puntos.csv --items x,y,z,class --header
 
 | Comando | Qué hace | Comparable a (solo referencia) |
 |---|---|---|
-| `classify` | Ruido (7), suelo (2), edificios (6) y vegetación alta (5). Escribe LAS o LAZ. | MCC-LIDAR, lidR `classify_*` |
+| `classify` | Solape entre pasadas (12), ruido (7), suelo (2), edificios (6), vegetación por estratos (3, 4, 5), cables (14), postes y torres (15), carreteras (11), agua (9) y reglas, en una receta o por opciones. Escribe LAS o LAZ. | MCC-LIDAR, lidR `classify_*` |
 | `dtm` | MDT en GeoTIFF por media por celda o TIN | GroundFilter + GridSurfaceCreate, lidR `rasterize_terrain` |
 | `chm` | Modelo de alturas de la vegetación: punto más alto por celda, o sin huecos | CanopyModel, lidR `pitfree` |
 | `metrics` | CSV de elevación, intensidad (`--intensity`) y estratos (`--strata`) | GridMetrics |
@@ -82,13 +82,15 @@ Métodos disponibles:
   - `isolated`: celdas 3×3×3.
   - `sor`: estadístico sobre los k vecinos más cercanos.
   - `elm`: mínimo local extendido, para el ruido bajo.
+- **Solape (`--overlap`, `--overlap-cell`):** aparta a la clase 12 las pasadas que sobran en las celdas con dos pasadas; con más de dos no aparta ninguna.
+- **Vegetación (`--vegetation`), cables (`--wires`), postes y torres (`--poles`), carreteras (`--roads`) y agua (`--water`):** pasos con valores por defecto que se ajustan a la densidad de la tesela y a la escala de la intensidad; carreteras y agua se comparan con la intensidad mediana del suelo.
 - **Reglas (`--rule`, repetible):** `to=`, `from=`, `returns=`, `angle=`, `height=` (m sobre el suelo), `intensity=`, `slope=`, `planarity=`, `linearity=`, `sphericity=`, `roughness=`, `neighbours=` y `radius=`; se aplican en orden, al final.
 - **Recetas (`--recipe ARCHIVO`):** las opciones del archivo (una o más por línea; `#` comenta) ocupan el lugar de la opción. La ventana de clasificación del GUI las guarda y las carga (*Guardar receta…*, *Cargar receta…*).
 
 - **Estructura (`metrics --structure`):** fracción de huecos, LAI (Beer–Lambert), FHD (Shannon), VCI y CBH a partir de las alturas de los retornos de cada celda, en un archivo `_estructura`; `--structure-layer`, `--structure-top`, `--gap-height`, `--extinction`, `--cbh-floor`, `--cbh-share`.
 - **Cambio (`change`):** `--min-change`, `--cover-height`, `--min-patch`, `--years`, `--stands`, `--trees` (cimas de las dos fechas, emparejadas por distancia, `--match-dist`); el informe da el acuerdo vertical de los dos modelos.
 - **Modelo (`model`):** `--plots` (capa `.shp` o tabla de texto de `clip --metrics`), `--field` (.csv, .txt o .xlsx, una fila por unidad de muestreo), `--response`, `--plot-key` y `--field-key`; `--analyze` solo hace el análisis previo (normalidad de la variable y cribado de candidatas); `--candidates a,b` restringe las candidatas y `--max-corr` (0,8) quita las que repiten a otra; `--predictors a,b` fija las métricas, por su nombre largo (`"Elev P90"`) o por el corto del shapefile (`EP90`) (si no, se eligen solas con `--criterion bic|aicc`, `--max-vars`, `--max-vif`; la intensidad solo con `--with-intensity`); `--transform none|log-response|log-both`; `--cells` (tablas de texto de `metrics`, una por hoja) escribe el mapa en `-o`, `--interval` añade el intervalo de predicción del 95 %, `--extrapolate` estima también fuera del rango de las unidades de muestreo. Escribe `<salida>_modelo.txt` y `<salida>_parcelas.csv`.
-- **Corredores (`corridor`):** conductores por proximidad de puntos de cable (`--link`), mediana por tramos y parábola en los huecos (`--gap-max`), postes (`--min-pole-height`), distancia de seguridad (`--min-distance`), margen de caída (`--fall-margin`), longitud mínima de conductor (`--min-length`).
+- **Corredores (`corridor`):** no clasifica: lee los cables (14) y los postes (15) ya clasificados con `classify`. Conductores por proximidad de puntos de cable (`--link`), los paralelos separados por posición y altura, mediana por tramos y parábola en los huecos (`--gap-max`), postes (`--min-pole-height`), distancia de seguridad (`--min-distance`), margen de caída (`--fall-margin`), longitud mínima de conductor (`--min-length`).
 - **COPC:** el recorte (`clip`) y la vista leen solo los nodos que hacen falta; los demás procesos lo leen como LAZ. `copc` escribe una nube como COPC 1.0 (octree de 128³ celdas por nodo, nodos de hasta 100 000 puntos, formatos 0–3 pasados a 6/7, WKT obligatorio); `<nombre>.copc.laz`.
 - **Color (`colorize`):** `--image` (ortofoto en el sistema de la nube), `--bands 1,2,3`, `--nir` (formatos 8 y 10), `--keep-outside`. Los formatos 0, 1 y 6 se escriben como 7; 4 y 9 no se admiten. `_rgb`.
 - **Intensidad (`intensity`):** I · (R / R_ref)^a (Höfle y Pfeifer, 2007). `--trajectory` (texto «tiempo x y z») o `--altitude` (altitud constante; R = (altitud − z) / cos(ángulo)); `--exponent` (2), `--reference` (por defecto, la distancia media). `_intensidad`.
