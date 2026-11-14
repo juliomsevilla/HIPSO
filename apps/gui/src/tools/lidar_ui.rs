@@ -62,6 +62,8 @@ pub struct State {
     pub dn_cell: f64,
     pub dn_returns: String,
     pub dn_classes: String,
+    pub dn_mosaic: bool,
+    pub dn_fill: f64,
     pub vol_source: usize,
     /// Rasters chosen by hand (empty: the one found for each cloud).
     pub vol_surface: String,
@@ -138,9 +140,11 @@ impl Default for State {
             vd_classes: String::new(),
             vd_pass: true,
             vd_csv: true,
-            dn_cell: 0.5,
-            dn_returns: "A".to_string(),
+            dn_cell: 1.0,
+            dn_returns: "F".to_string(),
             dn_classes: String::new(),
+            dn_mosaic: false,
+            dn_fill: 2.0,
             vol_source: 0,
             vol_surface: String::new(),
             vol_dtm: String::new(),
@@ -792,10 +796,30 @@ impl Tools {
         ui.checkbox(&mut s.fl_csv, "Tabla de las líneas (CSV)");
     }
 
-    pub fn density_tiff_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+    pub fn intensity_image_form(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf]) {
         let s = &mut self.lx;
-        ui.label(egui::RichText::new("Guarda, por cada nube, un GeoTIFF con los puntos por metro cuadrado de cada celda (las celdas sin puntos valen 0), en el sistema de la nube. Con una celda fina (0,25 a 1 m) sirve de base para la ortofoto: se coloca como imagen de fondo, o se le aplica una rampa de color. Es el recuento de puntos entre el área de la celda, así que depende del tamaño de celda; para el control de calidad de la cobertura está la densidad de Voronoi. Se hace en una pasada y la memoria sigue al tamaño del ráster.").color(t.weak).size(11.0));
-        num(ui, "Celda del ráster (m)", &mut s.dn_cell, 0.05..=1000.0, 0.05);
+        ui.label(egui::RichText::new("Imagen en tonos de gris de la nube: en cada celda, la intensidad media de sus puntos, como GeoTIFF en el sistema de la nube. Las celdas sin puntos se rellenan con las vecinas hasta el número de celdas indicado; los huecos mayores (agua, falta de pasada) quedan transparentes, y la imagen se recorta a los datos. La intensidad se corrige por el ángulo de escaneo (la señal cae con el cuadrado de la distancia al sensor, así que los bordes de pasada salen oscuros) y se guarda como imagen de 8 bits, con una sola escala de tonos para todas las hojas (del percentil 2 al 98), de modo que se unen sin saltos. Con los primeros retornos la imagen es más nítida, y una celda de 2 a 4 veces la separación media de los puntos deja pocos huecos.").color(t.weak).size(11.0));
+        num(ui, "Celda de la imagen (m)", &mut s.dn_cell, 0.05..=1000.0, 0.05);
+        if let Some(sp) = inputs
+            .first()
+            .and_then(|p| hipso_core::ops::mean_spacing(p))
+        {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("Separación media de los puntos: {sp:.2} m"))
+                        .color(t.weak)
+                        .size(11.0),
+                );
+                if ui
+                    .small_button("Celda automática (3 × separación)")
+                    .on_hover_text("Entre 2 y 4 veces la separación media de los puntos deja pocas celdas vacías y conserva el detalle")
+                    .clicked()
+                {
+                    s.dn_cell = ((sp * 3.0 * 4.0).round() / 4.0).max(0.25);
+                }
+            });
+        }
+        num(ui, "Rellenar huecos de hasta (celdas)", &mut s.dn_fill, 0.0..=50.0, 1.0);
         ui.horizontal(|ui| {
             ui.label("Retornos");
             ui.add(
@@ -822,6 +846,7 @@ impl Tools {
                 }
             }
         });
+        ui.checkbox(&mut s.dn_mosaic, "Unir las hojas en un mosaico (…_mosaico)");
         if let Err(e) = hipso_core::filter::ReturnSel::parse(&s.dn_returns) {
             ui.label(egui::RichText::new(e.to_string()).color(egui::Color32::from_rgb(200, 60, 40)).size(11.0));
         }
@@ -1440,10 +1465,11 @@ impl Tools {
                     outputs,
                 });
             }
-            ToolId::DensityTiff => {
-                use hipso_core::ops::{Stat, raster_stat};
+            ToolId::IntensityImage => {
+                use hipso_core::ops::intensity_image;
                 let s = &self.lx;
-                let cell = s.dn_cell;
+                let (cell, join) = (s.dn_cell, s.dn_mosaic && inputs_v.len() > 1);
+                let fill = s.dn_fill.max(0.0) as usize;
                 let mut filter = Filter {
                     skip_noise: true,
                     ..Filter::default()
@@ -1467,21 +1493,48 @@ impl Tools {
                         }
                     }
                 }
-                let outs = names_ext(&format!("densidad_{}m", paths::num(cell)), "tif");
-                let outputs: Vec<PathBuf> = outs.values().cloned().collect();
-                let show: Vec<PathBuf> = inputs_v
+                let outs = names_ext(&format!("intensidad_{}m", paths::num(cell)), "tif");
+                let mosaic_out = join.then(|| {
+                    paths::unique(&paths::product(
+                        &first,
+                        &format!("intensidad_{}m_mosaico", paths::num(cell)),
+                        "tif",
+                    ))
+                });
+                let mut outputs: Vec<PathBuf> = outs.values().cloned().collect();
+                outputs.extend(mosaic_out.clone());
+                let mut show: Vec<PathBuf> = inputs_v
                     .iter()
                     .filter_map(|p| outs.get(p).cloned())
                     .collect();
+                if let Some(m) = &mosaic_out {
+                    show = vec![m.clone()];
+                }
                 let task: Task = Box::new(move || {
                     let mut lines = Vec::new();
+                    // every sheet is made first, so that all share one tone scale
+                    let mut sheets = Vec::new();
                     for p in &inputs_v {
                         hipso_core::check_cancel()?;
-                        let out = outs.get(p).cloned().unwrap_or_default();
-                        let (g, epsg) = raster_stat(std::slice::from_ref(p), cell, Stat::Density, &filter)?;
-                        paths::ensure_parent(&out)?;
-                        g.write_tiff(&out, epsg)?;
+                        let (g, epsg) =
+                            intensity_image(std::slice::from_ref(p), cell, &filter, fill, true)?;
+                        sheets.push((outs.get(p).cloned().unwrap_or_default(), g, epsg));
+                    }
+                    let grids: Vec<&hipso_core::grid::Grid> = sheets.iter().map(|s| &s.1).collect();
+                    let (lo, hi) = hipso_core::ops::tone_range(&grids).ok_or_else(|| {
+                        hipso_core::Error::Param("las nubes no tienen intensidad".into())
+                    })?;
+                    for (out, g, epsg) in &sheets {
+                        hipso_core::check_cancel()?;
+                        paths::ensure_parent(out)?;
+                        g.write_tiff_u8(out, *epsg, lo, hi)?;
                         lines.push(format!("{} x {} celdas: {}", g.cols, g.rows, out.display()));
+                    }
+                    lines.push(format!("escala de tonos: intensidad {lo:.0} a {hi:.0} en 1 a 255"));
+                    if let Some(m) = &mosaic_out {
+                        let parts: Vec<PathBuf> = sheets.iter().map(|s| s.0.clone()).collect();
+                        hipso_core::sheets::mosaic_image(&parts, m)?;
+                        lines.push(format!("mosaico: {}", m.display()));
                     }
                     Ok(lines.join("\n"))
                 });
