@@ -87,7 +87,7 @@ La vista dibuja una muestra uniforme de la nube, y esa muestra se queda corta cu
 
 #### Rásteres en 3D
 
-Un MDT, un CHM o cualquier ráster de una banda (también los grandes, con su copia reducida) se dibuja en la vista 3D como una superficie, con los colores de su simbología y, si esta no trae relieve sombreado, con una luz sencilla. Se combina con una nube de puntos en la misma vista. Se dibuja por software, sin depender de la tarjeta gráfica: con una malla de 4 millones de celdas tarda unos 9 ms por imagen (1400 × 900, Mac M4). La exageración vertical se cambia en *Vista → Vista 3D*.
+Un MDT, un CHM o cualquier ráster de una banda (también los grandes, con su copia reducida) se dibuja en la vista 3D como una superficie, con los colores de su simbología y, si esta no trae relieve sombreado, con una luz sencilla. Se combina con una nube de puntos en la misma vista. Se dibuja en el procesador, sin depender de la tarjeta gráfica: con una malla de 4 millones de celdas tarda unos 9 ms por imagen (1400 × 900, Mac M4). La exageración vertical se cambia en *Vista → Vista 3D*.
 
 #### Abrir desde la copia
 
@@ -356,7 +356,7 @@ La elección depende más del terreno que del método. Con relieve fuerte o zona
 
 ###### Prueba con OpenGF
 
-OpenGF (Qin et al., 2023) es un conjunto de nubes ALS abiertas de varios países con el suelo etiquetado con detalle. Se han usado dos de sus tres hojas de prueba (T1 y T3), de 5 a 8,5 puntos/m², la densidad del PNOA, en una ventana de 1 000 × 1 000 m en el centro de cada una (7,6 y 6,8 millones de puntos; el suelo de la referencia es el 35 % y el 29 %). Con los parámetros por defecto, sin buffer ni limpieza previa del ruido, promedio de las dos hojas:
+OpenGF (Qin et al., 2023) es un conjunto de nubes ALS abiertas de varios países con el suelo etiquetado con detalle. Se han usado dos de sus tres hojas de prueba (T1 y T3), de 5 a 8,5 puntos/m², la densidad del PNOA, en una ventana de 1 000 × 1 000 m en el centro de cada una (7,6 y 6,8 millones de puntos; el suelo de la referencia es el 35 % y el 29 %). Con los parámetros por defecto, sin búfer ni limpieza previa del ruido, promedio de las dos hojas:
 
 | Método | Exactitud | Suelo perdido (tipo I) | No suelo tomado por suelo (tipo II) | Kappa | Error del MDT (RMSE) | Tiempo por ventana |
 |---|---|---|---|---|---|---|
@@ -1025,7 +1025,7 @@ La normalización de alturas sobre el suelo está por defecto marcada: las nubes
 
 Cuando dos unidades de muestreo se solapan, los puntos de la zona común se pueden tratar de dos maneras. *Se cuentan en todas las unidades de muestreo que los contienen* (lo predeterminado): cada unidad de muestreo es independiente y las métricas de cada una son completas. *Se asignan solo a la primera unidad de muestreo que los contiene* (la primera del archivo): un punto no se repite nunca, de modo que la suma de puntos de todas las unidades de muestreo no supera la de la nube, pero la segunda unidad de muestreo queda sin los puntos que comparte con la primera y sus métricas salen incompletas. La primera opción es la adecuada para inventario, y la segunda, para cuando cada punto debe aparecer una sola vez. Los filtros son clases, retornos y límites de Z (de altura, si se normaliza).
 
-Cuando las unidades vienen de un archivo de polígonos, dos opciones cambian la forma de las regiones antes de recortar. En la ventana, la casilla *Partir las multipartes* hace lo mismo que `--split-parts`; el buffer solo está en la línea de comandos. `--buffer` las amplía una distancia (o las reduce, si es negativa), con las esquinas redondeadas, en las unidades de la capa: metros en un sistema proyectado y grados en uno geográfico, caso en el que el programa avisa porque casi nunca es lo que se pretende. `--split-parts` parte cada entidad multiparte en una región por parte (`<nombre>_p1`, `<nombre>_p2`…), cada una con los huecos que le corresponden. La tabla de métricas lleva por defecto todas las columnas; en la ventana, el apartado *Métricas* de «Qué se obtiene» deja marcar solo las que interesan (con un buscador), y en la línea de comandos `--metrics-columns` hace lo mismo. Con `--mode each` se obtiene una nube por entidad, con el nombre tomado del campo que indique `--name-field`.
+Cuando las unidades vienen de un archivo de polígonos, dos opciones cambian la forma de las regiones antes de recortar. En la ventana, la casilla *Partir las multipartes* hace lo mismo que `--split-parts`; el búfer solo está en la línea de comandos. `--buffer` las amplía una distancia (o las reduce, si es negativa), con las esquinas redondeadas, en las unidades de la capa: metros en un sistema proyectado y grados en uno geográfico, caso en el que el programa avisa porque casi nunca es lo que se pretende. `--split-parts` parte cada entidad multiparte en una región por parte (`<nombre>_p1`, `<nombre>_p2`…), cada una con los huecos que le corresponden. La tabla de métricas lleva por defecto todas las columnas; en la ventana, el apartado *Métricas* de «Qué se obtiene» deja marcar solo las que interesan (con un buscador), y en la línea de comandos `--metrics-columns` hace lo mismo. Con `--mode each` se obtiene una nube por entidad, con el nombre tomado del campo que indique `--name-field`.
 
 Es el primer paso del enfoque por área (capítulo 13) y sirve para preparar nubes de unidades de muestreo de campo. Como las métricas dependen del tamaño de la unidad de muestreo y de la densidad de puntos, solo se comparan unidades de muestreo del mismo tamaño y de nubes con densidad similar.
 
@@ -1167,7 +1167,7 @@ Con *Guardar también las aristas de Delaunay* (`--delaunay`) se escribe otra ca
 
 ### Adosar y cortar polígonos
 
-Con una capa de polígonos en edición y *Digitalizar* activo, un trazo que empieza y termina dentro de polígonos —del mismo o de varios distintos— añade, como elemento nuevo y pegado a todos ellos, lo que cubre fuera de los polígonos. Cualquier otro trazo que atraviese polígonos corta todos los que parte de una vez (cada parte conserva los atributos del original), empiece y termine donde empiece y termine.
+Con una capa de polígonos en edición y *Digitalizar* activo, un trazo que empieza y termina dentro de polígonos (del mismo o de varios distintos) añade, como elemento nuevo y pegado a todos ellos, lo que cubre fuera de los polígonos. Cualquier otro trazo que atraviese polígonos corta todos los que parte de una vez (cada parte conserva los atributos del original), empiece y termine donde empiece y termine.
 
 ### Unir, separar y agrupar
 
@@ -1426,7 +1426,7 @@ Si el volumen de las copas sale absurdo (cientos de miles de m³) o las alturas 
 
 Si el informe de *Medición de troncos* avisa de muchos árboles `TRUNCADO`, el tronco se perdió antes de llegar al diámetro en punta, casi siempre por el hueco máximo sin medir (véase el capítulo 7.3, donde se explica cómo subirlo y cómo estimar la altura libre de ramas). Si la nube no se ve completa, se sube *Puntos en pantalla* en *Vista → Ventanas* (grupo *Carga de puntos*) y se pulsa *Aplicar*. Si los diámetros de los árboles salen vacíos, hay que comprobar que la nube tenga suelo (o marcar que ya está normalizada) y que la franja de búsqueda esté dentro de la altura de los troncos. Si el mosaico de imágenes dice que los sistemas son distintos, se pasan los rásteres al mismo sistema con `hipso reproject` antes de unirlos. Un resultado a medias tras detener un proceso se borra solo, y si queda algún archivo, se borra a mano.
 
-Cuando la interfaz va lenta o a saltos, lo primero es saber qué usa para dibujar. Con una tarjeta gráfica moderna usa wgpu (DirectX 12, Vulkan o Metal). Con un controlador antiguo (por ejemplo una Intel HD de 2015, que no llega a DirectX 12), wgpu solo ofrece un adaptador por software, que dibuja con el procesador y va muy lento, y el programa elige entonces OpenGL. Para ver lo que detecta se ejecuta `hipso-gui --gpu-info`. Para medir los fotogramas por segundo con una nube, `hipso-gui nube.laz --bench` (cuenta 8 s y sale). Para forzar uno, se usa la variable de entorno `HIPSO_RENDERER` con `glow` (OpenGL) o `wgpu`.
+Cuando la interfaz va lenta o a saltos, lo primero es saber qué usa para dibujar. Con una tarjeta gráfica moderna usa wgpu (DirectX 12, Vulkan o Metal). Con un controlador antiguo (por ejemplo una Intel HD de 2015, que no llega a DirectX 12), wgpu solo ofrece un adaptador por programa, que dibuja con el procesador y va muy lento, y el programa elige entonces OpenGL. Para ver lo que detecta se ejecuta `hipso-gui --gpu-info`. Para medir los fotogramas por segundo con una nube, `hipso-gui nube.laz --bench` (cuenta 8 s y sale). Para forzar uno, se usa la variable de entorno `HIPSO_RENDERER` con `glow` (OpenGL) o `wgpu`.
 
 ## 17. Bibliografía
 
