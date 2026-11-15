@@ -63,3 +63,5 @@ Si GitHub no compilara macOS (cuota o runners), usa el prompt de Mac de arriba e
 ## Antes de publicar: el manual y la cinta
 
 El capítulo 4 del manual explica cada botón de la cinta. Tras compilar, `python3 scripts/comprobar_manual_cinta.py` vuelca la cinta con `hipso-gui --dump-ribbon` y falla si algún botón, grupo o pestaña no aparece en ese capítulo. Un botón nuevo hay que explicarlo allí (un título con su nombre, bajo el de su grupo) y darle su texto emergente en `apps/gui/src/tips.rs`.
+
+Para contrastar una ventana con su tabla del manual, `hipso-gui --button "Etiqueta del botón" archivo.laz` la abre nada más arrancar, con los datos que se le pasen (el nombre es el de la cinta, por ejemplo `--button "Zonas encharcadas"`), y `--light` la muestra en el tema claro.

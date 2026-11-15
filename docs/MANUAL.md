@@ -49,6 +49,8 @@ En la cinta hay tres clases de botón. El **botón grande** (un icono sobre la e
 
 Las herramientas de las pestañas *LiDAR*, *Vectorial* y *Raster* abren una ventana flotante con sus opciones y un botón para calcular. Muchas de esas ventanas se generan a partir de la orden equivalente de la línea de comandos (capítulo 14), con idénticas opciones y la misma ayuda, y cada herramienta que tiene orden es también un nodo del constructor de flujos (capítulo 13). Por eso lo que hace el botón lo hace la orden `hipso` correspondiente, con los mismos resultados. Todo trabajo largo se puede detener con *■ Detener*, y lo que se hubiera escrito a medias se borra. Mientras corre, la barra de estado y el Registro dicen cuánto falta.
 
+Las herramientas de la pestaña *LiDAR* que trabajan con nubes comparten una cabecera: *Entrada* (las nubes cargadas que procesa la herramienta, una hoja cada una), *Guardar en* (la carpeta de resultados, con un botón *…* para elegirla; vacía, cada resultado se escribe junto a su nube) y, al pie, el botón *▶ Ejecutar*, que mientras corre se convierte en *■ Detener y borrar lo parcial*. Si la ruta de salida elegida a mano ya existe, la ventana pregunta antes de sobrescribirla. Esos controles son iguales en todas las ventanas y por eso no se repiten en las tablas siguientes.
+
 ### 4.2 La cabecera y el botón Inicio
 
 #### Abrir (Ctrl+O)
@@ -323,8 +325,7 @@ Saca los puntos a otro formato: LAZ (por defecto), LAS, texto con las columnas q
 | Línea de cabecera | Escribe los nombres de las columnas en la primera línea. |
 | Decimales | Decimales de las coordenadas del texto. |
 | Un punto de cada | Conserva un punto de cada tantos. |
-| Clases | Qué clases se exportan (2,5 o ~7,18). |
-| Retornos, elevaciones mínima y máxima | Filtran por número de retorno y por rango de cota. |
+| Clases | Qué clases se exportan (2,5 o ~7,18); vacío, todas. La ventana no ofrece filtro por retorno ni por cota: están en la orden `hipso export` (`--returns`, `--zmin`, `--zmax`). |
 
 La orden es `hipso export` (y `hipso copc` para el formato COPC).
 
@@ -429,11 +430,11 @@ Genera, por cada nube, un GeoTIFF en tonos de gris con la intensidad media por c
 |---|---|
 | Celda de la imagen (m) | Tamaño del píxel; el botón *Celda automática* pone tres veces la separación media de los puntos. Entre 2 y 4 veces deja pocas celdas vacías y conserva el detalle. |
 | Rellenar huecos de hasta (celdas) | Las celdas sin puntos se rellenan con la media de sus vecinas hasta ese número de celdas; los huecos mayores quedan vacíos y transparentes. |
-| Retornos | *Primeros*, *Últimos*, *Todos*, o una lista (F, L, A o números como 1,2). |
-| Clases | *Todas*, *Suelo*, *Vegetación*, *Edificios* o una lista (2,5 o ~7,18); vacío deja fuera el ruido. |
+| Retornos | Un campo de texto (F primeros y únicos, L últimos, A todos, o números como 1,2) con los atajos *Primeros*, *Últimos* y *Todos*. |
+| Clases | Un campo de texto (2,5 o ~7,18; vacío, todas menos el ruido) con los atajos *Todas*, *Suelo*, *Vegetación* y *Edificios*. |
 | Unir las hojas en un mosaico | Escribe además un mosaico con todas las hojas. |
 
-Se escribe un GeoTIFF por nube con la intensidad media por celda.
+Se escribe un GeoTIFF por nube con la intensidad media por celda, en el sistema de la nube y como imagen de 8 bits. La intensidad se corrige antes por el ángulo de escaneo (la señal cae con el cuadrado de la distancia al sensor, de modo que los bordes de pasada salen oscuros), y una sola escala de tonos (del percentil 2 al 98) sirve a todas las hojas, de modo que se unen sin saltos. La imagen se recorta a los datos y los huecos mayores quedan transparentes.
 
 #### LiDAR → Calidad
 
@@ -445,8 +446,8 @@ Escribe los puntos de una nube que están a más de una distancia de todos los d
 | Control | Qué hace |
 |---|---|
 | Nube de referencia | La nube con la que se compara la cargada. |
-| Distancia mínima de cambio (m) | Un punto cuenta como cambiado si está a más de esta distancia de todos los de la referencia. |
-| Vecinos cambiados que necesita un punto | Los puntos de cambio aislados se descartan: cada uno necesita este número de vecinos también cambiados. |
+| Distancia mínima de cambio (m) | Un punto cuenta como cambiado si está a más de esta distancia de todos los de la referencia (0,5). |
+| Vecinos cambiados que necesita un punto | Los puntos de cambio aislados se descartan: cada uno necesita este número de vecinos también cambiados (3). |
 
 Escribe los puntos que han cambiado y da la distancia media, el RMS y la compleción. La orden es `hipso compare`.
 
@@ -505,10 +506,10 @@ Densidad de puntos por celda de Voronoi en lugar de por cuadrícula. Véase el a
 | Control | Qué hace |
 |---|---|
 | Celda del ráster (m) | Tamaño del ráster de salida (5 m por defecto). |
-| Umbral (puntos/m²) | Densidad mínima que debe tener una celda para cumplir. |
-| Hueco de datos: celda de Voronoi mayor que (m²) | Una celda de Voronoi mayor que esta superficie se considera un hueco de datos. |
-| Retornos | F primeros y únicos (los pulsos), L últimos, A todos, o los números de retorno. |
-| Clases | Una lista como 2,5 o, con «~», todas menos esas; vacío deja fuera el ruido (7 y 18) y los puntos retenidos. |
+| Umbral (puntos/m²) | Densidad mínima que debe tener una celda para cumplir (8 por defecto). |
+| Hueco de datos: celda de Voronoi mayor que (m²) | Una celda de Voronoi mayor que esta superficie se considera un hueco de datos (agua, tejados sin retorno) y no cuenta para la densidad; su área se da aparte (100 por defecto). |
+| Retornos | Un campo de texto con F primeros y únicos (los pulsos, por defecto), L últimos, A todos o los números de retorno, y los atajos *Primeros*, *Últimos*, *Todos* y *1.° y 2.°*. |
+| Clases | Un campo de texto con una lista como 2,5 o, con «~», todas menos esas; vacío deja fuera el ruido (7 y 18) y los puntos retenidos. Atajos: *Todas*, *Suelo*, *Vegetación* y *Edificios*. |
 | Ráster de cumple / no cumple | Escribe el ráster que marca qué celdas alcanzan el umbral. |
 | Tabla (CSV) | Escribe la tabla de resultados. |
 
@@ -591,7 +592,7 @@ La ventana se divide en dos partes, *1 · De dónde salen las unidades de muestr
 | Campo con el radio, o radio fijo (m) | Ídem para las circulares. |
 | Solo las unidades de muestreo con CAMPO=VALOR | Filtra las regiones por el valor de un campo. |
 | Partir las multipartes | Una unidad por cada parte, nombradas nombre_p1, nombre_p2… |
-| Lado (m), Radio (m) | Tamaño de las unidades generadas. |
+| Lado (m), Radio (m) | Tamaño de las unidades generadas (el radio fijo parte de 11,28 m, un círculo de 400 m²). |
 | Aleatorio | Número de unidades, *Distancia mínima entre centros* (0: el doble del tamaño) y *Semilla* (la misma semilla da las mismas unidades). |
 | Sistemático (malla regular) | *Separación en X* y *en Y* (m) entre centros. |
 | Limitar a los polígonos de | Las unidades generadas se quedan dentro de estos polígonos (un rodal, por ejemplo). |
@@ -600,12 +601,13 @@ La ventana se divide en dos partes, *1 · De dónde salen las unidades de muestr
 
 | Control | Qué hace |
 |---|---|
-| Capa vectorial con las unidades de muestreo y sus métricas | Escribe la capa de unidades con sus métricas. |
+| Capa vectorial con las unidades de muestreo y sus métricas | Escribe la capa de unidades con sus métricas, en el *Formato de salida* *Vectorial (shapefile)* y/o *CSV*. |
 | Nubes recortadas | *ninguna*, *una por unidad de muestreo* o *una con todas*. |
 | Clases, Retornos | Qué puntos se usan (2,5 o ~7,18; F, L, A o números). |
+| Filtros y opciones | Sección plegable con *Clases*, *Retornos* y el resto de opciones siguientes. |
 | Alturas sobre el suelo | Cada nube menos su MDT (recomendado). Marcada, las métricas salen con alturas normalizadas y hace falta el MDT de cada nube. |
 | Puntos en el solape de dos unidades | Se cuentan en todas las que los contienen, o se asignan solo a la primera. |
-| Métricas | Todas, o las que se marquen en el selector (con buscador, *Marcar las visibles* y *Quitar todas*). La tabla lleva solo las columnas marcadas en el orden en que se marcaron; el nombre, el área y la fecha de captura van siempre. |
+| Métricas: todas | Sección plegable. Todas, o las que se marquen en el selector (con buscador, *Marcar las visibles* y *Quitar todas*). La tabla lleva solo las columnas marcadas en el orden en que se marcaron; el nombre, el área y la fecha de captura van siempre. |
 
 La orden es `hipso clip`.
 
@@ -616,12 +618,13 @@ Botón grande. Métricas de altura y densidad de la vegetación por celda. Véas
 
 | Control | Qué hace |
 |---|---|
+| Formato de salida | *Vectorial (shapefile)* (marcado por defecto) y *CSV*, que se pueden marcar a la vez. |
 | Celda | Lado de las celdas en las que se calculan las métricas (15 m por defecto). |
 | Altura de corte (cobertura) | Altura a partir de la cual un retorno cuenta para las métricas de cobertura (2 m). |
 | Métricas de intensidad (_intensity) | Escribe además un archivo con las métricas de la intensidad. |
 | Métricas por estratos (_strata) | Escribe además un archivo con las métricas por estratos de altura. |
 | Métricas de estructura (_estructura) | Escribe además la fracción de huecos, el índice de área foliar, la diversidad de alturas del follaje, la complejidad vertical y la altura de la base de la copa. |
-| Capa del perfil, Altura del perfil, Hueco bajo, Extinción k, Base de copa sobre, proporción | Parámetros de las métricas de estructura: el grosor de las capas del perfil, la altura bajo la que se cuenta como hueco (1 m), el coeficiente de extinción del índice foliar (0,5) y el suelo (2 m) y la proporción (10 %) con los que se busca la base de la copa. |
+| Capa del perfil, Altura del perfil, Hueco bajo, Extinción k, Base de copa sobre, proporción | Aparecen al marcar *Métricas de estructura*. Parámetros de las métricas de estructura: el grosor de las capas del perfil, la altura bajo la que se cuenta como hueco (1 m), el coeficiente de extinción del índice foliar (0,5) y el suelo (2 m) y la proporción (10 %) con los que se busca la base de la copa. |
 | Memoria máxima (MB) | Memoria que se dedica a las alturas de los puntos (512 MB por defecto); las nubes mayores requieren más pasadas. |
 
 Sin MDT para las hojas, el programa avisa de que hay que calcularlo antes. La orden es `hipso metrics`.
@@ -661,8 +664,9 @@ La ventana se organiza en cinco pasos.
 
 | Control | Qué hace |
 |---|---|
-| Ráster | El CHM que se segmenta; con varias nubes cargadas, se segmenta el de cada una y cada hoja da su resultado. |
+| CHM | El modelo de alturas que se segmenta, con un botón *…* para elegirlo; si la nube no tiene CHM, la ventana avisa de que hay que generarlo antes o elegir uno a mano. Con varias nubes cargadas, se segmenta el de cada una y cada hoja da su resultado. |
 | Individuos (base del nombre) | Nombre de los archivos de salida. |
+| Formato de salida | *Vectorial (shapefile)* y/o *CSV*. |
 | 1 · Ventana del suavizado (m, 0 = sin suavizar) | Suaviza el CHM antes de buscar cimas, con *Media*, *Mediana* o *Gauss*. |
 | 2 · Origen | *Buscar en el CHM* (máximos locales) o *Archivo de ápices (x,y)…* (cimas dadas a mano). |
 | Altura mínima | Altura mínima de una cima para contarla como árbol (2 m). |
@@ -713,6 +717,8 @@ Botón grande. Mide los troncos en nubes de escáner terrestre, móvil o fotogra
 
 | Control | Qué hace |
 |---|---|
+| Secciones plegables | Los parámetros avanzados están en tres secciones que se despliegan con su flecha: *Búsqueda de troncos*, *Secciones y suelo* y *Cepas y bifurcaciones (rebrotes)*. La tabla siguiente indica a qué sección pertenece cada control por el orden en que aparecen. |
+| Formato de salida | *Vectorial (shapefile)* y/o *CSV*. |
 | Equipo | *Terrestre estático (vóxel 3 cm)*: escáner sobre trípode, nubes densas y de poco ruido. *Móvil o SLAM (vóxel 5 cm)*: escáner de mano o de mochila, con ruido de varios centímetros. |
 | Altura de la base sobre el suelo (cm) | Donde empieza la primera troza (10 cm). |
 | Diámetro en punta delgada (cm) | Donde termina el fuste comercial (7 cm). |
@@ -823,7 +829,6 @@ Para cada polígono resume las celdas de un ráster cuyo centro cae dentro de é
 | Ráster | El ráster cuyas celdas se resumen, de un archivo o de las capas cargadas. |
 | Capa | La capa de polígonos. |
 | Prefijo de los campos nuevos | Por ejemplo, `chm_` da `chm_mean`; un campo de shapefile tiene 10 caracteres como máximo. |
-| Reparar antes los polígonos no válidos | Evita que un polígono inválido falle. |
 
 El resultado es una capa nueva con los campos originales y un campo más por estadístico (`count`, `min`, `max`, `mean`, `sum`, `stddev` y `median`). La orden es `hipso zonal`.
 
@@ -834,8 +839,8 @@ Amplía cada elemento la distancia indicada (negativa, lo reduce), también sobr
 
 | Control | Qué hace |
 |---|---|
-| Capa | La capa que se amplía. Con puntos, da un círculo de ese radio alrededor de cada punto (la distancia debe ser mayor que 0). |
-| Distancia | En las unidades de la capa: metros en un sistema proyectado, grados en uno geográfico. Negativa, reduce el polígono. |
+| Polígonos (o Capa) | La capa que se amplía, de un archivo o de las capas cargadas. Con puntos, da un círculo de ese radio alrededor de cada punto (la distancia debe ser mayor que 0). |
+| Distancia | En las unidades de la capa: metros en un sistema proyectado, grados en uno geográfico (10 por defecto). Negativa, reduce el polígono. |
 | Reparar antes los polígonos no válidos | Corrige los polígonos inválidos antes de operar. |
 
 Las esquinas quedan redondeadas. La orden es `hipso buffer`.
@@ -948,7 +953,7 @@ Da la celda de Voronoi de cada punto (el área que está más cerca de él que d
 Añade a una capa un campo por banda de uno o varios rásteres, con el valor bajo cada elemento (el CHM en cada parcela o árbol). Véase el apartado 9, *Capas y tablas*.
 
 
-La ventana se genera a partir de la orden `hipso extract`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+La ventana se genera a partir de la orden `hipso extract`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y otro *Del mapa…* para tomarlos de las capas cargadas. La tabla da el nombre de cada opción en la línea de comandos, por si se usa desde la terminal o desde un flujo, y la descripción que se lee en la ventana.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -964,7 +969,7 @@ La ventana se genera a partir de la orden `hipso extract`: cada control es una d
 Une a una capa las columnas de una tabla (csv, texto o Excel) por un campo clave, como el inventario de campo a las parcelas. Véase el apartado 9.
 
 
-La ventana se genera a partir de la orden `hipso join-table`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+La ventana se genera a partir de la orden `hipso join-table`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y otro *Del mapa…* para tomarlos de las capas cargadas. La tabla da el nombre de cada opción en la línea de comandos, por si se usa desde la terminal o desde un flujo, y la descripción que se lee en la ventana.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -980,7 +985,7 @@ La ventana se genera a partir de la orden `hipso join-table`: cada control es un
 Junta varias capas del mismo tipo de geometría en una; los campos son la unión de los de todas. Véase el apartado 9.
 
 
-La ventana se genera a partir de la orden `hipso merge`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+La ventana se genera a partir de la orden `hipso merge`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y otro *Del mapa…* para tomarlos de las capas cargadas. La tabla da el nombre de cada opción en la línea de comandos, por si se usa desde la terminal o desde un flujo, y la descripción que se lee en la ventana.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -993,7 +998,7 @@ La ventana se genera a partir de la orden `hipso merge`: cada control es una de 
 Escribe una capa por cada valor distinto de un campo (un archivo por rodal, por especie…). Véase el apartado 9.
 
 
-La ventana se genera a partir de la orden `hipso split`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+La ventana se genera a partir de la orden `hipso split`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y otro *Del mapa…* para tomarlos de las capas cargadas. La tabla da el nombre de cada opción en la línea de comandos, por si se usa desde la terminal o desde un flujo, y la descripción que se lee en la ventana.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1006,7 +1011,7 @@ La ventana se genera a partir de la orden `hipso split`: cada control es una de 
 Recorta una capa de puntos, líneas o polígonos con los polígonos de otra, o borra de ella lo que cubren. Véase el apartado 9.
 
 
-La ventana se genera a partir de la orden `hipso clip-vector`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+La ventana se genera a partir de la orden `hipso clip-vector`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y otro *Del mapa…* para tomarlos de las capas cargadas. La tabla da el nombre de cada opción en la línea de comandos, por si se usa desde la terminal o desde un flujo, y la descripción que se lee en la ventana.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1020,7 +1025,7 @@ La ventana se genera a partir de la orden `hipso clip-vector`: cada control es u
 Añade a cada elemento la distancia al elemento más cercano de otra capa, su número de orden y, si se pide, uno de sus campos. Véase el apartado 9.
 
 
-La ventana se genera a partir de la orden `hipso near`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+La ventana se genera a partir de la orden `hipso near`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y otro *Del mapa…* para tomarlos de las capas cargadas. La tabla da el nombre de cada opción en la línea de comandos, por si se usa desde la terminal o desde un flujo, y la descripción que se lee en la ventana.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1035,7 +1040,7 @@ La ventana se genera a partir de la orden `hipso near`: cada control es una de s
 Recuento, suma, media, mínimo, máximo y desviación de campos numéricos de una capa o tabla, por grupos de un campo. Véase el apartado 9.
 
 
-La ventana se genera a partir de la orden `hipso summary`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+La ventana se genera a partir de la orden `hipso summary`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y otro *Del mapa…* para tomarlos de las capas cargadas. La tabla da el nombre de cada opción en la línea de comandos, por si se usa desde la terminal o desde un flujo, y la descripción que se lee en la ventana.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1110,7 +1115,7 @@ Reproyecta, recorta a la extensión y remuestrea varios rásteres sobre las celd
 |---|---|
 | Referencia | El ráster cuyas celdas se copian (origen, tamaño de celda y dimensiones), de un archivo o de las capas cargadas. |
 | Rásteres a igualar | Lista de rásteres (se añaden archivos o capas, y se vacía o se quita uno). Debajo de cada uno la ventana avisa de si ya coincide con la referencia o si está en otro sistema, en cuyo caso se reproyecta. |
-| Remuestreo | *Automático* (vecino más próximo para clases y bilineal para el resto), *Vecino más próximo*, *Bilineal*, *Media*, *Cúbico* o *Moda*. |
+| Remuestreo | *Automático* (con rásteres de enteros conserva los valores; si no, media al reducir y bilineal en los demás casos), *Vecino más cercano*, *Bilineal*, *Media*, *Cúbico* o *Moda*. |
 | Valor de «sin datos» en la salida | Lo que contienen las celdas que quedan fuera de un ráster (-9999 por defecto). |
 
 Cada resultado se guarda junto al original como `<nombre>_alineado.tif`, sin pisar nunca uno anterior. La orden es `hipso align`.
@@ -1161,7 +1166,7 @@ Botón grande. Vacía lo que queda fuera de una capa de polígonos o de otro rá
 
 | Control | Qué hace |
 |---|---|
-| Ráster, Banda | Ráster que se recorta. |
+| Ráster | Ráster que se recorta, de un archivo o de las capas cargadas. |
 | Máscara | Una capa de polígonos o un ráster (se conservan las celdas donde tiene datos distintos de cero), de un archivo o de las capas cargadas. |
 | Cortar el ráster a la caja de la máscara | Si no, conserva su tamaño. |
 | Conservar lo que queda fuera de la máscara | Invierte la máscara: vacía lo de dentro. |
@@ -1244,7 +1249,7 @@ Los polígonos llevan el valor, el área y las celdas como atributos. La orden e
 Convierte una capa vectorial en ráster: cada celda recibe el valor de un campo del último elemento que la cubre. Véase el apartado 8, *Análisis ráster*.
 
 
-La ventana se genera a partir de la orden `hipso rasterize`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+La ventana se genera a partir de la orden `hipso rasterize`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y otro *Del mapa…* para tomarlos de las capas cargadas. La tabla da el nombre de cada opción en la línea de comandos, por si se usa desde la terminal o desde un flujo, y la descripción que se lee en la ventana.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1259,7 +1264,7 @@ La ventana se genera a partir de la orden `hipso rasterize`: cada control es una
 Media, mediana, mínimo, máximo, suma, rango, desviación, mayoría o suavizado gaussiano de cada celda sobre una ventana a su alrededor. Véase el apartado 8.
 
 
-La ventana se genera a partir de la orden `hipso focal`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+La ventana se genera a partir de la orden `hipso focal`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y otro *Del mapa…* para tomarlos de las capas cargadas. La tabla da el nombre de cada opción en la línea de comandos, por si se usa desde la terminal o desde un flujo, y la descripción que se lee en la ventana.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1276,7 +1281,7 @@ La ventana se genera a partir de la orden `hipso focal`: cada control es una de 
 Recuento, mínimo, máximo, media, desviación, mediana, percentiles e histograma de un ráster. Véase el apartado 8.
 
 
-La ventana se genera a partir de la orden `hipso rstats`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+La ventana se genera a partir de la orden `hipso rstats`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y otro *Del mapa…* para tomarlos de las capas cargadas. La tabla da el nombre de cada opción en la línea de comandos, por si se usa desde la terminal o desde un flujo, y la descripción que se lee en la ventana.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1289,7 +1294,7 @@ La ventana se genera a partir de la orden `hipso rstats`: cada control es una de
 Área de cada clase de un ráster dentro de cada zona de otro, como tabla CSV. Véase el apartado 8.
 
 
-La ventana se genera a partir de la orden `hipso tabulate`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+La ventana se genera a partir de la orden `hipso tabulate`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y otro *Del mapa…* para tomarlos de las capas cargadas. La tabla da el nombre de cada opción en la línea de comandos, por si se usa desde la terminal o desde un flujo, y la descripción que se lee en la ventana.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1395,7 +1400,7 @@ Menú con *Volumen sobre MDT* (volumen entre una superficie y el terreno, celda 
 
 | Control | Qué hace |
 |---|---|
-| Fuente | *CHM de cada nube* (alturas sobre el suelo), *MDS menos MDT (de cada nube)* o *MDS sobre una cota horizontal* (*Cota de referencia*). Con un CHM las alturas ya son sobre el suelo y no hace falta MDT. |
+| Fuente | Un desplegable: *CHM de cada nube* (alturas sobre el suelo), *MDS menos MDT (de cada nube)* o *MDS sobre una cota horizontal* (*Cota de referencia*). Con un CHM las alturas ya son sobre el suelo y no hace falta MDT. Esta ventana trabaja con las nubes abiertas: cada una busca sus rásteres (CHM, MDS, MDT) en su carpeta de resultados, y si se prefiere otro, el campo *CHM* (o el que corresponda) permite elegirlo a mano. Sin nubes cargadas pide abrir una. |
 | Altura mínima que cuenta (m) | Las celdas más cerca del MDT que esto no suman: quita el ruido del terreno. |
 | Zonas | *Todo el ráster*, *AOI dibujadas* (un volumen por AOI) o *Polígonos de un archivo vectorial* (el resultado es la capa con los volúmenes en su tabla). |
 
@@ -1409,7 +1414,7 @@ El volumen es V = Σ (altura de la superficie − MDT) · celda². Las celdas po
 | Contornos de las pilas | Capa de polígonos, uno por pila. El contorno debe rodear el pie de la pila: lo que mida a lo largo de él se toma como suelo. |
 | Superficie base | *Plano ajustado al contorno (mínimos cuadrados)*, *Cota más baja del contorno*, *Cota mediana del contorno*, *Superficie interpolada desde el contorno*, *Cota fija* o *MDT del terreno de partida*. |
 | Altura mínima | Las celdas más bajas que esto sobre la base no cuentan. |
-| Densidad del material | Con ella, la tabla da también la masa. |
+| Densidad del material | Casilla con un valor: con ella marcada, la tabla da también la masa de cada pila. |
 | Resultados | *Tabla (CSV)*, *Superficie base* y *Altura sobre la base*. |
 
 Mide por pila el volumen, el área en planta y sobre la pendiente, y la altura media y máxima. El volumen se decide por el centro de cada celda: el error es del orden del perímetro por media celda por la altura del borde, y baja con celdas más finas. La orden es `hipso piles`.
@@ -1558,7 +1563,7 @@ La ventana *Histogramas de atributos* se abre desde el botón *Histogramas* del 
 | Valores raros según un estadístico | Marca automáticamente las barras de los valores raros con *Tukey* (fuera de Q1 − k·RIC … Q3 + k·RIC), *Robusto* (lejos de la mediana, con MAD), *Desviaciones típicas* (media ± k·σ) o *Percentiles* (las colas más extremas), con su parámetro (k, z robusto, % en cada cola). |
 | Marcar los raros de este atributo, Quitar las marcas de este atributo | Aplican el estadístico elegido o quitan las marcas. |
 | Seleccionar puntos | Selecciona los puntos que caen en las barras marcadas de todos los atributos. |
-| Seleccionar de cualquier atributo | Selecciona los puntos que caen en las barras marcadas de cualquiera de los atributos. |
+| Seleccionar los raros de cualquier atributo | Selecciona los puntos que caen en las barras marcadas de cualquiera de los atributos. |
 | Eliminar, Asignar clase | Elimina los puntos seleccionados o les cambia la clase. |
 
 Debajo del gráfico se ven el número de puntos, el mínimo, el máximo, la media, la desviación típica, la mediana, los cuartiles y el MAD, y cuántas barras y puntos hay marcados. Véase el apartado 6.1.
@@ -1627,15 +1632,54 @@ Muestra cómo se dibuja la capa elegida en *Contenido*, con una pestaña distint
 
 ##### Simbología de una capa vectorial
 
-*Símbolo* elige el modo de dibujo: *Símbolo único*, *Valores únicos* (un color por valor de un campo), *Colores graduados* (clases por rampa, con *Clases* y *Cuantiles*) o *Tamaño proporcional*. *Colores* fija el color, el trazo y el relleno, la rampa y su inversión y el radio de los puntos. *Aspecto* ajusta la opacidad, el tamaño (puntos), el grosor del trazo (cero en un polígono es sin borde) y el relleno. *Etiquetas* escribe un campo sobre cada elemento, con su tamaño, su color y un *Halo*.
+La pestaña tiene cuatro grupos. Los cambios se ven al instante y se guardan en el proyecto, no en el archivo de la capa.
+
+| Grupo | Control | Qué hace |
+|---|---|---|
+| Símbolo | Modo | *Símbolo único* (todos los elementos iguales), *Valores únicos* (un color por cada valor distinto de un campo), *Colores graduados* (clases numéricas con una rampa) o *Tamaño proporcional* (el radio del punto crece con el valor de un campo). |
+| Símbolo | Campo… | Campo que gobierna los tres últimos modos; en los graduados y proporcionales, solo se ofrecen los numéricos. |
+| Símbolo | Clases | Con *Colores graduados*, número de clases (de 2 a 12). |
+| Símbolo | Cuantiles | Con *Colores graduados*, reparte las clases con el mismo número de elementos en cada una; sin marcar, intervalos de igual amplitud. |
+| Colores | Color (puntos) o Trazo (líneas y polígonos), Relleno (polígonos) | Color del símbolo en el modo *Símbolo único*; el selector abre una paleta. |
+| Colores | Rampa | Rampa de color de los modos graduado y proporcional: *Azul–rojo*, *Viridis*, *Rojo–amarillo–verde*, *Amarillo–marrón*, *Blancos–azules*, *Tierra*, *Espectral* o *Grises*. |
+| Colores | Invertir | Invierte el sentido de la rampa. |
+| Colores | Lista de valores | Con *Valores únicos*, el color de cada valor, que se cambia uno a uno. |
+| Colores | Radio, de … a … | Con *Tamaño proporcional*, el radio mínimo y el máximo de los puntos, en píxeles. |
+| Aspecto | Opacidad | Transparencia de toda la capa. |
+| Aspecto | Tamaño (puntos) | Diámetro de los puntos en píxeles. |
+| Aspecto | Grosor (líneas y polígonos) | Grosor del trazo; en un polígono, 0 es sin borde. |
+| Aspecto | Relleno (polígonos) | Opacidad del relleno de los polígonos. |
+| Etiquetas | Campo | Campo cuyo valor se escribe sobre cada elemento; *Sin etiquetas* las quita. |
+| Etiquetas | Tamaño, color y Halo | Tamaño del texto, su color y un halo claro alrededor que lo hace legible sobre cualquier fondo. |
 
 ##### Simbología de una imagen
 
-*Bandas* elige las bandas de rojo, verde y azul y abre *Índices espectrales*. *Estirado* reparte el contraste: *Sin estirar*, *Mínimo–máximo*, percentiles 2–98 %, ±2 desviaciones o cortes manuales (*Mín* y *Máx*), con *Brillo*, *Contraste*, *Gamma* y *Restablecer*. *Capa* fija la opacidad.
+| Grupo | Control | Qué hace |
+|---|---|---|
+| Bandas | *Color natural*, *Infrarrojo*, *Gris* | Preajustes: rojo-verde-azul, falso color con el infrarrojo cercano o una sola banda en gris. |
+| Bandas | Banda de cada color | Elige qué banda de la imagen se pinta como rojo, como verde y como azul. |
+| Bandas | Índices espectrales | Abre la ventana del índice (apartado 4.7). |
+| Estirado | Modo | *Sin estirar*, *Mínimo–máximo*, *Percentiles 2–98 %*, *±2 desviaciones* o *Cortes manuales*. |
+| Estirado | Mín y Máx | Con *Cortes manuales*, los valores que se pintan de negro y de blanco (los mismos para las tres bandas); lo que queda fuera se satura. Al elegirlos parten de los límites en uso. |
+| Estirado | Brillo, Contraste, Gamma | Retoques de la imagen ya estirada. |
+| Estirado | Restablecer | Devuelve brillo, contraste y gamma a sus valores iniciales. |
+| Capa | Opacidad | Transparencia de la imagen. |
 
 ##### Simbología de un ráster de una banda
 
-*Representación* elige el modo: *Estirar* (rampa continua), *Clasificar* (clases) o *Relieve sombreado*, con la rampa e *Invertir*. *Valores* fija el *Mín* y el *Máx* de la rampa, con *Percentiles 2–98 %* y *Mín–máx* para ajustarlos de un clic, y el número de *Clases*. *Relieve* da el *Azimut* y la *Altura* de la luz, la *Exageración* y el *Color* del sombreado. *Capa* fija la opacidad.
+| Grupo | Control | Qué hace |
+|---|---|---|
+| Representación | Modo | *Estirar* (rampa continua entre el mínimo y el máximo), *Clasificar* (un número de clases con colores discretos) o *Relieve sombreado* (iluminación del relieve). |
+| Representación | Rampa | La misma lista de rampas que en las capas vectoriales. |
+| Representación | Invertir | Invierte la rampa. |
+| Valores | Mín y Máx | Valores entre los que se reparte la rampa. |
+| Valores | Percentiles 2–98 % | Ajusta Mín y Máx a los percentiles 2 y 98, sin contar los extremos. |
+| Valores | Mín–máx | Ajusta Mín y Máx al mínimo y al máximo del ráster. |
+| Valores | Clases | Con *Clasificar*, número de clases. |
+| Relieve | Azimut, Altura | Dirección y altura de la luz del sombreado, en grados. |
+| Relieve | Exageración | Multiplica el relieve del sombreado. |
+| Relieve | Color | Color con el que se mezcla la iluminación. |
+| Capa | Opacidad | Transparencia del ráster. |
 
 #### La barra de estado
 
@@ -1715,23 +1759,39 @@ Las herramientas de consulta no modifican la nube, solo la interrogan, y se agru
 
 ### Consultar (Q)
 
-Muestra los atributos del punto sobre el que se hace clic.
+*Consultar* (*Vista → Navegación → Consultar*, tecla Q) interroga lo que hay bajo el cursor, sin modificar nada. Un clic selecciona el punto de la nube visible más cercano, dentro de unos 6 píxeles, lo rodea con un círculo blanco y abre una tarjeta en la esquina superior izquierda de la planta con tres líneas: sus coordenadas X, Y y Z, su clase (con el nombre ASPRS) y su intensidad, su número de retorno (el retorno *n* de *m*) y su ID de fuente. Si no hay ningún punto a esa distancia, no se muestra tarjeta de punto.
+
+Además, el mismo clic identifica todas las capas visibles en ese lugar y las lista en una segunda tarjeta: de cada ráster, el nombre de la capa y el valor de la celda (tres decimales); de cada imagen, el valor de cada banda; y de cada capa vectorial, el nombre, el número del elemento y los valores de sus campos (hasta catorce, con la indicación «… n campos más» si hay más). Las capas ocultas y las celdas sin dato no aparecen. Ambas tarjetas se cierran con su aspa, y *Limpiar marcas* (*Vista → Navegación*) las quita también.
 
 ### Medir (W)
 
-Da distancias y áreas sobre la planta.
+*Medir* (*Vista → Herramientas → Medir*, tecla W) dibuja sobre la planta una línea quebrada, un vértice por clic. Cada vértice toma, si hay un punto de la nube a menos de unos 6 píxeles, su cota Z, y con ellas la tarjeta verde junto al último vértice da cuatro cifras: el *último tramo* (distancia horizontal entre los dos últimos vértices), el *total* horizontal de toda la línea, la *distancia 3D* acumulada (que usa las cotas) y el desnivel *Δz* del último tramo. Los vértices sin cota (sin punto cercano) cuentan solo en horizontal. Con tres o más vértices, la tarjeta añade el área del polígono que forman (en m² y en hectáreas) y su perímetro. Un clic derecho borra la medición y vuelve a empezar, y volver a pulsar el botón *Medir* devuelve la herramienta *Zoom*.
 
 ### Densidad
 
-Calcula los puntos por metro cuadrado de un recuadro.
+*Densidad* (*Vista → Herramientas → Densidad*) calcula los puntos por metro cuadrado de un recuadro. Se arrastra con el botón izquierdo sobre la planta para dibujar el recuadro; al soltar, la barra de estado, a la derecha, escribe el número de puntos, el área del recuadro y el cociente en puntos por metro cuadrado («Densidad: 25 000 puntos en 400,0 m² = 62,50 pts/m²»). Cuenta los puntos de la muestra que dibuja la vista (limitada por *Máx.* en *Vista → Visualización*) y los multiplica por la decimación en uso, de modo que es una estimación (exacta cuando se ve 1 de cada 1), y respeta los filtros de clase y de retorno de *Vista → Visualización → Filtros*. Para una densidad exacta de todos los puntos de un archivo, la herramienta es *LiDAR → Calidad → Densidad de Voronoi* o la rejilla de densidad de `hipso raster`.
 
 ### TIN sombreado (T) y curvas de nivel
 
-Dibujan el relieve de la nube cargada.
+*TIN* (*Vista → Herramientas → TIN*, tecla T) sustituye los puntos por una superficie triangulada y sombreada de la nube, coloreada con el mismo atributo y la misma rampa que los puntos (*Vista → Visualización → Color* y *Rango Z*), con la luz fija a 315° y 45°. Mientras está activo, los puntos se ocultan. El engranaje contiguo fija con qué puntos se construye el TIN: *suelo* (solo la clase 2, para ver el terreno) o *todas las clases* (para ver el dosel y los edificios). Se calcula sobre una rejilla de hasta 1400 píxeles de lado y se rehace cuando cambian la nube, las clases o los colores.
+
+*Curvas de nivel* (*Vista → Herramientas → Curvas de nivel*) dibuja las curvas de esa misma superficie, con la *Equidistancia* (de 0,1 a 500 m, 5 por defecto) que se fija en el engranaje del TIN. Se pueden usar solas o sobre el TIN. Son solo una ayuda visual en pantalla: para escribir las curvas de nivel de un MDT o un CHM como shapefile de polilíneas 3D, la herramienta es `hipso contour`, y para un PNG de sombreado, `hipso hillshade`.
 
 ### Perfil
 
-Se crea con tres clics (extremo izquierdo, extremo derecho y borde de la caja).
+*Perfil* (*Vista → Herramientas → Perfil*) dibuja una caja sobre la planta y muestra, en su propia ventana, una vista lateral de todos los puntos de esa franja. Se crea con tres clics: el extremo izquierdo del eje, el extremo derecho y un punto del borde de la caja, que fija su semiancho. Un clic derecho antes del tercer clic cancela la caja. Si la disposición de ventanas era solo *2D*, pasa a *2D + perfil*. La caja se mueve a lo ancho con la rueda del ratón o con las flechas arriba y abajo cuando el cursor está sobre el perfil, un ancho de caja por paso.
+
+| Control | Dónde | Qué hace |
+|---|---|---|
+| Ancho | *Vista → Perfil* | Ancho de la caja (de 0,5 a 1000 m); sustituye al que se fijó con el tercer clic. |
+| Cuadrícula | *Vista → Perfil* | Líneas horizontales con las cotas en el lado izquierdo. |
+| Puntos (− y +) | *Vista → Perfil* | Tamaño de los puntos del perfil, independiente del de la planta y el 3D. |
+| Sin decimar | *Vista → Perfil* | Lee de los archivos todos los puntos de la caja, en segundo plano; desmarcada, usa los de la pantalla. |
+| Color y filtros | *Vista → Visualización* | El perfil usa el mismo atributo, la misma rampa y los mismos filtros que la planta. |
+| Selección sobre o bajo una línea | Panel *Edición* | Selecciona en el perfil todo lo que queda sobre o bajo una línea dibujada, y el pincel y las demás herramientas de selección también valen en él (capítulo 6). |
+
+Arriba a la derecha de la ventana del perfil se lee el rango de cotas, la longitud y el ancho de la caja y el número de puntos que dibuja. Los rásteres visibles se dibujan como una línea sobre los puntos (véase más abajo).
+
 
 Desde la 0.7.5, los ráster visibles (MDT, MDS…) se dibujan como una línea sobre el perfil, muestreados a lo largo del eje de la caja, con su nombre en la esquina inferior derecha y el eje vertical ampliado para abarcarlos. Si mezclas alturas absolutas con una nube o un ráster normalizado, la escala sale desproporcionada: no son comparables. La casilla *Cuadrícula* del grupo *Perfil* (*Vista → Perfil*) dibuja líneas horizontales con las cotas en el lado izquierdo; se puede quitar.
 

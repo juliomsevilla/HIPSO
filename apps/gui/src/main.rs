@@ -842,6 +842,7 @@ impl App {
         let mut it = args.into_iter();
         let mut files = Vec::new();
         let mut startup_actions = Vec::new();
+        let mut buttons: Vec<String> = Vec::new();
         while let Some(a) = it.next() {
             match a.as_str() {
                 "--tab" => self.tab = it.next().and_then(|v| v.parse().ok()).unwrap_or(0),
@@ -1065,6 +1066,12 @@ impl App {
                     }
                     std::process::exit(0);
                 }
+                // pulsa un botón de la cinta por su etiqueta, para comprobar su ventana
+                "--button" => {
+                    if let Some(n) = it.next() {
+                        buttons.push(n);
+                    }
+                }
                 "--hide-log" => self.hide_log = true,
                 "--categorize" => self.auto_categorize = it.next(),
                 "--dark" => {
@@ -1096,6 +1103,14 @@ impl App {
         }
         for a in startup_actions {
             self.act(ctx, a);
+        }
+        for name in buttons {
+            let groups: Vec<ribbon::Group<Action>> = self.lidar_groups().into_iter().chain(self.vector_groups()).chain(self.raster_groups()).chain(self.flow_groups()).collect();
+            let found = groups.iter().flat_map(|g| g.big.iter().chain(g.menus.iter().flat_map(|m| m.items.iter())).chain(g.columns.iter().flatten())).find(|i| i.label.replace('\n', " ") == name).map(|i| i.action);
+            match found {
+                Some(a) => self.act(ctx, a),
+                None => self.log(format!("No hay ningún botón llamado «{name}»")),
+            }
         }
         if self.rs.compute_at_start {
             self.rs.open = true;

@@ -336,7 +336,7 @@ enum CalcDtype {
 
 #[derive(Clone, Copy, ValueEnum)]
 enum AlignResample {
-    /// Según el tipo de dato: vecino más próximo para clases y bilineal para el resto
+    /// Según los datos: vecino más cercano (o moda al reducir) en rásteres de enteros; media si las celdas de salida son mayores que las de entrada; bilineal en los demás casos
     Auto,
     /// Para clases e identificadores
     Nearest,
