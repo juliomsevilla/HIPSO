@@ -51,7 +51,7 @@ pub struct AlignTool {
     pub open: bool,
     pub reference: Option<(PathBuf, Cells)>,
     pub inputs: Vec<(PathBuf, Cells)>,
-    /// 0 automatic, 1 nearest, 2 bilinear, 3 average.
+    /// 0 automatic, then [`Resample::ALL`].
     pub resample: usize,
     pub nodata: String,
 }
@@ -68,14 +68,33 @@ impl Default for AlignTool {
     }
 }
 
-const RESAMPLE: [&str; 6] = [
-    "Automático (media si es más fino, si no bilineal)",
-    "Vecino más cercano (clases)",
-    "Bilineal",
-    "Media",
-    "Cúbico",
-    "Moda (clases, para reducir)",
-];
+/// Index 0 is automatic; the rest follow [`Resample::ALL`].
+pub fn resample_of(k: usize) -> Option<Resample> {
+    k.checked_sub(1).and_then(|k| Resample::ALL.get(k).copied())
+}
+
+const AUTO_HELP: &str = "Elige según los datos: si el ráster son números enteros (clases, identificadores) conserva los valores (vecino más cercano, o moda si reduce la resolución); si no, usa la media cuando las celdas de salida son mayores que las de entrada y bilineal en los demás casos.";
+
+/// The list of resampling methods with what each is for, shared by the tools that resample.
+pub fn resample_picker(ui: &mut egui::Ui, id: &str, k: &mut usize, weak: egui::Color32) {
+    ui.horizontal(|ui| {
+        ui.label("Remuestreo");
+        let name = |k: usize| resample_of(k).map_or("Automático", |r| r.name());
+        egui::ComboBox::from_id_salt(id)
+            .selected_text(name(*k))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(k, 0, "Automático");
+                for (i, r) in Resample::ALL.iter().enumerate() {
+                    ui.selectable_value(k, i + 1, r.name());
+                }
+            });
+    });
+    ui.label(
+        egui::RichText::new(resample_of(*k).map_or(AUTO_HELP, Resample::describe))
+            .color(weak)
+            .size(11.0),
+    );
+}
 
 impl AlignTool {
     /// What differs between a raster and the reference: nothing when it already matches.
@@ -87,10 +106,8 @@ impl AlignTool {
             && a != b
         {
             return (
-                false,
-                format!(
-                    "otro sistema de coordenadas (EPSG {b}, la referencia EPSG {a}): pásalo antes al sistema de la referencia (hipso reproject)"
-                ),
+                true,
+                format!("está en EPSG {b} y la referencia en EPSG {a}: se reproyectará a la referencia"),
             );
         }
         let same_cells = (c.cell - r.cell).abs() <= r.cell * 1e-9
@@ -130,7 +147,7 @@ impl App {
                 ui.separator();
                 let t = &mut self.at;
                 ui.label(
-                    egui::RichText::new("Pone varios rásteres sobre las celdas de uno de referencia (mismo origen, tamaño de celda y dimensiones), para poder apilarlos o usarlos juntos celda a celda, por ejemplo en el análisis por objetos. Cada ráster da un archivo nuevo; los originales no se tocan. Todos deben estar en el mismo sistema de coordenadas; si no, pásalos antes al de la referencia (hipso reproject).")
+                    egui::RichText::new("Pone varios rásteres sobre las celdas de uno de referencia (mismo origen, tamaño de celda y dimensiones), para poder apilarlos o usarlos juntos celda a celda, por ejemplo en el análisis por objetos. Cada ráster da un archivo nuevo; los originales no se tocan. Si un ráster está en otro sistema de coordenadas, se reproyecta al de la referencia; así un solo paso lo reproyecta, lo recorta o amplía a la extensión de la referencia y lo remuestrea a su celda.")
                         .color(weak)
                         .size(11.0),
                 );
@@ -218,21 +235,7 @@ impl App {
                     t.inputs.remove(k);
                 }
                 ui.separator();
-                ui.horizontal(|ui| {
-                    ui.label("Remuestreo");
-                    egui::ComboBox::from_id_salt("Remuestreo")
-                    .selected_text(RESAMPLE[t.resample])
-                    .show_ui(ui, |ui| {
-                        for (k, n) in RESAMPLE.iter().enumerate() {
-                            ui.selectable_value(&mut t.resample, k, *n);
-                        }
-                    });
-                });
-                ui.label(
-                    egui::RichText::new("Usa «Vecino más cercano» si el ráster tiene clases o identificadores (promediarlos los estropea).")
-                        .color(weak)
-                        .size(11.0),
-                );
+                resample_picker(ui, "Remuestreo", &mut t.resample, weak);
                 ui.horizontal(|ui| {
                     ui.label("Valor de «sin datos» en la salida");
                     ui.add(egui::TextEdit::singleline(&mut t.nodata).desired_width(70.0));
@@ -267,14 +270,7 @@ impl App {
             let job = AlignJob {
                 reference,
                 inputs: pairs,
-                resample: [
-                    None,
-                    Some(Resample::Nearest),
-                    Some(Resample::Bilinear),
-                    Some(Resample::Average),
-                    Some(Resample::Cubic),
-                    Some(Resample::Mode),
-                ][t.resample],
+                resample: resample_of(t.resample),
                 dtype: None::<Dtype>,
                 nodata: t.nodata.trim().replace(',', ".").parse().unwrap_or(-9999.0),
                 src_nodata: None,

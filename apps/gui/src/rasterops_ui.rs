@@ -12,10 +12,20 @@ pub enum Op {
     Fill,
     Vectorize,
     Calc,
+    Reclass,
+    Clip,
 }
 
 impl Op {
-    pub const ALL: [Op; 5] = [Op::Sieve, Op::Proximity, Op::Fill, Op::Vectorize, Op::Calc];
+    pub const ALL: [Op; 7] = [
+        Op::Sieve,
+        Op::Proximity,
+        Op::Fill,
+        Op::Vectorize,
+        Op::Calc,
+        Op::Reclass,
+        Op::Clip,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -24,6 +34,8 @@ impl Op {
             Op::Fill => "Rellenar huecos",
             Op::Vectorize => "Vectorizar",
             Op::Calc => "Calculadora",
+            Op::Reclass => "Reclasificar",
+            Op::Clip => "Cortar por máscara",
         }
     }
 
@@ -34,6 +46,8 @@ impl Op {
             Op::Fill => "@fillholes",
             Op::Vectorize => "@vectorize",
             Op::Calc => "@rastercalc",
+            Op::Reclass => "@reclass",
+            Op::Clip => "@clip",
         }
     }
 }
@@ -72,6 +86,18 @@ pub struct RasterOpsTool {
     pub calc_dtype: u8,
     pub calc_nearest: bool,
     pub calc_align: bool,
+    /// Reclassify: the rules as typed, what the cells no rule matches become (0 keep, 1 empty,
+    /// 2 the value typed) and the band.
+    pub rc_rules: String,
+    pub rc_else: u8,
+    pub rc_else_value: String,
+    pub rc_band: f64,
+    /// Clip: the mask (a polygon layer or a raster), cutting to its box, keeping the outside,
+    /// and the value of the cells left out as typed.
+    pub clip_mask: String,
+    pub clip_crop: bool,
+    pub clip_invert: bool,
+    pub clip_nodata: String,
 }
 
 impl RasterOpsTool {
@@ -99,6 +125,14 @@ impl RasterOpsTool {
             calc_dtype: 0,
             calc_nearest: false,
             calc_align: false,
+            rc_rules: String::new(),
+            rc_else: 0,
+            rc_else_value: "0".into(),
+            rc_band: 1.0,
+            clip_mask: String::new(),
+            clip_crop: true,
+            clip_invert: false,
+            clip_nodata: String::new(),
         }
     }
 }
@@ -168,6 +202,26 @@ impl RasterOpsTool {
             .map(|e| e.to_string())
     }
 
+    /// The rules typed, with what to do with the other cells.
+    fn reclass_table(&self) -> Result<hipso_core::reclass::Table, String> {
+        use hipso_core::reclass::{Out, Table};
+        let mut t = Table::parse(&self.rc_rules).map_err(|e| e.to_string())?;
+        if !t.explicit_else {
+            t.otherwise = match self.rc_else {
+                0 => Out::Keep,
+                1 => Out::NoData,
+                _ => Out::Value(
+                    self.rc_else_value
+                        .trim()
+                        .replace(',', ".")
+                        .parse::<f32>()
+                        .map_err(|_| "el valor para los demás debe ser un número".to_string())?,
+                ),
+            };
+        }
+        Ok(t)
+    }
+
     fn max_distance(&self) -> Result<Option<f64>, String> {
         let t = self.max_distance.trim();
         if t.is_empty() {
@@ -200,6 +254,16 @@ impl App {
             .filter(|r| matches!(r.kind, RefKind::Raster { .. }))
             .map(|r| (r.name.clone(), r.path.clone()))
             .collect();
+        let mask_layers: Vec<(String, PathBuf)> = self
+            .refs
+            .iter()
+            .filter(|r| match &r.kind {
+                RefKind::Raster { .. } => true,
+                RefKind::Vector(v) => matches!(v.kind, hipso_core::view::GeomKind::Polygon),
+                RefKind::Image(_) => false,
+            })
+            .map(|r| (r.name.clone(), r.path.clone()))
+            .collect();
         let weak = self.tokens().weak;
         let red = egui::Color32::from_rgb(200, 60, 40);
         let mut open = true;
@@ -217,8 +281,10 @@ impl App {
                 let help = match t.op {
                     Op::Sieve => "Quita los parches pequeños de un ráster de clases: las celdas conexas de un mismo valor que son menos que el umbral toman el valor del parche vecino más grande. Las celdas vacías no se tocan.",
                     Op::Proximity => "Calcula para cada celda la distancia a la celda más cercana de unos valores (distancia euclídea exacta). Las celdas objetivo valen 0.",
-                    Op::Calc => "Calcula una expresión celda a celda sobre uno o varios rásteres que se llaman A, B, C… en el orden de la lista (una banda concreta, A.2). Admite operaciones, comparaciones, funciones y condiciones: if(A > 0, A - B, 0). Los rásteres deben tener las mismas celdas, o se ponen sobre las del primero. La memoria sigue una franja del ráster, no el ráster entero.",
+                    Op::Calc => "Calcula una expresión celda a celda sobre uno o varios rásteres que se llaman A, B, C… en el orden de la lista (una banda concreta, A.2). Admite operaciones, comparaciones, funciones y condiciones: if(A > 0, A - B, 0). Los rásteres deben tener las mismas celdas, o se ponen sobre las del primero (también si están en otro sistema de coordenadas: se reproyectan). La memoria sigue una franja del ráster, no el ráster entero.",
                     Op::Vectorize => "Convierte un ráster en polígonos: las celdas contiguas con la misma clase, con valores en un rango o entre dos cortes forman un polígono, con el valor, el área y las celdas como atributos. Los bordes siguen las celdas, o se simplifican si lo pides. Sirve, por ejemplo, para pasar a polígonos una clasificación o una máscara de agua.",
+                    Op::Reclass => "Cambia los valores de un ráster según una tabla de reglas: un valor, un intervalo (0..10) o una comparación (< 0, >= 100) pasan a un valor nuevo o a «sin datos». Si varias reglas valen para una celda, manda la primera. Sirve, por ejemplo, para pasar un modelo de alturas o una pendiente a clases, o para unir clases. El resultado usa el tipo entero más pequeño que cabe.",
+                    Op::Clip => "Deja vacío lo que cae fuera de una máscara y, si quieres, corta el ráster a la caja de la máscara. La máscara puede ser una capa de polígonos o otro ráster (se conservan las celdas donde tiene datos distintos de cero). Las celdas son las del ráster original: no se remuestrea nada.",
                     Op::Fill => "Rellena las celdas vacías con las celdas con valor de alrededor, ponderadas por el inverso del cuadrado de la distancia en ocho direcciones. Lo que no tiene ninguna a su alcance sigue vacío.",
                 };
                 ui.label(egui::RichText::new(help).color(weak).size(11.0));
@@ -371,6 +437,103 @@ impl App {
                         ui.label(egui::RichText::new("Funciones: abs sqrt ln log10 exp pow min max floor ceil round sin cos tan atan2 clamp if isnan. Comparaciones, and, or, not, %, ^. Una celda vacía da vacío, salvo dentro de isnan().").color(weak).size(11.0));
                         problem = t.calc_problem();
                     }
+                    Op::Reclass => {
+                        ui.horizontal(|ui| {
+                            ui.label("Reglas");
+                            ui.menu_button("Ejemplos", |ui| {
+                                for (label, text) in [
+                                    ("Unir clases: 3 y 4 pasan a 3", "3 = 3\n4 = 3"),
+                                    ("Intervalos a clases", "0..10 = 1\n10..25 = 2\n25..100 = 3"),
+                                    ("Valores negativos a «sin datos»", "< 0 = nodata"),
+                                    ("Máscara 1 / 0", ">= 5 = 1\nelse = 0"),
+                                    ("Rellenar vacíos con 0", "nodata = 0"),
+                                ] {
+                                    if ui.button(label).clicked() {
+                                        t.rc_rules = text.to_string();
+                                        ui.close();
+                                    }
+                                }
+                            });
+                            if ui
+                                .button("Una regla por clase")
+                                .on_hover_text("Rellena una regla «valor = valor» por cada clase que tiene el ráster, para cambiar solo las que quieras")
+                                .clicked()
+                                && let Ok(v) = hipso_core::reclass::values_of(Path::new(t.input.trim()), t.rc_band as usize, 200)
+                            {
+                                t.rc_rules = v
+                                    .iter()
+                                    .map(|(c, _)| format!("{} = {}", paths::num(f64::from(*c)), paths::num(f64::from(*c))))
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+                            }
+                        });
+                        ui.add(
+                            egui::TextEdit::multiline(&mut t.rc_rules)
+                                .font(egui::TextStyle::Monospace)
+                                .hint_text("0..10 = 1\n10..25 = 2\n< 0 = nodata")
+                                .desired_rows(5)
+                                .desired_width(f32::INFINITY),
+                        );
+                        ui.label(egui::RichText::new("Una regla por línea: «valor = nuevo», «a..b = nuevo» (ambos incluidos), «< b», «<= b», «> a», «>= a» o «nodata», y como resultado un número o «nodata». «else = …» da el valor de las demás celdas.").color(weak).size(11.0));
+                        ui.horizontal(|ui| {
+                            ui.label("Las celdas que ninguna regla recoge");
+                            ui.radio_value(&mut t.rc_else, 0, "Conservan su valor");
+                            ui.radio_value(&mut t.rc_else, 1, "Quedan vacías");
+                            ui.radio_value(&mut t.rc_else, 2, "Pasan a");
+                            if t.rc_else == 2 {
+                                ui.add(egui::TextEdit::singleline(&mut t.rc_else_value).desired_width(60.0));
+                            }
+                        });
+                        crate::tools::num(ui, "Banda", &mut t.rc_band, 1.0..=64.0, 1.0);
+                        if let Err(m) = t.reclass_table() {
+                            problem = Some(m);
+                        }
+                    }
+                    Op::Clip => {
+                        ui.horizontal(|ui| {
+                            ui.label("Máscara");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut t.clip_mask)
+                                    .hint_text("capa de polígonos o ráster")
+                                    .desired_width(280.0),
+                            );
+                            if ui.button("Archivo…").clicked()
+                                && let Some(p) = crate::prefs::dialog()
+                                    .add_filter("Polígonos o ráster", &["shp", "gpkg", "geojson", "json", "kml", "kmz", "tif", "tiff", "asc"])
+                                    .pick_file()
+                            {
+                                t.clip_mask = p.display().to_string();
+                            }
+                            ui.menu_button("De las capas cargadas", |ui| {
+                                let mut any = false;
+                                for (name, path) in &mask_layers {
+                                    any = true;
+                                    if ui.button(name).clicked() {
+                                        t.clip_mask = path.display().to_string();
+                                        ui.close();
+                                    }
+                                }
+                                if !any {
+                                    ui.label("No hay capas de polígonos ni rásteres cargados");
+                                }
+                            });
+                        });
+                        ui.checkbox(&mut t.clip_crop, "Cortar el ráster a la caja de la máscara (si no, conserva su tamaño)");
+                        ui.checkbox(&mut t.clip_invert, "Conservar lo que queda fuera de la máscara (y vaciar lo de dentro)");
+                        ui.horizontal(|ui| {
+                            ui.label("Valor de las celdas vacías");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut t.clip_nodata)
+                                    .hint_text("el del archivo, o 0 / -9999")
+                                    .desired_width(110.0),
+                            );
+                        });
+                        if t.clip_mask.trim().is_empty() {
+                            problem = Some("Elige la máscara.".into());
+                        } else if !Path::new(t.clip_mask.trim()).is_file() {
+                            problem = Some("El archivo de la máscara no existe.".into());
+                        }
+                    }
                     Op::Vectorize => {
                         ui.horizontal(|ui| {
                             ui.label("Agrupar");
@@ -463,6 +626,65 @@ impl App {
                 return;
             }
             let src = PathBuf::from(t.input.trim());
+            if t.op == Op::Reclass {
+                let Ok(table) = t.reclass_table() else {
+                    return;
+                };
+                let dst = paths::unique(&paths::product(&src, "reclas", "tif"));
+                let mut job = hipso_core::reclass::ReclassJob::new(src, dst.clone(), table);
+                job.band = t.rc_band.round().max(1.0) as usize;
+                let task: tools::Task = Box::new(move || hipso_core::reclass::run(&job));
+                self.start(
+                    ctx,
+                    Launch {
+                        label: "Reclasificar".to_string(),
+                        task,
+                        show: vec![dst.clone()],
+                        outputs: vec![dst],
+                    },
+                );
+                if !open {
+                    self.ro[i].open = false;
+                }
+                return;
+            }
+            if t.op == Op::Clip {
+                use hipso_core::rastermask::{Mask, MaskJob, clip, regions_of};
+                let layer = PathBuf::from(t.clip_mask.trim());
+                let (crop, invert) = (t.clip_crop, t.clip_invert);
+                let nodata = t.clip_nodata.trim().replace(',', ".").parse::<f32>().ok();
+                let dst = paths::unique(&paths::product(&src, "recorte", "tif"));
+                let out = dst.clone();
+                let task: tools::Task = Box::new(move || {
+                    let ext = layer
+                        .extension()
+                        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+                        .unwrap_or_default();
+                    let mask = if hipso_core::raster::is_raster_ext(&ext) {
+                        Mask::Raster(layer)
+                    } else {
+                        Mask::Regions(regions_of(&layer, hipso_core::crs::epsg_of(&src))?)
+                    };
+                    let mut job = MaskJob::new(src, dst, mask);
+                    job.crop = crop;
+                    job.invert = invert;
+                    job.nodata = nodata;
+                    clip(&job)
+                });
+                self.start(
+                    ctx,
+                    Launch {
+                        label: "Cortar por máscara".to_string(),
+                        task,
+                        show: vec![out.clone()],
+                        outputs: vec![out],
+                    },
+                );
+                if !open {
+                    self.ro[i].open = false;
+                }
+                return;
+            }
             let (op, threshold, eight) = (t.op, t.threshold.round().max(1.0) as usize, t.eight);
             let (targets, maxd, cells) = (t.targets(), t.max_distance(), t.in_cells);
             let (reach, smooth) = (t.fill_distance.round().max(1.0) as usize, t.smoothing.round() as usize);
@@ -497,7 +719,7 @@ impl App {
                 Op::Sieve => ("sieve", "Tamizar"),
                 Op::Proximity => ("proximity", "Proximidad"),
                 Op::Fill => ("relleno", "Rellenar huecos"),
-                Op::Vectorize | Op::Calc => return,
+                Op::Vectorize | Op::Calc | Op::Reclass | Op::Clip => return,
             };
             let dst = paths::unique(&paths::product(&src, tag, "tif"));
             let out = dst.clone();
@@ -534,7 +756,7 @@ impl App {
                         msg = format!("{} celdas rellenadas, {after} siguen vacías", before - after);
                         r
                     }
-                    Op::Vectorize | Op::Calc => {
+                    Op::Vectorize | Op::Calc | Op::Reclass | Op::Clip => {
                         return Err(hipso_core::Error::Param("esta operación no escribe así su resultado".into()));
                     }
                 };

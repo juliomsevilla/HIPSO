@@ -2093,23 +2093,21 @@ pub fn write_layer(
     {
         return crate::geojson::write_vector(path, d, kind, prj.and_then(epsg_from_prj));
     }
-    let numeric: Vec<bool> = (0..d.fields.len())
-        .map(|c| {
-            d.text.iter().all(|row| {
-                row.get(c)
-                    .is_none_or(|t| t.trim().is_empty() || t.trim().parse::<f64>().is_ok())
-            }) && !d.text.is_empty()
-        })
-        .collect();
+    use crate::fieldtype::FieldType;
+    // every field is written as what it is: the type it was given, else what its values say
+    let types: Vec<FieldType> = (0..d.fields.len()).map(|c| d.field_type(c)).collect();
     let names: Vec<String> = dbf_names(&d.fields).into_iter().map(|n| n.0).collect();
     let mut b = TableWriterBuilder::new();
-    for (name, num) in names.iter().zip(&numeric) {
+    for (name, ty) in names.iter().zip(&types) {
         let n = FieldName::try_from(name.as_str())
             .map_err(|e| Error::Param(format!("field '{name}': {e}")))?;
-        b = if *num {
-            b.add_numeric_field(n, 18, 6)
-        } else {
-            b.add_character_field(n, 80)
+        b = match ty {
+            FieldType::Integer => b.add_numeric_field(n, 18, 0),
+            FieldType::Real => b.add_numeric_field(n, 18, 6),
+            FieldType::Bool => b.add_logical_field(n),
+            FieldType::Date => b.add_date_field(n),
+            FieldType::Link => b.add_character_field(n, 254),
+            FieldType::Text => b.add_character_field(n, 80),
         };
     }
     let mut w = shapefile::Writer::from_path(path, b).map_err(shp_open_err(path))?;
@@ -2122,14 +2120,21 @@ pub fn write_layer(
                 .and_then(|r| r.get(c))
                 .map_or("", String::as_str)
                 .trim();
-            rec.insert(
-                name.clone(),
-                if numeric[c] {
-                    FieldValue::Numeric(t.parse().ok())
-                } else {
-                    FieldValue::Character(Some(truncate(t, 80)))
-                },
-            );
+            let value = match types[c] {
+                FieldType::Integer | FieldType::Real => FieldValue::Numeric(t.parse().ok()),
+                FieldType::Bool => FieldValue::Logical(
+                    FieldType::Bool.parse(t).ok().filter(|v| !v.1.is_nan()).map(|v| v.1 != 0.0),
+                ),
+                FieldType::Date => FieldValue::Date(
+                    crate::fieldtype::parse_date(t).and_then(|days| {
+                        let (y, m, dd) = crate::fieldtype::civil_from_days(days as i64);
+                        dbase::Date::new(dd as u32, m as u32, y as u32).ok()
+                    }),
+                ),
+                FieldType::Link => FieldValue::Character(Some(truncate(t, 254))),
+                FieldType::Text => FieldValue::Character(Some(truncate(t, 80))),
+            };
+            rec.insert(name.clone(), value);
         }
         match kind {
             GeomKind::Point => {
@@ -2193,7 +2198,27 @@ pub fn write_layer(
         }
     }
     drop(w);
+    write_types_sidecar(path, d, &types);
     write_prj(path, prj)
+}
+
+/// The shapefile cannot tell a hyperlink from text: the fields that are links go in
+/// `<name>_tipos.txt` (one name per line, as they are in the table), which is removed when there
+/// are none.
+fn write_types_sidecar(path: &Path, d: &crate::view::VectorData, types: &[crate::fieldtype::FieldType]) {
+    let side = crate::view::types_sidecar(path);
+    let links: Vec<&str> = d
+        .fields
+        .iter()
+        .zip(types)
+        .filter(|(_, t)| **t == crate::fieldtype::FieldType::Link)
+        .map(|(n, _)| n.as_str())
+        .collect();
+    if links.is_empty() {
+        let _ = std::fs::remove_file(&side);
+    } else {
+        let _ = std::fs::write(&side, format!("hipervinculo\n{}\n", links.join("\n")));
+    }
 }
 
 #[cfg(test)]

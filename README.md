@@ -43,6 +43,7 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/HIPSO/releases/
 - Ventanas **2D**, **2D + perfil**, **3D** y **2D + perfil + 3D**.
 - **Rásteres en 3D**: un MDT, un CHM o cualquier ráster de una banda se ve como superficie en la vista 3D, con los colores de su simbología y la exageración vertical a mano, y se combina con la nube de puntos. El perfil dibuja además la línea de los rásteres visibles junto a los puntos, con su cuadrícula de cotas. Se dibuja por software, sin tarjeta gráfica: unos 9 ms por imagen con una malla de 4 millones de celdas.
 - **Cinta de opciones** con cinco pestañas (*Archivo*, *Vista*, *LiDAR*, *Vectorial* y *Raster*) que se pliegan en menús al estrechar la ventana. Cada geoproceso vectorial y cada operación ráster abre su propia ventana.
+- **Selección múltiple de capas** en el explorador (Ctrl o Cmd y clic, Mayús y clic): se muestran, ocultan, suben, bajan, amplían y quitan de una vez.
 - Navegación 3D libre: giro sin tope, desplazamiento en el plano de la pantalla, zoom con la rueda, encuadre con doble clic.
 - Colorear por elevación, clase, intensidad, retorno, pasada, archivo, RGB o ID de árbol.
 - **Edición por selecciones** (rectángulo, círculo, polígono, lazo, en planta, en perfil o **en la vista 3D**, con rebanada de profundidad y *Aislar selección* para editar un árbol a toda su densidad) con filtros por clase, altura, intensidad y retorno; eliminar o reclasificar; deshacer, rehacer e historial. El original nunca se modifica.
@@ -74,8 +75,9 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/HIPSO/releases/
 ### Ráster
 
 - **Composiciones de bandas e índices espectrales** (NDVI, GNDVI, NDWI, EVI, SAVI, NDMI, NBR, VARI, ExG o expresión propia).
-- **Reproyectar** nubes y rásteres a otro sistema de coordenadas, con **cambio de la referencia vertical** (de alturas elipsoidales a ortométricas con el geoide, o a la inversa). La herramienta es estricta: si la transformación no puede hacerse con la mejor operación (falta una rejilla, el punto cae fuera de la cobertura del geoide, no hay ajuste de datum) se detiene con un error y no entrega un valor aproximado en silencio, salvo que se acepten las aproximaciones. Las alturas de cada archivo se leen de su propia referencia vertical y, si no la declara, se pide en lugar de suponerla.
-- **Igualar rásteres**: los pone sobre las celdas de uno de referencia para que coincidan celda a celda, con remuestreo vecino, bilineal, media, cúbico o moda.
+- **Reproyectar** nubes y rásteres a otro sistema de coordenadas (un código EPSG, el sistema de un ráster de referencia o, para rásteres, sus mismas celdas), con **cambio de la referencia vertical** (de alturas elipsoidales a ortométricas con el geoide, o a la inversa). La herramienta es estricta: si la transformación no puede hacerse con la mejor operación (falta una rejilla, el punto cae fuera de la cobertura del geoide, no hay ajuste de datum) se detiene con un error y no entrega un valor aproximado en silencio, salvo que se acepten las aproximaciones. Las alturas de cada archivo se leen de su propia referencia vertical y, si no la declara, se pide en lugar de suponerla.
+- **Igualar rásteres**: los reproyecta, los recorta o amplía a la extensión de uno de referencia y los remuestrea a sus celdas, todo en un paso, para que coincidan celda a celda. El remuestreo es vecino más cercano, bilineal, cúbico, media o moda, o automático según los datos (las clases conservan sus valores), y la ayuda de cada ventana dice cuándo conviene cada uno. Mosaico, Crear multibanda y la Calculadora también aceptan rásteres en otro sistema de coordenadas.
+- **Reclasificar** un ráster con una tabla de reglas (un valor, un intervalo o una comparación pasan a un valor nuevo o a «sin datos») y **Cortar por máscara** con una capa de polígonos o con otro ráster, con o sin recorte a la caja de la máscara; ambos por franjas.
 - **Crear multibanda** a partir de rásteres sueltos.
 - **Mosaico** con regla de solape: primero, último, media, mínimo, máximo, mediana, suma o número de capas.
 - **Calculadora ráster**: una expresión con operaciones, comparaciones, funciones y condiciones se evalúa celda a celda sobre varios rásteres con nombre, por franjas, de modo que la memoria no depende del tamaño del ráster.
@@ -86,6 +88,7 @@ Ve a la página de **[Releases](https://github.com/juliomsevilla/HIPSO/releases/
 
 ### Vectorial
 
+- **Tipos de campo**: texto, entero, decimal, sí/no, fecha e hipervínculo, al crear la capa o el campo. La tabla comprueba lo que se escribe, abre los enlaces con un clic y permite cambiar el tipo de un campo; los tipos se conservan en shapefile, GeoPackage y GeoJSON, y las consultas y la calculadora de campos leen cada campo según su tipo (fechas con `date()`, `today()` o `year()`, sí/no como verdadero o falso, texto como texto).
 - **Estadística zonal**: para cada polígono, el recuento, el mínimo, el máximo, la media, la suma, la desviación típica y la mediana de las celdas de un ráster (por ejemplo, el CHM medio de cada rodal). El resultado es una **capa de polígonos** que conserva los campos originales y añade uno por estadístico.
 - **Voronoi**: una capa de polígonos con la celda de Voronoi de cada punto y, si se pide, las aristas de Delaunay.
 - **Geoprocesos con polígonos**: comprobar y reparar la validez, búfer (ampliar o reducir, también sobre puntos), disolver por un campo y unión de dos capas, siempre con la tabla de atributos conservada. Las operaciones que pueden dar resultados engañosos con geometrías rotas (búfer, disolver, unión) se niegan a trabajar con ellas y piden repararlas antes.
@@ -186,6 +189,15 @@ La memoria no crece con el número de teselas: cada una se procesa por separado,
 | Pendiente | 26,6 s | **13,9 s** | 1,3 GB |
 | Sombreado | 86,2 s | **11,5 s** | 1,3 GB |
 | Reproyección entre husos | 137,7 s | **40,1 s** | 2,0 GB |
+
+**Reproyectar un ráster de 10.694 x 10.694 celdas (114 millones, UTM 30N a 29N, bilineal), frente a GDAL 3.9** (el motor de `gdalwarp`, usado desde Python con `rasterio`, todos los núcleos, mismo equipo; GDAL en memoria y luego el controlador COG con vistas reducidas, que es el mismo producto que escribe HIPSO: teselas de 512, deflate y vistas reducidas):
+
+| Ráster | GDAL 3.9 | HIPSO | |
+|---|---|---|---|
+| Modelo de elevaciones, 1 banda decimal | 4,9 s | **2,0 s** | 2,5 veces más rápido |
+| Ortofoto, 3 bandas de 8 bits | **2,1 s** | 2,5 s | GDAL es algo más rápido |
+
+Los valores coinciden con los de GDAL: en el modelo, la diferencia máxima es de 0,05 m sobre un relieve de 70 m (bilineal y cúbico), y las celdas del borde que uno da y el otro no son el 0,02 %. HIPSO lo hace por franjas, de modo que la memoria no depende del tamaño del ráster, mientras que GDAL necesitó el ráster entero en memoria. En la ortofoto de 8 bits no ganamos: GDAL es algo más rápido.
 
 Los rásteres grandes se trabajan **por franjas con margen**: la memoria depende de la franja y no del tamaño del ráster, y el resultado es idéntico, celda a celda, al de leerlo entero. El tamaño de la franja se ajusta a la memoria del equipo, así que en una máquina de 64 GB el mismo programa trabaja con franjas cuatro veces mayores.
 

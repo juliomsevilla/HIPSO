@@ -22,6 +22,9 @@ pub(crate) struct Layer {
     pub(crate) epsg: Option<u16>,
     /// Features left out because their geometry was of another kind than the layer's.
     pub(crate) skipped: usize,
+    /// Types the file declares for some of its fields (by name); the others are typed by
+    /// their values.
+    pub(crate) types: Vec<(String, crate::fieldtype::FieldType)>,
 }
 
 pub(crate) fn signed_area(r: &[[f64; 2]]) -> f64 {
@@ -102,7 +105,7 @@ fn geometry(g: &Json) -> Option<(GeomKind, Vec<Vec<[f64; 2]>>)> {
 fn text_of(v: &Json) -> String {
     match v {
         Json::Null => String::new(),
-        Json::Bool(b) => b.to_string(),
+        Json::Bool(b) => if *b { "Sí" } else { "No" }.to_string(),
         Json::Num(n) => {
             if n.fract() == 0.0 && n.abs() < 1e15 {
                 format!("{}", *n as i64)
@@ -151,11 +154,22 @@ fn read_layer(path: &Path) -> Result<Layer> {
         feats: Vec::new(),
         epsg,
         skipped: 0,
+        types: Vec::new(),
     };
     let mut first = true;
     for item in items {
         let props: Vec<(String, String)> = match item.get("properties") {
-            Some(Json::Obj(m)) => m.iter().map(|(k, v)| (k.clone(), text_of(v))).collect(),
+            Some(Json::Obj(m)) => m
+                .iter()
+                .map(|(k, v)| {
+                    if matches!(v, Json::Bool(_))
+                        && !layer.types.iter().any(|(n, _)| n == k)
+                    {
+                        layer.types.push((k.clone(), crate::fieldtype::FieldType::Bool));
+                    }
+                    (k.clone(), text_of(v))
+                })
+                .collect(),
             _ => Vec::new(),
         };
         let Some((kind, parts)) = item.get("geometry").and_then(geometry) else {
@@ -240,6 +254,45 @@ pub(crate) fn vector_of(layer: Layer) -> (VectorData, GeomKind, Option<u16>, usi
         });
     }
     v.fields = fields;
+    v.types = (0..v.fields.len())
+        .map(|c| {
+            let name = &v.fields[c];
+            if let Some((_, t)) = layer.types.iter().find(|(n, _)| n == name) {
+                return *t;
+            }
+            let values = || v.text.iter().map(|r| r[c].as_str());
+            let t = crate::fieldtype::FieldType::infer(values());
+            // a column of ISO dates is a date column
+            let dates = v.text.iter().any(|r| !r[c].trim().is_empty())
+                && values().all(|t| {
+                    let t = t.trim();
+                    t.is_empty() || (t.len() == 10 && t.as_bytes()[4] == b'-' && crate::fieldtype::parse_date(t).is_some())
+                });
+            if t == crate::fieldtype::FieldType::Text && dates {
+                crate::fieldtype::FieldType::Date
+            } else {
+                t
+            }
+        })
+        .collect();
+    // dates and yes/no carry their number, as the typed table does
+    for (c, t) in v.types.clone().into_iter().enumerate() {
+        for (r, row) in v.text.iter().enumerate() {
+            match t {
+                crate::fieldtype::FieldType::Date => {
+                    v.num[r][c] = crate::fieldtype::parse_date(&row[c]).unwrap_or(f64::NAN);
+                }
+                crate::fieldtype::FieldType::Bool => {
+                    v.num[r][c] = match row[c].as_str() {
+                        "Sí" => 1.0,
+                        "No" => 0.0,
+                        _ => f64::NAN,
+                    };
+                }
+                _ => {}
+            }
+        }
+    }
     (v, layer.kind, layer.epsg, layer.skipped)
 }
 
@@ -438,14 +491,20 @@ pub fn write_vector(path: &Path, d: &VectorData, kind: GeomKind, epsg: Option<u1
                     .and_then(|r| r.get(k))
                     .copied()
                     .unwrap_or(f64::NAN);
-                let value = if n.is_finite() && !t.is_empty() {
-                    if n.fract() == 0.0 && n.abs() < 1e15 {
-                        format!("{}", n as i64)
-                    } else {
-                        format!("{n}")
+                use crate::fieldtype::FieldType;
+                let value = match d.field_type(k) {
+                    FieldType::Integer | FieldType::Real if n.is_finite() && !t.is_empty() => {
+                        if n.fract() == 0.0 && n.abs() < 1e15 {
+                            format!("{}", n as i64)
+                        } else {
+                            format!("{n}")
+                        }
                     }
-                } else {
-                    quote(&t)
+                    FieldType::Bool if n.is_finite() => (n != 0.0).to_string(),
+                    FieldType::Bool | FieldType::Integer | FieldType::Real if t.is_empty() => {
+                        "null".to_string()
+                    }
+                    _ => quote(&t),
                 };
                 format!("{}:{value}", quote(name))
             })

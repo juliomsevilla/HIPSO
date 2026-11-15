@@ -3,9 +3,12 @@
 //!
 //! Expressions: numbers, `'text'`, `"field"` (or the bare name of a field), `$area`,
 //! `$perimeter`, `$length`, `$x`, `$y`, `$id`, `$npoints`; `+ - * / % ^`, `||` to join texts,
-//! comparisons (`= != < <= > >=`), `and`, `or`, parentheses and the functions `round`, `floor`,
+//! comparisons (`= != < <= > >=`), `and`, `or`, `not`, parentheses and the functions `round`, `floor`,
 //! `ceil`, `abs`, `sqrt`, `ln`, `log10`, `pow`, `min`, `max`, `upper`, `lower`, `trim`, `len`,
-//! `concat`, `left`, `right`, `substr`, `replace`, `if` and `coalesce`. Areas and lengths are in
+//! `concat`, `left`, `right`, `substr`, `replace`, `if` and `coalesce`; for dates `date('2025-03-31')`,
+//! `today()`, `year`, `month` and `day` (a date plus or minus days is a date; two dates subtracted
+//! give days) and the values `true` and `false`. Each field is read by its type: numbers as numbers,
+//! dates as dates, yes/no as yes/no and text (and hyperlinks) as text. Areas and lengths are in
 //! the units of the layer (square metres and metres in a projected system).
 
 use std::collections::HashSet;
@@ -102,11 +105,19 @@ impl Parser {
     }
 
     fn and(&mut self) -> Result<E> {
-        let mut l = self.cmp()?;
+        let mut l = self.not()?;
         while self.eat_word("and") {
-            l = E::Bin(Op::And, Box::new(l), Box::new(self.cmp()?));
+            l = E::Bin(Op::And, Box::new(l), Box::new(self.not()?));
         }
         Ok(l)
+    }
+
+    /// `not` before a comparison.
+    fn not(&mut self) -> Result<E> {
+        if self.eat_word("not") {
+            return Ok(E::Call("not".into(), vec![self.not()?]));
+        }
+        self.cmp()
     }
 
     fn cmp(&mut self) -> Result<E> {
@@ -287,32 +298,89 @@ fn parse(expr: &str) -> Result<E> {
 #[derive(Clone, Debug)]
 enum V {
     N(f64),
+    /// Text of no declared type (a literal, a function's result): read as a number when it is one.
     T(String),
+    /// The value of a text or hyperlink field: compared as text, never as a number.
+    S(String),
+    /// A yes/no value.
+    B(bool),
+    /// A date, as days since 1970-01-01.
+    D(f64),
 }
 
 impl V {
     fn num(&self) -> f64 {
         match self {
-            V::N(x) => *x,
-            V::T(s) => s.trim().parse().unwrap_or(f64::NAN),
+            V::N(x) | V::D(x) => *x,
+            V::B(b) => f64::from(u8::from(*b)),
+            V::T(s) | V::S(s) => s.trim().parse().unwrap_or(f64::NAN),
         }
     }
 
     fn text(&self) -> String {
         match self {
             V::N(x) => nice(*x),
-            V::T(s) => s.clone(),
+            V::T(s) | V::S(s) => s.clone(),
+            V::B(b) => if *b { "Sí" } else { "No" }.to_string(),
+            V::D(d) => crate::fieldtype::format_date(*d),
         }
     }
 
     fn truth(&self) -> bool {
-        let n = self.num();
-        if n.is_nan() { !self.text().is_empty() } else { n != 0.0 }
+        match self {
+            V::B(b) => *b,
+            V::D(_) => true,
+            V::S(s) => !s.is_empty(),
+            _ => {
+                let n = self.num();
+                if n.is_nan() { !self.text().is_empty() } else { n != 0.0 }
+            }
+        }
+    }
+
+    /// As a date, when it is one or a text that reads as one.
+    fn date(&self) -> Option<f64> {
+        match self {
+            V::D(d) => Some(*d),
+            V::T(s) | V::S(s) => crate::fieldtype::parse_date(s),
+            V::N(x) if x.is_finite() => Some(*x),
+            _ => None,
+        }
+    }
+
+    /// As yes/no, when it is one or a text that reads as one.
+    fn yes_no(&self) -> Option<bool> {
+        match self {
+            V::B(b) => Some(*b),
+            V::N(x) if x.is_finite() => Some(*x != 0.0),
+            V::T(s) | V::S(s) => crate::fieldtype::FieldType::Bool.parse(s).ok().filter(|v| v.1.is_finite()).map(|v| v.1 != 0.0),
+            V::D(_) | V::N(_) => None,
+        }
     }
 }
 
+/// How two values order, by what they are: dates by day (a text that reads as a date counts as
+/// one), yes/no as false < true, text of a field as text, the rest as numbers when both are.
+fn compare(l: &V, r: &V) -> std::cmp::Ordering {
+    if (matches!(l, V::D(_)) || matches!(r, V::D(_)))
+        && let (Some(a), Some(b)) = (l.date(), r.date())
+    {
+        return a.total_cmp(&b);
+    }
+    if (matches!(l, V::B(_)) || matches!(r, V::B(_)))
+        && let (Some(a), Some(b)) = (l.yes_no(), r.yes_no())
+    {
+        return a.cmp(&b);
+    }
+    if matches!(l, V::S(_)) || matches!(r, V::S(_)) {
+        return l.text().cmp(&r.text());
+    }
+    let (x, y) = (l.num(), r.num());
+    if x.is_nan() || y.is_nan() { l.text().cmp(&r.text()) } else { x.total_cmp(&y) }
+}
+
 fn flag(b: bool) -> V {
-    V::N(if b { 1.0 } else { 0.0 })
+    V::B(b)
 }
 
 struct Ctx<'a> {
@@ -367,13 +435,34 @@ impl Ctx<'_> {
     }
 
     fn field(&self, name: &str) -> Result<V> {
-        let c = self
+        use crate::fieldtype::FieldType;
+        let Some(c) = self
             .d
             .fields
             .iter()
             .position(|f| f.trim().eq_ignore_ascii_case(name.trim()))
-            .ok_or_else(|| bad(format!("no hay un campo «{name}»")))?;
-        Ok(V::T(self.d.text.get(self.row).and_then(|r| r.get(c)).cloned().unwrap_or_default()))
+        else {
+            // `true` and `false` are values when no field has that name
+            return match name.trim().to_lowercase().as_str() {
+                "true" | "verdadero" => Ok(V::B(true)),
+                "false" | "falso" => Ok(V::B(false)),
+                _ => Err(bad(format!("no hay un campo «{name}»"))),
+            };
+        };
+        let t = self.d.text.get(self.row).and_then(|r| r.get(c)).cloned().unwrap_or_default();
+        // an empty value is empty whatever the type: it is neither zero, nor false, nor a date
+        if t.trim().is_empty() {
+            return Ok(V::T(String::new()));
+        }
+        Ok(match self.d.field_type(c) {
+            FieldType::Integer | FieldType::Real => match t.trim().parse::<f64>() {
+                Ok(x) => V::N(x),
+                Err(_) => V::T(t),
+            },
+            FieldType::Bool => FieldType::Bool.parse(&t).map_or(V::T(t), |(_, n)| V::B(n != 0.0)),
+            FieldType::Date => crate::fieldtype::parse_date(&t).map_or(V::T(t), V::D),
+            FieldType::Text | FieldType::Link => V::S(t),
+        })
     }
 
     fn eval(&self, e: &E) -> Result<V> {
@@ -393,6 +482,9 @@ impl Ctx<'_> {
                 }
                 let r = self.eval(b)?;
                 match op {
+                    // a date plus or minus days is a date; the difference of two is days
+                    Op::Add if matches!(l, V::D(_)) != matches!(r, V::D(_)) => V::D(l.num() + r.num()),
+                    Op::Sub if matches!(l, V::D(_)) && !matches!(r, V::D(_)) => V::D(l.num() - r.num()),
                     Op::Add => V::N(l.num() + r.num()),
                     Op::Sub => V::N(l.num() - r.num()),
                     Op::Mul => V::N(l.num() * r.num()),
@@ -402,8 +494,7 @@ impl Ctx<'_> {
                     Op::Cat => V::T(format!("{}{}", l.text(), r.text())),
                     Op::And | Op::Or => flag(r.truth()),
                     Op::Eq | Op::Ne | Op::Lt | Op::Le | Op::Gt | Op::Ge => {
-                        let (x, y) = (l.num(), r.num());
-                        let ord = if x.is_nan() || y.is_nan() { l.text().cmp(&r.text()) } else { x.total_cmp(&y) };
+                        let ord = compare(&l, &r);
                         flag(match op {
                             Op::Eq => ord.is_eq(),
                             Op::Ne => ord.is_ne(),
@@ -462,7 +553,42 @@ impl Ctx<'_> {
                 want(2)?;
                 V::N(a(0)?.num().powf(a(1)?.num()))
             }
+            "date" | "fecha" => {
+                want(1)?;
+                let v = a(0)?;
+                match v.date() {
+                    Some(d) if !matches!(v, V::N(_)) => V::D(d),
+                    _ if v.text().trim().is_empty() => V::T(String::new()),
+                    _ => return Err(bad(format!("«{}» no es una fecha (por ejemplo 2025-03-31)", v.text()))),
+                }
+            }
+            "today" | "hoy" => {
+                want(0)?;
+                let secs = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                V::D((secs / 86_400) as f64)
+            }
+            "year" | "month" | "day" | "año" | "mes" | "dia" | "día" => {
+                want(1)?;
+                match a(0)?.date() {
+                    Some(d) => {
+                        let (y, m, dd) = crate::fieldtype::civil_from_days(d as i64);
+                        V::N(match f {
+                            "year" | "año" => y,
+                            "month" | "mes" => m,
+                            _ => dd,
+                        } as f64)
+                    }
+                    None => V::T(String::new()),
+                }
+            }
             "min" | "max" => {
+                if args.iter().any(|e| matches!(self.eval(e), Ok(V::D(_)))) {
+                    let d: Vec<f64> = args.iter().filter_map(|e| self.eval(e).ok().and_then(|v| v.date())).collect();
+                    let pick = d.iter().copied();
+                    return Ok(V::D(if f == "min" { pick.fold(f64::INFINITY, f64::min) } else { pick.fold(f64::NEG_INFINITY, f64::max) }));
+                }
                 let v = nums()?;
                 if v.is_empty() {
                     return Err(bad(format!("{f} necesita algún argumento")));
@@ -504,6 +630,10 @@ impl Ctx<'_> {
                 let from = a(1)?.text();
                 V::T(if from.is_empty() { a(0)?.text() } else { a(0)?.text().replace(&from, &a(2)?.text()) })
             }
+            "not" => {
+                want(1)?;
+                flag(!a(0)?.truth())
+            }
             "if" => {
                 want(3)?;
                 if a(0)?.truth() { a(1)? } else { a(2)? }
@@ -522,22 +652,30 @@ impl Ctx<'_> {
     }
 }
 
-/// The values of `expr` for the rows asked for (all, or `only`), as text; checks the expression
-/// without changing anything.
-pub fn evaluate(d: &VectorData, kind: GeomKind, expr: &str, only: Option<&HashSet<usize>>) -> Result<Vec<(usize, String)>> {
+fn eval_rows(d: &VectorData, kind: GeomKind, expr: &str, only: Option<&HashSet<usize>>) -> Result<Vec<(usize, V)>> {
     let e = parse(expr)?;
     let mut out = Vec::new();
     for row in 0..d.features.len() {
         if only.is_some_and(|s| !s.contains(&row)) {
             continue;
         }
-        let v = Ctx { d, kind, row }.eval(&e)?;
-        out.push((row, match v {
-            V::N(x) if !x.is_finite() => String::new(),
-            v => v.text(),
-        }));
+        out.push((row, Ctx { d, kind, row }.eval(&e)?));
     }
     Ok(out)
+}
+
+/// The values of `expr` for the rows asked for (all, or `only`), as text; checks the expression
+/// without changing anything.
+pub fn evaluate(d: &VectorData, kind: GeomKind, expr: &str, only: Option<&HashSet<usize>>) -> Result<Vec<(usize, String)>> {
+    Ok(eval_rows(d, kind, expr, only)?
+        .into_iter()
+        .map(|(row, v)| {
+            (row, match v {
+                V::N(x) if !x.is_finite() => String::new(),
+                v => v.text(),
+            })
+        })
+        .collect())
 }
 
 /// The rows for which `expr` holds: a comparison that is true, a number other than zero, a text
@@ -553,30 +691,55 @@ pub fn select(d: &VectorData, kind: GeomKind, expr: &str) -> Result<Vec<usize>> 
     Ok(out)
 }
 
-/// Writes the values of `expr` into `field` (made if the layer has none of that name) for all
-/// the rows or only those in `only`. Nothing changes if the expression fails on any row.
-/// Returns how many rows were set.
+/// The type a field made by an expression gets: that of the values it gives.
+fn type_of_values(values: &[(usize, V)]) -> crate::fieldtype::FieldType {
+    use crate::fieldtype::FieldType;
+    let some: Vec<&V> = values.iter().map(|v| &v.1).filter(|v| !v.text().is_empty()).collect();
+    if some.is_empty() {
+        FieldType::Text
+    } else if some.iter().all(|v| matches!(v, V::D(_))) {
+        FieldType::Date
+    } else if some.iter().all(|v| matches!(v, V::B(_))) {
+        FieldType::Bool
+    } else if some.iter().all(|v| matches!(v, V::N(x) if x.is_finite())) {
+        FieldType::infer(some.iter().map(|v| v.text()).collect::<Vec<_>>().iter().map(String::as_str))
+    } else {
+        FieldType::Text
+    }
+}
+
+/// Writes the values of `expr` into `field` for all the rows or only those in `only`. A field
+/// that exists keeps its type and the values are checked against it (a text in a number field is
+/// an error); one that does not is made with the type of the values. Nothing changes if the
+/// expression fails on any row or a value does not fit. Returns how many rows were set.
 pub fn apply(d: &mut VectorData, kind: GeomKind, field: &str, expr: &str, only: Option<&HashSet<usize>>) -> Result<usize> {
     let name = field.trim();
     if name.is_empty() {
         return Err(bad("falta el nombre del campo"));
     }
-    let values = evaluate(d, kind, expr, only)?;
-    let col = match d.fields.iter().position(|f| f.trim().eq_ignore_ascii_case(name)) {
-        Some(c) => c,
-        None => {
-            d.fields.push(name.to_string());
-            for (t, n) in d.text.iter_mut().zip(d.num.iter_mut()) {
-                t.push(String::new());
-                n.push(f64::NAN);
-            }
-            d.fields.len() - 1
+    let values = eval_rows(d, kind, expr, only)?;
+    let text = |v: &V| match v {
+        V::N(x) if !x.is_finite() => String::new(),
+        v => v.text(),
+    };
+    let existing = d.fields.iter().position(|f| f.trim().eq_ignore_ascii_case(name));
+    // check every value before touching the layer
+    if let Some(c) = existing {
+        let ty = d.field_type(c);
+        for (row, v) in &values {
+            ty.parse(&text(v)).map_err(|m| bad(format!("fila {}: {m} (el campo «{}» es de tipo {})", row + 1, d.fields[c], ty.name())))?;
         }
+    }
+    let ty = type_of_values(&values);
+    let col = match existing {
+        Some(c) => c,
+        None => d.add_field(name, ty),
     };
     let n = values.len();
-    for (row, v) in values {
-        d.num[row][col] = v.trim().parse().unwrap_or(f64::NAN);
-        d.text[row][col] = v;
+    for (row, v) in &values {
+        if d.set_value(*row, col, &text(v)).is_err() {
+            return Err(bad(format!("fila {}: el valor no cabe en el campo", row + 1)));
+        }
     }
     Ok(n)
 }
@@ -621,7 +784,7 @@ mod tests {
         assert_eq!(one("if(especie = 'Pino', 'conífera', 'frondosa')")?, ["conífera", "frondosa"]);
         assert_eq!(one("upper(left(especie, 2))")?, ["PI", "HA"]);
         assert_eq!(one("coalesce(n, 0)")?, ["3", "0"]);
-        assert_eq!(one("$area > 150 or especie = 'Pino'")?, ["1", "1"]);
+        assert_eq!(one("$area > 150 or especie = 'Pino'")?, ["Sí", "Sí"]);
         Ok(())
     }
 
@@ -657,6 +820,74 @@ mod tests {
         // an existing field is set, whatever the case of its name
         apply(&mut d, GeomKind::Polygon, "ESPECIE", "'x'", None)?;
         assert_eq!((d.fields.len(), d.text[0][0].as_str()), (3, "x"));
+        Ok(())
+    }
+
+    /// A layer with one field of each type.
+    fn typed() -> VectorData {
+        use crate::fieldtype::FieldType::*;
+        let mut d = layer();
+        d.types = vec![Text, Integer];
+        d.add_field("fecha", Date);
+        d.add_field("activo", Bool);
+        d.add_field("codigo", Text);
+        for (row, (f, a, c)) in [("2025-03-31", "Sí", "007"), ("2024-12-01", "No", "10")].iter().enumerate() {
+            d.set_value(row, 2, f).ok();
+            d.set_value(row, 3, a).ok();
+            d.set_value(row, 4, c).ok();
+        }
+        d
+    }
+
+    #[test]
+    fn dates_yes_no_and_text_are_read_by_their_type() -> Result<()> {
+        let d = typed();
+        let sel = |e: &str| select(&d, GeomKind::Polygon, e);
+        // dates compare as dates, with a text that reads as a date, and do arithmetic in days
+        assert_eq!(sel("fecha > '2025-01-01'")?, [0]);
+        assert_eq!(sel("fecha < date('01/01/2025')")?, [1]);
+        assert_eq!(sel("year(fecha) = 2024")?, [1]);
+        assert_eq!(sel("fecha - date('2025-03-01') = 30")?, [0]);
+        assert_eq!(sel("fecha >= today() - 36500")?, [0, 1]);
+        // yes/no
+        assert_eq!(sel("activo")?, [0]);
+        assert_eq!(sel("not activo = true")?, [1]);
+        assert_eq!(sel("activo = false")?, [1]);
+        // a text field is compared as text: "007" is not 7 and "10" sorts before "7"
+        assert_eq!(sel("codigo = 7")?, Vec::<usize>::new());
+        assert_eq!(sel("codigo = '007'")?, [0]);
+        assert_eq!(sel("codigo < '2'")?, [0, 1]);
+        // a number field is compared as a number
+        assert_eq!(sel("n > 2")?, [0]);
+        Ok(())
+    }
+
+    #[test]
+    fn values_written_to_a_field_must_fit_its_type() -> Result<()> {
+        let mut d = typed();
+        // a text into a number or a date field is refused and nothing changes
+        assert!(apply(&mut d, GeomKind::Polygon, "n", "especie", None).is_err());
+        assert!(apply(&mut d, GeomKind::Polygon, "fecha", "'mañana'", None).is_err());
+        assert_eq!(d.text[0][1], "3");
+        // a decimal into a whole-number field is refused, rounded it is accepted
+        assert!(apply(&mut d, GeomKind::Polygon, "n", "$area / 7", None).is_err());
+        apply(&mut d, GeomKind::Polygon, "n", "round($area / 7)", None)?;
+        assert_eq!(d.text[0][1], "14");
+        // a yes/no result into a yes/no field is Sí / No
+        apply(&mut d, GeomKind::Polygon, "activo", "$area > 150", None)?;
+        assert_eq!((d.text[0][3].as_str(), d.text[1][3].as_str()), ("No", "Sí"));
+        // a new field takes the type of the values
+        apply(&mut d, GeomKind::Polygon, "nuevo_f", "fecha + 10", None)?;
+        apply(&mut d, GeomKind::Polygon, "nuevo_a", "$area", None)?;
+        apply(&mut d, GeomKind::Polygon, "nuevo_s", "especie", None)?;
+        apply(&mut d, GeomKind::Polygon, "nuevo_b", "$area > 5", None)?;
+        use crate::fieldtype::FieldType::*;
+        let t = |n: &str| d.fields.iter().position(|f| f == n).map(|c| d.field_type(c));
+        assert_eq!(t("nuevo_f"), Some(Date));
+        assert_eq!(t("nuevo_a"), Some(Integer));
+        assert_eq!(t("nuevo_s"), Some(Text));
+        assert_eq!(t("nuevo_b"), Some(Bool));
+        assert_eq!(d.text[0][5], "2025-04-10");
         Ok(())
     }
 }

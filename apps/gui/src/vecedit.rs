@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::layers::{VecLayer, dist_to_segment};
+use hipso_core::fieldtype::FieldType;
 use std::collections::HashMap;
 
 /// A comparison for selecting by attribute.
@@ -33,28 +34,31 @@ impl Op {
         }
     }
 
-    fn test(self, text: &str, num: f64, value: &str) -> bool {
+    /// Whether a cell passes, reading the value typed by the type of its field: numbers and
+    /// dates by their number, yes/no as equal or not, text as text without regard to case.
+    fn test(self, ty: FieldType, text: &str, num: f64, value: &str) -> bool {
         let want = value.trim();
-        if let (Ok(w), true) = (want.replace(',', ".").parse::<f64>(), num.is_finite()) {
-            return match self {
-                Op::Eq => num == w,
-                Op::Ne => num != w,
-                Op::Lt => num < w,
-                Op::Le => num <= w,
-                Op::Gt => num > w,
-                Op::Ge => num >= w,
-                Op::Contains => text.contains(want),
-            };
+        if self == Op::Contains {
+            return text.to_lowercase().contains(&want.to_lowercase());
         }
-        let (t, w) = (text.to_lowercase(), want.to_lowercase());
-        match self {
-            Op::Eq => t == w,
-            Op::Ne => t != w,
-            Op::Lt => t < w,
-            Op::Le => t <= w,
-            Op::Gt => t > w,
-            Op::Ge => t >= w,
-            Op::Contains => t.contains(&w),
+        let ordered = |o: std::cmp::Ordering| match self {
+            Op::Eq => o.is_eq(),
+            Op::Ne => o.is_ne(),
+            Op::Lt => o.is_lt(),
+            Op::Le => o.is_le(),
+            Op::Gt => o.is_gt(),
+            _ => o.is_ge(),
+        };
+        match ty {
+            FieldType::Integer | FieldType::Real | FieldType::Date | FieldType::Bool => {
+                // a value that is not of the type selects nothing (or, for ≠, whatever has a value)
+                let Ok((_, w)) = ty.parse(want) else { return false };
+                if w.is_nan() || num.is_nan() {
+                    return self == Op::Ne && !text.is_empty();
+                }
+                ordered(num.total_cmp(&w))
+            }
+            FieldType::Text | FieldType::Link => ordered(text.to_lowercase().cmp(&want.to_lowercase())),
         }
     }
 }
@@ -78,6 +82,13 @@ pub struct VecEditState {
     cell_old: Option<(usize, usize, String)>,
     /// The cell being edited: feature and field.
     editing: Option<(usize, usize)>,
+    /// What is typed in the cell being edited (checked against the type of its field when it is
+    /// left).
+    edit_buf: String,
+    /// Why the last value typed or the last change of type was refused.
+    pub err: Option<String>,
+    /// The type chosen for a field about to be added.
+    pub new_type: hipso_core::fieldtype::FieldType,
     /// Width of every column of the table of each layer (index 0 is the row number).
     col_w: HashMap<usize, Vec<f32>>,
     /// Field the table is sorted by and whether it goes up.
@@ -102,6 +113,9 @@ impl Default for VecEditState {
             last_row: None,
             cell_old: None,
             editing: None,
+            edit_buf: String::new(),
+            err: None,
+            new_type: hipso_core::fieldtype::FieldType::Text,
             col_w: HashMap::new(),
             sort: None,
             order: Vec::new(),
@@ -139,6 +153,7 @@ impl VecLayer {
 
     /// Selects by an attribute; `mode` 0 replaces the selection, 1 adds to it, 2 narrows it.
     fn select_by(&mut self, field: usize, op: Op, value: &str, mode: u8) {
+        let ty = self.data.field_type(field);
         let hits: HashSet<usize> = (0..self.data.features.len())
             .filter(|&i| {
                 let text = self
@@ -154,7 +169,7 @@ impl VecLayer {
                     .and_then(|r| r.get(field))
                     .copied()
                     .unwrap_or(f64::NAN);
-                op.test(text, num, value)
+                op.test(ty, text, num, value)
             })
             .collect();
         match mode {
@@ -954,8 +969,38 @@ impl App {
                                         ui.selectable_value(&mut ed.q_op, o, o.name());
                                     }
                                 });
-                            ui.add(egui::TextEdit::singleline(&mut ed.q_value).desired_width(90.0));
+                            let ty = v.data.field_type(ed.q_field);
+                            if ty == FieldType::Bool {
+                                egui::ComboBox::from_id_salt("q_bool")
+                                    .width(60.0)
+                                    .selected_text(if ed.q_value.is_empty() { "Sí" } else { ed.q_value.as_str() })
+                                    .show_ui(ui, |ui| {
+                                        for o in ["Sí", "No"] {
+                                            ui.selectable_value(&mut ed.q_value, o.to_string(), o);
+                                        }
+                                    });
+                                if ed.q_value.is_empty() {
+                                    ed.q_value = "Sí".into();
+                                }
+                            } else {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut ed.q_value)
+                                        .hint_text(match ty {
+                                            FieldType::Date => "AAAA-MM-DD",
+                                            FieldType::Integer | FieldType::Real => "número",
+                                            _ => "valor",
+                                        })
+                                        .desired_width(90.0),
+                                );
+                            }
                         });
+                        {
+                            let ty = v.data.field_type(ed.q_field);
+                            ui.label(egui::RichText::new(format!("Campo de tipo «{}»: {}", ty.name(), ty.help())).size(11.0).weak());
+                            if !ed.q_value.trim().is_empty() && ty.parse(&ed.q_value).is_err() && ty != FieldType::Text && ty != FieldType::Link {
+                                ui.label(egui::RichText::new(format!("«{}» no es un valor de ese tipo: no selecciona nada", ed.q_value.trim())).size(11.0).color(Color32::from_rgb(200, 60, 40)));
+                            }
+                        }
                         ui.horizontal(|ui| {
                             for (label, mode) in [("Nueva selección", 0u8), ("Añadir", 1), ("Dentro de la selección", 2)] {
                                 if ui.button(label).clicked() {
@@ -967,15 +1012,21 @@ impl App {
                     });
                     ui.menu_button("Añadir campo", |ui| {
                         ui.add(egui::TextEdit::singleline(&mut new_field).hint_text("nombre del campo").desired_width(130.0));
-                        if ui.button("Añadir").clicked() && !new_field.trim().is_empty() {
+                        egui::ComboBox::from_id_salt("new_field_type")
+                            .selected_text(ed.new_type.name())
+                            .show_ui(ui, |ui| {
+                                for t in FieldType::ALL {
+                                    ui.selectable_value(&mut ed.new_type, t, t.name());
+                                }
+                            });
+                        ui.label(egui::RichText::new(ed.new_type.help()).size(11.0).weak());
+                        let dup = v.data.fields.iter().any(|f| f.trim().eq_ignore_ascii_case(new_field.trim()));
+                        if dup && !new_field.trim().is_empty() {
+                            ui.label(egui::RichText::new("Ya hay un campo con ese nombre").size(11.0).color(Color32::from_rgb(200, 60, 40)));
+                        }
+                        if ui.add_enabled(!dup, egui::Button::new("Añadir")).clicked() && !new_field.trim().is_empty() {
                             v.push_undo();
-                            v.data.fields.push(new_field.trim().to_string());
-                            for row in &mut v.data.text {
-                                row.push(String::new());
-                            }
-                            for row in &mut v.data.num {
-                                row.push(f64::NAN);
-                            }
+                            v.data.add_field(new_field.trim(), ed.new_type);
                             new_field.clear();
                             v.dirty = true;
                             ui.close();
@@ -995,7 +1046,10 @@ impl App {
                     if let Some((c, up)) = ed.sort {
                         let text = |i: usize| v.data.text.get(i).and_then(|r| r.get(c)).map_or("", String::as_str);
                         let num = |i: usize| v.data.num.get(i).and_then(|r| r.get(c)).copied().unwrap_or(f64::NAN);
-                        let numeric = order.iter().take(200).all(|&i| num(i).is_finite() || text(i).is_empty());
+                        let numeric = matches!(
+                            v.data.field_type(c),
+                            FieldType::Integer | FieldType::Real | FieldType::Date | FieldType::Bool
+                        );
                         order.sort_by(|&a, &b| {
                             let o = if numeric {
                                 num(a).partial_cmp(&num(b)).unwrap_or_else(|| num(a).is_nan().cmp(&num(b).is_nan()))
@@ -1039,6 +1093,8 @@ impl App {
                 let mut sort_click: Option<usize> = None;
                 let mut start_edit: Option<(usize, usize)> = None;
                 let mut row_click: Option<(usize, bool, bool)> = None;
+                let types: Vec<FieldType> = (0..nfields).map(|c| v.data.field_type(c)).collect();
+                let mut retype: Option<(usize, FieldType)> = None;
                 egui::ScrollArea::both()
                     .auto_shrink([false, false])
                     .show_viewport(ui, |ui, view| {
@@ -1081,34 +1137,35 @@ impl App {
                             for c in 0..nfields {
                                 let cell = Rect::from_min_max(Pos2::new(xs[c + 1], y), Pos2::new(xs[c + 2], y + ROW_H));
                                 if ed.editing == Some((i, c)) {
-                                    let Some(text) = v.data.text.get_mut(i).and_then(|row| row.get_mut(c)) else { continue };
-                                    let before = text.clone();
-                                    let resp = ui.put(cell.shrink2(Vec2::new(1.0, 0.0)), egui::TextEdit::singleline(text).margin(Vec2::new(5.0, 2.0)));
-                                    if resp.changed() {
-                                        let after = v.data.text[i][c].clone();
-                                        let val = after.trim().replace(',', ".").parse().unwrap_or(f64::NAN);
-                                        // the undo point is the cell as it was on entering it
-                                        if ed.cell_old.as_ref().is_none_or(|o| o.0 != i || o.1 != c) {
-                                            let mut snap = v.data.clone();
-                                            snap.text[i][c] = before.clone();
-                                            snap.num[i][c] = before.trim().replace(',', ".").parse().unwrap_or(f64::NAN);
-                                            v.undo.push(snap);
-                                            v.redo.clear();
-                                            v.edit_touched = true;
-                                            ed.cell_old = Some((i, c, before));
-                                        }
-                                        if let Some(x) = v.data.num.get_mut(i).and_then(|row| row.get_mut(c)) {
-                                            *x = val;
-                                        }
-                                        v.dirty = true;
-                                        if ed.sort.is_some_and(|(sc, _)| sc == c) {
-                                            ed.sort_key = None;
-                                        }
-                                        if v.sym.field == Some(c) || v.labels.field == Some(c) {
-                                            v.reclassify();
-                                        }
-                                    }
+                                    let resp = ui.put(cell.shrink2(Vec2::new(1.0, 0.0)), egui::TextEdit::singleline(&mut ed.edit_buf).margin(Vec2::new(5.0, 2.0)));
+                                    let cancel = ui.input(|inp| inp.key_pressed(egui::Key::Escape));
                                     if resp.lost_focus() {
+                                        let before = v.data.text.get(i).and_then(|r| r.get(c)).cloned().unwrap_or_default();
+                                        if !cancel && ed.edit_buf != before {
+                                            // the value must be one of the type of its field
+                                            match v.data.field_type(c).parse(&ed.edit_buf) {
+                                                Ok(_) => {
+                                                    v.push_undo();
+                                                    let _ = v.data.set_value(i, c, &ed.edit_buf);
+                                                    v.dirty = true;
+                                                    ed.err = None;
+                                                    if ed.sort.is_some_and(|(sc, _)| sc == c) {
+                                                        ed.sort_key = None;
+                                                    }
+                                                    if v.sym.field == Some(c) || v.labels.field == Some(c) {
+                                                        v.reclassify();
+                                                    }
+                                                }
+                                                Err(m) => {
+                                                    ed.err = Some(format!(
+                                                        "{m}; el campo «{}» es de tipo {} ({})",
+                                                        v.data.fields[c],
+                                                        v.data.field_type(c).name(),
+                                                        v.data.field_type(c).help()
+                                                    ));
+                                                }
+                                            }
+                                        }
                                         ed.editing = None;
                                         ed.cell_old = None;
                                     } else if !resp.has_focus() {
@@ -1117,22 +1174,43 @@ impl App {
                                     continue;
                                 }
                                 let cr = ui.interact(cell, ui.id().with(("tc", i, c)), Sense::click());
+                                let ty = types[c];
+                                let text = v.data.text.get(i).and_then(|row| row.get(c)).map_or("", String::as_str);
+                                let is_link = ty == FieldType::Link && !text.trim().is_empty();
                                 if cr.double_clicked() {
                                     start_edit = Some((i, c));
                                 } else if cr.clicked() {
-                                    let (shift, cmd) = ui.input(|inp| (inp.modifiers.shift, inp.modifiers.command));
-                                    row_click = Some((i, shift, cmd));
+                                    if is_link {
+                                        // a click on a hyperlink opens it; the row number selects the row
+                                        let url = text.trim();
+                                        let target = if url.contains("://") || url.starts_with("mailto:") {
+                                            url.to_string()
+                                        } else {
+                                            format!("file://{url}")
+                                        };
+                                        ui.ctx().open_url(egui::OpenUrl::new_tab(target));
+                                    } else {
+                                        let (shift, cmd) = ui.input(|inp| (inp.modifiers.shift, inp.modifiers.command));
+                                        row_click = Some((i, shift, cmd));
+                                    }
                                 }
-                                let text = v.data.text.get(i).and_then(|row| row.get(c)).map_or("", String::as_str);
-                                let numeric = v.data.num.get(i).and_then(|row| row.get(c)).is_some_and(|x| x.is_finite());
-                                let clip = painter.with_clip_rect(cell.shrink2(Vec2::new(0.0, 0.0)).intersect(ui.clip_rect()));
-                                clip.text(
-                                    if numeric { Pos2::new(cell.right() - 6.0, y + ROW_H / 2.0) } else { Pos2::new(cell.left() + 6.0, y + ROW_H / 2.0) },
-                                    if numeric { Align2::RIGHT_CENTER } else { Align2::LEFT_CENTER },
+                                if is_link {
+                                    cr.clone().on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Clic: abrir · doble clic: editar");
+                                }
+                                let right = matches!(ty, FieldType::Integer | FieldType::Real);
+                                let clip = painter.with_clip_rect(cell.intersect(ui.clip_rect()));
+                                let ink = if is_link { t.accent } else { t.text };
+                                let galley_pos = if right { Pos2::new(cell.right() - 6.0, y + ROW_H / 2.0) } else { Pos2::new(cell.left() + 6.0, y + ROW_H / 2.0) };
+                                let r = clip.text(
+                                    galley_pos,
+                                    if right { Align2::RIGHT_CENTER } else { Align2::LEFT_CENTER },
                                     text,
                                     FontId::proportional(12.0),
-                                    t.text,
+                                    ink,
                                 );
+                                if is_link {
+                                    clip.line_segment([r.left_bottom(), r.right_bottom()], Stroke::new(1.0, ink));
+                                }
                             }
                             // grid lines
                             painter.line_segment([Pos2::new(row_rect.left(), y + ROW_H), Pos2::new(row_rect.right(), y + ROW_H)], Stroke::new(1.0, t.border.gamma_multiply(0.5)));
@@ -1157,6 +1235,16 @@ impl App {
                             if hr.clicked() {
                                 sort_click = Some(c);
                             }
+                            let hr = hr.on_hover_text(format!("{} · {}", types[c].name(), types[c].help()));
+                            hr.context_menu(|ui| {
+                                ui.label(egui::RichText::new(format!("Tipo: {}", types[c].name())).strong());
+                                for t2 in FieldType::ALL {
+                                    if t2 != types[c] && ui.button(format!("Cambiar a {}", t2.name())).clicked() {
+                                        retype = Some((c, t2));
+                                        ui.close();
+                                    }
+                                }
+                            });
                             let arrow = match ed.sort {
                                 Some((sc, up)) if sc == c => {
                                     if up { " ▲" } else { " ▼" }
@@ -1201,6 +1289,35 @@ impl App {
                 {
                     *slot = 0.0;
                 }
+                if let Some((c, to)) = retype {
+                    // every value must be valid for the new type, or nothing changes
+                    let bad = v.data.text.iter().enumerate().find_map(|(r, row)| {
+                        to.parse(row.get(c).map_or("", String::as_str)).err().map(|m| (r, m))
+                    });
+                    match bad {
+                        Some((r, m)) => {
+                            ed.err = Some(format!(
+                                "No se puede pasar «{}» a {}: fila {}, {m}",
+                                v.data.fields[c],
+                                to.name(),
+                                r + 1
+                            ));
+                        }
+                        None => {
+                            v.push_undo();
+                            v.data.fix_types();
+                            v.data.types[c] = to;
+                            for r in 0..v.data.text.len() {
+                                let raw = v.data.text[r][c].clone();
+                                let _ = v.data.set_value(r, c, &raw);
+                            }
+                            v.dirty = true;
+                            ed.err = None;
+                            ed.sort_key = None;
+                            v.reclassify_if_data();
+                        }
+                    }
+                }
                 if let Some(c) = sort_click {
                     ed.sort = match ed.sort {
                         Some((sc, true)) if sc == c => Some((c, false)),
@@ -1226,6 +1343,11 @@ impl App {
                 if let Some(cell) = start_edit {
                     ed.editing = Some(cell);
                     ed.cell_old = None;
+                    ed.err = None;
+                    ed.edit_buf = v.data.text.get(cell.0).and_then(|r| r.get(cell.1)).cloned().unwrap_or_default();
+                }
+                if let Some(m) = &ed.err {
+                    ui.label(egui::RichText::new(m).size(11.5).color(Color32::from_rgb(200, 60, 40)));
                 }
                 ui.separator();
                 ui.label(

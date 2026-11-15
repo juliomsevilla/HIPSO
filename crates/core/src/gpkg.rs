@@ -224,6 +224,29 @@ pub(crate) fn read_layer(path: &Path, table: Option<&str>) -> Result<Layer> {
         feats: Vec::new(),
         epsg: epsg_of_srs(&db, info.srs_id),
         skipped: 0,
+        types: fields
+            .iter()
+            .filter_map(|k| {
+                let d = t.types.get(*k)?.to_uppercase();
+                use crate::fieldtype::FieldType;
+                let ty = if d.contains("HYPERLINK") {
+                    FieldType::Link
+                } else if d.contains("BOOL") {
+                    FieldType::Bool
+                } else if d.contains("DATE") {
+                    FieldType::Date
+                } else if d.contains("INT") {
+                    FieldType::Integer
+                } else if d.contains("REAL") || d.contains("FLOA") || d.contains("DOUB") {
+                    FieldType::Real
+                } else if d.contains("TEXT") || d.contains("CHAR") {
+                    FieldType::Text
+                } else {
+                    return None;
+                };
+                Some((t.columns[*k].clone(), ty))
+            })
+            .collect(),
     };
     let mut first = true;
     for row in &t.rows {
@@ -244,7 +267,21 @@ pub(crate) fn read_layer(path: &Path, table: Option<&str>) -> Result<Layer> {
         }
         let props: Vec<(String, String)> = fields
             .iter()
-            .map(|k| (t.columns[*k].clone(), row[*k].display()))
+            .map(|k| {
+                let shown = row[*k].display();
+                let ty = layer.types.iter().find(|(n, _)| *n == t.columns[*k]).map(|x| x.1);
+                let shown = match ty {
+                    Some(crate::fieldtype::FieldType::Bool) => match shown.as_str() {
+                        "1" | "true" => "Sí".to_string(),
+                        "0" | "false" => "No".to_string(),
+                        _ => shown,
+                    },
+                    Some(crate::fieldtype::FieldType::Date) => crate::fieldtype::parse_date(&shown)
+                        .map_or(shown, crate::fieldtype::format_date),
+                    _ => shown,
+                };
+                (t.columns[*k].clone(), shown)
+            })
             .collect();
         if kind == GeomKind::Point {
             for p in parts {

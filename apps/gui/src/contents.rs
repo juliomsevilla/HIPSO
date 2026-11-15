@@ -4,7 +4,7 @@
 //! it, and a layer can be dragged to another place in the drawing order.
 
 use super::*;
-use crate::layers::{Item, LayerCmd};
+use crate::layers::{GroupCmd, Item, LayerCmd};
 use crate::symbology::SymKind;
 use eframe::egui::Response;
 
@@ -219,6 +219,32 @@ impl App {
             .data_mut(|d| d.insert_temp(filter_id, filter.clone()));
         let needle = filter.trim().to_lowercase();
         let matches = |name: &str| needle.is_empty() || name.to_lowercase().contains(&needle);
+        // the group only counts while it holds the layer that is selected
+        if self.sel_layer.is_none_or(|k| !self.sel_layers.contains(&k)) {
+            self.sel_layers.clear();
+        }
+        let mut group: Option<GroupCmd> = None;
+        if self.sel_layers.len() > 1 {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("{} capas seleccionadas", self.sel_layers.len()))
+                        .size(11.5)
+                        .color(t.weak),
+                );
+                for (icon, tip, c) in [
+                    ("@selall", "Mostrar las capas seleccionadas", GroupCmd::Show),
+                    ("@deselect", "Ocultar las capas seleccionadas", GroupCmd::Hide),
+                    ("@full", "Zoom a las capas seleccionadas", GroupCmd::Zoom),
+                    ("@above", "Subir las capas seleccionadas en el orden de dibujo", GroupCmd::Up),
+                    ("@below", "Bajar las capas seleccionadas en el orden de dibujo", GroupCmd::Down),
+                    ("@close", "Quitar las capas seleccionadas", GroupCmd::Remove),
+                ] {
+                    if ribbon::icon_button(ui, &t, icon, tip).clicked() {
+                        group = Some(c);
+                    }
+                }
+            });
+        }
         ui.add_space(2.0);
         let n_clouds = self.clouds.len();
         let n_layers = self.refs.len();
@@ -395,7 +421,7 @@ impl App {
                                         if editing { "  ✎" } else { "" }
                                     ),
                                     bold: false,
-                                    selected: self.sel_layer == Some(k),
+                                    selected: self.sel_layer == Some(k) || self.sel_layers.contains(&k),
                                     dim: !visible,
                                     actions,
                                 },
@@ -405,7 +431,16 @@ impl App {
                                 set_flag(ui, lid.with("open"), !open);
                             }
                             if o.check {
-                                self.refs[k].visible = !visible;
+                                // on a layer of the selection the box turns the whole selection
+                                if self.sel_layers.len() > 1 && self.sel_layers.contains(&k) {
+                                    for j in self.sel_layers.clone() {
+                                        if let Some(r) = self.refs.get_mut(j) {
+                                            r.visible = !visible;
+                                        }
+                                    }
+                                } else {
+                                    self.refs[k].visible = !visible;
+                                }
                             }
                             if let Some(i) = o.action {
                                 let cmd = match (is_vec, i) {
@@ -420,7 +455,40 @@ impl App {
                                 let rr = rr.on_hover_text(tip);
                                 if rr.clicked() {
                                     sel_cloud = None;
-                                    act.push((k, LayerCmd::Select));
+                                    let m = ui.input(|i| i.modifiers);
+                                    if m.command {
+                                        // Ctrl / Cmd: add the layer to the selection or take it out
+                                        if let Some(p) = self.sel_layer
+                                            && self.sel_layers.is_empty()
+                                        {
+                                            self.sel_layers.insert(p);
+                                        }
+                                        if !self.sel_layers.remove(&k) {
+                                            self.sel_layers.insert(k);
+                                            self.sel_layer = Some(k);
+                                        } else if self.sel_layer == Some(k) {
+                                            self.sel_layer = self.sel_layers.iter().next_back().copied();
+                                        }
+                                    } else if m.shift && self.sel_layer.is_some() {
+                                        // Shift: every layer between the last one selected and this
+                                        let shown: Vec<usize> = on_top_first
+                                            .iter()
+                                            .filter_map(|i| match i {
+                                                Item::Layer(j) => Some(*j),
+                                                Item::Clouds => None,
+                                            })
+                                            .collect();
+                                        let a = shown.iter().position(|j| Some(*j) == self.sel_layer);
+                                        let b = shown.iter().position(|j| *j == k);
+                                        if let (Some(a), Some(b)) = (a, b) {
+                                            self.sel_layers.extend(shown[a.min(b)..=a.max(b)].iter().copied());
+                                        }
+                                        self.sel_layer = Some(k);
+                                    } else {
+                                        self.sel_layers.clear();
+                                        self.sel_layers.insert(k);
+                                        act.push((k, LayerCmd::Select));
+                                    }
                                 }
                                 if rr.double_clicked() {
                                     act.push((k, LayerCmd::Zoom));
@@ -429,6 +497,24 @@ impl App {
                                     ui.ctx().data_mut(|d| d.insert_temp(drag_id, (0u8, k)));
                                 }
                                 let is_img = matches!(self.refs[k].kind, RefKind::Image(_));
+                                if self.sel_layers.len() > 1 && self.sel_layers.contains(&k) {
+                                    let n = self.sel_layers.len();
+                                    rr.context_menu(|ui| {
+                                        for (text, c) in [
+                                            (format!("Mostrar las {n} capas"), GroupCmd::Show),
+                                            (format!("Ocultar las {n} capas"), GroupCmd::Hide),
+                                            ("Zoom a las capas".to_string(), GroupCmd::Zoom),
+                                            ("Subir en el orden de dibujo".to_string(), GroupCmd::Up),
+                                            ("Bajar en el orden de dibujo".to_string(), GroupCmd::Down),
+                                            (format!("Quitar las {n} capas"), GroupCmd::Remove),
+                                        ] {
+                                            if ui.button(text).clicked() {
+                                                group = Some(c);
+                                                ui.close();
+                                            }
+                                        }
+                                    });
+                                } else {
                                 rr.context_menu(|ui| {
                                     let mut item = |ui: &mut egui::Ui, text: &str, c: LayerCmd| {
                                         if ui.button(text).clicked() {
@@ -451,6 +537,7 @@ impl App {
                                     item(ui, "Bajar en el orden de dibujo", LayerCmd::Down);
                                     item(ui, "Quitar", LayerCmd::Remove);
                                 });
+                                }
                             }
                             // the symbology, as children of the layer
                             if open {
@@ -700,10 +787,26 @@ impl App {
                         );
                         if ui.input(|i| i.pointer.any_released()) {
                             let mut shown: Vec<Item> = rows.iter().map(|r| r.0).collect();
-                            if let Some(at) = shown.iter().position(|i| *i == from) {
-                                let item = shown.remove(at);
-                                let dest = if slot > at { slot - 1 } else { slot };
-                                shown.insert(dest.min(shown.len()), item);
+                            if shown.contains(&from) {
+                                // a layer of the selection takes the whole selection with it
+                                let moving: Vec<Item> = if kind == 0
+                                    && self.sel_layers.len() > 1
+                                    && self.sel_layers.contains(&k)
+                                {
+                                    shown
+                                        .iter()
+                                        .copied()
+                                        .filter(|i| matches!(i, Item::Layer(j) if self.sel_layers.contains(j)))
+                                        .collect()
+                                } else {
+                                    vec![from]
+                                };
+                                let above = shown.iter().take(slot).filter(|i| moving.contains(i)).count();
+                                shown.retain(|i| !moving.contains(i));
+                                let dest = slot - above;
+                                for (n, item) in moving.into_iter().enumerate() {
+                                    shown.insert((dest + n).min(shown.len()), item);
+                                }
                                 // from the bottom; the clouds, when none are open, keep their place
                                 let mut bottom_up: Vec<Item> = shown.into_iter().rev().collect();
                                 if !bottom_up.contains(&Item::Clouds) {
@@ -738,6 +841,9 @@ impl App {
         });
         for (k, c) in act {
             self.layer_command(ctx, k, c);
+        }
+        if let Some(c) = group {
+            self.group_command(c);
         }
         if let Some(order) = reorder {
             self.apply_order(&order);

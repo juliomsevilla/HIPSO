@@ -50,10 +50,16 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Crear multibanda" => "Une varias imágenes de una banda en una sola multibanda.",
         "Mosaico" => "Une varios rásteres en uno.",
         "Igualar rásteres" => {
-            "Pone varios rásteres con la misma rejilla, proyección y tamaño de celda."
+            "Reproyecta, recorta a la extensión y remuestrea varios rásteres a las celdas de uno de referencia (misma rejilla, proyección y tamaño de celda)."
         }
         "Tamizar" => {
             "Quita los parches pequeños de un ráster de clases: toman el valor del vecino mayor."
+        }
+        "Reclasificar" => {
+            "Cambia los valores de un ráster con una tabla de reglas: un valor, un intervalo o una comparación pasan a un valor nuevo o a «sin datos»."
+        }
+        "Cortar por máscara" => {
+            "Vacía lo que queda fuera de una capa de polígonos o de otro ráster y, si quieres, corta el ráster a su caja."
         }
         "Proximidad" => "Calcula para cada celda la distancia a la celda más cercana de unos valores.",
         "Voronoi" => "Un polígono de Voronoi por cada punto de una capa, con sus atributos.",

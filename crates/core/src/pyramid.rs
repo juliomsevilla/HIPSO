@@ -292,6 +292,20 @@ impl Pyramid {
             .unwrap_or(0)
     }
 
+    /// Rows `r0..r1` (0 is the northernmost) of the full-resolution image, all columns, decoded
+    /// on all cores. The cells are exactly those of the file.
+    pub fn read_rows(&self, r0: usize, r1: usize) -> Result<Image> {
+        let l = self.levels[0];
+        let (r1, q) = (r1.min(l.rows as usize), self.cell * 0.25);
+        let win = [
+            self.x0 + q,
+            self.y_top - r1 as f64 * self.cell + q,
+            self.x0 + f64::from(l.cols) * self.cell - q,
+            self.y_top - r0 as f64 * self.cell - q,
+        ];
+        self.read(0, win)
+    }
+
     /// Decodes the part of `level` that lies in `win` (west, south, east, north), whole tiles at
     /// a time, on all cores. The image returned starts at a pixel boundary of the level.
     pub fn read(&self, level: usize, win: [f64; 4]) -> Result<Image> {

@@ -158,10 +158,21 @@ impl TiledWriter {
         if !rows.len().is_multiple_of(width) {
             return Err(Error::Param("filas incompletas".into()));
         }
-        let mut bytes = Vec::with_capacity(rows.len() * self.spec.bytes_per_sample());
-        for &v in rows {
-            put(&mut bytes, v, self.spec.dtype, self.spec.nodata);
-        }
+        let bps = self.spec.bytes_per_sample();
+        let (dtype, nodata) = (self.spec.dtype, self.spec.nodata);
+        // converted on all cores: a big strip is hundreds of millions of samples
+        const CHUNK: usize = 1 << 16;
+        let mut bytes = vec![0u8; rows.len() * bps];
+        bytes
+            .par_chunks_mut(CHUNK * bps)
+            .zip(rows.par_chunks(CHUNK))
+            .for_each(|(out, vals)| {
+                let mut v = Vec::with_capacity(out.len());
+                for &x in vals {
+                    put(&mut v, x, dtype, nodata);
+                }
+                out.copy_from_slice(&v);
+            });
         self.take(0, bytes, false)
     }
 

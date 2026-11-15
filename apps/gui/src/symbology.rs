@@ -188,7 +188,15 @@ impl Symbology {
     pub fn numeric_fields(data: &VectorData) -> Vec<usize> {
         (0..data.fields.len())
             .filter(|&c| {
-                data.num
+                // numbers and dates (by their day) can be graduated; text cannot, even when its
+                // values look like numbers
+                matches!(
+                    data.field_type(c),
+                    hipso_core::fieldtype::FieldType::Integer
+                        | hipso_core::fieldtype::FieldType::Real
+                        | hipso_core::fieldtype::FieldType::Date
+                ) && data
+                    .num
                     .iter()
                     .any(|row| row.get(c).is_some_and(|x| x.is_finite()))
             })

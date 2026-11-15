@@ -1897,11 +1897,75 @@ pub struct VectorData {
     pub polygons: bool,
     pub points: bool,
     pub fields: Vec<String>,
+    /// The type each field was given (same order as `fields`); a field past the end has none
+    /// declared and is typed by its values (see [`VectorData::field_type`]).
+    pub types: Vec<crate::fieldtype::FieldType>,
     /// Per feature, per field: the value as text and as a number (NaN when it is not one).
     pub text: Vec<Vec<String>>,
     pub num: Vec<Vec<f64>>,
     /// min x, min y, max x, max y.
     pub bounds: [f64; 4],
+}
+
+impl VectorData {
+    /// The type of field `c`: the one declared, else what its values say.
+    pub fn field_type(&self, c: usize) -> crate::fieldtype::FieldType {
+        self.types.get(c).copied().unwrap_or_else(|| {
+            crate::fieldtype::FieldType::infer(
+                self.text.iter().map(|r| r.get(c).map_or("", String::as_str)),
+            )
+        })
+    }
+
+    /// Declares the type of every field (those inferred so far included), so that it is kept
+    /// when a field is added or removed.
+    pub fn fix_types(&mut self) {
+        self.types = (0..self.fields.len()).map(|c| self.field_type(c)).collect();
+    }
+
+    /// Adds an empty field of a type; every feature gets an empty value. Returns its index.
+    pub fn add_field(&mut self, name: &str, ty: crate::fieldtype::FieldType) -> usize {
+        self.fix_types();
+        self.fields.push(name.to_string());
+        self.types.push(ty);
+        for r in &mut self.text {
+            r.push(String::new());
+        }
+        for r in &mut self.num {
+            r.push(f64::NAN);
+        }
+        self.fields.len() - 1
+    }
+
+    /// Sets a value checking it against the type of its field: the canonical text and the
+    /// number are stored. On error nothing changes and the message says what was expected.
+    pub fn set_value(&mut self, row: usize, col: usize, raw: &str) -> std::result::Result<(), String> {
+        let ty = self.field_type(col);
+        let (t, n) = ty.parse(raw)?;
+        // text and links keep a number when they look like one (graduated symbols, sorting)
+        let n = if n.is_nan() && !ty.is_numeric() && ty == crate::fieldtype::FieldType::Text {
+            t.trim().parse().unwrap_or(f64::NAN)
+        } else {
+            n
+        };
+        if let Some(r) = self.text.get_mut(row)
+            && let Some(c) = r.get_mut(col)
+        {
+            *c = t;
+        }
+        if let Some(r) = self.num.get_mut(row)
+            && let Some(c) = r.get_mut(col)
+        {
+            *c = n;
+        }
+        Ok(())
+    }
+}
+
+/// The file next to a shapefile that says which of its text fields are hyperlinks.
+pub fn types_sidecar(path: &Path) -> std::path::PathBuf {
+    let stem = path.file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
+    path.with_file_name(format!("{stem}_tipos.txt"))
 }
 
 /// Reads a shapefile with its attributes.
@@ -1994,6 +2058,22 @@ pub fn read_vector(path: &Path) -> Result<VectorData> {
     // the attribute table, when there is one
     if let Ok(mut dbf) = shapefile::dbase::Reader::from_path(path.with_extension("dbf")) {
         v.fields = dbf.fields().iter().map(|f| f.name().to_string()).collect();
+        {
+            use crate::fieldtype::FieldType;
+            use shapefile::dbase::FieldType as Dbf;
+            v.types = dbf
+                .fields()
+                .iter()
+                .map(|f| match f.field_type() {
+                    Dbf::Character | Dbf::Memo => FieldType::Text,
+                    // whole or decimal: decided by the values, below
+                    Dbf::Numeric | Dbf::Float | Dbf::Double | Dbf::Currency => FieldType::Real,
+                    Dbf::Integer => FieldType::Integer,
+                    Dbf::Logical => FieldType::Bool,
+                    Dbf::Date | Dbf::DateTime => FieldType::Date,
+                })
+                .collect();
+        }
         if let Ok(records) = dbf.read() {
             for rec in records {
                 let mut text = Vec::new();
@@ -2007,7 +2087,17 @@ pub fn read_vector(path: &Path) -> Result<VectorData> {
                         Some(FieldValue::Character(Some(t))) => {
                             (t.trim().to_string(), t.trim().parse().unwrap_or(f64::NAN))
                         }
-                        Some(FieldValue::Date(Some(d))) => (format!("{d:?}"), f64::NAN),
+                        Some(FieldValue::Date(Some(d))) => {
+                            let days = crate::fieldtype::days_from_civil(
+                                i64::from(d.year()),
+                                i64::from(d.month()),
+                                i64::from(d.day()),
+                            ) as f64;
+                            (crate::fieldtype::format_date(days), days)
+                        }
+                        Some(FieldValue::Logical(Some(b))) => {
+                            (if *b { "Sí" } else { "No" }.to_string(), f64::from(u8::from(*b)))
+                        }
                         _ => (String::new(), f64::NAN),
                     };
                     text.push(t);
@@ -2015,6 +2105,27 @@ pub fn read_vector(path: &Path) -> Result<VectorData> {
                 }
                 v.text.push(text);
                 v.num.push(num);
+            }
+        }
+        if let Ok(t) = std::fs::read_to_string(types_sidecar(path))
+            && t.lines().next().is_some_and(|l| l.trim() == "hipervinculo")
+        {
+            for name in t.lines().skip(1) {
+                if let Some(c) = v.fields.iter().position(|f| f == name.trim())
+                    && v.types[c] == crate::fieldtype::FieldType::Text
+                {
+                    v.types[c] = crate::fieldtype::FieldType::Link;
+                }
+            }
+        }
+        for c in 0..v.types.len() {
+            if v.types[c] == crate::fieldtype::FieldType::Real {
+                v.types[c] = crate::fieldtype::FieldType::infer(
+                    v.text.iter().map(|r| r.get(c).map_or("", String::as_str)),
+                );
+                if v.types[c] == crate::fieldtype::FieldType::Text {
+                    v.types[c] = crate::fieldtype::FieldType::Real;
+                }
             }
         }
     }

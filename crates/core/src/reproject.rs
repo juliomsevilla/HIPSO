@@ -450,13 +450,13 @@ fn categorical(g: &Grid) -> bool {
 /// cells aligned on multiples of it, values interpolated (or taken from the nearest cell, for
 /// rasters of whole numbers).
 pub fn grid(g: &Grid, from: u16, to: u16) -> Result<Grid> {
-    let (b, cell) = target_frame([g.x0, g.y0, g.cell], g.cols, g.rows, from, to)?;
+    let (b, cell) = target_frame_of([g.x0, g.y0, g.cell], g.cols, g.rows, from, to)?;
     grid_onto(g, from, to, Grid::covering(b, cell)?)
 }
 
 /// The extent `[x0, y0, x1, y1]` and the cell of the raster that [`grid`] makes from one whose
 /// lower left corner and cell are `origin` and that has `cols` x `rows` cells.
-fn target_frame(
+pub(crate) fn target_frame_of(
     origin: [f64; 3],
     cols: usize,
     rows: usize,
@@ -486,29 +486,26 @@ fn target_frame(
     Ok(([x0, y0, x1, y1], cell))
 }
 
-/// Rasters with more cells than this are moved in strips of rows (see [`file_streamed`]).
-const STREAM_CELLS: u64 = 32_000_000;
-
-/// A raster of any size moved to another horizontal system, in strips of rows: each strip reads
-/// only the window of the source it needs (its tiles decoded on all cores) and its result is
-/// written at once, so the memory is that of a strip whatever the size of the raster. The cells
-/// are the same as those [`grid`] gives. Heights are not touched.
-fn file_streamed(
-    pyr: &crate::pyramid::Pyramid,
+/// A raster (all its bands) in the system `to`, in strips of rows whatever its size (see
+/// [`crate::rastertools::warp`]). `resample` and `cell` default to what suits the data and the
+/// units. The policy is applied to the corners and the centre of the raster. Heights are not touched.
+pub fn raster_file(
+    input: &Path,
     output: &Path,
-    from: u16,
     to: u16,
+    from: Option<u16>,
+    resample: Option<crate::rastertools::Resample>,
+    cell: Option<f64>,
+    compression: Option<crate::tiled::Compression>,
     policy: Policy,
-    max_rows: usize,
 ) -> Result<String> {
-    use crate::tiled::{Compression, Spec};
-    let e = pyr.extent();
-    let (cols, rows) = (
-        ((e[2] - e[0]) / pyr.cell).round() as usize,
-        ((e[3] - e[1]) / pyr.cell).round() as usize,
-    );
-    let (w, h) = (e[2] - e[0], e[3] - e[1]);
-    if from != to {
+    use crate::rastertools::{Target, WarpJob, warp};
+    let pyr = crate::pyramid::Pyramid::open(input)?;
+    if let Some(from) = from.or(pyr.epsg)
+        && from != to
+    {
+        let e = pyr.extent();
+        let (w, h) = (e[2] - e[0], e[3] - e[1]);
         let t = transformer_3d(from, to, Vertical::default())?;
         for (x, y) in [
             (e[0], e[1]),
@@ -522,98 +519,15 @@ fn file_streamed(
             }
         }
     }
-    let (b, cell) = if from == to {
-        (e, pyr.cell)
-    } else {
-        target_frame([e[0], e[1], pyr.cell], cols, rows, from, to)?
-    };
-    let (ox0, oy0, ocols, orows) = Grid::covering_dims(b, cell);
-    // whole numbers (classes) are moved by nearest cell, the others interpolated
-    let nearest = {
-        let (sample, _) = pyr.overview(4_000_000)?;
-        sample.bands.first().is_none_or(|v| {
-            v.iter()
-                .step_by((v.len() / 20_000).max(1))
-                .all(|x| !x.is_finite() || x.fract() == 0.0)
-        })
-    };
-    let nodata = pyr.nodata();
-    let inv = transformer(to, from)?;
-    let budget = crate::copc_cache::total_memory()
-        .map_or(24_000_000, |m| (m / 512).clamp(16_000_000, 256_000_000));
-    let step = (budget as usize / ocols.max(1)).clamp(32, 8192).min(max_rows.max(1));
-    let spec = Spec {
-        cols: ocols,
-        rows: orows,
-        bands: 1,
-        dtype: crate::rastertools::Dtype::F32,
-        cell,
-        x0: ox0,
-        top: oy0 + orows as f64 * cell,
-        epsg: Some(to),
-        nodata: crate::grid::NODATA,
-        compression: Compression::Deflate,
-        nearest: false,
-        bigtiff: false,
-    };
-    let top = oy0 + orows as f64 * cell;
-    crate::paths::ensure_parent(output)?;
-    crate::progress::begin(orows as u64);
-    crate::tiled::write(output, spec, step, |r0, r1| {
-        crate::progress::advance((r1 - r0) as u64);
-        // the strip as a grid of empty cells, to be filled from the source window it maps to
-        let n = r1 - r0;
-        let strip = Grid {
-            x0: ox0,
-            y0: top - r1 as f64 * cell,
-            cell,
-            cols: ocols,
-            rows: n,
-            data: vec![f32::NAN; ocols * n],
-        };
-        // the window of the source under the strip: its edges, sampled, plus two cells
-        let mut win = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
-        let mut at = |x: f64, y: f64| {
-            if let Ok((sx, sy)) = inv.transform(x, y) {
-                win = [win[0].min(sx), win[1].min(sy), win[2].max(sx), win[3].max(sy)];
-            }
-        };
-        let (sx1, sy0, sy1) = (ox0 + ocols as f64 * cell, strip.y0, strip.y0 + n as f64 * cell);
-        for k in 0..=64 {
-            let t = f64::from(k) / 64.0;
-            let (x, y) = (ox0 + t * (sx1 - ox0), sy0 + t * (sy1 - sy0));
-            at(x, sy0);
-            at(x, sy1);
-            at(ox0, y);
-            at(sx1, y);
-        }
-        let m = pyr.cell * 3.0;
-        let win = [win[0] - m, win[1] - m, win[2] + m, win[3] + m];
-        let outside = !(win[0] < e[2] && win[2] > e[0] && win[1] < e[3] && win[3] > e[1])
-            || win.iter().any(|v| !v.is_finite());
-        if outside {
-            return Ok(strip.data);
-        }
-        let Ok(mut img) = pyr.read(0, win) else {
-            return Ok(strip.data);
-        };
-        let mut data = std::mem::take(&mut img.bands[0]);
-        for v in &mut data {
-            if !v.is_finite() || nodata.is_some_and(|nd| *v == nd) {
-                *v = f32::NAN;
-            }
-        }
-        let src = Grid {
-            x0: img.x0,
-            y0: img.y0,
-            cell: img.cell,
-            cols: img.cols,
-            rows: img.rows,
-            data,
-        };
-        Ok(grid_onto_with(&src, from, to, strip, nearest)?.data)
-    })?;
-    Ok(format!("ráster de {ocols} x {orows} celdas"))
+    let mut job = WarpJob::new(
+        input.to_path_buf(),
+        output.to_path_buf(),
+        Target::Epsg { code: to, cell },
+    );
+    job.from = from;
+    job.resample = resample;
+    job.compression = compression;
+    warp(&job)
 }
 
 /// The raster in the system `to` with its values (heights) in another vertical reference. Without
@@ -774,20 +688,10 @@ pub fn file_with(
         (format!("{} puntos", r.read), tail)
     } else if crate::raster::is_raster_ext(&ext)
         && vertical.output.is_none()
-        && let Ok(pyr) = crate::pyramid::Pyramid::open(input)
-        && pyr.bands == 1
-        && {
-            let e = pyr.extent();
-            let cells = (((e[2] - e[0]) / pyr.cell) * ((e[3] - e[1]) / pyr.cell)) as u64;
-            match std::env::var("HIPSO_STREAM").ok().as_deref() {
-                Some("0") => false,
-                Some(_) => true,
-                None => cells > STREAM_CELLS,
-            }
-        }
+        && crate::pyramid::Pyramid::open(input).is_ok()
     {
         let out = output.with_extension("tif");
-        (file_streamed(&pyr, &out, from, to, policy, usize::MAX)?, String::new())
+        return raster_file(input, &out, to, Some(from), None, None, None, policy);
     } else if crate::raster::is_raster_ext(&ext) {
         let g = Grid::read(input)?;
         let mut vertical = vertical;
@@ -1320,7 +1224,8 @@ mod tests {
         Ok(())
     }
 
-    /// A raster moved in strips has, cell by cell, the values it has moved whole.
+    /// A raster moved by `raster_file` (strips, interpolated nodes) agrees with the raster moved
+    /// whole by `grid`: same cells, values within a small fraction of the relief.
     #[test]
     fn strips_move_a_raster_to_the_same_cells_as_the_whole_raster() -> Result<()> {
         let d = dir("strips")?;
@@ -1340,21 +1245,31 @@ mod tests {
         let input = d.join("dem.tif");
         g.write_tiff(&input, Some(25830))?;
         let whole = grid(&Grid::read(&input)?, 25830, 25829)?;
-        let pyr = crate::pyramid::Pyramid::open(&input)?;
         let out = d.join("moved.tif");
-        file_streamed(&pyr, &out, 25830, 25829, Policy::STRICT, 64)?; // strips of 64 rows
+        raster_file(
+            &input,
+            &out,
+            25829,
+            None,
+            Some(crate::rastertools::Resample::Bilinear),
+            None,
+            None,
+            Policy::STRICT,
+        )?;
         let strips = Grid::read(&out)?;
         assert_eq!((strips.cols, strips.rows), (whole.cols, whole.rows));
         assert_eq!((strips.x0, strips.y0), (whole.x0, whole.y0));
-        let (mut compared, mut worst) = (0, 0f32);
+        let (mut compared, mut worst, mut differ) = (0, 0f32, 0);
         for (a, b) in whole.data.iter().zip(&strips.data) {
-            assert_eq!(a.is_nan(), b.is_nan());
-            if !a.is_nan() {
+            if a.is_nan() != b.is_nan() {
+                differ += 1;
+            } else if !a.is_nan() {
                 compared += 1;
                 worst = worst.max((a - b).abs());
             }
         }
-        assert!(compared > 100_000 && worst == 0.0, "{compared} cells, worst {worst}");
+        // edge cells (half a pixel of difference in where the data stops) may differ
+        assert!(compared > 100_000 && worst < 0.2 && differ < 2_000, "{compared} cells, worst {worst}, {differ} differ");
         std::fs::remove_dir_all(&d)?;
         Ok(())
     }

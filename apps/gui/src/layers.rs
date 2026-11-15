@@ -303,8 +303,18 @@ impl VecLayer {
     pub fn push_feature(&mut self, parts: Vec<Vec<[f64; 2]>>) -> usize {
         let n = self.data.features.len() + 1;
         self.data.features.push(view::Feature { parts });
+        // the first field gets the running number when it can hold one
+        let first_takes = !self.data.fields.is_empty()
+            && matches!(
+                self.data.field_type(0),
+                hipso_core::fieldtype::FieldType::Text
+                    | hipso_core::fieldtype::FieldType::Integer
+                    | hipso_core::fieldtype::FieldType::Real
+            );
+        // fixed before the row exists: the type of an untyped column follows its values
+        self.data.fix_types();
         let row: Vec<String> = (0..self.data.fields.len())
-            .map(|c| if c == 0 { n.to_string() } else { String::new() })
+            .map(|c| if c == 0 && first_takes { n.to_string() } else { String::new() })
             .collect();
         self.data
             .num
@@ -345,7 +355,7 @@ impl VecLayer {
     }
 
     /// Classes that follow the data are worked out again after it changes.
-    fn reclassify_if_data(&mut self) {
+    pub fn reclassify_if_data(&mut self) {
         if self.sym.kind != SymKind::Single {
             self.reclassify();
         }
@@ -468,8 +478,9 @@ pub fn dist_to_segment(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
 pub struct NewLayerDlg {
     pub name: String,
     pub kind: view::GeomKind,
-    pub fields: Vec<String>,
+    pub fields: Vec<(String, hipso_core::fieldtype::FieldType)>,
     pub new_field: String,
+    pub new_type: hipso_core::fieldtype::FieldType,
 }
 
 fn alpha(c: [u8; 3], a: f32) -> Color32 {
@@ -1379,6 +1390,11 @@ impl App {
         fix(&mut self.sel_layer);
         fix(&mut self.active);
         fix(&mut self.table_layer);
+        self.sel_layers = self
+            .sel_layers
+            .iter()
+            .filter_map(|i| to_new.get(*i).copied())
+            .collect();
         if let Some(i) = to_new.get(self.rs.layer) {
             self.rs.layer = *i;
         }
@@ -1400,6 +1416,7 @@ impl App {
             *i += 1;
         }
         self.rs.layer += 1;
+        self.sel_layers = self.sel_layers.iter().map(|i| i + 1).collect();
         0
     }
 
@@ -1420,6 +1437,12 @@ impl App {
         fix(&mut self.sel_layer);
         fix(&mut self.active);
         fix(&mut self.table_layer);
+        self.sel_layers = self
+            .sel_layers
+            .iter()
+            .filter(|i| **i != k)
+            .map(|i| if *i > k { i - 1 } else { *i })
+            .collect();
         if self.rs.layer > k {
             self.rs.layer -= 1;
         }
@@ -1443,6 +1466,61 @@ impl App {
         if to < v.len() {
             v.swap(at, to);
             self.apply_order(&v);
+        }
+    }
+
+    /// What the layers selected together can do as a group.
+    pub fn group_command(&mut self, c: GroupCmd) {
+        let sel: Vec<usize> = self
+            .sel_layers
+            .iter()
+            .copied()
+            .filter(|k| *k < self.refs.len())
+            .collect();
+        if sel.is_empty() {
+            return;
+        }
+        match c {
+            GroupCmd::Show | GroupCmd::Hide => {
+                for k in sel {
+                    self.refs[k].visible = c == GroupCmd::Show;
+                }
+            }
+            GroupCmd::Zoom => {
+                let b = sel
+                    .iter()
+                    .filter_map(|k| self.layer_extent(*k))
+                    .reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]);
+                if let Some(b) = b {
+                    self.zoom_to_bounds(b);
+                }
+            }
+            GroupCmd::Up | GroupCmd::Down => {
+                // the block moves one place, the layers keeping their order among themselves;
+                // a layer that has the edge or another selected layer above it stays
+                let mut v = self.order_items();
+                let chosen = |i: &Item| matches!(i, Item::Layer(k) if sel.contains(k));
+                if c == GroupCmd::Up {
+                    for at in (0..v.len().saturating_sub(1)).rev() {
+                        if chosen(&v[at]) && !chosen(&v[at + 1]) {
+                            v.swap(at, at + 1);
+                        }
+                    }
+                } else {
+                    for at in 1..v.len() {
+                        if chosen(&v[at]) && !chosen(&v[at - 1]) {
+                            v.swap(at - 1, at);
+                        }
+                    }
+                }
+                self.apply_order(&v);
+            }
+            GroupCmd::Remove => {
+                for k in sel.into_iter().rev() {
+                    self.remove_ref(k);
+                }
+                self.sel_layers.clear();
+            }
         }
     }
 
@@ -1534,7 +1612,7 @@ impl App {
         };
         if d.fields.is_empty() && d.name.is_empty() {
             d.name = format!("Capa {}", self.refs.len() + 1);
-            d.fields = vec!["Nombre".to_string()];
+            d.fields = vec![("Nombre".to_string(), hipso_core::fieldtype::FieldType::Text)];
         }
         let (mut open, mut create) = (true, false);
         egui::Window::new("Nueva capa vectorial")
@@ -1554,9 +1632,17 @@ impl App {
                 });
                 ui.label("Campos de la tabla");
                 let mut remove = None;
-                for (k, f) in d.fields.iter_mut().enumerate() {
+                for (k, (f, ty)) in d.fields.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
-                        ui.add(egui::TextEdit::singleline(f).desired_width(160.0));
+                        ui.add(egui::TextEdit::singleline(f).desired_width(140.0));
+                        egui::ComboBox::from_id_salt(("nl_type", k))
+                            .width(120.0)
+                            .selected_text(ty.name())
+                            .show_ui(ui, |ui| {
+                                for t in hipso_core::fieldtype::FieldType::ALL {
+                                    ui.selectable_value(ty, t, t.name()).on_hover_text(t.help());
+                                }
+                            });
                         if ui
                             .small_button("✖")
                             .on_hover_text("Quitar este campo de la tabla")
@@ -1573,21 +1659,33 @@ impl App {
                     ui.add(
                         egui::TextEdit::singleline(&mut d.new_field)
                             .hint_text("nuevo campo")
-                            .desired_width(160.0),
+                            .desired_width(140.0),
                     );
-                    if ui.button("Añadir campo").clicked() && !d.new_field.trim().is_empty() {
+                    egui::ComboBox::from_id_salt("nl_new_type")
+                        .width(120.0)
+                        .selected_text(d.new_type.name())
+                        .show_ui(ui, |ui| {
+                            for t in hipso_core::fieldtype::FieldType::ALL {
+                                ui.selectable_value(&mut d.new_type, t, t.name()).on_hover_text(t.help());
+                            }
+                        });
+                    let dup = d.fields.iter().any(|(f, _)| f.trim().eq_ignore_ascii_case(d.new_field.trim()));
+                    if ui.add_enabled(!dup, egui::Button::new("Añadir campo")).clicked() && !d.new_field.trim().is_empty() {
                         let f = d.new_field.trim().to_string();
-                        d.fields.push(f);
+                        let t = d.new_type;
+                        d.fields.push((f, t));
                         d.new_field.clear();
                     }
                 });
+                ui.label(egui::RichText::new(format!("{}: {}", d.new_type.name(), d.new_type.help())).size(11.0).weak());
                 if ui.button("Crear").clicked() {
                     create = true;
                 }
             });
         if create {
             let data = view::VectorData {
-                fields: d.fields.clone(),
+                fields: d.fields.iter().map(|f| f.0.clone()).collect(),
+                types: d.fields.iter().map(|f| f.1).collect(),
                 polygons: d.kind == view::GeomKind::Polygon,
                 points: d.kind == view::GeomKind::Point,
                 ..view::VectorData::default()
@@ -1759,6 +1857,17 @@ pub enum Item {
     Clouds,
 }
 
+/// Commands for the layers selected together.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GroupCmd {
+    Show,
+    Hide,
+    Zoom,
+    Up,
+    Down,
+    Remove,
+}
+
 /// What the layers pane asks of a layer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayerCmd {
@@ -1838,6 +1947,35 @@ mod order_tests {
         assert_eq!(names(&a), ["a", "b", "c", "NUBES"]);
         a.step_item(Item::Clouds, true);
         assert_eq!(names(&a), ["a", "b", "c", "NUBES"]);
+    }
+
+    #[test]
+    fn layers_selected_together_hide_move_and_go_as_a_group() {
+        let mut a = App::default();
+        for n in ["a", "b", "c", "d", "e"] {
+            a.add_ref(layer(n), false);
+        }
+        a.sel_layer = Some(3);
+        a.sel_layers = [1, 3].into_iter().collect();
+        a.group_command(GroupCmd::Hide);
+        let vis: Vec<bool> = a.refs.iter().map(|r| r.visible).collect();
+        assert_eq!(vis, [true, false, true, false, true]);
+        a.group_command(GroupCmd::Show);
+        assert!(a.refs.iter().all(|r| r.visible));
+        // up: the block rises one place, keeping its order; the selection follows its layers
+        a.group_command(GroupCmd::Up);
+        assert_eq!(names(&a), ["NUBES", "a", "c", "b", "e", "d"]);
+        assert_eq!(a.sel_layers.len(), 2);
+        assert!(a.sel_layers.iter().all(|k| ["b", "d"].contains(&a.refs[*k].name.as_str())));
+        // at the top a layer stays while the others still rise
+        a.group_command(GroupCmd::Up);
+        assert_eq!(names(&a), ["NUBES", "a", "c", "e", "b", "d"]);
+        a.group_command(GroupCmd::Down);
+        assert_eq!(names(&a), ["NUBES", "a", "c", "b", "d", "e"]);
+        // remove both
+        a.group_command(GroupCmd::Remove);
+        assert_eq!(names(&a), ["NUBES", "a", "c", "e"]);
+        assert!(a.sel_layers.is_empty());
     }
 
     #[test]

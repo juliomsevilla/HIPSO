@@ -150,7 +150,7 @@ struct Placemark {
 
 /// The layer in a KML text.
 fn parse(xml: &str) -> Layer {
-    let mut layer = Layer { kind: GeomKind::Point, feats: Vec::new(), epsg: Some(4326), skipped: 0 };
+    let mut layer = Layer { kind: GeomKind::Point, feats: Vec::new(), epsg: Some(4326), skipped: 0, types: Vec::new() };
     let mut first = true;
     let mut stack: Vec<&str> = Vec::new();
     let mut cur: Option<Placemark> = None;

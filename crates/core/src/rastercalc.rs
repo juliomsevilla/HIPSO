@@ -757,7 +757,13 @@ pub fn run(job: &CalcJob) -> Result<String> {
         opened.push(Pyramid::open(p)?);
     }
     // the rasters must share cells; if asked, the others are put on those of the first
-    let temp = std::env::temp_dir().join(format!("hipso_calc_{}", std::process::id()));
+    // one folder per run: two calculations at once must not share (or delete) each other's copies
+    static RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let temp = std::env::temp_dir().join(format!(
+        "hipso_calc_{}_{}",
+        std::process::id(),
+        RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
     let mut notes = Vec::new();
     let mut aligned: Vec<PathBuf> = Vec::new();
     for i in 1..opened.len() {
@@ -1097,6 +1103,50 @@ mod tests {
         assert_eq!(u.data[0], 1.0);
         assert_eq!(u.data[5], 51.0);
         assert_eq!(u.data[39], 255.0);
+        let _ = std::fs::remove_dir_all(dir);
+        Ok(())
+    }
+
+    /// Four rasters at once, one of them with a hole and another with other cells: every
+    /// letter reads its own raster, an empty cell of any input empties the result, and the
+    /// raster with other cells is put on those of the first.
+    #[test]
+    fn it_computes_over_four_rasters_at_once() -> Result<()> {
+        let dir = std::env::temp_dir().join(format!("hipso_calc_4_{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let p = |n: &str| dir.join(n);
+        write(&p("a.tif"), 30, 20, 1.0, |c, r| (c + 2 * r) as f32)?;
+        write(&p("b.tif"), 30, 20, 1.0, |_, r| r as f32 + 0.5)?;
+        write(&p("c.tif"), 30, 20, 1.0, |c, r| if c == 3 && r == 4 { f32::NAN } else { 2.0 })?;
+        write(&p("d.tif"), 60, 40, 0.5, |_, _| 10.0)?;
+        let mut job = CalcJob::new(
+            "if(A > 10, (A + B) * C, B) - D / 10".into(),
+            ["a", "b", "c", "d"]
+                .iter()
+                .zip(["A", "B", "C", "D"])
+                .map(|(f, n)| (n.to_string(), p(&format!("{f}.tif"))))
+                .collect(),
+            p("out.tif"),
+        );
+        // D has other cells: refused unless asked
+        assert!(run(&job).is_err());
+        job.align = Some(Resample::Average);
+        run(&job)?;
+        let out = crate::grid::Grid::read(&p("out.tif"))?;
+        for r in 0..20usize {
+            for c in 0..30usize {
+                let (a, b) = ((c + 2 * r) as f32, r as f32 + 0.5);
+                let cv = if c == 3 && r == 4 { f32::NAN } else { 2.0 };
+                let want = if a > 10.0 { (a + b) * cv } else { b } - 1.0;
+                let got = out.data[r * 30 + c];
+                if want.is_nan() {
+                    // `b` is taken when A <= 10, so only the branch that reads C can be empty
+                    assert!(got.is_nan() == (a > 10.0), "{c},{r}: {got}");
+                } else {
+                    assert!((got - want).abs() < 1e-4, "{c},{r}: {got} / {want}");
+                }
+            }
+        }
         let _ = std::fs::remove_dir_all(dir);
         Ok(())
     }

@@ -456,6 +456,9 @@ struct App {
     /// The vector layer new features are drawn into.
     active: Option<usize>,
     sel_layer: Option<usize>,
+    /// The layers selected together in the contents pane (Ctrl or Shift + click); it only counts
+    /// while it holds `sel_layer`.
+    sel_layers: std::collections::BTreeSet<usize>,
     img_jobs: Vec<rs::ImageJob>,
     dig_draft: Vec<[f64; 2]>,
     /// The layer whose editing session just ended with changes, and the tool that was on.
@@ -606,6 +609,7 @@ impl Default for App {
             contour_iv: 5.0,
             active: None,
             sel_layer: None,
+            sel_layers: Default::default(),
             img_jobs: Vec::new(),
             dig_draft: Vec::new(),
             edit_confirm: None,

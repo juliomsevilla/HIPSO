@@ -451,29 +451,21 @@ enum Col {
     Int,
     Real,
     Text,
+    Bool,
+    Date,
+    Link,
 }
 
 fn column_kind(d: &VectorData, c: usize) -> Col {
-    let mut kind = Col::Int;
-    let mut any = false;
-    for row in &d.text {
-        let t = row.get(c).map_or("", |t| t.trim());
-        if t.is_empty() {
-            continue;
-        }
-        any = true;
-        match t.parse::<f64>() {
-            Ok(v) if v.is_finite() => {
-                if kind == Col::Int
-                    && (v.fract() != 0.0 || v.abs() > 9e15 || t.contains(['.', 'e', 'E']))
-                {
-                    kind = Col::Real;
-                }
-            }
-            _ => return Col::Text,
-        }
+    use crate::fieldtype::FieldType;
+    match d.field_type(c) {
+        FieldType::Integer => Col::Int,
+        FieldType::Real => Col::Real,
+        FieldType::Bool => Col::Bool,
+        FieldType::Date => Col::Date,
+        FieldType::Link => Col::Link,
+        FieldType::Text => Col::Text,
     }
-    if any { kind } else { Col::Text }
 }
 
 /// Writes the tables to a new GeoPackage (an existing file is replaced).
@@ -551,6 +543,9 @@ pub fn write(path: &Path, tables: &[Table]) -> Result<()> {
                     Col::Int => "INTEGER",
                     Col::Real => "REAL",
                     Col::Text => "TEXT",
+                    Col::Bool => "BOOLEAN",
+                    Col::Date => "DATE",
+                    Col::Link => "TEXT_HYPERLINK",
                 }
             );
         }
@@ -599,6 +594,12 @@ pub fn write(path: &Path, tables: &[Table]) -> Result<()> {
                     _ if text.is_empty() => Val::Null,
                     (Col::Int, Ok(v)) => Val::Int(v as i64),
                     (Col::Real, Ok(v)) => Val::Real(v),
+                    (Col::Bool, _) => match crate::fieldtype::FieldType::Bool.parse(text) {
+                        Ok((_, v)) if v.is_finite() => Val::Int(v as i64),
+                        _ => Val::Null,
+                    },
+                    (Col::Date, _) => crate::fieldtype::parse_date(text)
+                        .map_or(Val::Null, |d| Val::Text(crate::fieldtype::format_date(d))),
                     _ => Val::Text(text.to_string()),
                 });
             }
@@ -1068,6 +1069,7 @@ mod tests {
             polygons: true,
             points: false,
             fields: vec!["Nombre".into(), "Area".into(), "Entero".into()],
+            types: Vec::new(),
             text: vec![
                 vec!["uno".into(), "96.5".into(), "7".into()],
                 vec!["dos".into(), "25".into(), "8".into()],
@@ -1161,6 +1163,7 @@ mod tests {
             polygons: false,
             points: true,
             fields: vec!["nombre".into()],
+            types: Vec::new(),
             num: vec![vec![f64::NAN]; n],
             text,
             bounds: [0.0; 4],

@@ -30,6 +30,14 @@ pub struct ReprojectTool {
     pub v_out_code: String,
     pub allow_ballpark: bool,
     pub allow_fallback: bool,
+    /// Rasters: 0 automatic, then the methods of `Resample::ALL` (see `align_ui::resample_picker`).
+    pub resample: usize,
+    /// Rasters: cell of the result as typed (empty: the same, or the equivalent in the new system).
+    pub cell: String,
+    /// Destination: 0 an EPSG code, 1 the system of a reference raster, 2 the cells of a reference
+    /// raster (system, extent and cell; rasters only).
+    pub dest: u8,
+    pub reference: Option<PathBuf>,
 }
 
 impl Default for ReprojectTool {
@@ -45,6 +53,10 @@ impl Default for ReprojectTool {
             v_out_code: String::new(),
             allow_ballpark: false,
             allow_fallback: false,
+            resample: 0,
+            cell: String::new(),
+            dest: 0,
+            reference: None,
         }
     }
 }
@@ -64,6 +76,17 @@ fn parse_code(s: &str) -> Option<u16> {
 }
 
 impl ReprojectTool {
+    /// The EPSG code to write: the one typed, or that of the reference raster.
+    fn target(&self) -> Option<u16> {
+        match self.dest {
+            0 => parse_code(&self.to),
+            _ => self
+                .reference
+                .as_ref()
+                .and_then(|r| hipso_core::crs::epsg_of(r)),
+        }
+    }
+
     fn vertical(&self) -> Result<Vertical, String> {
         let pick = |c: VChoice, code: &str| -> Result<Option<VerticalRef>, String> {
             match c {
@@ -189,11 +212,58 @@ impl App {
                 }
                 ui.separator();
                 ui.horizontal(|ui| {
-                    ui.label("Sistema de destino (EPSG)");
-                    ui.add(egui::TextEdit::singleline(&mut t.to).desired_width(80.0));
+                    ui.label("Destino");
+                    ui.radio_value(&mut t.dest, 0, "Código EPSG");
+                    ui.radio_value(&mut t.dest, 1, "Sistema de un ráster");
+                    ui.radio_value(&mut t.dest, 2, "Celdas de un ráster");
+                });
+                if t.dest != 0 {
+                    ui.horizontal(|ui| {
+                        ui.label("Ráster de referencia");
+                        ui.label(t.reference.as_ref().map_or("(elige uno)".to_string(), |r| paths::stem(r)));
+                        if ui.button("Archivo…").clicked()
+                            && let Some(p) = crate::prefs::dialog().add_filter("Ráster", hipso_core::raster::EXTENSIONS).pick_file()
+                        {
+                            t.reference = Some(p);
+                        }
+                        ui.menu_button("De las capas cargadas", |ui| {
+                            for (name, path) in &loaded {
+                                if ui.button(name).clicked() {
+                                    t.reference = Some(path.clone());
+                                    ui.close();
+                                }
+                            }
+                            if loaded.is_empty() {
+                                ui.label("No hay rásteres cargados");
+                            }
+                        });
+                    });
+                    let note = match (&t.reference, t.target()) {
+                        (Some(_), Some(e)) => format!("Sistema de destino: EPSG {e}."),
+                        (Some(_), None) => "La referencia no declara su sistema de coordenadas.".to_string(),
+                        _ => String::new(),
+                    };
+                    let extra = if t.dest == 2 { " Los rásteres toman también la extensión, el origen y la celda de la referencia; las nubes solo su sistema." } else { " Los rásteres conservan su extensión; elige «Celdas de un ráster» para igualarla también." };
+                    ui.label(egui::RichText::new(format!("{note}{extra}")).color(weak).size(11.0));
+                } else {
+                    ui.horizontal(|ui| {
+                        ui.label("Sistema de destino (EPSG)");
+                        ui.add(egui::TextEdit::singleline(&mut t.to).desired_width(80.0));
+                    });
+                }
+                ui.horizontal(|ui| {
                     ui.label("Origen, si el archivo no lo declara");
                     ui.add(egui::TextEdit::singleline(&mut t.from).desired_width(80.0));
                 });
+                ui.separator();
+                ui.label(egui::RichText::new("Rásteres").strong());
+                crate::align_ui::resample_picker(ui, "rp_resample", &mut t.resample, weak);
+                ui.horizontal(|ui| {
+                    ui.label("Celda del resultado");
+                    ui.add(egui::TextEdit::singleline(&mut t.cell).desired_width(70.0).hint_text("la misma"));
+                    ui.label(egui::RichText::new("Con «Celdas de un ráster» el resultado coincide con él celda a celda (también en «Igualar rásteres»).").color(weak).size(11.0));
+                });
+                ui.separator();
                 let combo = |ui: &mut egui::Ui, id: &str, label: &str, c: &mut VChoice, code: &mut String, keep: &str| {
                     ui.horizontal(|ui| {
                         ui.label(label);
@@ -222,7 +292,7 @@ impl App {
                         .color(weak)
                         .size(11.0),
                 );
-                let to_ok = parse_code(&t.to).is_some();
+                let to_ok = t.target().is_some();
                 let problems = match &vertical {
                     Ok(v) => t.inputs.iter().any(|(_, f)| t.problem(f, v).is_some()),
                     Err(m) => {
@@ -237,11 +307,14 @@ impl App {
             });
         if go {
             let t = &self.rp;
-            let (Some(to), Ok(vertical)) = (parse_code(&t.to), t.vertical()) else {
+            let (Some(to), Ok(vertical)) = (t.target(), t.vertical()) else {
                 return;
             };
             let from = parse_code(&t.from);
             let policy = t.policy();
+            let how = crate::align_ui::resample_of(t.resample);
+            let cells_of = if t.dest == 2 { t.reference.clone() } else { None };
+            let cell = t.cell.trim().replace(',', ".").parse::<f64>().ok().filter(|c| *c > 0.0);
             let jobs: Vec<(PathBuf, PathBuf)> = t
                 .inputs
                 .iter()
@@ -259,7 +332,23 @@ impl App {
             let task: tools::Task = Box::new(move || {
                 let mut lines = Vec::new();
                 for (src, dst) in &jobs {
-                    lines.push(reproject::file_with(src, dst, to, from, vertical, policy)?);
+                    let raster = src
+                        .extension()
+                        .is_some_and(|e| hipso_core::raster::is_raster_ext(&e.to_string_lossy().to_ascii_lowercase()));
+                    lines.push(if raster && let Some(r) = &cells_of {
+                        let mut j = hipso_core::rastertools::WarpJob::new(
+                            src.clone(),
+                            dst.with_extension("tif"),
+                            hipso_core::rastertools::Target::Reference(r.clone()),
+                        );
+                        j.from = from;
+                        j.resample = how;
+                        hipso_core::rastertools::warp(&j)?
+                    } else if raster && vertical.output.is_none() {
+                        reproject::raster_file(src, &dst.with_extension("tif"), to, from, how, cell, None, policy)?
+                    } else {
+                        reproject::file_with(src, dst, to, from, vertical, policy)?
+                    });
                 }
                 Ok(lines.join("\n"))
             });

@@ -5,10 +5,12 @@
 //! a cloud-optimized GeoTIFF (tiles and overviews, see [`crate::tiled`]), so memory follows a
 //! block of rows, never the images.
 //!
-//! The inputs must share one coordinate system (nothing is reprojected); their cells may
-//! differ: they are resampled to the output's.
+//! The inputs may be in different coordinate systems (those of the others are moved to the
+//! first one's) and have different cells: they are resampled to the output's.
 
 use std::path::PathBuf;
+
+use rayon::prelude::*;
 
 use crate::pyramid::Pyramid;
 use crate::raster::Image;
@@ -162,15 +164,49 @@ struct Opened {
     pyr: Pyramid,
     /// 0-based bands taken.
     bands: Vec<usize>,
+    /// The copy moved to the system of the first input, deleted when the job ends.
+    temp: Option<PathBuf>,
+}
+
+impl Drop for Opened {
+    fn drop(&mut self) {
+        if let Some(t) = &self.temp {
+            let _ = std::fs::remove_file(t);
+            if let Some(dir) = t.parent() {
+                let _ = std::fs::remove_dir(dir);
+            }
+        }
+    }
 }
 
 fn open_all(job: &RasterJob) -> Result<Vec<Opened>> {
     if job.inputs.is_empty() {
         return Err(Error::Param("no hay ráster de entrada".into()));
     }
-    let mut out = Vec::new();
-    for s in &job.inputs {
-        let pyr = Pyramid::open(&s.path)?;
+    let mut out: Vec<Opened> = Vec::new();
+    for (n, s) in job.inputs.iter().enumerate() {
+        let mut pyr = Pyramid::open(&s.path)?;
+        let mut temp = None;
+        // an input in another system is moved to that of the first one
+        if let (Some(first), Some(own)) = (out.first().and_then(|o| o.pyr.epsg), pyr.epsg)
+            && first != own
+        {
+            static RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let dir = std::env::temp_dir().join(format!(
+                "hipso_warp_{}_{}",
+                std::process::id(),
+                RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&dir)?;
+            let tmp = dir.join(format!("{n}.tif"));
+            let mut w = WarpJob::new(s.path.clone(), tmp.clone(), Target::Epsg { code: first, cell: None });
+            w.resample = Some(job.resample);
+            w.dtype = Some(Dtype::F32);
+            w.nodata = f32::NAN;
+            warp(&w)?;
+            pyr = Pyramid::open(&tmp)?;
+            temp = Some(tmp);
+        }
         let bands: Vec<usize> = if s.bands.is_empty() {
             (0..pyr.bands).collect()
         } else {
@@ -184,13 +220,7 @@ fn open_all(job: &RasterJob) -> Result<Vec<Opened>> {
                 b + 1
             )));
         }
-        out.push(Opened { pyr, bands });
-    }
-    if let Some(a) = out.iter().find(|o| o.pyr.epsg != out[0].pyr.epsg) {
-        return Err(Error::Param(format!(
-            "los rásteres están en sistemas de coordenadas distintos (EPSG {:?} y {:?}): reproyéctalos antes",
-            out[0].pyr.epsg, a.pyr.epsg
-        )));
+        out.push(Opened { pyr, bands, temp });
     }
     Ok(out)
 }
@@ -447,7 +477,7 @@ fn write_frame(
         compression,
         // classes and counts are not averaged in the overviews
         nearest: job.overlap == Overlap::Count
-            || (job.resample == Resample::Nearest && nb == 1 && dtype != Dtype::F32),
+            || ((job.resample == Resample::Nearest || job.resample == Resample::Mode) && nb == 1 && dtype != Dtype::F32),
         bigtiff: job.bigtiff,
     };
     crate::tiled::write(&job.output, spec, step, rows_of)
@@ -507,18 +537,501 @@ pub fn stack(job: &RasterJob) -> Result<String> {
     ))
 }
 
+// -------------------------------------------------------------------------------- warp
+
+/// Where a warp puts a raster.
+#[derive(Clone, Debug)]
+pub enum Target {
+    /// The cells of this raster: its system, origin, cell and size.
+    Reference(PathBuf),
+    /// This system (EPSG). The cell is the source's when the units agree (see
+    /// [`crate::reproject::grid`]) unless `cell` says another; the extent is the source's.
+    Epsg { code: u16, cell: Option<f64> },
+}
+
+/// One raster moved to another system, extent or cell: the single operation behind "reproject",
+/// "match the extent of a reference" and "resample".
+#[derive(Clone, Debug)]
+pub struct WarpJob {
+    pub input: PathBuf,
+    pub output: PathBuf,
+    pub target: Target,
+    /// The input's system when the file does not declare it.
+    pub from: Option<u16>,
+    /// `None` chooses by the data and the cell sizes (see [`Resample::describe`]).
+    pub resample: Option<Resample>,
+    /// Sample type of the output; that of the input when `None`.
+    pub dtype: Option<Dtype>,
+    /// What output cells without a value hold.
+    pub nodata: f32,
+    /// A value of the input that means "no data" (besides what its file declares).
+    pub src_nodata: Option<f32>,
+    pub compression: Option<crate::tiled::Compression>,
+}
+
+impl WarpJob {
+    pub fn new(input: PathBuf, output: PathBuf, target: Target) -> Self {
+        Self {
+            input,
+            output,
+            target,
+            from: None,
+            resample: None,
+            dtype: None,
+            nodata: -9999.0,
+            src_nodata: None,
+            compression: None,
+        }
+    }
+}
+
+impl Resample {
+    pub const ALL: [Resample; 5] = [
+        Resample::Nearest,
+        Resample::Bilinear,
+        Resample::Cubic,
+        Resample::Average,
+        Resample::Mode,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Resample::Nearest => "Vecino más cercano",
+            Resample::Bilinear => "Bilineal",
+            Resample::Cubic => "Cúbico",
+            Resample::Average => "Media",
+            Resample::Mode => "Moda",
+        }
+    }
+
+    /// When to use it, for the help of the tools.
+    pub fn describe(self) -> &'static str {
+        match self {
+            Resample::Nearest => "Copia el valor de la celda más cercana, sin inventar valores: es el que hay que usar con clases, identificadores o máscaras. Es el más rápido; en imágenes continuas deja bordes escalonados.",
+            Resample::Bilinear => "Pondera las 4 celdas vecinas: suave y sin sobrepasar los valores originales. Es lo habitual para modelos de elevación, temperatura o índices cuando la celda de salida es igual o mayor que la de entrada.",
+            Resample::Cubic => "Ajusta una curva por las 16 celdas vecinas (convolución cúbica): conserva mejor el detalle que el bilineal al ampliar o girar una imagen, pero puede pasarse un poco de los valores máximos y mínimos. Para fotografías e imágenes; no para clases.",
+            Resample::Average => "Promedia todas las celdas de entrada bajo la de salida: es el que hay que usar al reducir la resolución (celdas más grandes) de datos continuos, porque no pierde información ni crea aliasing. Con celdas más pequeñas equivale al vecino más cercano.",
+            Resample::Mode => "El valor más frecuente bajo la celda de salida: es el «media» de las clases. Úsalo al reducir la resolución de un ráster de clases o de usos del suelo.",
+        }
+    }
+
+    pub fn tag(self) -> &'static str {
+        match self {
+            Resample::Nearest => "nearest",
+            Resample::Bilinear => "bilinear",
+            Resample::Cubic => "cubic",
+            Resample::Average => "average",
+            Resample::Mode => "mode",
+        }
+    }
+}
+
+/// A source whose values are all whole numbers (classes, identifiers) in a sample of the picture.
+fn looks_categorical(pyr: &Pyramid) -> bool {
+    // several bands are an image (photograph, composition), not classes
+    if pyr.bands != 1 {
+        return false;
+    }
+    let Ok((sample, _)) = pyr.overview(2_000_000) else {
+        return false;
+    };
+    let nd = pyr.nodata();
+    let mut seen = 0usize;
+    for b in sample.bands.iter().take(1) {
+        for v in b.iter().step_by((b.len() / 50_000).max(1)) {
+            if !v.is_finite() || nd.is_some_and(|n| *v == n) {
+                continue;
+            }
+            seen += 1;
+            if v.fract() != 0.0 {
+                return false;
+            }
+        }
+    }
+    seen > 0
+}
+
+/// The resampling used when none is asked for: classes keep their values (the nearest cell, or
+/// the commonest one when reducing), the rest is averaged when reduced and bilinear otherwise.
+fn auto_resample(pyr: &Pyramid, reducing: bool) -> Resample {
+    if looks_categorical(pyr) {
+        if reducing { Resample::Mode } else { Resample::Nearest }
+    } else if reducing {
+        Resample::Average
+    } else {
+        Resample::Bilinear
+    }
+}
+
+/// Maps the pixels of a block of the output frame to the source system without transforming each
+/// one: the exact transformation at nodes every `k` pixels, interpolated between them, with `k`
+/// halved until the error at the middle of every node cell is under a tenth of a source pixel
+/// (down to `k = 1`, which is exact).
+struct NodeMap {
+    cols_at: Vec<usize>,
+    rows_at: Vec<usize>,
+    /// `[x, y]` of node (row j, column i) in the source system; NaN where it cannot be moved.
+    xy: Vec<[f64; 2]>,
+    k: usize,
+}
+
+impl NodeMap {
+    fn new(
+        inv: &crate::reproject::Transformer,
+        f: &Frame,
+        r0: usize,
+        r1: usize,
+        src_cell: f64,
+    ) -> Self {
+        let exact = |c: f64, r: f64| -> [f64; 2] {
+            let (x, y) = (f.x0 + (c + 0.5) * f.cell, f.top - (r + 0.5) * f.cell);
+            inv.transform(x, y).map_or([f64::NAN; 2], |(a, b)| [a, b])
+        };
+        let nodes = |n: usize, k: usize| -> Vec<usize> {
+            let mut v: Vec<usize> = (0..n.saturating_sub(1)).step_by(k).collect();
+            v.push(n - 1);
+            v.dedup();
+            v
+        };
+        let rows = r1 - r0;
+        let mut k = 16usize;
+        loop {
+            let cols_at = nodes(f.cols, k);
+            let rows_at = nodes(rows, k);
+            let xy: Vec<[f64; 2]> = rows_at
+                .par_iter()
+                .flat_map_iter(|&r| {
+                    cols_at
+                        .iter()
+                        .map(move |&c| (c, r))
+                        .map(|(c, r)| exact(c as f64, (r0 + r) as f64))
+                })
+                .collect();
+            let m = Self { cols_at, rows_at, xy, k };
+            if k == 1 || m.error_ok(&exact, r0, src_cell * 0.1) {
+                return m;
+            }
+            k /= 2;
+        }
+    }
+
+    fn error_ok(&self, exact: &impl Fn(f64, f64) -> [f64; 2], r0: usize, tol: f64) -> bool {
+        let w = self.cols_at.len();
+        let stride = (((self.cols_at.len() - 1) * (self.rows_at.len() - 1)) / 4096).max(1);
+        (0..self.rows_at.len().saturating_sub(1))
+            .flat_map(|j| (0..w.saturating_sub(1)).map(move |i| (j, i)))
+            .step_by(stride)
+            .all(|(j, i)| {
+                let (c, r) = (
+                    (self.cols_at[i] + self.cols_at[i + 1]) as f64 / 2.0,
+                    (self.rows_at[j] + self.rows_at[j + 1]) as f64 / 2.0,
+                );
+                let want = exact(c, r0 as f64 + r);
+                let n = |a: usize, b: usize| self.xy[b * w + a];
+                let have = [
+                    (n(i, j)[0] + n(i + 1, j)[0] + n(i, j + 1)[0] + n(i + 1, j + 1)[0]) / 4.0,
+                    (n(i, j)[1] + n(i + 1, j)[1] + n(i, j + 1)[1] + n(i + 1, j + 1)[1]) / 4.0,
+                ];
+                // a cell the transformation cannot cross is left to the exact pass
+                if want[0].is_nan() != have[0].is_nan() {
+                    return self.k <= 1;
+                }
+                want[0].is_nan() || (want[0] - have[0]).hypot(want[1] - have[1]) <= tol
+            })
+    }
+
+    /// The source box of the nodes, `None` when none could be moved.
+    fn bounds(&self) -> Option<[f64; 4]> {
+        let mut b = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+        for p in self.xy.iter().filter(|p| p[0].is_finite() && p[1].is_finite()) {
+            b = [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])];
+        }
+        (b[0] <= b[2] && b[1] <= b[3]).then_some(b)
+    }
+
+    /// Fills `line` with the source coordinates of the pixels of row `r` (0-based in the block).
+    fn row(&self, r: usize, line: &mut [[f64; 2]]) {
+        let w = self.cols_at.len();
+        let j = (r / self.k).min(self.rows_at.len().saturating_sub(2));
+        let (j1, tj) = if self.rows_at.len() == 1 {
+            (j, 0.0)
+        } else {
+            let (a, b) = (self.rows_at[j] as f64, self.rows_at[j + 1] as f64);
+            (j + 1, (r as f64 - a) / (b - a))
+        };
+        let mut i = 0usize;
+        for (c, out) in line.iter_mut().enumerate() {
+            while i + 2 < w && self.cols_at[i + 1] < c {
+                i += 1;
+            }
+            let (i1, ti) = if w == 1 {
+                (i, 0.0)
+            } else {
+                let (a, b) = (self.cols_at[i] as f64, self.cols_at[i + 1] as f64);
+                (i + 1, (c as f64 - a) / (b - a))
+            };
+            let (p00, p10) = (self.xy[j * w + i], self.xy[j * w + i1]);
+            let (p01, p11) = (self.xy[j1 * w + i], self.xy[j1 * w + i1]);
+            let l = |k: usize| {
+                let top = p00[k] + (p10[k] - p00[k]) * ti;
+                let bot = p01[k] + (p11[k] - p01[k]) * ti;
+                top + (bot - top) * tj
+            };
+            *out = [l(0), l(1)];
+        }
+    }
+}
+
+/// Moves a raster (all its bands) to another system, extent or cell. Memory follows a block of
+/// rows; the source is read by window and the work is spread over all cores. Returns a line for
+/// the report.
+pub fn warp(job: &WarpJob) -> Result<String> {
+    let pyr = Pyramid::open(&job.input)?;
+    let nb = pyr.bands;
+    if nb == 0 || nb > MAX_BANDS {
+        return Err(Error::Param(format!(
+            "{nb} bandas: una salida admite de 1 a {MAX_BANDS}"
+        )));
+    }
+    let from = job.from.or(pyr.epsg);
+    let e = pyr.extent();
+    let (src_cols, src_rows) = (pyr.levels[0].cols as usize, pyr.levels[0].rows as usize);
+    // the output frame and its system
+    let (f, out_epsg, note) = match &job.target {
+        Target::Reference(path) => {
+            let r = Pyramid::open(path)?;
+            let note = if r.epsg.is_none() || from.is_none() {
+                " (no se pudo comprobar el sistema de coordenadas: falta en uno de los archivos)"
+            } else {
+                ""
+            };
+            let out = r.epsg.or(from);
+            let f = Frame {
+                x0: r.x0,
+                top: r.y_top,
+                cell: r.cell,
+                cols: r.levels[0].cols as usize,
+                rows: r.levels[0].rows as usize,
+            };
+            (f, out, note)
+        }
+        Target::Epsg { code, cell } => {
+            let from = from.ok_or_else(|| {
+                Error::Param(format!(
+                    "«{}» no declara su sistema de coordenadas: indica el de origen",
+                    crate::paths::stem(&job.input)
+                ))
+            })?;
+            let (b, c) = if from == *code {
+                (e, pyr.cell)
+            } else {
+                crate::reproject::target_frame_of(
+                    [e[0], e[1], pyr.cell],
+                    src_cols,
+                    src_rows,
+                    from,
+                    *code,
+                )?
+            };
+            let c = cell.unwrap_or(c);
+            if !(c > 0.0 && c.is_finite()) {
+                return Err(Error::Param("la celda debe ser positiva".into()));
+            }
+            let f = if from == *code {
+                Frame {
+                    x0: b[0],
+                    top: b[3],
+                    cell: c,
+                    cols: (((b[2] - b[0]) / c).ceil() as usize).max(1),
+                    rows: (((b[3] - b[1]) / c).ceil() as usize).max(1),
+                }
+            } else {
+                let (x0, y0, cols, rows) = crate::grid::Grid::covering_dims(b, c);
+                Frame {
+                    x0,
+                    top: y0 + rows as f64 * c,
+                    cell: c,
+                    cols,
+                    rows,
+                }
+            };
+            (f, Some(*code), "")
+        }
+    };
+    if (f.cols as u64) * (f.rows as u64) > (1 << 36) {
+        return Err(Error::Param("el resultado sería demasiado grande".into()));
+    }
+    let inv = match (from, out_epsg) {
+        (Some(a), Some(b)) if a != b => Some(crate::reproject::transformer(b, a)?),
+        _ => None,
+    };
+    // source cell in the units of the output, to know whether the picture is reduced
+    let src_in_out = match (&inv, from, out_epsg) {
+        (Some(_), Some(a), Some(b)) => {
+            let fwd = crate::reproject::transformer(a, b)?;
+            let (cx, cy) = ((e[0] + e[2]) / 2.0, (e[1] + e[3]) / 2.0);
+            match (fwd.transform(cx, cy), fwd.transform(cx + pyr.cell, cy)) {
+                (Ok(p), Ok(q)) => (q.0 - p.0).hypot(q.1 - p.1),
+                _ => pyr.cell,
+            }
+        }
+        _ => pyr.cell,
+    };
+    let reducing = f.cell > src_in_out * 1.01;
+    let how = job.resample.unwrap_or_else(|| auto_resample(&pyr, reducing));
+    let mut sub = RasterJob::new(Vec::new(), job.output.clone());
+    sub.src_nodata = job.src_nodata;
+    sub.nodata = job.nodata;
+    sub.dtype = job.dtype;
+    sub.compression = job.compression;
+    sub.resample = how;
+    let dtype = job.dtype.unwrap_or(match pyr.bits {
+        0..=8 => Dtype::U8,
+        9..=16 => Dtype::U16,
+        _ => Dtype::F32,
+    });
+    // source pixels per output pixel, for the size of the blocks
+    let scale = (f.cell / src_in_out).max(1.0);
+    // about 24 million samples per block, and whole tile rows of the source where it can be
+    // (a tile is decoded once per block that touches it)
+    let step = ((24_000_000.0 / (f.cols * nb) as f64 / (scale * scale)) as usize).clamp(4, 4096);
+    let tile_rows = crate::tiled::TILE as f64 * src_in_out / f.cell;
+    let step = if tile_rows >= 1.0 && step as f64 >= 2.0 * tile_rows {
+        ((step as f64 / tile_rows).floor() * tile_rows) as usize
+    } else {
+        step
+    };
+    let declared = pyr.nodata();
+    let src_nd = job.src_nodata;
+    let bad = move |v: f32| !v.is_finite() || declared == Some(v) || src_nd == Some(v);
+    let margin = |fp: f64| pyr.cell * 3.0 + fp;
+    let mut filled = 0u64;
+    crate::progress::begin(f.rows as u64);
+    write_frame(&sub, &f, out_epsg, dtype, nb, step, |r0, r1| {
+        crate::progress::advance((r1 - r0) as u64);
+        let n = r1 - r0;
+        let mut out = vec![f32::NAN; n * f.cols * nb];
+        // the part of the source under the block, and where each pixel of it falls
+        let (win, map, fp) = match &inv {
+            None => {
+                let m = pyr.cell * 3.0 + f.cell;
+                (
+                    [
+                        f.x0 - m,
+                        f.top - r1 as f64 * f.cell - m,
+                        f.x0 + f.cols as f64 * f.cell + m,
+                        f.top - r0 as f64 * f.cell + m,
+                    ],
+                    None,
+                    f.cell,
+                )
+            }
+            Some(inv) => {
+                let map = NodeMap::new(inv, &f, r0, r1, pyr.cell);
+                let Some(b) = map.bounds() else {
+                    return Ok(out);
+                };
+                // the output cell in source units, at the middle of the block
+                let (cx, cy) = (
+                    f.x0 + f.cols as f64 / 2.0 * f.cell,
+                    f.top - (r0 + r1) as f64 / 2.0 * f.cell,
+                );
+                let fp = match (
+                    inv.transform(cx, cy),
+                    inv.transform(cx + f.cell, cy),
+                    inv.transform(cx, cy + f.cell),
+                ) {
+                    (Ok(a), Ok(b), Ok(c)) => {
+                        let (sx, sy) = ((b.0 - a.0).hypot(b.1 - a.1), (c.0 - a.0).hypot(c.1 - a.1));
+                        (sx * sy).sqrt()
+                    }
+                    _ => pyr.cell,
+                };
+                let m = margin(fp);
+                ([b[0] - m, b[1] - m, b[2] + m, b[3] + m], Some(map), fp)
+            }
+        };
+        if !(win[0] < e[2] && win[2] > e[0] && win[1] < e[3] && win[3] > e[1]) {
+            return Ok(out);
+        }
+        let Ok(mut img) = pyr.read(0, win) else {
+            return Ok(out);
+        };
+        for b in &mut img.bands {
+            for v in b.iter_mut() {
+                if bad(*v) {
+                    *v = f32::NAN;
+                }
+            }
+        }
+        let cols = f.cols;
+        let got: u64 = out
+            .par_chunks_mut(cols * nb)
+            .enumerate()
+            .map(|(r, line)| {
+                let mut xy = vec![[0.0f64; 2]; if map.is_some() { cols } else { 0 }];
+                if let Some(m) = &map {
+                    m.row(r, &mut xy);
+                }
+                let y_plain = f.top - ((r0 + r) as f64 + 0.5) * f.cell;
+                let mut cnt = 0u64;
+                for c in 0..cols {
+                    let (x, y) = match &map {
+                        Some(_) => (xy[c][0], xy[c][1]),
+                        None => (f.x0 + (c as f64 + 0.5) * f.cell, y_plain),
+                    };
+                    if !(x.is_finite() && y.is_finite()) {
+                        continue;
+                    }
+                    for b in 0..nb {
+                        let v = sample(&img, b, x, y, fp, how);
+                        line[c * nb + b] = v;
+                        cnt += u64::from(v.is_finite());
+                    }
+                }
+                cnt
+            })
+            .sum();
+        filled += got;
+        Ok(out)
+    })?;
+    let total = (f.cols as u64) * (f.rows as u64) * nb as u64;
+    let moved = match (from, out_epsg, inv.is_some()) {
+        (Some(a), Some(b), true) => format!(", de EPSG:{a} a EPSG:{b}"),
+        _ => String::new(),
+    };
+    Ok(format!(
+        "{}: celdas de {} ({}), {} x {}{moved}, {:.1} % con datos{note} → {}",
+        crate::paths::stem(&job.input),
+        crate::paths::num(f.cell),
+        match how {
+            Resample::Nearest => "vecino más cercano",
+            Resample::Bilinear => "bilineal",
+            Resample::Average => "media",
+            Resample::Cubic => "cúbico",
+            Resample::Mode => "moda",
+        },
+        f.cols,
+        f.rows,
+        100.0 * filled as f64 / total.max(1) as f64,
+        job.output.display()
+    ))
+}
+
 // -------------------------------------------------------------------------------- align
 
-/// Puts rasters on the cells of another: same origin, same cell, same size, so that layer by layer
-/// they can be compared and stacked.
+/// Puts rasters on the cells of another: same system, origin, cell and size, so that layer by
+/// layer they can be compared and stacked. A raster in another system is moved to the
+/// reference's.
 #[derive(Clone, Debug)]
 pub struct AlignJob {
     /// The raster whose cells every other one takes.
     pub reference: PathBuf,
     /// Each raster to align and where its aligned copy goes.
     pub inputs: Vec<(PathBuf, PathBuf)>,
-    /// How values are carried over; `None` chooses by cell size: the mean of the source pixels
-    /// when they are finer than the reference's, else bilinear. Use `Nearest` for classes.
+    /// How values are carried over; `None` chooses by the data and the cells: classes keep their
+    /// values (nearest cell, or the commonest when reducing), the rest is averaged when reduced
+    /// and bilinear otherwise.
     pub resample: Option<Resample>,
     /// Sample type of the copies; that of each input when `None`.
     pub dtype: Option<Dtype>,
@@ -530,112 +1043,22 @@ pub struct AlignJob {
     pub compression: Option<crate::tiled::Compression>,
 }
 
-/// The resampling used when none is asked for.
-fn auto_resample(source_cell: f64, reference_cell: f64) -> Resample {
-    if source_cell < reference_cell * 0.99 {
-        Resample::Average
-    } else {
-        Resample::Bilinear
-    }
-}
-
-/// Writes each raster of the job on the cells of the reference. The coordinate systems must be the
-/// same (nothing is reprojected). Memory follows a block of rows.
+/// Writes each raster of the job on the cells of the reference.
 pub fn align(job: &AlignJob) -> Result<String> {
-    let reference = Pyramid::open(&job.reference)?;
-    let frame_of_ref = || Frame {
-        x0: reference.x0,
-        top: reference.y_top,
-        cell: reference.cell,
-        cols: reference.levels[0].cols as usize,
-        rows: reference.levels[0].rows as usize,
-    };
     let mut lines = Vec::new();
     for (input, output) in &job.inputs {
         crate::check_cancel()?;
-        let mut sub = RasterJob::new(
-            vec![Source {
-                path: input.clone(),
-                bands: Vec::new(),
-            }],
+        let mut w = WarpJob::new(
+            input.clone(),
             output.clone(),
+            Target::Reference(job.reference.clone()),
         );
-        sub.src_nodata = job.src_nodata;
-        sub.nodata = job.nodata;
-        sub.dtype = job.dtype;
-        sub.compression = job.compression;
-        let ins = open_all(&sub)?;
-        let o = &ins[0];
-        if let (Some(a), Some(b)) = (reference.epsg, o.pyr.epsg)
-            && a != b
-        {
-            return Err(Error::Param(format!(
-                "{} está en otro sistema de coordenadas (EPSG {b}) que la referencia (EPSG {a}): reproyéctalo antes",
-                input.display()
-            )));
-        }
-        let nb = o.bands.len();
-        if nb == 0 || nb > MAX_BANDS {
-            return Err(Error::Param(format!(
-                "{nb} bandas: una salida admite de 1 a {MAX_BANDS}"
-            )));
-        }
-        sub.resample = job
-            .resample
-            .unwrap_or_else(|| auto_resample(o.pyr.cell, reference.cell));
-        let f = frame_of_ref();
-        let dtype = dtype_of(&sub, &o.pyr);
-        let step = block_rows(&f, nb, 2);
-        let mut filled = 0u64;
-        write_frame(
-            &sub,
-            &f,
-            reference.epsg.or(o.pyr.epsg),
-            dtype,
-            nb,
-            step,
-            |r0, r1| {
-                let n = (r1 - r0) * f.cols;
-                let mut out = vec![f32::NAN; n * nb];
-                if let Some(img) = read_block(o, &f, r0, r1, &sub)? {
-                    for i in 0..n {
-                        let (r, c) = (r0 + i / f.cols, i % f.cols);
-                        let (x, y) = (
-                            f.x0 + (c as f64 + 0.5) * f.cell,
-                            f.top - (r as f64 + 0.5) * f.cell,
-                        );
-                        for (k, &b) in o.bands.iter().enumerate() {
-                            let v = sample(&img, b, x, y, f.cell, sub.resample);
-                            out[i * nb + k] = v;
-                            filled += u64::from(v.is_finite());
-                        }
-                    }
-                }
-                Ok(out)
-            },
-        )?;
-        let total = (f.cols as u64) * (f.rows as u64) * nb as u64;
-        let how = match sub.resample {
-            Resample::Nearest => "vecino más cercano",
-            Resample::Bilinear => "bilineal",
-            Resample::Average => "media",
-            Resample::Cubic => "cúbico",
-            Resample::Mode => "moda",
-        };
-        let epsg_note = if reference.epsg.is_none() || o.pyr.epsg.is_none() {
-            " (no se pudo comprobar el sistema de coordenadas: falta en uno de los archivos)"
-        } else {
-            ""
-        };
-        lines.push(format!(
-            "{}: celdas de {} ({how}), {} x {}, {:.1} % con datos{epsg_note} → {}",
-            crate::paths::stem(input),
-            crate::paths::num(f.cell),
-            f.cols,
-            f.rows,
-            100.0 * filled as f64 / total.max(1) as f64,
-            output.display()
-        ));
+        w.resample = job.resample;
+        w.dtype = job.dtype;
+        w.nodata = job.nodata;
+        w.src_nodata = job.src_nodata;
+        w.compression = job.compression;
+        lines.push(warp(&w)?);
     }
     Ok(lines.join("\n"))
 }
@@ -873,7 +1296,7 @@ mod tests {
         // input: 0.5 m cells, shifted by a quarter of a metre, bigger than the reference
         let mut g = Grid::new(99.0, 199.0, 0.5, 20, 14)?;
         for (i, v) in g.data.iter_mut().enumerate() {
-            *v = if (i % 20) < 10 { 4.0 } else { 8.0 };
+            *v = if (i % 20) < 10 { 4.5 } else { 8.5 };
         }
         g.write_tiff(&dir.join("fine.tif"), Some(25830))?;
         // and one that only covers part of the reference
@@ -912,20 +1335,36 @@ mod tests {
         // the fine raster changes from 4 to 8 at x = 104 (cell 10 of 0.5 m from 99): the first
         // four columns of the reference are 4 and the last two 8
         let a = Grid::read(&dir.join("fine_a.tif"))?;
-        assert_eq!(&a.data[..6], &[4.0, 4.0, 4.0, 4.0, 8.0, 8.0]);
+        assert_eq!(&a.data[..6], &[4.5, 4.5, 4.5, 4.5, 8.5, 8.5]);
         // the partial raster leaves the cells it does not cover empty
         let p = Grid::read(&dir.join("part_a.tif"))?;
         assert_eq!(p.data[0], 5.0);
         assert!(p.data[5].is_nan());
-        // another coordinate system is refused
+        // classes keep their values: whole numbers are carried by the nearest cell, or the
+        // commonest one when reducing (here 2 x 2 fine cells under each reference cell)
+        let mut cls = Grid::new(100.0, 200.0, 0.5, 12, 8)?;
+        for (i, v) in cls.data.iter_mut().enumerate() {
+            *v = if (i % 12) < 6 { 3.0 } else { 7.0 };
+        }
+        cls.write_tiff(&dir.join("cls.tif"), Some(25830))?;
+        let text = align(&AlignJob {
+            inputs: vec![(dir.join("cls.tif"), dir.join("cls_a.tif"))],
+            ..job.clone()
+        })?;
+        assert!(text.contains("moda"), "{text}");
+        let c = Grid::read(&dir.join("cls_a.tif"))?;
+        assert_eq!(&c.data[..6], &[3.0, 3.0, 3.0, 7.0, 7.0, 7.0]);
+        // a raster in another system is moved to the reference's: the cells are the reference's
+        // and the values come from where each cell falls in the source
         let mut other = Grid::new(100.0, 200.0, 1.0, 6, 4)?;
-        other.data.fill(1.0);
+        other.data.fill(1.5);
         other.write_tiff(&dir.join("other.tif"), Some(25829))?;
-        let bad = AlignJob {
+        align(&AlignJob {
             inputs: vec![(dir.join("other.tif"), dir.join("other_a.tif"))],
             ..job
-        };
-        assert!(align(&bad).is_err());
+        })?;
+        let o = Grid::read(&dir.join("other_a.tif"))?;
+        assert_eq!((o.cols, o.rows, o.x0, o.y0), (6, 4, 100.0, 200.0));
         std::fs::remove_dir_all(&dir)?;
         Ok(())
     }

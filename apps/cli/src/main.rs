@@ -1605,12 +1605,28 @@ enum Cmd {
         /// Output file (LAS/LAZ, or GeoTIFF for rasters)
         #[arg(short, long)]
         output: PathBuf,
-        /// EPSG code of the system to write, e.g. 25830
-        #[arg(long)]
-        to: u16,
+        /// EPSG code of the system to write, e.g. 25830 (not needed with --reference)
+        #[arg(long, required_unless_present = "reference")]
+        to: Option<u16>,
         /// EPSG code the input is in, when it does not declare it
         #[arg(long)]
         from: Option<u16>,
+        /// Rasters: take the system, extent, origin and cell of this raster, so that the result
+        /// coincides cell for cell with it
+        #[arg(long, conflicts_with_all = ["to", "cell", "vertical_out"])]
+        reference: Option<PathBuf>,
+        /// Rasters: how values are carried over (auto: classes keep their values; otherwise the
+        /// mean when the cells grow, bilinear if not)
+        #[arg(long, value_enum, default_value_t = AlignResample::Auto)]
+        resample: AlignResample,
+        /// Rasters: cell of the result (default: the input's, or the equivalent in the new system)
+        #[arg(long)]
+        cell: Option<f64>,
+        /// What empty cells of a raster hold when it is moved onto a reference
+        #[arg(long, default_value_t = -9999.0, allow_hyphen_values = true)]
+        nodata: f32,
+        #[command(flatten)]
+        tiles: TileArgs,
         /// Vertical reference of the input heights: `ellipsoidal` or an EPSG code (e.g. 5782),
         /// when the file does not declare it. Needed to change heights with --vertical-out
         #[arg(long)]
@@ -2058,6 +2074,60 @@ enum Cmd {
         /// Shapefile; default: <results>/<first>_interseccion.shp
         #[arg(short, long)]
         output: Option<PathBuf>,
+    },
+    /// Reclassify a raster: each value or range of values becomes another one. The rules are
+    /// text, one per line or separated by `;`: `10 = 1`, `0..5 = 2`, `< 0 = nodata`, `>= 100 = 4`,
+    /// `nodata = 0`; the first rule that matches a cell decides
+    Reclass {
+        /// Raster (GeoTIFF and others)
+        input: PathBuf,
+        /// The rules, as text (e.g. "0..10 = 1; 10..50 = 2; else = nodata")
+        #[arg(long, conflicts_with = "rules_file", required_unless_present = "rules_file")]
+        rules: Option<String>,
+        /// A text file with the rules, one per line
+        #[arg(long)]
+        rules_file: Option<PathBuf>,
+        /// What the cells no rule matches become: keep (their value), nodata or a value
+        #[arg(long, default_value = "keep")]
+        others: String,
+        /// Band to reclassify
+        #[arg(long, default_value_t = 1)]
+        band: usize,
+        /// Value of the input that means "no data", besides what its file declares
+        #[arg(long, allow_hyphen_values = true)]
+        src_nodata: Option<f32>,
+        /// What empty cells of the result hold (default: 255, 65535 or -9999 by the type chosen)
+        #[arg(long, allow_hyphen_values = true)]
+        nodata: Option<f32>,
+        /// GeoTIFF; default: <results>/<input>_reclass.tif
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        #[command(flatten)]
+        tiles: TileArgs,
+    },
+    /// Clip a raster with a polygon layer or another raster: what is outside the mask becomes
+    /// empty and, unless --no-crop, the result is cut to the box of the mask
+    ClipRaster {
+        /// Raster to clip
+        input: PathBuf,
+        /// Mask: a polygon layer (shapefile, GeoPackage, GeoJSON, KML) or a raster (cells with
+        /// data other than zero are kept)
+        #[arg(long)]
+        mask: PathBuf,
+        /// Do not cut to the box of the mask: keep the size of the input
+        #[arg(long)]
+        no_crop: bool,
+        /// Keep what is outside the mask instead of what is inside
+        #[arg(long)]
+        invert: bool,
+        /// What the cells left out hold (default: the file's, else 0 or -9999 by the type)
+        #[arg(long, allow_hyphen_values = true)]
+        nodata: Option<f32>,
+        /// GeoTIFF; default: <results>/<input>_recorte.tif
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        #[command(flatten)]
+        tiles: TileArgs,
     },
     /// Remove small patches of a class raster: connected cells of one value with fewer cells than
     /// --threshold take the value of their largest neighbouring patch
@@ -3911,21 +3981,65 @@ fn run(cmd: Cmd) -> Result<()> {
             output,
             to,
             from,
+            reference,
+            resample,
+            cell,
+            nodata,
+            tiles,
             vertical_in,
             vertical_out,
             allow_ballpark,
             allow_fallback,
         } => {
+            use hipso_core::rastertools::{Resample, Target, WarpJob, warp};
             use hipso_core::reproject::{Policy, Vertical, VerticalRef};
-            let mut policy = Policy::from_env();
-            policy.allow_ballpark |= allow_ballpark;
-            policy.only_best &= !allow_fallback;
-            let parse = |v: Option<String>| v.map(|v| VerticalRef::parse(&v)).transpose();
-            let vertical = Vertical {
-                input: parse(vertical_in)?,
-                output: parse(vertical_out)?,
+            let how = match resample {
+                AlignResample::Auto => None,
+                AlignResample::Nearest => Some(Resample::Nearest),
+                AlignResample::Bilinear => Some(Resample::Bilinear),
+                AlignResample::Average => Some(Resample::Average),
+                AlignResample::Cubic => Some(Resample::Cubic),
+                AlignResample::Mode => Some(Resample::Mode),
             };
-            hipso_core::reproject::file_with(&input, &output, to, from, vertical, policy)?
+            if let Some(reference) = reference {
+                let out = output.with_extension("tif");
+                let mut job = WarpJob::new(input, out, Target::Reference(reference));
+                job.from = from;
+                job.resample = how;
+                job.nodata = nodata;
+                job.compression = tiles.compression();
+                warp(&job)?
+            } else {
+                let to = to.ok_or_else(|| {
+                    hipso_core::Error::Param("falta --to (o --reference)".into())
+                })?;
+                let mut policy = Policy::from_env();
+                policy.allow_ballpark |= allow_ballpark;
+                policy.only_best &= !allow_fallback;
+                let parse = |v: Option<String>| v.map(|v| VerticalRef::parse(&v)).transpose();
+                let vertical = Vertical {
+                    input: parse(vertical_in)?,
+                    output: parse(vertical_out)?,
+                };
+                let ext = input
+                    .extension()
+                    .map(|e| e.to_string_lossy().to_ascii_lowercase())
+                    .unwrap_or_default();
+                if hipso_core::raster::is_raster_ext(&ext) && vertical.output.is_none() {
+                    hipso_core::reproject::raster_file(
+                        &input,
+                        &output.with_extension("tif"),
+                        to,
+                        from,
+                        how,
+                        cell,
+                        tiles.compression(),
+                        policy,
+                    )?
+                } else {
+                    hipso_core::reproject::file_with(&input, &output, to, from, vertical, policy)?
+                }
+            }
         }
         Cmd::Mosaic {
             inputs,
@@ -4542,6 +4656,70 @@ fn run(cmd: Cmd) -> Result<()> {
             let out = out_path(output, &first, "interseccion", "shp");
             geomops::write_polygons(&r, &out)?;
             format!("{} piezas -> {}{warn}", r.features.len(), out.display())
+        }
+        Cmd::Reclass {
+            input,
+            rules,
+            rules_file,
+            others,
+            band,
+            src_nodata,
+            nodata,
+            output,
+            tiles,
+        } => {
+            use hipso_core::reclass::{Out, ReclassJob, Table};
+            let text = match (rules, rules_file) {
+                (Some(t), _) => t,
+                (None, Some(f)) => std::fs::read_to_string(f)?,
+                _ => String::new(),
+            };
+            let mut table = Table::parse(&text)?;
+            if !table.explicit_else {
+                table.otherwise = match others.trim().to_lowercase().as_str() {
+                    "keep" | "igual" => Out::Keep,
+                    "nodata" => Out::NoData,
+                    v => Out::Value(v.replace(',', ".").parse::<f32>().map_err(|_| {
+                        hipso_core::Error::Param(format!(
+                            "--others: «{v}» no es keep, nodata ni un número"
+                        ))
+                    })?),
+                };
+            }
+            let out = out_path(output, &input, "reclass", "tif");
+            let mut job = ReclassJob::new(input, out, table);
+            job.band = band;
+            job.src_nodata = src_nodata;
+            job.nodata = nodata;
+            job.compression = tiles.compression();
+            hipso_core::reclass::run(&job)?
+        }
+        Cmd::ClipRaster {
+            input,
+            mask,
+            no_crop,
+            invert,
+            nodata,
+            output,
+            tiles,
+        } => {
+            use hipso_core::rastermask::{Mask, MaskJob, clip, regions_of};
+            let ext = mask
+                .extension()
+                .map(|e| e.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default();
+            let m = if hipso_core::raster::is_raster_ext(&ext) {
+                Mask::Raster(mask)
+            } else {
+                Mask::Regions(regions_of(&mask, hipso_core::crs::epsg_of(&input))?)
+            };
+            let out = out_path(output, &input, "recorte", "tif");
+            let mut job = MaskJob::new(input, out, m);
+            job.crop = !no_crop;
+            job.invert = invert;
+            job.nodata = nodata;
+            job.compression = tiles.compression();
+            clip(&job)?
         }
         Cmd::Sieve {
             input,
