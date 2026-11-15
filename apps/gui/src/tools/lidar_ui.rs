@@ -323,7 +323,7 @@ impl Tools {
             &mut s.normalized,
             "La nube ya tiene alturas sobre el suelo (no hay que calcular el terreno)",
         );
-        egui::CollapsingHeader::new("Búsqueda de troncos").show(ui, |ui| {
+        crate::collapsing("Búsqueda de troncos").show(ui, |ui| {
             num(
                 ui,
                 "Franja: desde (m sobre el suelo)",
@@ -384,7 +384,7 @@ impl Tools {
             );
             s.min_stem_points = np as usize;
         });
-        egui::CollapsingHeader::new("Secciones y suelo").show(ui, |ui| {
+        crate::collapsing("Secciones y suelo").show(ui, |ui| {
             let mut sl = s.slice * 100.0;
             num(
                 ui,
@@ -419,7 +419,7 @@ impl Tools {
                 1.0,
             );
         });
-        egui::CollapsingHeader::new("Cepas y bifurcaciones (rebrotes)").show(ui, |ui| {
+        crate::collapsing("Cepas y bifurcaciones (rebrotes)").show(ui, |ui| {
             ui.label(weak("Varios troncos de un mismo individuo. Si están separados a la altura del diámetro, son brotes de una cepa y cada uno es un árbol (columnas CEPA y BROTES). Si son un solo tronco a esa altura y se bifurcan por encima, es un árbol bifurcado: se mide el diámetro del tronco y se cubica el tronco y cada rama (H_BIF, RAMA)."));
             num(
                 ui,

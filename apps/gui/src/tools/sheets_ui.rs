@@ -751,7 +751,7 @@ impl Tools {
             ui.radio_value(&mut self.s2.clouds, 1, "una por unidad de muestreo");
             ui.radio_value(&mut self.s2.clouds, 2, "una con todas");
         });
-        egui::CollapsingHeader::new("Filtros y opciones").show(ui, |ui| {
+        crate::collapsing("Filtros y opciones").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Clases");
                 ui.add(
@@ -800,7 +800,7 @@ impl Tools {
     /// Qué métricas de cada unidad de muestreo se escriben: todas o las marcadas.
     fn metrics_picker(&mut self, ui: &mut egui::Ui) {
         let s = &mut self.s2;
-        egui::CollapsingHeader::new(if s.metrics_all {
+        crate::collapsing(if s.metrics_all {
             "Métricas: todas".to_string()
         } else {
             format!("Métricas: {} elegidas", s.metrics_pick.len())

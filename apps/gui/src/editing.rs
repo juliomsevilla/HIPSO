@@ -980,7 +980,7 @@ impl App {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.label(egui::RichText::new("Las ediciones se aplican a todos los puntos del archivo al guardar, no solo a los que se ven.").size(11.0).color(t.weak));
-                egui::CollapsingHeader::new(egui::RichText::new("Selección").strong())
+                crate::collapsing(egui::RichText::new("Selección").strong())
                     .default_open(true)
                     .show(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
@@ -1098,7 +1098,7 @@ impl App {
                         );
                         self.attr_filter(ui, &t);
                     });
-                egui::CollapsingHeader::new(egui::RichText::new("Editar").strong())
+                crate::collapsing(egui::RichText::new("Editar").strong())
                     .default_open(true)
                     .show(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
@@ -1212,7 +1212,7 @@ impl App {
             self.ed.session.as_ref().map_or(0, |s| s.edits.len()),
             self.ed.saved,
         );
-        egui::CollapsingHeader::new(egui::RichText::new(format!("Historial ({n_edits})")).strong())
+        crate::collapsing(egui::RichText::new(format!("Historial ({n_edits})")).strong())
             .default_open(true)
             .show(ui, |ui| {
                 if n_edits == 0 {
@@ -1254,7 +1254,7 @@ impl App {
 
     /// El filtro de atributos por el que pasa toda selección.
     fn attr_filter(&mut self, ui: &mut egui::Ui, t: &Tokens) {
-        egui::CollapsingHeader::new("Filtro de atributos de las selecciones")
+        crate::collapsing("Filtro de atributos de las selecciones")
             .default_open(false)
             .show(ui, |ui| {
                 ui.label(

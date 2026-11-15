@@ -1226,7 +1226,7 @@ impl Tools {
         });
         ui.separator();
         if self.class_tab == 0 {
-        egui::CollapsingHeader::new("Solape entre pasadas").show(ui, |ui| {
+        crate::collapsing("Solape entre pasadas").show(ui, |ui| {
             ui.checkbox(&mut self.overlap, "Apartar el solape (clase 12)");
             ui.label(
                 egui::RichText::new(
@@ -1239,7 +1239,7 @@ impl Tools {
                 num(ui, "Celda (m)", &mut self.overlap_cell, 1.0..=100.0, 1.0);
             }
         });
-        egui::CollapsingHeader::new("Ruido").show(ui, |ui| {
+        crate::collapsing("Ruido").show(ui, |ui| {
             ui.radio_value(&mut self.noise, NoiseChoice::None, "Sin filtro");
             ui.radio_value(
                 &mut self.noise,
@@ -1277,7 +1277,7 @@ impl Tools {
                 NoiseChoice::None => {}
             }
         });
-        egui::CollapsingHeader::new("Suelo")
+        crate::collapsing("Suelo")
             .default_open(true)
             .show(ui, |ui| {
                 let names = [
@@ -1350,7 +1350,7 @@ impl Tools {
                     GroundChoice::Classes => {}
                 }
             });
-        egui::CollapsingHeader::new("Edificios").show(ui, |ui| {
+        crate::collapsing("Edificios").show(ui, |ui| {
             ui.checkbox(
                 &mut self.buildings,
                 "Clasificar edificios (6) y vegetación alta (5)",
@@ -1367,7 +1367,7 @@ impl Tools {
                 num(ui, "Área mínima", &mut self.bp.min_area, 1.0..=10000.0, 1.0);
             }
         });
-        egui::CollapsingHeader::new("Carreteras y agua").show(ui, |ui| {
+        crate::collapsing("Carreteras y agua").show(ui, |ui| {
             ui.checkbox(
                 &mut self.ex_road,
                 "Carreteras (11): suelo liso, llano y de intensidad baja",
@@ -1423,7 +1423,7 @@ impl Tools {
                 );
             }
         });
-        egui::CollapsingHeader::new("Vegetación, cables y postes").show(ui, |ui| {
+        crate::collapsing("Vegetación, cables y postes").show(ui, |ui| {
             ui.checkbox(
                 &mut self.ex_veg,
                 "Vegetación por alturas: baja (3), media (4) y alta (5)",
@@ -1602,7 +1602,7 @@ impl Tools {
             save_as("shp", "arboles.shp")
         });
         self.formats_row(ui);
-        egui::CollapsingHeader::new("1 · Suavizado del CHM")
+        crate::collapsing("1 · Suavizado del CHM")
             .default_open(true)
             .show(ui, |ui| {
                 num(
@@ -1620,7 +1620,7 @@ impl Tools {
                     });
                 }
             });
-        egui::CollapsingHeader::new("2 · Ápices de los individuos (máximo local)")
+        crate::collapsing("2 · Ápices de los individuos (máximo local)")
             .default_open(true)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -1651,7 +1651,7 @@ impl Tools {
                     ui.label(&self.manual_tops);
                 }
             });
-        egui::CollapsingHeader::new("3 · Copas")
+        crate::collapsing("3 · Copas")
             .default_open(true)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -1725,7 +1725,7 @@ impl Tools {
                     }
                 }
             });
-        egui::CollapsingHeader::new("4 · Resultados")
+        crate::collapsing("4 · Resultados")
             .default_open(true)
             .show(ui, |ui| {
                 ui.checkbox(
@@ -1760,7 +1760,7 @@ impl Tools {
                     );
                 }
             });
-        egui::CollapsingHeader::new("5 · Comprobar con inventario de campo").show(ui, |ui| {
+        crate::collapsing("5 · Comprobar con inventario de campo").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Inventario");
                 ui.add(egui::TextEdit::singleline(&mut self.field).desired_width(300.0));

@@ -126,6 +126,15 @@ fn compass_centre(rect: Rect) -> Pos2 {
     rect.right_bottom() + Vec2::new(-34.0, -34.0)
 }
 
+/// Con `--expand`, todas las secciones plegables de las ventanas arrancan abiertas (para capturas y
+/// para contrastar las ventanas con el manual).
+pub static EXPAND_ALL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Una sección plegable, abierta desde el principio si se pidió `--expand`.
+pub fn collapsing(title: impl Into<egui::WidgetText>) -> egui::CollapsingHeader {
+    egui::CollapsingHeader::new(title).default_open(EXPAND_ALL.load(std::sync::atomic::Ordering::Relaxed))
+}
+
 fn main() -> eframe::Result {
     if std::env::args().any(|a| a == "--gpu-info") {
         for i in gpu_adapters() {
@@ -1072,6 +1081,7 @@ impl App {
                         buttons.push(n);
                     }
                 }
+                "--expand" => EXPAND_ALL.store(true, std::sync::atomic::Ordering::Relaxed),
                 "--hide-log" => self.hide_log = true,
                 "--categorize" => self.auto_categorize = it.next(),
                 "--dark" => {

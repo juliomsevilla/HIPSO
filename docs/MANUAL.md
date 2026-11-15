@@ -25,11 +25,11 @@ Los requisitos son Windows 10/11, macOS 12 o superior, o un Linux con X11 o Wayl
 
 El flujo de trabajo normal tiene cuatro momentos, y conviene conocerlos en orden porque cada uno condiciona el siguiente.
 
-El primero es abrir los datos. *Archivo → Abrir* (Ctrl+O, o arrastrando los archivos a la ventana) admite nubes de puntos, rásteres e imágenes, shapefiles, GeoJSON, GeoPackage y KML/KMZ, varios a la vez, y los añade a lo que ya está abierto (*Cerrar todo* empieza de nuevo). Cada nube es una hoja. Junto a *Abrir*, *Recientes* guarda los diez últimos archivos, y todos los diálogos de archivo empiezan en la carpeta del último abierto; el programa lo recuerda entre sesiones en `preferencias.txt`, dentro de la carpeta de configuración del sistema.
+El primero es abrir los datos. El icono de la carpeta de la cabecera (Ctrl+O), el botón *Añadir nubes y capas* de *Archivo*, o arrastrar los archivos a la ventana, admiten nubes de puntos, rásteres e imágenes, shapefiles, GeoJSON, GeoPackage y KML/KMZ, varios a la vez, y los añaden a lo que ya está abierto (*Cerrar todo* empieza de nuevo). Cada nube es una hoja. *Recientes*, en *Archivo*, guarda los diez últimos archivos, y todos los diálogos de archivo empiezan en la carpeta del último abierto; el programa lo recuerda entre sesiones en `preferencias.txt`, dentro de la carpeta de configuración del sistema. Lo abierto aparece en el panel *Contenido*, a la izquierda.
 
-El segundo es mirar. La nube se dibuja en la ventana, la rueda del ratón acerca y el botón central vuelve al encuadre anterior.
+El segundo es mirar. La nube se dibuja en la planta (y, si se elige en *Vista → Visualización → Ventanas*, también en el perfil y en 3D). La rueda del ratón acerca y aleja, el botón central desplaza y *Vista → Visualización → Color* cambia el atributo con el que se colorean los puntos. El apartado 4.4 explica cada botón de la pestaña *Vista*.
 
-El tercero es procesar. La pestaña *LiDAR* reúne las herramientas en cinco grupos (*Preparar*, *Calidad*, *Superficies*, *Inventario de la vegetación* e *Infraestructuras*), y cada una abre una ventana con sus parámetros y el botón *▶ Ejecutar*.
+El tercero es procesar. La pestaña *LiDAR* reúne las herramientas en seis grupos (*Preparar*, *Calidad*, *Superficies*, *ALS*, *TLS* e *Infraestructuras*), la pestaña *Raster* las de rásteres y la pestaña *Vectorial* las de capas vectoriales. Cada herramienta abre una ventana con sus parámetros y el botón *▶ Ejecutar*, y el apartado 4.5 y siguientes explican cada una. Para repetir un proceso sobre otra zona, la pestaña *Flujos* encadena las herramientas.
 
 El cuarto es recoger el resultado. Los resultados se guardan junto a los datos, en la carpeta de la nube de origen y con otro nombre, y se cargan solos en el visor al terminar. El primer resultado queda el primero de la lista, encima y seleccionado; una nube resultado pasa a ser la primera nube, y la original se queda cargada (si no hace falta, se quita a mano). Si un proceso produce más de 8 nubes, se cargan las 8 primeras, un aviso lo indica y el resto queda en disco.
 
@@ -585,7 +585,7 @@ La ventana se divide en dos partes, *1 · De dónde salen las unidades de muestr
 |---|---|
 | Archivo vectorial | Usa un archivo: polígonos (se usan tal cual) o puntos con el centro de cada unidad, cuya forma y tamaño se dan abajo. |
 | Generarlas (muestreo) | Las crea el programa, al azar o en malla, y guarda su ubicación como capa vectorial. |
-| AOI dibujadas | Usa los polígonos dibujados con la herramienta AOI. |
+| AOI dibujadas | Usa los polígonos de las capas vectoriales de polígonos que están visibles (el número entre paréntesis dice cuántos hay), por ejemplo una capa creada con *Nueva capa* y dibujada con *Digitalizar* en el panel *Edición*. |
 | Forma | *Circular* o *Cuadrada / rectangular*. |
 | Campo con el número de unidad de muestreo | Campo que nombra cada unidad. |
 | Campo con el lado X, lado Y, o lado fijo (m) | Cómo se da el tamaño de las unidades cuadradas o rectangulares cuando las regiones son puntos. |
@@ -604,7 +604,7 @@ La ventana se divide en dos partes, *1 · De dónde salen las unidades de muestr
 | Capa vectorial con las unidades de muestreo y sus métricas | Escribe la capa de unidades con sus métricas, en el *Formato de salida* *Vectorial (shapefile)* y/o *CSV*. |
 | Nubes recortadas | *ninguna*, *una por unidad de muestreo* o *una con todas*. |
 | Clases, Retornos | Qué puntos se usan (2,5 o ~7,18; F, L, A o números). |
-| Filtros y opciones | Sección plegable con *Clases*, *Retornos* y el resto de opciones siguientes. |
+| Filtros y opciones | Sección plegable con *Clases* y *Retornos* (campos de texto), *Z mín* y *Z máx* (rango de cota de los puntos que se usan) y las opciones siguientes. |
 | Alturas sobre el suelo | Cada nube menos su MDT (recomendado). Marcada, las métricas salen con alturas normalizadas y hace falta el MDT de cada nube. |
 | Puntos en el solape de dos unidades | Se cuentan en todas las que los contienen, o se asignan solo a la primera. |
 | Métricas: todas | Sección plegable. Todas, o las que se marquen en el selector (con buscador, *Marcar las visibles* y *Quitar todas*). La tabla lleva solo las columnas marcadas en el orden en que se marcaron; el nombre, el área y la fecha de captura van siempre. |
@@ -642,10 +642,10 @@ Botón grande. Relaciona una variable medida en campo (volumen, biomasa, área b
 | Variable a estimar | Columna de la tabla de campo que se estima. |
 | Transformación | Ninguna, logaritmo de la respuesta, o logaritmo de la respuesta y de las métricas. |
 | Variables del modelo | *Automático* (el programa elige las métricas) o *Elegir variables* (se marcan en una tabla). |
-| Criterio | AICc o BIC para la elección automática. |
+| Criterio | BIC (por defecto) o AICc para la elección automática. |
 | Variables como mucho | Máximo de métricas del modelo (0: una por cada diez unidades, entre dos y cinco). |
-| Colinealidad máxima \|r\| | Correlación máxima entre dos métricas; si se supera, se deja la más relacionada con la variable. |
-| VIF máximo | Factor de inflación de la varianza máximo que se admite. |
+| Colinealidad máxima \|r\| | Correlación máxima entre dos métricas (0,80); si se supera, se deja la más relacionada con la variable. |
+| VIF máximo | Factor de inflación de la varianza máximo que se admite (5). |
 | Probar también las métricas de intensidad | Las incluye entre las candidatas; la intensidad de casi todos los vuelos no está calibrada entre pasadas. |
 | Elegir variables… | Analiza la normalidad de la variable y de las métricas y las muestra para marcarlas (*Sugeridas*, *Ninguna*). |
 | Hacer el mapa de la variable | Estima la variable en todas las celdas, con las tablas de *Métricas por celda* (deben calcularse igual que las de las unidades de muestreo). |
@@ -690,9 +690,10 @@ Agrupa el modelo de alturas en objetos y los clasifica (OBIA). Véase el apartad
 |---|---|
 | Ráster (CHM) | El CHM, de un archivo o de las capas cargadas. Todas las capas deben coincidir celda a celda. |
 | Otras capas ráster | Capas adicionales (intensidad, retornos, rugosidad…) con las que describir los objetos. |
-| 1 · Rellenar celdas sin puntos hasta (celdas) | Evita huecos entre objetos (0: no). |
-| 1 · Suavizar con radio (celdas) | Reduce el ruido de sal y pimienta (0: no). |
-| 1 · Rugosidad del CHM (radio, celdas) | Añade la rugosidad local del CHM como capa (0: no). |
+| 1 · Capas de la nube | Casillas con las capas que se derivan de la nube y se suman al CHM: *Intensidad media*, *Retornos por pulso*, *Proporción de suelo* y *Densidad de puntos*. La nube se lee una sola vez. |
+| 1 · Rellenar celdas sin puntos hasta (celdas) | Evita huecos entre objetos (0: no; 3 por defecto). |
+| 1 · Suavizar con radio (celdas) | Reduce el ruido de sal y pimienta (0: no; 1 por defecto). |
+| 1 · Rugosidad del CHM (radio, celdas) | Añade la rugosidad local del CHM como capa (0: no; 2 por defecto). |
 | 2 · Fusión de regiones | Crea los objetos fusionando manchas mientras el coste sea menor que la escala al cuadrado. |
 | Escala | Mayor, objetos más grandes (conviene probar entre 5 y 15). |
 | Peso de la forma, compacidad | Peso de la forma frente al valor (0 a 0,9) y de la compacidad frente a la suavidad dentro de la forma (0 a 1). |
@@ -1334,8 +1335,8 @@ Menú con *Curvatura en planta*, *Curvatura de perfil* y *Curvatura total* (posi
 | Control | Qué hace |
 |---|---|
 | Líneas de | *Cresta* o *Drenaje*. |
-| Superficie mínima que recoge | Una línea nace donde se recoge esta superficie. |
-| Longitud mínima | Los tramos más cortos se descartan. |
+| Superficie mínima que recoge | Una línea nace donde se recoge esta superficie (1000 m² por defecto). |
+| Longitud mínima | Los tramos más cortos se descartan (30 m). |
 | Suavizado | Pasadas de Chaikin; 0 sigue las celdas. |
 
 Traza líneas 3D con el orden de Strahler (las cabeceras son 1; dos tramos del mismo orden que se juntan dan el siguiente), la longitud y la pendiente media de cada tramo. La orden es `hipso ridges`.
@@ -1384,7 +1385,7 @@ Menú con *Cuenca visual* (qué celdas ve un observador a una altura y con un al
 | Varios destinos: ir al más barato | Con varios destinos, la ruta va al más barato. |
 | Destino(s) | Uno por línea. |
 | Qué cuesta | *La pendiente* (1 + (pendiente / referencia) ^ potencia por metro), *Tiempo de marcha a pie* (función de Tobler, que distingue subida y bajada), *Nada: la ruta más corta* o *Un ráster de costes por metro*. |
-| Potencia, Pendiente de referencia | Con el modelo de la pendiente: exponente, y pendiente (%) a la que el coste por metro se duplica. |
+| Potencia, Pendiente de referencia | Con el modelo de la pendiente: exponente (2) y pendiente (10 %) a la que el coste por metro se duplica. |
 | No cruzar pendientes mayores de | Las celdas más empinadas que esto (%) no se pueden cruzar. |
 | Barreras | Polígonos que no se pueden cruzar. |
 | Zonas preferidas | Polígonos donde el coste se multiplica por el factor indicado. |
@@ -1402,7 +1403,7 @@ Menú con *Volumen sobre MDT* (volumen entre una superficie y el terreno, celda 
 |---|---|
 | Fuente | Un desplegable: *CHM de cada nube* (alturas sobre el suelo), *MDS menos MDT (de cada nube)* o *MDS sobre una cota horizontal* (*Cota de referencia*). Con un CHM las alturas ya son sobre el suelo y no hace falta MDT. Esta ventana trabaja con las nubes abiertas: cada una busca sus rásteres (CHM, MDS, MDT) en su carpeta de resultados, y si se prefiere otro, el campo *CHM* (o el que corresponda) permite elegirlo a mano. Sin nubes cargadas pide abrir una. |
 | Altura mínima que cuenta (m) | Las celdas más cerca del MDT que esto no suman: quita el ruido del terreno. |
-| Zonas | *Todo el ráster*, *AOI dibujadas* (un volumen por AOI) o *Polígonos de un archivo vectorial* (el resultado es la capa con los volúmenes en su tabla). |
+| Zonas | *Todo el ráster*, *AOI dibujadas* (los polígonos de las capas de polígonos visibles, un volumen por cada uno) o *Polígonos de un archivo vectorial* (el resultado es la capa con los volúmenes en su tabla). |
 
 El volumen es V = Σ (altura de la superficie − MDT) · celda². Las celdas por encima del MDT suman al volumen sobre él y las que quedan por debajo, al volumen bajo él (vaciados). Todas las hojas dan una sola tabla (`.csv`); con polígonos de un archivo, una copia de la capa con `Area_m2`, `Vol_sobre`, `Vol_bajo`, `Vol_neto`, `H_media`, `H_max` y `Sin_MDT`.
 
@@ -1428,7 +1429,7 @@ Mide por pila el volumen, el área en planta y sobre la pendiente, y la altura m
 | Cota | Cota del plano horizontal. |
 | Cota en el origen, Pendiente, Hacia, Origen X / Y | Plano inclinado: cota en un punto, pendiente y orientación hacia la que baja (grados desde el norte, en sentido horario, como correría el agua), con las coordenadas del mapa del punto de origen. |
 | Polígonos | Opcional: un resultado por polígono. |
-| Tolerancia | Las diferencias de hasta esta cantidad cuentan como sin cambio. |
+| Tolerancia | Las diferencias de hasta esta cantidad cuentan como sin cambio (0,05 m). |
 | Resultados | *Tabla (CSV)* y *Ráster de clases*. |
 
 La diferencia es diseño menos terreno: positiva es terraplén y negativa es desmonte. La orden es `hipso cutfill`.
@@ -1520,10 +1521,6 @@ Un clic selecciona, el doble clic hace zoom a la capa y el botón derecho abre e
 ##### Selección de varias capas
 
 Con Ctrl (o Cmd) y clic se añade o se quita una capa de la selección, y con Mayús y clic se marca el rango entre la última seleccionada y la pulsada. Con dos o más aparece sobre el árbol una barra con los botones para mostrarlas, ocultarlas, hacer zoom a todas, subirlas, bajarlas y quitarlas, y el botón derecho ofrece lo mismo. La casilla de visibilidad de una capa de la selección enciende o apaga toda la selección, y arrastrar una de ellas mueve el bloque entero conservando el orden entre sí. Las nubes de puntos no entran en esta selección: se manejan una a una o con los botones del grupo.
-
-##### Propiedades al pie
-
-Las propiedades de la capa seleccionada (opacidad, colores) salen al pie del panel.
 
 #### Panel → Información
 
@@ -1863,7 +1860,7 @@ La edición, en resumen, nunca toca el original y siempre es reversible hasta el
 
 ## 7. LiDAR
 
-La pestaña LiDAR reúne las herramientas en cinco grupos, ordenados como suelen usarse en un trabajo real. *Preparar* contiene *Clasificar*; *Asignar proyección*, *Exportar puntos* (también en el panel *Edición*, junto a la selección que exporta, y con el formato COPC) y *Recortar con polígonos*; *Adelgazar nube*, *Alturas sobre suelo* y *Quitar duplicados*; *Colorear con imagen*, *Normalizar intensidad* y *Imagen de intensidad*. La información de las nubes y de las demás capas está en la pestaña *Información* del panel lateral. *Calidad* reúne *Comparar nubes*, *Ajustar nubes*, *Entre pasadas*, *Líneas de vuelo* y *Densidad de Voronoi*. *Superficies* contiene *MDT*, *MDS / CHM* y *Cambio de la cubierta vegetal*. El relieve, la hidrología, las rutas y los volúmenes están en la pestaña *Raster*, grupo *Análisis del terreno*, porque trabajan sobre cualquier MDT y no solo sobre una nube, y se describen en el apartado 7.2. El inventario de la vegetación se divide según el tipo de nube. El grupo ALS (nubes aéreas) tiene tres botones grandes (*Extraer muestras*, *Métricas por celda* y *Modelos lineales*) y dos pequeños (*Segmentar individuos* y *Análisis por objetos*, OBIA). El grupo TLS (escáner terrestre) tiene el botón *Medición de troncos*. Por último, *Infraestructuras* contiene *Corredores eléctricos*.
+La pestaña *LiDAR* reúne las herramientas que parten de una nube de puntos, en seis grupos ordenados como suelen usarse en un trabajo real: *Preparar* (*Clasificar*, *Asignar proyección*, *Exportar puntos*, *Recortar con polígonos*, *Adelgazar nube*, *Alturas sobre suelo*, *Quitar duplicados*, *Colorear con imagen*, *Normalizar intensidad* e *Imagen de intensidad*), *Calidad* (*Comparar nubes*, *Ajustar nubes*, *Entre pasadas*, *Líneas de vuelo* y *Densidad de Voronoi*), *Superficies* (*MDT*, *MDS / CHM* y *Cambio de la cubierta vegetal*), *ALS* (nubes aéreas: *Extraer muestras*, *Métricas por celda*, *Modelos lineales*, *Segmentar individuos* y *Análisis por objetos*), *TLS* (escáner terrestre: *Medición de troncos*) e *Infraestructuras* (*Corredores eléctricos*). *Exportar puntos* también está en el panel *Edición*, junto a la selección que exporta. La información de las nubes y de las demás capas está en la pestaña *Información* del panel lateral. El relieve, la hidrología, las rutas y los volúmenes están en la pestaña *Raster*, grupo *Análisis del terreno*, porque trabajan sobre cualquier MDT y no solo sobre una nube, y se describen en el apartado 7.2. El apartado 4.5 explica cada botón de la pestaña, y este capítulo, el método que hay detrás.
 
 La cinta se adapta al ancho de la ventana. Si no caben todos los grupos, los de la derecha se pliegan en un botón grande con su nombre y una flecha (▾) que despliega sus herramientas, así que todas quedan siempre a un clic.
 
@@ -2732,11 +2729,11 @@ Estas herramientas leen las imágenes por ventana y escriben un Cloud Optimized 
 
 ### Tamizar, proximidad y relleno de huecos
 
-Tres operaciones sobre un ráster, en la ventana *Operaciones ráster* (pestaña *Raster*, grupo *Geoprocesos*, que reúne también *Vectorizar* y *Calculadora*; cada operación abre su propia ventana) y por la línea de comandos. `hipso sieve` elimina las manchas pequeñas de un ráster de clases: cada conjunto de celdas conexas del mismo valor y con menos celdas que `--threshold` toma el valor de su vecino mayor (con preferencia por los vecinos que no son pequeños, y con `--eight` se cuentan también las conexiones por esquina). `hipso proximity` calcula la distancia euclídea exacta de cada celda a la más próxima de las clases pedidas (`--values`, o toda celda distinta de cero), en unidades del mapa o en celdas, con un alcance máximo opcional. `hipso fill-nodata` rellena las celdas sin dato con la media ponderada por el inverso del cuadrado de la distancia de la celda con valor más cercana en cada una de las ocho direcciones, hasta `--max-distance` celdas, con `--smoothing` pasadas de suavizado sobre lo rellenado. Ninguna de las tres se ha contrastado con las herramientas equivalentes de GDAL, que no estaban disponibles; se han comprobado con casos de resultado conocido. Contrastadas con GDAL 3.13 sobre un MDT real de 501 × 501 celdas: *proximidad* es exacta y coincide con la transformada de distancia euclídea exacta de SciPy con una diferencia máxima de 8·10⁻⁶ (la de `gdal_proximity.py` es aproximada y se aparta hasta 0,39 m con celdas de 2 m); *tamizar* deja sin manchas menores que el umbral, como `gdal_sieve.py`, y da el mismo resultado salvo cuando una mancha pequeña toca vecinos de igual tamaño (el desempate es distinto) y en cadenas de manchas pequeñas, un 2,1 % de las celdas con 4 vecinos y un 0,24 % con 8; el *relleno de huecos* implementa exactamente su fórmula (media ponderada por el inverso del cuadrado de la distancia en ocho direcciones; coincide con una referencia independiente a 2·10⁻⁵) y no cambia ninguna celda con dato, pero no es el algoritmo de `gdal_fillnodata.py`, que rellena menos celdas y da valores distintos (media de 0,37 m y máximo de 6 m en huecos de un MDT de relieve variado).
+Tres operaciones sobre un ráster, en el grupo *Geoprocesos* de la pestaña *Raster* (que reúne también *Vectorizar* y *Calculadora*; cada operación abre su propia ventana) y por la línea de comandos. `hipso sieve` elimina las manchas pequeñas de un ráster de clases: cada conjunto de celdas conexas del mismo valor y con menos celdas que `--threshold` toma el valor de su vecino mayor (con preferencia por los vecinos que no son pequeños, y con `--eight` se cuentan también las conexiones por esquina). `hipso proximity` calcula la distancia euclídea exacta de cada celda a la más próxima de las clases pedidas (`--values`, o toda celda distinta de cero), en unidades del mapa o en celdas, con un alcance máximo opcional. `hipso fill-nodata` rellena las celdas sin dato con la media ponderada por el inverso del cuadrado de la distancia de la celda con valor más cercana en cada una de las ocho direcciones, hasta `--max-distance` celdas, con `--smoothing` pasadas de suavizado sobre lo rellenado. Ninguna de las tres se ha contrastado con las herramientas equivalentes de GDAL, que no estaban disponibles; se han comprobado con casos de resultado conocido. Contrastadas con GDAL 3.13 sobre un MDT real de 501 × 501 celdas: *proximidad* es exacta y coincide con la transformada de distancia euclídea exacta de SciPy con una diferencia máxima de 8·10⁻⁶ (la de `gdal_proximity.py` es aproximada y se aparta hasta 0,39 m con celdas de 2 m); *tamizar* deja sin manchas menores que el umbral, como `gdal_sieve.py`, y da el mismo resultado salvo cuando una mancha pequeña toca vecinos de igual tamaño (el desempate es distinto) y en cadenas de manchas pequeñas, un 2,1 % de las celdas con 4 vecinos y un 0,24 % con 8; el *relleno de huecos* implementa exactamente su fórmula (media ponderada por el inverso del cuadrado de la distancia en ocho direcciones; coincide con una referencia independiente a 2·10⁻⁵) y no cambia ninguna celda con dato, pero no es el algoritmo de `gdal_fillnodata.py`, que rellena menos celdas y da valores distintos (media de 0,37 m y máximo de 6 m en huecos de un MDT de relieve variado).
 
 ### Reclasificar
 
-Cambia los valores de una banda de un ráster según una tabla de reglas, y escribe un ráster nuevo `<nombre>_reclas.tif` (por la línea de comandos, `hipso reclass ráster.tif --rules "0..10 = 1; 10..25 = 2; >= 25 = 3"`). Cada regla es una línea (o se separan con `;`) con la forma *condición = resultado*. La condición es un valor (`3`), un intervalo con los dos extremos incluidos (`0..10` o `0 - 10`), una comparación (`< 0`, `<= 5`, `> 100`, `>= 100`) o `nodata` para las celdas vacías; el resultado es un número o `nodata`. **Si varias reglas valen para una celda, manda la primera.** `else = …` da el valor de las celdas que ninguna regla recoge; si no se escribe, la ventana pregunta qué hacer con ellas (conservan su valor, quedan vacías o pasan a un valor) y `--others` hace lo mismo por la línea de comandos. El botón *Ejemplos* trae las reglas más habituales (unir clases, pasar intervalos a clases, quitar negativos, una máscara 1/0, rellenar vacíos) y *Una regla por clase* escribe una regla `valor = valor` por cada clase que tiene el ráster, para cambiar solo las que se quiera.
+Cambia los valores de una banda de un ráster según una tabla de reglas, y escribe un ráster nuevo `<nombre>_reclass.tif` (por la línea de comandos, `hipso reclass ráster.tif --rules "0..10 = 1; 10..25 = 2; >= 25 = 3"`). Cada regla es una línea (o se separan con `;`) con la forma *condición = resultado*. La condición es un valor (`3`), un intervalo con los dos extremos incluidos (`0..10` o `0 - 10`), una comparación (`< 0`, `<= 5`, `> 100`, `>= 100`) o `nodata` para las celdas vacías; el resultado es un número o `nodata`. **Si varias reglas valen para una celda, manda la primera.** `else = …` da el valor de las celdas que ninguna regla recoge; si no se escribe, la ventana pregunta qué hacer con ellas (conservan su valor, quedan vacías o pasan a un valor) y `--others` hace lo mismo por la línea de comandos. El botón *Ejemplos* trae las reglas más habituales (unir clases, pasar intervalos a clases, quitar negativos, una máscara 1/0, rellenar vacíos) y *Una regla por clase* escribe una regla `valor = valor` por cada clase que tiene el ráster, para cambiar solo las que se quiera.
 
 El resultado usa el **tipo entero más pequeño** que cabe (8 bits si todos los valores son enteros entre 0 y 254, 16 bits hasta 65534, decimal en los demás casos), con 255, 65535 o −9999 como valor de «sin datos» según el tipo, y las vistas reducidas no promedian las clases. Si un valor de clase coincide con el de «sin datos» la herramienta se detiene y pide elegir otro. Se trabaja por franjas de filas.
 
@@ -2998,7 +2995,7 @@ Cada nodo ejecuta el programa `hipso` con las opciones del nodo, de modo que un 
 
 ## 14. Línea de comandos
 
-`hipso` hace lo mismo que la interfaz, por lotes, y con `--help` se ve la lista completa de comandos y de opciones.
+`hipso` hace lo mismo que la interfaz, por lotes, y con `--help` se ve la lista completa de comandos y de opciones. Todas las órdenes, con cada una de sus opciones, sus valores por defecto y el botón de la cinta donde viven, están en la *Referencia de herramientas* de la web (`docs/CLI.md`).
 
 ```
 hipso info nube.laz
@@ -3084,6 +3081,10 @@ Los atajos están también en *Inicio → Atajos de teclado*.
 | Ctrl+A / Ctrl+I | Seleccionar todo / invertir la selección |
 | Mayús / Alt / Ctrl (al seleccionar) | Añadir / restar / intersecar |
 | Supr | Eliminar los puntos seleccionados |
+| N | Norte arriba en la vista 3D (también, doble clic en la brújula) |
+| Re Pág / Av Pág, Inicio | Acercar y alejar la vista 3D; Inicio la encuadra entera |
+| [ y ] | Tamaño del pincel de selección (planta y perfil) |
+| Intro, Retroceso, Esc | Al digitalizar: terminar el elemento, quitar el último vértice, cancelar |
 
 ## 16. Solución de problemas
 

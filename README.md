@@ -42,14 +42,14 @@ La tercera es la comodidad de edición. Seleccionar, reclasificar y borrar exige
 
 - Ventanas **2D**, **2D + perfil**, **3D** y **2D + perfil + 3D**.
 - **Rásteres en 3D**: un MDT, un CHM o cualquier ráster de una banda se ve como superficie en la vista 3D, con los colores de su simbología y la exageración vertical a mano, y se combina con la nube de puntos. El perfil dibuja además la línea de los rásteres visibles junto a los puntos, con su cuadrícula de cotas. Se dibuja en el procesador, sin tarjeta gráfica: unos 9 ms por imagen con una malla de 4 millones de celdas.
-- **Cinta de opciones** con cinco pestañas (*Archivo*, *Vista*, *LiDAR*, *Vectorial* y *Raster*) que se pliegan en menús al estrechar la ventana. Cada geoproceso vectorial y cada operación ráster abre su propia ventana.
-- **Selección múltiple de capas** en el explorador (Ctrl o Cmd y clic, Mayús y clic): se muestran, ocultan, suben, bajan, amplían y quitan de una vez.
+- **Cinta de opciones** con seis pestañas (*Archivo*, *Vista*, *LiDAR*, *Vectorial*, *Raster* y *Flujos*) que se pliegan en menús al estrechar la ventana. Cada geoproceso vectorial y cada operación ráster abre su propia ventana.
+- **Selección múltiple de capas** en el panel *Contenido* (Ctrl o Cmd y clic, Mayús y clic): se muestran, ocultan, suben, bajan, amplían y quitan de una vez.
 - Navegación 3D libre: giro sin tope, desplazamiento en el plano de la pantalla, zoom con la rueda, encuadre con doble clic.
 - Colorear por elevación, clase, intensidad, retorno, pasada, archivo, RGB o ID de árbol.
 - **Edición por selecciones** (rectángulo, círculo, polígono, lazo, en planta, en perfil o **en la vista 3D**, con rebanada de profundidad y *Aislar selección* para editar un árbol a toda su densidad) con filtros por clase, altura, intensidad y retorno; eliminar o reclasificar; deshacer, rehacer e historial. El original nunca se modifica.
 - **Histogramas de atributos** (elevación, intensidad, retornos, clase, pasada, ángulo de barrido): se marcan barras para seleccionar los puntos, o se detectan los valores raros con un estadístico (Tukey, MAD, desviaciones típicas, percentiles).
 - **Proyectos (`.hipso`):** guardan qué nubes y capas están abiertas, su orden, visibilidad, la vista y la orientación 3D, para retomar la sesión donde se dejó.
-- **Capas grandes sin colgarse:** las capas vectoriales pesadas se dibujan como una imagen (un shapefile de 41 mil objetos pasa de 4,5 GB a 233 MB) y se consultan con un índice espacial R-tree. Cualquier nube LAS/LAZ se lee a más detalle, en segundo plano, al acercar el zoom en planta y en 3D (con una copia COPC en la caché que se crea sola), con relleno de huecos y relieve opcional; reabrir una nube grande tarda menos de un segundo y el perfil lee todos los puntos de su franja.
+- **Capas grandes sin colgarse:** las capas vectoriales pesadas se dibujan como una imagen (un shapefile de 41 mil objetos pasa de 4,5 GB a 233 MB) y se consultan con un índice espacial R-tree. Cualquier nube LAS/LAZ se lee a más detalle, en segundo plano, al acercar el zoom en planta y en 3D (con una copia COPC en la caché que se crea sola), con relleno de huecos; reabrir una nube grande tarda menos de un segundo y el perfil lee todos los puntos de su franja.
 - **Clases ASPRS 0–255:** la tabla vigente y clases nuevas propias (64–255) con nombre y color.
 
 ### LiDAR

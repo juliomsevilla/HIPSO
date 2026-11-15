@@ -165,7 +165,7 @@ impl App {
                 for p in &t.extra {
                     ui.label(egui::RichText::new(format!("   · {}", paths::stem(p))).size(11.0));
                 }
-                egui::CollapsingHeader::new("1 · Capas que salen de la nube")
+                crate::collapsing("1 · Capas que salen de la nube")
                     .default_open(true)
                     .show(ui, |ui| {
                         if clouds.is_empty() {
@@ -195,7 +195,7 @@ impl App {
                             ui.add(NumField::new(&mut t.roughness).range(0.0..=50.0).suffix(" celdas"));
                         });
                     });
-                egui::CollapsingHeader::new("2 · Objetos")
+                crate::collapsing("2 · Objetos")
                     .default_open(true)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
@@ -235,7 +235,7 @@ impl App {
                             ui.add(NumField::new(&mut t.min_cells).range(1.0..=1.0e6).suffix(" celdas"));
                         });
                     });
-                egui::CollapsingHeader::new("3 · Clasificación")
+                crate::collapsing("3 · Clasificación")
                     .default_open(true)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
@@ -290,7 +290,7 @@ impl App {
                             );
                         }
                     });
-                egui::CollapsingHeader::new("4 · Estratos homogéneos")
+                crate::collapsing("4 · Estratos homogéneos")
                     .default_open(false)
                     .show(ui, |ui| {
                         ui.add_enabled_ui(t.classify != 0, |ui| {
