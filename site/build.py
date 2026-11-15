@@ -72,6 +72,12 @@ def capitulos_del_manual():
     return caps
 
 
+def partir_capitulo_4(lineas):
+    """Capítulo 4: la introducción y sus once apartados (4.1 a 4.11)."""
+    idx = [i for i, l in enumerate(lineas) if re.match(r"^### 4\.\d+ ", l)]
+    return lineas[: idx[0]], [lineas[idx[k]: idx[k + 1] if k + 1 < len(idx) else len(lineas)] for k in range(len(idx))]
+
+
 def partir_capitulo_7(lineas):
     """Capítulo 7: la introducción y sus tres bloques (7.1, 7.2 y 7.3)."""
     idx = [i for i, l in enumerate(lineas) if re.match(r"^### 7\.\d ", l)]
@@ -97,6 +103,10 @@ class Pagina:
 IMAGENES = {
     "que-es": ("01-dales-planta-perfil-3d.jpg", "Una nube urbana clasificada (DALES) en planta, perfil y 3D."),
     "interfaz": ("01-dales-planta-perfil-3d.jpg", "La ventana de HIPSO con la vista en planta, el perfil y la vista 3D de una misma nube."),
+    "cinta-lidar": ("03-cinta-lidar-estadio.jpg", "La pestaña LiDAR con sus seis grupos."),
+    "cinta-vectorial": ("10-edicion-vectorial.jpg", "El panel Edición con una capa vectorial."),
+    "cinta-flujos": ("09-constructor-de-flujos.jpg", "La pestaña Flujos con el constructor."),
+    "vistas": ("06-pnoa-chm-perfil-3d.jpg", "Planta, perfil y vista 3D con un ráster sobre el perfil."),
     "edicion": ("08-edicion-histograma.jpg", "Edición de puntos con el histograma de elevaciones que acota la reclasificación."),
     "preparar": ("03-cinta-lidar-estadio.jpg", "La pestaña LiDAR con las herramientas de preparación sobre una nube con color."),
     "superficies": ("06-pnoa-chm-perfil-3d.jpg", "Una hoja del PNOA con su modelo de alturas: la línea del ráster se ve sobre el perfil y como superficie en 3D."),
@@ -121,7 +131,25 @@ def construir_paginas():
     cap(1, "manual/que-es.html", "Qué es HIPSO", g)
     cap(2, "manual/instalacion.html", "Instalación", g)
     cap(3, "manual/primeros-pasos.html", "Primeros pasos", g)
-    cap(4, "manual/interfaz.html", "La interfaz", g)
+
+    g = "La interfaz"
+    intro4, bloques4 = partir_capitulo_4(caps[4])
+    paginas4 = [
+        ("interfaz", "Las piezas de la ventana", bloques4[0] + bloques4[1]),
+        ("cinta-archivo", "Pestaña Archivo", bloques4[2]),
+        ("cinta-vista", "Pestaña Vista", bloques4[3]),
+        ("cinta-lidar", "Pestaña LiDAR", bloques4[4]),
+        ("cinta-vectorial", "Pestaña Vectorial", bloques4[5]),
+        ("cinta-raster", "Pestaña Raster", bloques4[6]),
+        ("cinta-flujos", "Pestaña Flujos", bloques4[7]),
+        ("panel-lateral", "El panel lateral", bloques4[8]),
+        ("vistas", "Las vistas", bloques4[9]),
+        ("ajustes", "Ajustes", bloques4[10]),
+    ]
+    for k, (slug, nombre, b) in enumerate(paginas4):
+        # el capítulo entero va delante de la primera página como introducción
+        lineas = (intro4 if k == 0 else []) + b
+        cap(4, f"manual/{slug}.html", nombre, g, desplazar=2 if k else 1, lineas=lineas, clave=slug)
 
     g = "Nubes de puntos"
     cap(5, "manual/consulta.html", "Herramientas de consulta", g)
@@ -215,12 +243,51 @@ def pagina_recetas():
 # ---------------------------------------------------------------------------------------------
 # conversión y plantilla
 
+DESTINO_APARTADO = {
+    "4.1": "interfaz", "4.2": "interfaz", "4.3": "cinta-archivo", "4.4": "cinta-vista", "4.5": "cinta-lidar",
+    "4.6": "cinta-vectorial", "4.7": "cinta-raster", "4.8": "cinta-flujos", "4.9": "panel-lateral",
+    "4.10": "vistas", "4.11": "ajustes",
+    "6.1": "edicion", "6.2": "edicion", "6.3": "edicion", "6.4": "edicion",
+    "7.1": "preparar", "7.2": "superficies", "7.3": "inventario",
+}
+DESTINO_CAPITULO = {
+    "1": "que-es", "2": "instalacion", "3": "primeros-pasos", "4": "interfaz", "5": "consulta", "6": "edicion",
+    "7": "lidar", "8": "raster", "9": "vectorial", "10": "formatos", "11": "rendimiento", "12": "teselas",
+    "13": "aba", "14": "linea-de-comandos", "15": "atajos", "16": "solucion-de-problemas",
+    "17": "bibliografia", "18": "acerca-de",
+}
+
+
+def enlazar_apartados(texto, ruta):
+    """Convierte «apartado 7.1» y «capítulo 14» en enlaces a la página que los contiene."""
+    base = "" if ruta.startswith("manual/") else "manual/"
+
+    def apartado(m):
+        n = m.group(2)
+        dest = DESTINO_APARTADO.get(n) or DESTINO_CAPITULO.get(n.split(".")[0])
+        return f"[{m.group(1)} {n}]({base}{dest}.html)" if dest else m.group(0)
+
+    def capitulo(m):
+        dest = DESTINO_CAPITULO.get(m.group(2))
+        return f"[{m.group(1)} {m.group(2)}]({base}{dest}.html)" if dest else m.group(0)
+
+    partes, codigo = [], False
+    for linea in texto.split("\n"):
+        if linea.startswith("```"):
+            codigo = not codigo
+        if not codigo and not linea.startswith("#"):
+            linea = re.sub(r"\b([Aa]partados?) (\d+\.\d+)\b(?!\.\d)", apartado, linea)
+            linea = re.sub(r"\b([Cc]apítulos?) (\d+)\b(?![.\d])", capitulo, linea)
+        partes.append(linea)
+    return "\n".join(partes)
+
+
 def a_html(p):
     md = markdown.Markdown(
         extensions=["tables", "fenced_code", "sane_lists", "attr_list", "toc"],
         extension_configs={"toc": {"slugify": lambda v, s: identificador(v), "permalink": "#", "toc_depth": "2-3"}},
     )
-    texto = p.md
+    texto = enlazar_apartados(p.md, p.ruta)
     # el manual no deja siempre una línea en blanco antes de una lista
     texto = re.sub(r"([^\n])\n(- |\d+\. )", r"\1\n\n\2", texto)
     cuerpo = md.convert(texto)

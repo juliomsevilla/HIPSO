@@ -1032,6 +1032,39 @@ impl App {
                         self.mo.preset(plots, field, response);
                     }
                 }
+                "--dump-ribbon" => {
+                    // vuelca la cinta (pestañas, grupos, botones y su ayuda) para generar el manual
+                    for (name, groups) in [
+                        ("LiDAR", self.lidar_groups()),
+                        ("Vectorial", self.vector_groups()),
+                        ("Ráster", self.raster_groups()),
+                        ("Flujos", self.flow_groups()),
+                    ] {
+                        println!("TAB\t{name}");
+                        for g in &groups {
+                            println!("GROUP\t{}", g.caption);
+                            let line = |kind: &str, i: &ribbon::Item<Action>| {
+                                let l = i.label.replace('\n', " ");
+                                println!("{kind}\t{l}\t{}", tips::tip(i.label).unwrap_or(""));
+                            };
+                            for i in &g.big {
+                                line("BIG", i);
+                            }
+                            for m in &g.menus {
+                                println!("MENU\t{}\t", m.label.replace('\n', " "));
+                                for i in &m.items {
+                                    line("MENUITEM", i);
+                                }
+                            }
+                            for c in &g.columns {
+                                for i in c {
+                                    line("SMALL", i);
+                                }
+                            }
+                        }
+                    }
+                    std::process::exit(0);
+                }
                 "--hide-log" => self.hide_log = true,
                 "--categorize" => self.auto_categorize = it.next(),
                 "--dark" => {
@@ -1376,7 +1409,7 @@ impl App {
                 }],
                 columns: vec![vec![Item {
                     icon: "@export",
-                    label: "Guardar como…",
+                    label: "Guardar flujo como…",
                     on: false,
                     action: Action::FlowSaveAs,
                 }]],
@@ -1400,7 +1433,7 @@ impl App {
                     Item { icon: "@undo", label: "Deshacer", on: false, action: Action::FlowUndo },
                     Item { icon: "@redo", label: "Rehacer", on: false, action: Action::FlowRedo },
                     Item { icon: "@copy", label: "Duplicar", on: false, action: Action::FlowDuplicate },
-                ], vec![Item { icon: "@trash", label: "Quitar", on: false, action: Action::FlowDelete }]],
+                ], vec![Item { icon: "@trash", label: "Quitar nodos", on: false, action: Action::FlowDelete }]],
             },
             Group {
                 caption: "Vista",

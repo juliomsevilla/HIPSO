@@ -59,3 +59,7 @@ Si no hay `gh` a mano, basta con subir la versión y la etiqueta: `git tag vX.Y.
 Tanto `release.yml` como `scripts/package.sh` crean `HIPSO.app` con el mismo script (`scripts/macos-app.sh`), de modo que los paquetes de macOS son equivalentes salgan de donde salgan. Una release creada con `gh` dispara `release.yml` (por la etiqueta) y `linux.yml` a la vez, y el primero sobrescribe los paquetes que haya subido el Mac.
 
 Si GitHub no compilara macOS (cuota o runners), usa el prompt de Mac de arriba en un Mac: `./scripts/package.sh --publish` sube los dos paquetes de macOS a la release `vX.Y.Z`.
+
+## Antes de publicar: el manual y la cinta
+
+El capítulo 4 del manual explica cada botón de la cinta. Tras compilar, `python3 scripts/comprobar_manual_cinta.py` vuelca la cinta con `hipso-gui --dump-ribbon` y falla si algún botón, grupo o pestaña no aparece en ese capítulo. Un botón nuevo hay que explicarlo allí (un título con su nombre, bajo el de su grupo) y darle su texto emergente en `apps/gui/src/tips.rs`.

@@ -37,36 +37,663 @@ Todo trabajo se puede detener con *■ Detener*, y lo que se hubiera escrito a m
 
 ## 4. La interfaz
 
-La interfaz se organiza en una cinta de opciones, un panel lateral, una barra de estado y un registro, y cada pieza responde a una pregunta distinta: qué se puede hacer, qué hay cargado, dónde está el cursor y qué ha ocurrido.
+Este capítulo recorre la ventana de HIPSO de arriba abajo y de izquierda a derecha, y explica uno a uno los botones y las opciones que contiene. Cada botón tiene su propio título, y bajo él se dice qué hace, cuándo conviene usarlo y dónde está explicado con detalle el método que lleva detrás. El orden es el de la propia pantalla: primero la ventana entera (apartado 4.1), luego la cabecera (4.2) y las pestañas de la cinta de izquierda a derecha (4.3 a 4.8), después el panel lateral (4.9) y, por último, las vistas (4.10) y los ajustes (4.11).
 
-La cinta de opciones tiene seis pestañas fijas (*Archivo*, *Vista*, *LiDAR*, *Vectorial*, *Raster* y *Flujos*), y a su izquierda el botón naranja *Inicio*, que abre una vista con los archivos recientes, los ajustes, el manual, los atajos de teclado y la información del programa. *Archivo* reúne los proyectos, los archivos recientes y la interfaz (*Registro* y *Tema claro/oscuro*); *Vectorial* tiene los grupos *Capa*, *Geometría* y *Geoprocesos*, *Raster* los de *Operaciones*, *Geoprocesos* y *Análisis del terreno*, y *Flujos* los de *Flujo*, *Ejecución*, *Edición* y *Vista* (véase *El constructor de flujos*, en el capítulo 13). Al estrechar la ventana, los grupos de la derecha se pliegan en un botón con menú, así que todo sigue a un clic. Las herramientas que dependen de lo seleccionado (edición, simbología) no están en la cinta sino en el panel lateral.
+### 4.1 Las piezas de la ventana
 
-El panel lateral contiene *Contenido* (el mapa, con sus capas y nubes en forma de árbol), *Información* (el informe de los datos, que *⧉ Copiar todo* lleva entero al portapapeles, como también el botón derecho sobre el texto) , *Edición* y *Simbología*. *Edición* reúne todas las ediciones y depende de lo que esté seleccionado en *Contenido*: con una o varias nubes de puntos (o nada) muestra la edición de puntos (selección, edición e historial), y con una capa vectorial, su edición (capa, herramientas, selección, geometría y atributos). *Simbología* muestra cómo se dibuja la capa elegida: símbolo y etiquetas de una capa vectorial, o bandas, estirado y rampa de una imagen o un ráster. Así la cinta de *Vista* y las herramientas de edición pueden estar abiertas a la vez.
+La ventana se compone de seis piezas, y cada una responde a una pregunta distinta. La **cabecera** (arriba) responde a qué se abre y se busca a un clic. La **cinta de opciones** (debajo) responde a qué se puede hacer, y se divide en pestañas y, dentro de cada una, en grupos. El **panel lateral** (a la izquierda) responde a qué hay cargado y cómo se dibuja. El **área de vistas** (en el centro) muestra la planta, el perfil y la vista 3D. La **barra de estado** (abajo) dice dónde está el cursor y qué proceso corre. El **Registro** (un cuadro de texto bajo las vistas, que se muestra o se oculta) conserva lo ocurrido.
 
-El panel *Contenido* funciona como la tabla de contenidos de un SIG. Arriba tiene un buscador y los botones *Abrir* y *Mostrar todo*; debajo, el árbol, que es el orden de dibujo: Mapa (su casilla muestra u oculta todo), las capas y el grupo Nubes de puntos, de arriba abajo, de manera que lo de arriba se dibuja encima. El grupo de nubes se comporta como un elemento más, y se sube o se baja entero por encima o por debajo de las capas (arrastrándolo o con el botón derecho). Los rásteres e imágenes nuevos se colocan bajo las nubes, y las capas vectoriales sobre ellas. Cada fila tiene su flecha (las capas con simbología por valores muestran sus clases debajo), su casilla de visibilidad, su símbolo y su nombre. Con el ratón encima aparecen sus acciones: en una capa, la tabla de atributos (si es vectorial), el zoom y quitarla; en una nube, el zoom a esa tesela y cerrarla; en el grupo, el zoom a todas y cerrar todas. *Ver solo esta nube* está en el botón derecho de cada nube. Un clic selecciona, el doble clic hace zoom a la capa y el botón derecho abre el menú. Para cambiar el orden de dibujo se arrastra una capa (o el grupo de nubes). Se pueden seleccionar **varias capas a la vez**: con Ctrl (o Cmd) y clic se añade o se quita una capa de la selección, y con Mayús y clic se marca el rango entre la última seleccionada y la pulsada. Con dos o más seleccionadas aparece sobre el árbol una barra con los botones para mostrarlas, ocultarlas, hacer zoom a todas, subirlas, bajarlas y quitarlas, y el botón derecho ofrece lo mismo. La casilla de visibilidad de una capa de la selección enciende o apaga toda la selección, y arrastrar una de ellas mueve el bloque entero, conservando el orden que tenían entre sí. Las nubes de puntos no entran en esta selección: se manejan una a una o con los botones de todo el grupo. Las propiedades de la capa seleccionada (opacidad, colores) salen al pie del panel, y una casilla a medias en un grupo indica que solo algunos de sus elementos se ven.
+La cinta tiene a la izquierda el botón naranja *Inicio* y seis pestañas fijas: *Archivo*, *Vista*, *LiDAR*, *Vectorial*, *Raster* y *Flujos*. El criterio de reparto es la tarea. *Archivo* se ocupa del trabajo en sí (proyectos y archivos), *Vista* de cómo se ve, *LiDAR* de todo lo que parte de una nube de puntos, *Vectorial* y *Raster* de las capas de esos tipos y *Flujos* de encadenar herramientas. Cuando la ventana se estrecha, los grupos de la derecha se pliegan en un botón con menú, de manera que todo sigue a un clic.
 
-La barra de estado muestra las coordenadas del cursor, el sistema de coordenadas de la vista (el de la primera nube, o 'sin declarar'), la herramienta activa, la escala y, cuando hay un proceso en marcha, su avance y la estimación de tiempo. El *Registro* (botón 📜 de la cabecera) conserva el historial de lo hecho, de los errores y del avance de los procesos largos. Es un único cuadro de texto de solo lectura, de modo que el texto se puede seleccionar a través de varias líneas y copiar.
+En la cinta hay tres clases de botón. El **botón grande** (un icono sobre la etiqueta) se reserva para lo más usado de cada grupo. El **botón pequeño** (un icono junto a la etiqueta, en columnas de hasta tres) es el resto de las herramientas. El **botón con menú** (marcado con ▾) abre una lista de herramientas emparentadas. Pasar el ratón sobre un botón muestra un texto de ayuda con lo que hace y su atajo, y el botón de una herramienta con ventana propia queda marcado mientras la ventana está abierta.
 
-Hay además varias ayudas de uso general. *Buscar comando* (Ctrl+K) localiza cualquier herramienta por su nombre. *Recientes* (Archivo → Archivo, y en la vista Inicio) guarda los diez últimos archivos abiertos, y *Vaciar la lista* los olvida. *Inicio → Atajos de teclado* muestra todos los atajos (el capítulo 15 los resume), y los botones de la cinta no los repiten en su rótulo. El tema claro y oscuro se cambia con el botón ☀/🌙 de la cabecera. Los iconos son propios, dibujados en SVG, y si faltara alguno se vería un cuadro con una interrogación.
+Las herramientas de las pestañas *LiDAR*, *Vectorial* y *Raster* abren una ventana flotante con sus opciones y un botón para calcular. Muchas de esas ventanas se generan a partir de la orden equivalente de la línea de comandos (capítulo 14), con idénticas opciones y la misma ayuda, y cada herramienta que tiene orden es también un nodo del constructor de flujos (capítulo 13). Por eso lo que hace el botón lo hace la orden `hipso` correspondiente, con los mismos resultados. Todo trabajo largo se puede detener con *■ Detener*, y lo que se hubiera escrito a medias se borra. Mientras corre, la barra de estado y el Registro dicen cuánto falta.
 
-### Proyectos
+### 4.2 La cabecera y el botón Inicio
 
-Un proyecto es un archivo `.hipso` (los proyectos `.elp` de versiones anteriores se siguen abriendo, pero se guardan siempre como `.hipso`) que recuerda qué nubes y capas están abiertas, su orden de dibujo, su visibilidad y opacidad, el encuadre de la planta, la disposición de ventanas y la orientación de la vista 3D, de manera que una sesión puede retomarse donde se dejó. Se guarda y se abre en Archivo → Proyecto (*Guardar proyecto* y *Abrir proyecto*). El archivo contiene rutas, no datos: los archivos se quedan donde están, y si alguno se ha movido, solo ese deja de cargarse y el Registro lo indica. De una capa de GeoPackage recuerda también la tabla. *Abrir proyecto* cierra lo que hubiera abierto y carga lo del proyecto, y el mismo efecto tiene arrastrar el `.hipso` a la ventana.
+#### Abrir (Ctrl+O)
 
-### 4.1 Ventanas de trabajo
+Es el primer icono de la cabecera (una carpeta). Abre nubes de puntos (LAS y LAZ, también COPC, PLY y E57), rásteres, imágenes y capas vectoriales, y los añade a lo que ya está abierto. También se pueden arrastrar a la ventana, y un proyecto `.hipso` arrastrado se abre como proyecto.
+
+#### Guardar vista PNG
+
+El segundo icono (una imagen) guarda en PNG lo que se ve en el área de vistas, con la disposición de ventanas que esté activa.
+
+#### Zoom completo y Zoom anterior
+
+El tercer icono encuadra todo lo cargado, y el cuarto vuelve al encuadre anterior de la planta. Son los mismos botones que *Extensión completa* y *Zoom anterior* de la pestaña *Vista*, repetidos aquí porque se usan constantemente.
+
+#### Buscar comando (Ctrl+K)
+
+El campo de la derecha localiza cualquier herramienta o acción por su nombre, desde *Clasificar puntos* hasta *Curvas de nivel*, y la ejecuta. Es la forma más rápida de llegar a una herramienta cuando no se recuerda su pestaña. Incluye las herramientas de la cinta, los colores de los puntos, el cambio de tema, el constructor de flujos y las páginas de *Inicio*.
+
+#### Inicio
+
+El botón naranja abre una vista a pantalla completa con cinco páginas. La página principal lista los proyectos y archivos recientes y permite abrir nubes, capas o un proyecto. *Ajustes* gobierna la caché (apartado 4.11). *Manual* abre este manual dentro del programa (también con F1). *Atajos de teclado* lista todos los atajos (el capítulo 15 los resume). *Acerca de* muestra la versión y las licencias. El botón *Volver* regresa a la vista de trabajo.
+
+### 4.3 Pestaña Archivo
+
+La pestaña *Archivo* tiene dos grupos: *Archivo*, que gestiona qué está abierto, e *Interfaz*, que gobierna el aspecto.
+
+#### Archivo → Archivo
+
+##### Guardar proyecto
+
+Escribe un archivo `.hipso` con lo que hay abierto. Un proyecto recuerda qué nubes y capas están cargadas, su orden de dibujo, su visibilidad y opacidad, el encuadre de la planta, la disposición de ventanas y la orientación de la vista 3D, de manera que una sesión se retoma donde se dejó. El archivo contiene rutas, no datos: los archivos se quedan donde están, y si alguno se ha movido, solo ese deja de cargarse y el Registro lo dice. De una capa de GeoPackage recuerda también la tabla.
+
+##### Abrir proyecto
+
+Cierra lo que hubiera abierto y carga lo del proyecto elegido. Los proyectos `.elp` de versiones anteriores se siguen abriendo, pero se guardan siempre como `.hipso`.
+
+##### Añadir nubes y capas
+
+Añade archivos a lo abierto, igual que *Abrir* de la cabecera. Al cargar varios a la vez entran todos juntos, y lo que esté en otro sistema de coordenadas se pasa al de la primera nube (apartado 4.10).
+
+##### Recientes
+
+Menú con los diez últimos archivos abiertos. Pulsar uno lo vuelve a abrir, y *Vaciar la lista* los olvida. Está desactivado mientras no se haya abierto ninguno.
+
+##### Cerrar todo
+
+Cierra todas las nubes y capas y deja la ventana vacía.
+
+#### Archivo → Interfaz
+
+##### Registro
+
+Muestra u oculta el Registro, que conserva el historial de lo hecho, los errores y el avance de los procesos largos. Es de solo lectura, de modo que el texto se puede seleccionar a través de varias líneas y copiar.
+
+##### Tema claro y Tema oscuro
+
+Alterna entre el tema claro (el predeterminado) y el oscuro. El botón muestra siempre el tema al que se pasaría.
+
+### 4.4 Pestaña Vista
+
+La pestaña *Vista* tiene cinco grupos y sigue el orden del trabajo: primero se decide qué se ve (*Visualización*), luego se navega (*Navegación*), después se usan las herramientas que actúan sobre lo que la navegación deja a la vista (*Herramientas*) y, al final, se ajustan la vista 3D y el perfil.
 
 #### Vista → Visualización
 
-Es el primer grupo de la pestaña porque vale para todo lo demás: reúne un botón grande *Ventanas* (cómo se reparte la pantalla: 2D, 2D + perfil, 3D o 2D + perfil + 3D) y, a su derecha, *Color* (arriba), *Rango Z* y *Filtros* (en medio), el tamaño de los puntos (− y +) y la carga de puntos (*Máx.*, el máximo de millones de puntos en pantalla: se escribe y con Intro se recargan las nubes; la decimación en uso sale en la barra de estado). Los demás grupos de la pestaña *Vista* siguen el orden de trabajo: primero se navega y después se usan las herramientas. Son *Navegación* (*Desplazar*, *Zoom*, *Consultar*, las extensiones, *Zoom anterior* y *Zoom adelante*, *Refrescar 3D* y *Limpiar marcas*), *Herramientas*, *Vista 3D* (*Exageración* y *Enlazar con la planta*; el norte se pone arriba con doble clic en la brújula de la vista 3D) y *Perfil* (ancho de la caja, tamaño de sus puntos y *Sin decimar*). Las herramientas van después de la navegación porque actúan sobre lo que esta deja a la vista.
+##### Ventanas
 
-| Ventanas | Qué muestra |
-|---|---|
-| 2D | La planta. |
-| 2D + perfil | La planta y, debajo, el perfil de una franja de la nube. |
-| 3D | Solo la vista 3D, a pantalla completa y independiente de la planta. |
-| 2D + perfil + 3D | Las tres a la vez. La vista 3D solo sigue a la planta si se marca *Enlazar con la planta* en el menú *Vista 3D…*. |
+Botón grande con menú que reparte la pantalla entre la planta, el perfil y la vista 3D. Las cuatro disposiciones son *2D* (solo la planta), *2D + perfil* (la planta y, debajo, el perfil de una franja de la nube), *3D* (la vista 3D a pantalla completa, independiente de la planta) y *2D + perfil + 3D* (las tres a la vez). El botón muestra la disposición activa.
 
-### 4.2 Navegar en la planta
+##### Color
+
+Menú que elige el atributo con el que se colorean los puntos: *Elevación (azul-rojo)*, *Elevación (tierra)*, *Clasificación*, *Intensidad*, *Retorno*, *ID de fuente*, *Archivo*, *RGB* e *ID de árbol (treeID)*. Este último pinta cada copa de un color distinto a partir del atributo `treeID` que escribe *Segmentar individuos* y solo está disponible si la nube lo trae; los puntos sin árbol quedan en gris. Al cargar una nube con color, el programa la muestra en RGB.
+
+##### Rango Z
+
+Menú con el mínimo y el máximo de elevación entre los que se reparte la rampa de color, y el botón *Ajustar a los datos*, que los devuelve al rango real de la nube.
+
+##### Filtros
+
+Menú con cuatro casillas que filtran los retornos que se dibujan (*Primeros retornos*, *Retornos intermedios*, *Últimos retornos* y *Retornos únicos*) y, al final, *Clases y colores…*, que abre la tabla de clases ASPRS: qué clases se ven y de qué color (apartado 6.2).
+
+##### Puntos (− y +)
+
+Los dos botones agrandan o encogen el punto en la planta y en la vista 3D. Los atajos son las teclas + y −, que cambian el tamaño del perfil si el cursor está sobre él.
+
+##### Máx.
+
+Fija el máximo de millones de puntos que se cargan en pantalla, entre 0,5 y 200. Se escribe el valor y con Intro se recargan las nubes. Una nube mayor se decima de forma uniforme, y la decimación en uso (1 de cada *n*) aparece en la barra de estado. Al acercar, el programa lee a más detalle lo que cabe en la ventana (apartado 4.10).
+
+#### Vista → Navegación
+
+##### Desplazar
+
+Botón grande (atajo X). Con él, arrastrar con el botón izquierdo mueve la planta. El botón central del ratón hace lo mismo con cualquier herramienta.
+
+##### Zoom
+
+Atajo Z. La rueda acerca y aleja. Un clic acerca ×2, un clic derecho aleja y arrastrar dibuja la ventana a la que se acerca.
+
+##### Consultar
+
+Atajo Q. Un clic sobre un punto de la nube da sus atributos, y sobre una capa vectorial, la fila de su tabla (apartado 5).
+
+##### Limpiar marcas
+
+Quita de la vista las mediciones y la caja del perfil.
+
+##### Extensión completa
+
+Encuadra todo lo cargado.
+
+##### Zoom a la capa
+
+Encuadra la capa elegida en *Contenido*. Está desactivado si no hay ninguna.
+
+##### Zoom a la selección
+
+Encuadra los puntos seleccionados o, si la capa activa es vectorial, los elementos seleccionados.
+
+##### Zoom anterior y Zoom adelante
+
+Recorren el historial de encuadres de la planta, como las flechas de un navegador. Cada uno se desactiva cuando no hay a dónde ir. El botón central del ratón hace también *Zoom anterior*.
+
+##### Refrescar 3D
+
+Vuelve a encuadrar la vista 3D en lo que se ve en la planta. Es útil cuando hay capas muy separadas entre sí.
+
+#### Vista → Herramientas
+
+##### Densidad
+
+Calcula los puntos por metro cuadrado de un recuadro dibujado en la planta (apartado 5).
+
+##### Perfil
+
+Dibuja una caja sobre la planta (un clic en el extremo izquierdo, otro en el derecho y un tercero en el borde de la caja) y abre su perfil, una vista lateral con todos los puntos de la franja (apartado 5).
+
+##### Medir
+
+Atajo W. Da distancias y áreas sobre la planta (apartado 5). Pulsarlo de nuevo devuelve la herramienta *Zoom*.
+
+##### TIN
+
+Atajo T. Dibuja un TIN sombreado de las nubes en la planta; mientras está activo, los puntos se ocultan. El engranaje contiguo abre dos opciones: la *Equidistancia* de las curvas de nivel y las clases con las que se construye el TIN (*suelo* o *todas las clases*).
+
+##### Curvas de nivel
+
+Dibuja curvas de nivel sobre el TIN, con la equidistancia fijada en el engranaje.
+
+#### Vista → Vista 3D
+
+##### Exageración
+
+Multiplica la escala vertical de la vista 3D, de × 0,1 a × 100, tanto para nubes como para superficies ráster. Se arrastra el valor o se escribe.
+
+##### Enlazar con la planta
+
+Con *2D + perfil + 3D* activo, hace que la vista 3D siga lo que se ve en la planta. Apagada, la vista 3D se mueve por su cuenta.
+
+#### Vista → Perfil
+
+##### Ancho
+
+Ancho de la caja del perfil, de 0,5 a 1000 m.
+
+##### Cuadrícula
+
+Dibuja líneas horizontales con las cotas en el lado izquierdo del perfil.
+
+##### Puntos (− y +)
+
+Tamaño de los puntos del perfil, independiente del de la planta y el 3D.
+
+##### Sin decimar
+
+El perfil lee de los archivos todos los puntos de su caja, hasta 6 millones, en segundo plano. Es lo que garantiza que el perfil nunca decime: lo que se ve es lo que hay. Desmarcada, el perfil usa los puntos de la pantalla.
+
+### 4.5 Pestaña LiDAR
+
+La pestaña *LiDAR* reúne lo que parte de una nube de puntos. Sus seis grupos siguen el orden natural de un proyecto: se *prepara* la nube (clasificarla, proyectarla, limpiarla), se comprueba su *calidad*, se derivan las *superficies*, se mide la vegetación en *ALS* (escáner aéreo) o en *TLS* (escáner terrestre) y se estudian las *infraestructuras*. Cada herramienta se explica con detalle en el apartado que se cita.
+
+#### LiDAR → Preparar
+
+##### Clasificar
+
+Botón grande. Clasifica ruido, suelo, edificios, vegetación por alturas, cables y postes, carreteras y agua, con varios métodos de suelo, reglas propias y recetas guardadas en un archivo. Es la herramienta central de la preparación, porque casi todo lo demás (MDT, CHM, métricas, árboles) parte de la clase de suelo. Véase el apartado 7.1, *Clasificar*.
+
+##### Asignar proyección
+
+Da a una nube sin sistema de coordenadas el de otra nube o un código EPSG, sin tocar los puntos, solo la cabecera. Se usa cuando el archivo no declara el suyo (el aviso aparece en *Información*). Véase el apartado 7.1.
+
+##### Exportar puntos
+
+Saca los puntos a otro formato: LAZ (por defecto), LAS, texto con las columnas que se elijan o shapefile 3D, con filtro por clases, uno de cada *n* puntos y, si se marca *Normalizar*, alturas sobre el suelo. Véase el apartado 7.1, *Exportar puntos*. El panel *Edición* tiene otro *Exportar puntos…* que exporta solo la selección.
+
+##### Recortar con polígonos
+
+Recorta las nubes con una capa de polígonos: una nube por polígono, o una sola ajustada al perímetro de todos, con búfer opcional. Véase el apartado 9, *Recortar con polígonos*.
+
+##### Adelgazar nube
+
+Reduce la densidad sin cambiar la extensión, para igualar nubes de coberturas distintas o aligerar las demasiado densas. Véase el apartado 7.1.
+
+##### Alturas sobre suelo
+
+Calcula la altura de cada punto sobre el suelo. Véase el apartado 6.3.
+
+##### Quitar duplicados
+
+Elimina los puntos repetidos y escribe una nube nueva. Véase el apartado 6.4.
+
+##### Colorear con imagen
+
+Da a cada punto el color del píxel de una imagen del mismo sitio, normalmente una ortofoto. Véase el apartado 7.1.
+
+##### Normalizar intensidad
+
+Corrige la intensidad por la distancia al escáner (Höfle y Pfeifer, 2007), de manera que la misma superficie tenga el mismo valor en el borde de una pasada que en el centro. Véase el apartado 7.1.
+
+##### Imagen de intensidad
+
+Genera, por cada nube, un GeoTIFF en tonos de gris con la intensidad media por celda, útil como fondo para digitalizar. Véase el apartado 7.1.
+
+#### LiDAR → Calidad
+
+##### Comparar nubes
+
+Escribe los puntos de una nube que están a más de una distancia de todos los de otra de referencia, y da la distancia media, el RMS y la compleción. Detecta cortas, cambios de obra o crecimiento entre dos vuelos. Véase el apartado 7.1.
+
+##### Ajustar nubes
+
+Mueve una nube para que encaje con otra de referencia mediante el punto más cercano iterativo (ICP), solo desplazando o desplazando y girando. Resuelve vuelos del mismo sitio con un desfase sistemático. Véase el apartado 7.1.
+
+##### Entre pasadas
+
+Produce un ráster con la diferencia de altura entre pasadas de vuelo y el porcentaje de celdas por encima de 8 y 16 cm. Es un control de calidad que debe hacerse antes de modelar. Véase el apartado 7.1.
+
+##### Líneas de vuelo
+
+Encuentra las líneas de vuelo de una nube aérea a partir de los huecos del tiempo GPS, y escribe una tabla y los contornos de cada una. Véase el apartado 7.1.
+
+##### Densidad de Voronoi
+
+Densidad de puntos por celda de Voronoi en lugar de por cuadrícula. Véase el apartado 7.1.
+
+#### LiDAR → Superficies
+
+##### MDT
+
+Botón grande. Calcula el modelo digital del terreno a partir de los puntos de suelo, por promedio de las celdas, TIN o ponderación por el inverso de la distancia. Véase el apartado 7.2.
+
+##### MDS / CHM
+
+Botón grande. Calcula el modelo digital de superficie y el modelo de alturas de la vegetación (el CHM, la altura de lo más alto sobre el terreno en cada celda, tanto de árboles como de arbustos o cultivos), con el método del punto más alto o la pila de TIN sin picos. Véase el apartado 7.2.
+
+##### Cambio de la cubierta vegetal
+
+Botón grande. Compara los CHM de dos fechas y mide la pérdida y la ganancia de altura y de cubierta vegetal. Véase el apartado 7.3.
+
+#### LiDAR → ALS
+
+##### Extraer muestras
+
+Botón grande. Corta las nubes por unidades de muestreo (generadas, dibujadas o de un archivo) y calcula sus métricas. Véase el apartado 7.3.
+
+##### Métricas por celda
+
+Botón grande. Métricas de altura y densidad de la vegetación por celda. Véase el apartado 7.3.
+
+##### Modelos lineales
+
+Botón grande. Relaciona una variable medida en campo (volumen, biomasa, área basimétrica…) con las métricas LiDAR de las mismas unidades de muestreo, para estimarla en toda la superficie, y valida el modelo por validación cruzada. Véase el apartado 7.3.
+
+##### Segmentar individuos
+
+Detecta los individuos y sus copas en un modelo de alturas. Véase el apartado 7.3.
+
+##### Análisis por objetos
+
+Agrupa el modelo de alturas en objetos y los clasifica (OBIA). Véase el apartado 7.3.
+
+#### LiDAR → TLS
+
+##### Medición de troncos
+
+Botón grande. Mide los troncos en nubes de escáner terrestre, móvil o fotogramétrico, estima su volumen y clasifica troncos y ramas. Véase el apartado 7.3.
+
+#### LiDAR → Infraestructuras
+
+##### Corredores eléctricos
+
+Botón grande. Mide el peligro de la vegetación bajo una línea eléctrica cuyos cables y postes ya están clasificados. Véase el apartado 7.3.
+
+### 4.6 Pestaña Vectorial
+
+La pestaña *Vectorial* reúne lo que opera sobre capas de puntos, líneas y polígonos (shapefile, GeoPackage, GeoJSON y KML). Solo los botones imprescindibles son grandes. La edición de elementos (dibujar, mover vértices, seleccionar, copiar) no está en la cinta, porque depende de la capa elegida: está en el panel lateral *Edición* (apartado 4.9). Todas las herramientas de los grupos *Geometría*, *Geoprocesos* y *Capas y tablas* abren su ventana, trabajan sobre capas ya cargadas o sobre archivos, y escriben una capa nueva sin modificar las originales.
+
+#### Vectorial → Capa
+
+##### Nueva capa
+
+Botón grande. Crea una capa vacía de puntos, líneas o polígonos, con los campos y los tipos que se le den (texto, entero, decimal, sí/no, fecha o hipervínculo). Se rellena después con *Digitalizar* en el panel *Edición*. Véase el apartado 9, *Tipos de campo*.
+
+##### Tabla de atributos
+
+Botón grande. Abre la tabla de la capa vectorial elegida. Sus celdas se editan con una comprobación del tipo de cada campo, y desde ella se seleccionan filas (*Seleccionar todo*, *Invertir*, *Limpiar* y *Seleccionar por atributo*), se hace *Zoom a la selección*, se *Elimina*, se *Añade campo* y se *Guarda*; la casilla *Solo seleccionados* limita la vista a la selección. Véase el apartado 9.
+
+#### Vectorial → Geometría
+
+##### Comprobar validez
+
+Busca polígonos con anillos sin cerrar, autointersecciones y otros defectos que hacen fallar las operaciones posteriores, y lista dónde están. Véase el apartado 9, *Geoprocesos con polígonos*.
+
+##### Reparar geometrías
+
+Repara los polígonos no válidos y escribe una capa nueva, conservando los atributos. Véase el apartado 9.
+
+#### Vectorial → Geoprocesos
+
+##### Estadística zonal
+
+Para cada polígono resume las celdas de un ráster cuyo centro cae dentro de él (recuento, mínimo, máximo, media, suma, desviación típica y mediana), como el CHM medio de cada rodal. Véase el apartado 9, *Estadística zonal*.
+
+##### Búfer
+
+Amplía cada elemento la distancia indicada (negativa, lo reduce), también sobre puntos y líneas. Véase el apartado 9.
+
+##### Disolver
+
+Une los polígonos que comparten el valor de un campo, o todos, en uno solo. Véase el apartado 9.
+
+##### Unión
+
+Superpone dos capas y da las piezas que están en las dos y las que están solo en una. Véase el apartado 9.
+
+##### Intersección
+
+Se queda solo con las piezas que están en las dos capas, con los atributos de ambas. Véase el apartado 9.
+
+##### Diferencia
+
+A la primera capa le quita lo que cubre la segunda. Véase el apartado 9.
+
+##### Diferencia simétrica
+
+Se queda con lo que está solo en una de las dos capas. Véase el apartado 9.
+
+##### Centroides
+
+Una capa de puntos con el centroide de cada elemento. Véase el apartado 9.
+
+##### Puntos en superficie
+
+Una capa de puntos con un punto que cae siempre dentro de cada polígono, a diferencia del centroide, que puede caer fuera en formas cóncavas. Véase el apartado 9.
+
+##### Unir por localización
+
+Copia a cada elemento de la primera capa los atributos del elemento de la segunda con el que se relaciona espacialmente. Véase el apartado 9.
+
+##### Voronoi
+
+Un polígono de Voronoi por cada punto de una capa (la zona más cercana a él), con los atributos del punto. Sirve para repartir el territorio entre estaciones o medir el área que le toca a cada árbol. Véase el apartado 9.
+
+#### Vectorial → Capas y tablas
+
+##### Extraer valores
+
+Añade a una capa un campo por banda de uno o varios rásteres, con el valor bajo cada elemento (el CHM en cada parcela o árbol). Véase el apartado 9, *Capas y tablas*.
+
+##### Unir tabla
+
+Une a una capa las columnas de una tabla (csv, texto o Excel) por un campo clave, como el inventario de campo a las parcelas. Véase el apartado 9.
+
+##### Combinar capas
+
+Junta varias capas del mismo tipo de geometría en una; los campos son la unión de los de todas. Véase el apartado 9.
+
+##### Dividir por campo
+
+Escribe una capa por cada valor distinto de un campo (un archivo por rodal, por especie…). Véase el apartado 9.
+
+##### Recortar capa
+
+Recorta una capa de puntos, líneas o polígonos con los polígonos de otra, o borra de ella lo que cubren. Véase el apartado 9.
+
+##### Cercanía
+
+Añade a cada elemento la distancia al elemento más cercano de otra capa, su número de orden y, si se pide, uno de sus campos. Véase el apartado 9.
+
+##### Resumen estadístico
+
+Recuento, suma, media, mínimo, máximo y desviación de campos numéricos de una capa o tabla, por grupos de un campo. Véase el apartado 9.
+
+### 4.7 Pestaña Raster
+
+La pestaña *Raster* tiene tres grupos. *Imagen* trabaja con bandas, *Geoprocesos* con los valores y la geometría de los rásteres, y *Análisis del terreno* con los modelos de elevación. Los botones grandes de cada grupo son los más comunes, y el resto va en botones pequeños o en menús. Todas las operaciones aceptan rásteres en otros sistemas de coordenadas y los pasan al de destino (apartado 4.10).
+
+#### Raster → Imagen
+
+##### Composición de bandas
+
+Botón grande. Elige qué bandas de una imagen multibanda se muestran como rojo, verde y azul (color natural, falso color infrarrojo y otras), con estirado del contraste, brillo y gamma. Véase el apartado 8.
+
+##### Índices espectrales
+
+Botón grande. Calcula índices como NDVI, GNDVI, NDWI, EVI, SAVI, NDMI, NBR, VARI o ExG a partir de las bandas, o una expresión propia, y los guarda como GeoTIFF. Véase el apartado 8.
+
+##### Mosaico
+
+Botón grande. Une varios rásteres en uno, eligiendo qué hacer donde se solapan (primero, último, media, mínimo, máximo, mediana, suma o número de capas). Véase el apartado 8.
+
+##### Crear multibanda
+
+Une varias imágenes de una banda en una sola multibanda, en el orden de la lista. Véase el apartado 8.
+
+##### Igualar rásteres
+
+Reproyecta, recorta a la extensión y remuestrea varios rásteres sobre las celdas de uno de referencia, de modo que coincidan celda a celda y se puedan apilar. Véase el apartado 8.
+
+#### Raster → Geoprocesos
+
+##### Reproyectar
+
+Botón grande. Pasa nubes y rásteres a otro sistema de coordenadas y, si se pide, cambia también la referencia vertical de las alturas. Véase el apartado 8.
+
+##### Calculadora
+
+Botón grande. Calcula una expresión celda a celda con varios rásteres (`A`, `B`, `C`… o las bandas `B1`…`Bn`). Véase el apartado 8, *Calculadora ráster*.
+
+##### Cortar por máscara
+
+Botón grande. Vacía lo que queda fuera de una capa de polígonos o de otro ráster y, si se quiere, corta el ráster a su caja. Véase el apartado 8.
+
+##### Reclasificar
+
+Cambia los valores de un ráster con una tabla de reglas (intervalos, comparaciones o valores). Véase el apartado 8.
+
+##### Tamizar
+
+Quita los parches pequeños de un ráster de clases: toman el valor de su vecino mayor. Véase el apartado 8.
+
+##### Proximidad
+
+Calcula para cada celda la distancia a la celda más cercana de un valor dado. Véase el apartado 8.
+
+##### Rellenar huecos
+
+Rellena las celdas vacías de un ráster con las de su entorno. Véase el apartado 8.
+
+##### Vectorizar
+
+Convierte un ráster en polígonos con el valor como atributo. Véase el apartado 8.
+
+##### Rasterizar
+
+Convierte una capa vectorial en ráster: cada celda recibe el valor de un campo del último elemento que la cubre. Véase el apartado 8, *Análisis ráster*.
+
+##### Filtro focal
+
+Media, mediana, mínimo, máximo, suma, rango, desviación, mayoría o suavizado gaussiano de cada celda sobre una ventana a su alrededor. Véase el apartado 8.
+
+##### Estadísticas ráster
+
+Recuento, mínimo, máximo, media, desviación, mediana, percentiles e histograma de un ráster. Véase el apartado 8.
+
+##### Tabular áreas
+
+Área de cada clase de un ráster dentro de cada zona de otro, como tabla CSV. Véase el apartado 8.
+
+#### Raster → Análisis del terreno
+
+Cinco menús reparten los productos que se derivan de un MDT (o de cualquier ráster de alturas en metros). Todos funcionan igual: se elige el MDT (un archivo o una capa cargada) y la salida, un GeoTIFF del mismo tamaño, y las celdas sin dato siguen sin dato. Véase el apartado 7.2, *Análisis de terreno*.
+
+##### Relieve
+
+Menú con *Pendiente* (inclinación en grados o porcentaje), *Orientación* (hacia dónde mira la ladera, en grados desde el norte) y *Sombreado* (iluminación con la dirección y la altura de luz que se elijan).
+
+##### Forma del terreno
+
+Menú con *Curvatura en planta*, *Curvatura de perfil* y *Curvatura total* (positivas en cumbres y lomas, negativas en vaguadas), *Rugosidad* (diferencia entre la celda más alta y la más baja de la ventana de 3×3), *Índice de rugosidad (TRI)* (media de las diferencias con las ocho vecinas), *Posición topográfica (TPI)* (altura menos la media del círculo de radio dado) y *Crestas y drenaje* (traza las líneas de cresta o de drenaje).
+
+##### Hidrología
+
+Menú con *Profundidad de depresiones* (cuánto hay que rellenar cada depresión para que el agua salga), *Acumulación de flujo* (superficie que vierte a cada celda), *Índice de humedad (TWI)*, *Red de drenaje* (celdas por las que vierte al menos la superficie mínima indicada), *Subcuencas*, *Zonas encharcadas* (cada charco con su área, profundidad, volumen y cota de desborde) e *Inundación* (simula el agua de uno o varios niveles sobre el modelo).
+
+##### Visibilidad y rutas
+
+Menú con *Cuenca visual* (qué celdas ve un observador a una altura y con un alcance dados) y *Ruta de menor coste* (el camino más barato entre puntos por pendiente, tiempo de marcha o un ráster de costes).
+
+##### Volúmenes
+
+Menú con *Volumen sobre MDT* (volumen entre una superficie y el terreno, celda a celda), *Cubicación de pilas* (volumen de cada pila de material) y *Desmonte y terraplén* (la tierra a quitar y a añadir para llegar a una cota o a una superficie de proyecto).
+
+### 4.8 Pestaña Flujos
+
+La pestaña *Flujos* abre el constructor de flujos, un lienzo donde cada herramienta es un nodo y cada archivo que una produce y otra consume es un hilo. Sustituye el área de vistas mientras está activa, y los trabajos en marcha siguen al cambiar de pestaña. El funcionamiento del lienzo (paleta, puertos, estrellas, problemas y ejecución) está en el apartado 13, *El constructor de flujos*; aquí se explican sus botones.
+
+#### Flujos → Flujo
+
+##### Nuevo flujo
+
+Botón grande. Vacía el lienzo para empezar otro flujo.
+
+##### Abrir flujo
+
+Botón grande. Abre un archivo `.model.json` guardado.
+
+##### Guardar flujo
+
+Botón grande. Guarda el flujo en su archivo, o pide uno si aún no lo tiene.
+
+##### Ejemplos
+
+Botón grande con menú. Carga uno de los seis flujos que trae el programa: *MDT, CHM y árboles*, *MDT y derivados del terreno*, *Volumen de acopios*, *Inventario por área*, *Cambio entre dos fechas* y *Estadística por rodales*. Son el mejor punto de partida porque se ven funcionar enseguida; se explican en *Flujos de ejemplo*.
+
+##### Guardar flujo como…
+
+Guarda el flujo con otro nombre.
+
+#### Flujos → Ejecución
+
+##### Ejecutar
+
+Botón grande. Ejecuta el flujo en segundo plano. No empieza mientras la lista de problemas bajo el lienzo no esté vacía. Cada nodo muestra su estado (en curso, hecho o con error), y si un paso falla se borra todo lo que esa ejecución había escrito.
+
+##### Cancelar
+
+Botón grande. Detiene el proceso en marcha y borra lo escrito a medias.
+
+#### Flujos → Edición
+
+##### Deshacer y Rehacer
+
+Deshacen y rehacen los cambios en el lienzo (Ctrl+Z y Ctrl+Y).
+
+##### Duplicar
+
+Duplica los nodos seleccionados (Ctrl+D).
+
+##### Quitar nodos
+
+Quita los nodos seleccionados (Supr).
+
+#### Flujos → Vista
+
+##### Ordenar
+
+Botón grande. Coloca los nodos en columnas según su distancia a las entradas.
+
+##### Encuadrar
+
+Botón grande. Pone todos los nodos a la vista.
+
+### 4.9 El panel lateral
+
+El panel lateral tiene cuatro pestañas (*Contenido*, *Información*, *Edición* y *Simbología*) que se pueden usar a la vez que la cinta, de manera que *Vista* y las herramientas de edición están abiertas simultáneamente. Lo que muestran *Edición* y *Simbología* depende de la capa elegida en *Contenido*.
+
+#### Panel → Contenido
+
+*Contenido* funciona como la tabla de contenidos de un SIG y su árbol es el orden de dibujo: lo de arriba se dibuja encima.
+
+##### Buscar en el contenido
+
+Filtra el árbol por nombre.
+
+##### Abrir y Mostrar todo
+
+Los dos botones de la cabecera del panel. *Abrir* añade archivos, y *Mostrar todo* enciende todas las capas.
+
+##### El árbol
+
+El árbol tiene tres raíces: *Mapa* (su casilla muestra u oculta todo), las capas (vectoriales, rásteres e imágenes) y el grupo *Nubes de puntos*. El grupo de nubes se comporta como un elemento más y se sube o se baja entero por encima o por debajo de las capas, arrastrándolo o con el botón derecho. Los rásteres e imágenes nuevos se colocan bajo las nubes, y las capas vectoriales sobre ellas. La última fila es *Mapa base* (apartado 4.10). Cada fila tiene su flecha de despliegue (las capas con simbología por valores muestran sus clases debajo), su casilla de visibilidad, su símbolo y su nombre. Una casilla a medias en un grupo indica que solo algunos de sus elementos se ven.
+
+##### Acciones de una fila
+
+Un clic selecciona, el doble clic hace zoom a la capa y el botón derecho abre el menú. Con el ratón encima de una fila aparecen sus acciones: en una capa, *Tabla de atributos* (si es vectorial), *Zoom a la capa* y *Quitar la capa*; en una nube, *Zoom a esta tesela* y *Cerrar esta nube*; en el grupo, *Zoom a todas las nubes* y *Cerrar todas las nubes*. El menú contextual añade *Ver solo esta nube*, *Ver todas*, *Subir* y *Bajar en el orden de dibujo*, *Editar esta capa*, *Guardar* y *Guardar como…* y, en una imagen, *Bandas e índices…*.
+
+##### Selección de varias capas
+
+Con Ctrl (o Cmd) y clic se añade o se quita una capa de la selección, y con Mayús y clic se marca el rango entre la última seleccionada y la pulsada. Con dos o más aparece sobre el árbol una barra con los botones para mostrarlas, ocultarlas, hacer zoom a todas, subirlas, bajarlas y quitarlas, y el botón derecho ofrece lo mismo. La casilla de visibilidad de una capa de la selección enciende o apaga toda la selección, y arrastrar una de ellas mueve el bloque entero conservando el orden entre sí. Las nubes de puntos no entran en esta selección: se manejan una a una o con los botones del grupo.
+
+##### Propiedades al pie
+
+Las propiedades de la capa seleccionada (opacidad, colores) salen al pie del panel.
+
+#### Panel → Información
+
+Muestra el informe de los datos: puntos, extensión, densidad, clases, retornos, fechas, sistema de coordenadas y avisos, y el de los rásteres y capas cargados. Tiene dos botones.
+
+##### Analizar de nuevo
+
+Vuelve a calcular el informe, útil tras editar o añadir datos.
+
+##### Copiar todo
+
+Lleva el informe entero al portapapeles. El botón derecho sobre el texto copia lo seleccionado.
+
+#### Panel → Edición
+
+*Edición* reúne todas las ediciones y cambia con lo que esté elegido en *Contenido*: con una o varias nubes de puntos (o nada) muestra la edición de puntos, y con una capa vectorial, su edición. Con un ráster o una imagen avisa de que no tienen herramientas de edición.
+
+##### Edición de nubes de puntos
+
+El panel se divide en *Selección*, *Editar* e *Historial*. Las ediciones no tocan el archivo original: se guardan al escribir una nube nueva.
+
+La **Selección** tiene ocho herramientas, que se eligen por su icono: *Seleccionar con rectángulo*, *con polígono*, *con lazo* y *con círculo*, *Pincel redondo* y *Pincel cuadrado* (arrastrar para pintar, los puntos tocados se seleccionan, y las teclas [ y ] cambian el tamaño, en planta y en perfil), y *Seleccionar todo lo que queda sobre* o *bajo una línea del perfil*. Cuando una herramienta de selección está activa, el botón izquierdo dibuja la selección y el giro de la vista 3D pasa al botón central. *Todo* (Ctrl+A) selecciona todos los puntos, *Invertir* (Ctrl+I) invierte la selección y *Quitar* (Esc) la limpia. *Combinar selección* decide qué pasa con una selección nueva: *Nueva* sustituye a la anterior, *Añadir* (Mayús) la suma, *Restar* (Alt) la quita e *Intersecar* (Ctrl) deja solo lo común. *Rebanada en 3D ±* limita la selección en profundidad. *Aislar selección* saca los puntos seleccionados a un archivo `…_sel` y deja solo ese en pantalla, con toda su densidad. *Exportar puntos…* exporta la nube, o solo la selección, a LAZ, ASCII o shapefile. *Filtro de atributos de las selecciones* acota la selección por atributos. Debajo se indica cuántos puntos están seleccionados en pantalla y cuántos equivalen en el archivo.
+
+**Editar** tiene *Eliminar* (Supr) para quitar los puntos seleccionados, *Cambiar clase* con un selector de clase y atajos para las más frecuentes (*Suelo*, *Veg. baja*, *Veg. media*, *Veg. alta*, *Edificio*, *Ruido* y *Sin clasificar*), *Quitar duplicados* (apartado 6.4) e *Histogramas* (apartado 6.1). *Guardar nube editada…* escribe una nube nueva con las ediciones, y *Descartar todo* vuelve a la nube original. *Deshacer* (Ctrl+Z) y *Rehacer* (Ctrl+Y) recorren las ediciones, y el *Historial* lista las hechas. Todo el detalle de la edición está en el capítulo 6.
+
+##### Edición de capas vectoriales
+
+Con una capa vectorial el panel tiene cuatro grupos.
+
+*Capa* tiene *Nueva capa*, *Guardar* (con un asterisco si hay cambios sin guardar) y *Guardar como…*.
+
+*Edición* tiene tres herramientas, *Digitalizar* (dibuja elementos nuevos; sobre una capa de polígonos, un trazo además los adosa o los corta), *Vértices* (se arrastra un vértice, el doble clic sobre un lado crea uno nuevo y el botón derecho sobre un vértice lo quita) y *Mover* (se arrastran los elementos seleccionados, o el que está bajo el cursor). Dos casillas controlan el ajuste del cursor: *Ajustar a vértices* y *Ajustar a bordes* (el punto salta al borde más cercano de cualquier capa visible, aunque no haya un vértice allí). *Reformar*, con *Digitalizar* sobre polígonos, sustituye el tramo más corto del contorno por un trazo que lo cruza dos o más veces (corta una esquina o añade un saliente). *Deshacer* y *Rehacer* recorren las ediciones de la capa.
+
+*Selección* tiene *Seleccionar* (por rectángulo), *Seleccionar todo*, *Invertir selección*, *Limpiar selección*, *Seleccionar por localización* (los elementos que intersectan, están dentro de, contienen, tocan o cruzan a los de otra capa) y *Seleccionar por expresión* (una expresión sobre los campos).
+
+*Geometría y atributos* tiene *Unir seleccionados* (junta los polígonos seleccionados en uno solo, con los atributos del primero), *Separar partes* (convierte cada parte de un elemento de varias partes en un elemento propio), *Agrupar en multiparte* (junta los seleccionados en uno sin unir la geometría), *Transformar selección* (mueve, gira y escala alrededor del centro de la selección), *Copiar*, *Pegar* (en la capa activa, emparejando los campos por nombre) y *Pegar como capa*, *Comprobar topología* (polígonos que se solapan, huecos entre ellos, contornos que se cruzan y, en líneas, cabos sueltos), *Eliminar seleccionados*, *Tabla de atributos* y *Calculadora de campos* (rellena un campo con una expresión). Véase el apartado 9.
+
+#### Panel → Simbología
+
+Muestra cómo se dibuja la capa elegida en *Contenido*, con una pestaña distinta según su tipo.
+
+##### Simbología de una capa vectorial
+
+*Símbolo* elige el modo de dibujo: *Símbolo único*, *Valores únicos* (un color por valor de un campo), *Colores graduados* (clases por rampa, con *Clases* y *Cuantiles*) o *Tamaño proporcional*. *Colores* fija el color, el trazo y el relleno, la rampa y su inversión y el radio de los puntos. *Aspecto* ajusta la opacidad, el tamaño (puntos), el grosor del trazo (cero en un polígono es sin borde) y el relleno. *Etiquetas* escribe un campo sobre cada elemento, con su tamaño, su color y un *Halo*.
+
+##### Simbología de una imagen
+
+*Bandas* elige las bandas de rojo, verde y azul y abre *Índices espectrales*. *Estirado* reparte el contraste: *Sin estirar*, *Mínimo–máximo*, percentiles 2–98 %, ±2 desviaciones o cortes manuales (*Mín* y *Máx*), con *Brillo*, *Contraste*, *Gamma* y *Restablecer*. *Capa* fija la opacidad.
+
+##### Simbología de un ráster de una banda
+
+*Representación* elige el modo: *Estirar* (rampa continua), *Clasificar* (clases) o *Relieve sombreado*, con la rampa e *Invertir*. *Valores* fija el *Mín* y el *Máx* de la rampa, con *Percentiles 2–98 %* y *Mín–máx* para ajustarlos de un clic, y el número de *Clases*. *Relieve* da el *Azimut* y la *Altura* de la luz, la *Exageración* y el *Color* del sombreado. *Capa* fija la opacidad.
+
+#### La barra de estado
+
+Muestra, de izquierda a derecha, las coordenadas del cursor, el sistema de coordenadas de la vista (el de la primera nube, o «sin declarar»), cuántos puntos hay en pantalla de los del archivo (con la decimación en uso), el rango de elevación, la herramienta activa, la escala y, cuando hay un proceso en marcha, su avance y la estimación de tiempo.
+
+### 4.10 Las vistas
+
+Esta parte explica cómo se navega por el área de vistas y qué hace el programa por debajo para que la navegación sea fluida con nubes grandes. Los botones que gobiernan lo mostrado están en la pestaña *Vista* (apartado 4.4).
+
+#### Navegar en la planta
 
 | Acción | Ratón / tecla |
 |---|---|
@@ -79,29 +706,29 @@ Es el primer grupo de la pestaña porque vale para todo lo demás: reúne un bot
 
 La ampliación a la selección (*Vista → Navegación*, *Zoom a la selección*) encuadra los puntos seleccionados o, si la capa activa es vectorial, los elementos seleccionados. En la vista 3D, *Refrescar 3D* la vuelve a encuadrar en lo que se ve en la planta, algo útil cuando hay capas muy separadas entre sí. Al abrir varios archivos a la vez se cargan todas las capas juntas, y quitar una nube ya no recarga las demás.
 
-#### Detalle al acercar
+##### Detalle al acercar
 
 La vista dibuja una muestra uniforme de la nube, y esa muestra se queda corta cuando la ventana es pequeña. Por ese motivo el programa lee en segundo plano los puntos de la ventana a más detalle y los dibuja mientras cubran la vista, tanto en la planta como en la vista 3D (en 3D, el suelo que abarca la cámara alrededor de su objetivo, con la nube base dibujada fuera de esa zona). Funciona con cualquier LAS/LAZ, no solo con COPC: la primera vez que se abre una nube que ha habido que muestrear, el programa crea en segundo plano una copia COPC en la carpeta de caché del sistema (`~/Library/Caches/HIPSO/copc` en macOS), sin tocar el original; el registro avisa con «Preparando el detalle al acercar» y «Detalle al acercar listo». La copia se reconoce por la ruta, el tamaño y la fecha del original. Se lee de ella el nivel del octree cuyo espaciado es de un punto por píxel, hasta unos 3 millones de puntos, y se vuelve a leer cuando el zoom entra al menos 1,8 veces más. Solo ocurre cuando la ventana ocupa menos de la mitad del área de la nube. La caché guarda hasta 20 GB: pasado ese tope se borran las copias que llevan más tiempo sin usarse, nunca las de las nubes abiertas. La carpeta y el tope se cambian en *Inicio → Ajustes* (véase *Ajustes*, en el capítulo 4).
 
-#### Rásteres en 3D
+##### Rásteres en 3D
 
 Un MDT, un CHM o cualquier ráster de una banda (también los grandes, con su copia reducida) se dibuja en la vista 3D como una superficie, con los colores de su simbología y, si esta no trae relieve sombreado, con una luz sencilla. Se combina con una nube de puntos en la misma vista. Se dibuja en el procesador, sin depender de la tarjeta gráfica: con una malla de 4 millones de celdas tarda unos 9 ms por imagen (1400 × 900, Mac M4). La exageración vertical se cambia en *Vista → Vista 3D*.
 
-#### Abrir desde la copia
+##### Abrir desde la copia
 
 Cuando una nube ya tiene su copia COPC, el programa saca la muestra de pantalla de los primeros niveles del octree en vez de leer el archivo entero: QULTIVA Z2 (51 millones de puntos) pasa de 14 s a 0,4 s, y el TLS de 94 millones, de 4 s a 0,2 s. La primera apertura de una nube grande sigue leyéndola entera. Con nubes de más de unos 30 millones de puntos la copia se escribe en dos pasadas para gastar menos memoria (QULTIVA Z3 de 90 millones: unos 4,5 GB y 28 s), y por encima de 100 millones por celdas: el cubo de la nube se parte en las celdas de un nivel de su octree, los registros de cada celda esperan en un archivo temporal junto a la copia, y cada celda se construye y se escribe por separado, de modo que la memoria es la de una celda (una décima parte de la RAM) y no depende del tamaño de la nube. Una de las nubes de escáner terrestre de 226 millones de puntos (7,8 GB) se convierte en 5,7 minutos (casi todo es lectura del disco externo) con 1,3 GB de memoria, y da una copia de 1,9 GB que después se abre en 0,27 s y da detalle al acercar en 0,1 s. Hace falta disco libre para el archivo temporal (el registro avisa si no hay); si no hay memoria o disco suficientes, la copia no se crea y el registro lo dice.
 
-#### Rellenar huecos y relieve
+##### Rellenar huecos
 
-Las líneas de vuelo dejan puntos muy juntos a lo largo de la pasada y muy separados entre pasadas, y la imagen se ve a rayas. *Vista → Visualización → Rellenar huecos* (activado por defecto) da a cada píxel vacío el color del punto más cercano, hasta dos veces el espaciado de los puntos en pantalla (de 2 a 8 píxeles), en la planta y en el 3D. Solo rellena entre puntos que están a la misma profundidad (un hueco entre un tronco y el follaje de detrás se respeta), solo en nubes aéreas (las que traen ángulo de escaneo: en una nube de escáner terrestre, con puntos dispersos en todas direcciones, rellenar solo forma bloques) y solo cuando la vista está quieta; su coste es lineal en los píxeles (unos milisegundos). En un TLS, el control *Relieve* con una fuerza de 1 a 1,5 separa troncos y copas mucho mejor que cualquier relleno. El control *Relieve* (*eye-dome lighting*, apagado por defecto, de 0 a 3) oscurece lo que queda detrás de sus vecinos, lo que da profundidad y marca los bordes de edificios y copas. La planta pinta siempre lo más alto encima.
+Las líneas de vuelo dejan puntos muy juntos a lo largo de la pasada y muy separados entre pasadas, y la imagen se vería a rayas. Por eso el programa da a cada píxel vacío el color del punto más cercano, hasta dos veces el espaciado de los puntos en pantalla (de 2 a 8 píxeles), en la planta y en el 3D. Solo rellena entre puntos que están a la misma profundidad (un hueco entre un tronco y el follaje de detrás se respeta), solo en nubes aéreas (las que traen ángulo de escaneo: en una nube de escáner terrestre, con puntos dispersos en todas direcciones, rellenar solo forma bloques) y solo cuando la vista está quieta, y su coste es lineal en los píxeles (unos milisegundos). No tiene control en la interfaz: actúa siempre. La planta pinta siempre lo más alto encima.
 
-### 4.2.1 Mapa base
+#### Mapa base
 
-Se enciende y se apaga en el Explorador de capas, con la casilla de la última fila ('Mapa base'). Es un mapa de fondo que queda siempre bajo todas las capas, colocado en el sistema de coordenadas de la nube (por lo que la primera nube debe declararlo). Las fuentes son OpenStreetMap (mundial), la ortofoto PNOA y el mapa base del IGN (ambos de España) o bien otro servidor de teselas con una dirección del tipo `https://…/{z}/{x}/{y}.png`.
+Se enciende y se apaga en el panel *Contenido*, con la casilla de la última fila (*Mapa base*). Es un mapa de fondo que queda siempre bajo todas las capas, colocado en el sistema de coordenadas de la nube (por lo que la primera nube debe declararlo). Las fuentes son OpenStreetMap (mundial), la ortofoto PNOA y el mapa base del IGN (ambos de España) o bien otro servidor de teselas con una dirección del tipo `https://…/{z}/{x}/{y}.png`.
 
 Las teselas se descargan en segundo plano de los servidores del proveedor (con el mapa apagado no se descarga nada), con el nombre del programa en la petición y como mucho dos descargas a la vez. Se guardan una semana en la carpeta de caché del sistema (en macOS, `~/Library/Caches/HIPSO/tiles`), por lo que se reutilizan sin conexión; *Inicio → Ajustes → Borrar caché* las elimina. El crédito del proveedor se dibuja en la esquina del mapa. Conviene respetar los términos de cada proveedor, y en particular OpenStreetMap no admite descargas masivas.
 
-### 4.2.2 Capas en otros sistemas de coordenadas
+#### Capas en otros sistemas de coordenadas
 
 Al cargar, el visor pasa al sistema de la primera nube todo lo que esté en otro, y lo hace de tres maneras según el tipo de dato. Las demás nubes se convierten (se guarda una copia `<nombre>_epsg<código>.laz` junto a la original, que la próxima vez se carga sin convertir). Los rásteres y las capas vectoriales se transforman en memoria. Las imágenes de varias bandas se colocan convertidas, a la resolución de su vista previa.
 
@@ -109,7 +736,7 @@ Solo cuando hay capas en sistemas distintos, el registro avisa antes de la carga
 
 El coste está medido con hojas reales de 8 y 9 millones de puntos. Cargar las dos juntas en el mismo sistema tarda 1,1 s. Si una está en otro huso o en ED50, la primera vez tarda 2,1 s (unos 1,0 s más por cada 8 millones de puntos convertidos) y las siguientes 1,1 s, porque la copia convertida ya existe.
 
-### 4.3 Navegar en 3D
+#### Navegar en 3D
 
 | Acción | Ratón / tecla |
 |---|---|
@@ -124,21 +751,7 @@ El coste está medido con hojas reales de 8 y 9 millones de puntos. Cargar las d
 
 El acercamiento llega hasta 2 cm del centro de giro, lo suficiente para ver un tronco o una rama punto a punto. Con una herramienta de selección activa el botón izquierdo deja de girar, porque dibuja la selección (véase el capítulo 6), y el giro pasa al botón central; el derecho sigue moviendo y la rueda sigue acercando.
 
-### 4.4 Colorear los puntos
-
-#### Vista → Visualización → Color
-
-Permite elegir entre elevación (dos rampas), clasificación, intensidad, número de retorno, ID de fuente, archivo, RGB o ID de árbol. El ID de árbol pinta cada copa de un color distinto a partir del atributo `treeID`, que escribe *Segmentar individuos* cuando se marca la nube con `treeID` por punto, y solo está disponible si la nube lo trae. Los puntos sin árbol (`treeID` 0) quedan en gris. Junto al menú están *Rango Z* y *Filtros*: el primero fija el rango de elevación, y los segundos filtran retornos y eligen las clases visibles. Los puntos se ocultan o se muestran con la casilla de *Nubes de puntos* del panel *Contenido*, y en la planta se ocultan solos mientras el TIN o las curvas de nivel están activos.
-
-#### Vista → Perfil
-
-Tiene el *Ancho* de la caja, la *Cuadrícula* de cotas, el *Tamaño* de sus puntos y *Sin decimar*. Los tamaños de punto de 2D/3D (en *Visualización*) y del perfil son independientes: las teclas + y − cambian el del perfil si el cursor está sobre él, y el de la planta y el 3D en cualquier otro caso. La longitud del perfil se ve en el propio perfil.
-
-#### Vista → Herramientas
-
-Agrupa, en botones pequeños, *Densidad*, *Perfil*, *Medir*, *TIN* y *Curvas de nivel* (*Consultar* está en *Navegación*); el engranaje junto a *TIN* abre la equidistancia y las clases del TIN.
-
-### Ajustes
+### 4.11 Ajustes
 
 *Inicio → Ajustes* reúne lo que el programa guarda en el disco para ir más deprisa. Hoy es la **caché**: las copias COPC con el detalle de las nubes grandes (la primera apertura las crea en segundo plano y las siguientes las encuentran) y las teselas descargadas del mapa base. La página muestra la *carpeta de la caché* (que se escribe, se elige con *Elegir carpeta…* o se devuelve a la de siempre con *Por defecto*), el *tamaño máximo de las copias* en gigabytes (20 GB por defecto; al superarlo se borran las copias que más tiempo llevan sin usarse, y las de las nubes abiertas se respetan) y lo que ocupan ahora las copias y las teselas.
 
@@ -168,11 +781,11 @@ Dibujan el relieve de la nube cargada.
 
 Se crea con tres clics (extremo izquierdo, extremo derecho y borde de la caja).
 
-Desde la 0.7.5, los ráster visibles (MDT, MDS…) se dibujan como una línea sobre el perfil, muestreados a lo largo del eje de la caja, con su nombre en la esquina inferior derecha y el eje vertical ampliado para abarcarlos. Si mezclas alturas absolutas con una nube o un ráster normalizado, la escala sale desproporcionada: no son comparables. La casilla *Cuadrícula* del grupo *Perfil* (*Vista → Ventanas*) dibuja líneas horizontales con las cotas en el lado izquierdo; se puede quitar.
+Desde la 0.7.5, los ráster visibles (MDT, MDS…) se dibujan como una línea sobre el perfil, muestreados a lo largo del eje de la caja, con su nombre en la esquina inferior derecha y el eje vertical ampliado para abarcarlos. Si mezclas alturas absolutas con una nube o un ráster normalizado, la escala sale desproporcionada: no son comparables. La casilla *Cuadrícula* del grupo *Perfil* (*Vista → Perfil*) dibuja líneas horizontales con las cotas en el lado izquierdo; se puede quitar.
 
 El perfil merece una explicación más detenida, porque no se comporta como el resto de la vista. Las flechas lo desplazan a lo largo de la nube y su ancho se ajusta en *Vista → Perfil*. Lo decisivo es que **no usa los puntos decimados de la planta y el 3D**: lee de los archivos, en segundo plano, **todos** los de la franja de su caja (y un margen lateral de tres anchos, para poder moverla sin releer; el margen se encoge en nubes muy densas, hasta cero, antes de renunciar a un solo punto). El tope de memoria es un octavo de la RAM del equipo (unos 89 millones de puntos en uno de 16 GB); solo si la caja por sí sola lo supera se dibuja 1 de cada 2, 4… y el registro lo dice. En el TLS, una caja de 300 × 10 m tiene 9,2 millones de puntos y se lee entera en 0,7 s. Mientras llegan se dibuja con los de pantalla, y arriba a la derecha se indica cuántos puntos hay ('leyendo todos…' mientras tanto). La caja del perfil se marca en rojo sobre la planta, pero solo mientras la ventana del perfil está a la vista (diseños *2D + perfil* y *2D + perfil + 3D*): en cualquier otro diseño la marca desaparece, y reaparece al volver a uno que lo incluya.
 
-El tiempo de esa lectura depende del formato. Con la copia COPC en caché (o en una nube COPC) solo se leen y descomprimen los nodos que tocan la zona, con todos los núcleos; sin ella, en un LAS/LAZ normal hay que recorrer el archivo (unos segundos en nubes grandes), saltando los archivos que no tocan la zona. El tamaño de los puntos del perfil es propio (2 px por defecto, en *Vista → Ventanas*) y no depende del de la planta y el 3D. La casilla *Todos los puntos* de *Vista → Ventanas* desactiva esta lectura completa.
+El tiempo de esa lectura depende del formato. Con la copia COPC en caché (o en una nube COPC) solo se leen y descomprimen los nodos que tocan la zona, con todos los núcleos; sin ella, en un LAS/LAZ normal hay que recorrer el archivo (unos segundos en nubes grandes), saltando los archivos que no tocan la zona. El tamaño de los puntos del perfil es propio (2 px por defecto, con los botones − y + de *Vista → Perfil*) y no depende del de la planta y el 3D. La casilla *Sin decimar* de *Vista → Perfil* controla esta lectura completa: desmarcada, el perfil usa los puntos de la pantalla.
 
 ## 6. Edición de nubes de puntos
 
@@ -221,7 +834,7 @@ Buscar los valores raros a ojo es poco reproducible, por lo que la ventana ofrec
 
 HIPSO usa la tabla vigente de ASPRS (LAS 1.4): 0 nunca clasificado, 1 sin clasificar, 2 suelo, 3 a 5 vegetación baja, media y alta, 6 edificio, 7 punto bajo (ruido), 9 agua, 10 ferrocarril, 11 carretera, 13 y 14 cables, 15 torre, 16 conector, 17 tablero de puente, 18 ruido alto, 19 estructura elevada, 20 suelo ignorado, 21 nieve y 22 exclusión temporal. Los códigos 23 a 63 están reservados, y 64 a 255 son libres para el usuario.
 
-Para añadir una clase se abre *Vista → Clases y colores*, se escribe el código y el nombre, y se pulsa *Añadir*; el color se cambia con el selector. Las clases propias se guardan para la próxima vez. Un detalle de formato condiciona su uso: los LAS anteriores a la versión 1.4 solo guardan clases hasta la 31, y por eso, si se guarda una edición con una clase mayor, el archivo se escribe como LAS 1.4 automáticamente.
+Para añadir una clase se abre *Vista → Visualización → Filtros → Clases y colores…*, se escribe el código y el nombre, y se pulsa *Añadir*; el color se cambia con el selector. Las clases propias se guardan para la próxima vez. Un detalle de formato condiciona su uso: los LAS anteriores a la versión 1.4 solo guardan clases hasta la 31, y por eso, si se guarda una edición con una clase mayor, el archivo se escribe como LAS 1.4 automáticamente.
 
 ### 6.3 Alturas sobre el suelo
 
@@ -790,7 +1403,7 @@ El volumen neto indica si la obra necesita aportar tierra (positivo) o retirarla
 
 ### 7.3 Inventario de la vegetación
 
-El inventario de la vegetación se divide según el tipo de nube, porque lo que se puede medir depende de cómo se haya captado. Con una nube aérea (ALS) se trabaja a escala de unidad de gestión y de individuo; con una nube de escáner terrestre (TLS), tronco a tronco. De ahí que la pestaña *LiDAR* tenga dos grupos separados: ALS, con el botón desplegable *Métodos de masa* (*Métricas por celda*, *Extraer muestras* y *Modelos lineales*) y los botones *Segmentar individuos*, *Cambio de la cubierta vegetal* y *Análisis por objetos*; y TLS, con el botón *Medición de troncos*. Las herramientas ALS convierten la nube en variables que un gestor del territorio reconoce (alturas, coberturas, volúmenes, árboles) y se ordenan de lo más agregado a lo más detallado: primero las métricas por celda, que sirven para modelar a escala de unidad de gestión, y después las que detectan y siguen árboles individuales.
+El inventario de la vegetación se divide según el tipo de nube, porque lo que se puede medir depende de cómo se haya captado. Con una nube aérea (ALS) se trabaja a escala de unidad de gestión y de individuo; con una nube de escáner terrestre (TLS), tronco a tronco. De ahí que la pestaña *LiDAR* tenga dos grupos separados: ALS, con los botones *Extraer muestras*, *Métricas por celda* y *Modelos lineales* (los tres de escala de unidad de gestión) y *Segmentar individuos* y *Análisis por objetos* (de escala de individuo), y *Cambio de la cubierta vegetal* en el grupo *Superficies*; y TLS, con el botón *Medición de troncos*. Las herramientas ALS convierten la nube en variables que un gestor del territorio reconoce (alturas, coberturas, volúmenes, árboles) y se ordenan de lo más agregado a lo más detallado: primero las métricas por celda, que sirven para modelar a escala de unidad de gestión, y después las que detectan y siguen árboles individuales.
 
 #### Métricas por celda
 
@@ -1149,7 +1762,7 @@ Sirve para pasar a polígonos una clasificación, una máscara de agua o el resu
 
 El tratamiento vectorial cubre lo necesario para acompañar a la nube: abrir capas, crearlas, editarlas y simbolizarlas.
 
-Las capas se abren en Archivo → Abrir, y admiten imágenes y rásteres (GeoTIFF, JPEG 2000, PNG y JPEG con archivo de coordenadas, ENVI, SRTM), shapefiles, GeoJSON, GeoPackage y KML/KMZ; también se pueden arrastrar a la ventana. Una capa nueva puede ser de puntos, líneas o polígonos, con los campos de su tabla y el **tipo de cada uno** (véase *Tipos de campo*): se digitaliza en la capa activa (con ajuste a vértices), se edita su tabla de atributos y se guarda como shapefile, GeoJSON o GeoPackage (según la extensión que se elija) con la proyección de la nube. La simbología puede ser de color único, por categorías (cada valor tiene su botón de color, que se cambia uno a uno) o por rampa, con clasificación y etiquetas, y la edición vectorial incluye seleccionar, mover, editar vértices, deshacer y rehacer. Las capas de polígonos visibles alimentan la herramienta de unidades de muestreo.
+Las capas se abren con *Abrir* de la cabecera (o *Archivo → Añadir nubes y capas*), y admiten imágenes y rásteres (GeoTIFF, JPEG 2000, PNG y JPEG con archivo de coordenadas, ENVI, SRTM), shapefiles, GeoJSON, GeoPackage y KML/KMZ; también se pueden arrastrar a la ventana. Una capa nueva puede ser de puntos, líneas o polígonos, con los campos de su tabla y el **tipo de cada uno** (véase *Tipos de campo*): se digitaliza en la capa activa (con ajuste a vértices), se edita su tabla de atributos y se guarda como shapefile, GeoJSON o GeoPackage (según la extensión que se elija) con la proyección de la nube. La simbología puede ser de color único, por categorías (cada valor tiene su botón de color, que se cambia uno a uno) o por rampa, con clasificación y etiquetas, y la edición vectorial incluye seleccionar, mover, editar vértices, deshacer y rehacer. Las capas de polígonos visibles alimentan la herramienta de unidades de muestreo.
 
 ### Estadística zonal
 
@@ -1297,7 +1910,7 @@ Los límites son los siguientes. *Igualar rásteres*, *Reproyectar*, *Apilar*, *
 
 El rendimiento de HIPSO descansa en una decisión de diseño, que consiste en no cargar nunca la nube entera, y todo lo que sigue es una consecuencia de ella.
 
-Las nubes grandes no se cargan enteras: la vista dibuja una muestra (*Puntos en pantalla*) y los procesos leen en flujo. Un LAZ que necesita varias pasadas se descomprime una vez a un archivo temporal que se borra al terminar, y por eso hay que dejar espacio libre en el disco temporal (la nube sin comprimir). El tamaño de tesela y el búfer se ajustan en *Teselas y rendimiento*, y la memoria es aproximadamente (núcleos × tesela). Con teselas de 250 m y 30 m de búfer, un equipo de 16 GB trabaja sin problema con nubes de cualquier tamaño.
+Las nubes grandes no se cargan enteras: la vista dibuja una muestra (*Máx.* en *Vista → Visualización*) y los procesos leen en flujo. Un LAZ que necesita varias pasadas se descomprime una vez a un archivo temporal que se borra al terminar, y por eso hay que dejar espacio libre en el disco temporal (la nube sin comprimir). El tamaño de tesela y el búfer se ajustan en *Teselas y rendimiento*, y la memoria es aproximadamente (núcleos × tesela). Con teselas de 250 m y 30 m de búfer, un equipo de 16 GB trabaja sin problema con nubes de cualquier tamaño.
 
 ### Tamaño máximo de un ráster
 
@@ -1466,7 +2079,7 @@ Los problemas más frecuentes tienen causas identificables, y cada uno se descri
 
 Si el volumen de las copas sale absurdo (cientos de miles de m³) o las alturas son enormes, se ha usado como superficie el ráster de copas, que guarda números de árbol, en vez del CHM. En *Volumen sobre MDT* hay que elegir el CHM (el programa ya no confunde ambos al buscarlos solo). Si un MDT o un CHM antiguo es un rectángulo con valores inventados fuera de la nube, se calculó con una versión anterior; los rásteres nuevos siguen el contorno de la nube, y basta regenerarlos. El mensaje 'No hay MDT de esta nube' se resuelve generando antes el MDT con la herramienta MDT.
 
-Si el informe de *Medición de troncos* avisa de muchos árboles `TRUNCADO`, el tronco se perdió antes de llegar al diámetro en punta, casi siempre por el hueco máximo sin medir (véase el capítulo 7.3, donde se explica cómo subirlo y cómo estimar la altura libre de ramas). Si la nube no se ve completa, se sube *Puntos en pantalla* en *Vista → Ventanas* (grupo *Carga de puntos*) y se pulsa *Aplicar*. Si los diámetros de los árboles salen vacíos, hay que comprobar que la nube tenga suelo (o marcar que ya está normalizada) y que la franja de búsqueda esté dentro de la altura de los troncos. Si el mosaico de imágenes dice que los sistemas son distintos, se pasan los rásteres al mismo sistema con `hipso reproject` antes de unirlos. Un resultado a medias tras detener un proceso se borra solo, y si queda algún archivo, se borra a mano.
+Si el informe de *Medición de troncos* avisa de muchos árboles `TRUNCADO`, el tronco se perdió antes de llegar al diámetro en punta, casi siempre por el hueco máximo sin medir (véase el capítulo 7.3, donde se explica cómo subirlo y cómo estimar la altura libre de ramas). Si la nube no se ve completa, se sube *Máx.* en *Vista → Visualización* y se pulsa Intro. Si los diámetros de los árboles salen vacíos, hay que comprobar que la nube tenga suelo (o marcar que ya está normalizada) y que la franja de búsqueda esté dentro de la altura de los troncos. Si el mosaico de imágenes dice que los sistemas son distintos, se pasan los rásteres al mismo sistema con `hipso reproject` antes de unirlos. Un resultado a medias tras detener un proceso se borra solo, y si queda algún archivo, se borra a mano.
 
 Cuando la interfaz va lenta o a saltos, lo primero es saber qué usa para dibujar. Con una tarjeta gráfica moderna usa wgpu (DirectX 12, Vulkan o Metal). Con un controlador antiguo (por ejemplo una Intel HD de 2015, que no llega a DirectX 12), wgpu solo ofrece un adaptador por programa, que dibuja con el procesador y va muy lento, y el programa elige entonces OpenGL. Para ver lo que detecta se ejecuta `hipso-gui --gpu-info`. Para medir los fotogramas por segundo con una nube, `hipso-gui nube.laz --bench` (cuenta 8 s y sale). Para forzar uno, se usa la variable de entorno `HIPSO_RENDERER` con `glow` (OpenGL) o `wgpu`.
 
