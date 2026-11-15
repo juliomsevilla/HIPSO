@@ -1,10 +1,10 @@
-//! The datum shift grids and geoid models Spain needs, built into the program so that the
-//! transformations are exact without a download or an installation.
+//! Las rejillas de ajuste de datum y los modelos de geoide que necesita España, incorporados al
+//! programa para que las transformaciones sean exactas sin descarga ni instalación.
 //!
-//! - `es_ign_SPED2ETV2`: ED50 to ETRS89, mainland and Balearic Islands (IGN, CC-BY 4.0).
-//! - `es_cat_icgc_100800401`: ED50 to ETRS89, Catalonia (ICGC, CC-BY 4.0).
-//! - `es_ign_egm08-rednap` and `es_ign_egm08-rednap-canarias`: EGM08-REDNAP geoid, to turn
-//!   orthometric heights into ellipsoidal ones and back (IGN, CC-BY 4.0).
+//! - `es_ign_SPED2ETV2`: ED50 a ETRS89, península y Baleares (IGN, CC-BY 4.0).
+//! - `es_cat_icgc_100800401`: ED50 a ETRS89, Cataluña (ICGC, CC-BY 4.0).
+//! - `es_ign_egm08-rednap` y `es_ign_egm08-rednap-canarias`: geoide EGM08-REDNAP, para convertir
+//!   alturas ortométricas en elipsoidales y a la inversa (IGN, CC-BY 4.0).
 
 use std::sync::Once;
 
@@ -27,8 +27,8 @@ const GRIDS: &[(&str, &[u8])] = &[
     ),
 ];
 
-/// Registers the built-in grids. Called by [`crate::Transformer`] constructors through
-/// [`init`]; cheap after the first time.
+/// Registra las rejillas incorporadas. Lo llaman los constructores de [`crate::Transformer`] a
+/// través de [`init`]; es barato a partir de la primera vez.
 pub fn init() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {

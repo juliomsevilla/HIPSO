@@ -1,7 +1,8 @@
-//! Individual trees from a canopy height model, on the raster, never on the points:
-//! smoothing, tree tops by a local-maximum filter (Popescu & Wynne 2004), and crowns by
-//! Dalponte & Coomes (2016), Silva et al. (2016) or a watershed. Results were checked against an independent
-//! implementation (window edges, tie rules, id order).
+//! Árboles individuales a partir de un modelo de altura de copas, sobre el ráster, nunca sobre los
+//! puntos: suavizado, cimas de árboles por un filtro de máximo local (Popescu y Wynne 2004) y copas
+//! por Dalponte y Coomes (2016), Silva et al. (2016) o una cuenca. Los resultados se comprobaron
+//! contra una implementación independiente (bordes de ventana, reglas de empate, orden de
+//! identificadores).
 
 use crate::grid::Grid;
 
@@ -13,9 +14,9 @@ pub enum Shape {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TopParams {
-    /// Lowest tree top (inclusive).
+    /// Cima de árbol más baja (incluida).
     pub hmin: f64,
-    /// Window diameter = a + b h + c h² (map units); `b = c = 0` gives a fixed window.
+    /// Diámetro de ventana = a + b h + c h² (unidades del mapa); `b = c = 0` da una ventana fija.
     pub a: f64,
     pub b: f64,
     pub c: f64,
@@ -46,19 +47,19 @@ pub struct CrownParams {
     pub method: Segmenter,
     /// Lowest crown pixel (Dalponte, watershed).
     pub th_tree: f64,
-    /// Dalponte: a pixel joins when higher than this share of its tree top...
+    /// Dalponte: un píxel se une cuando es más alto que esta proporción de la cima de su árbol...
     pub th_seed: f64,
-    /// ...and of the crown's current mean height.
+    /// ...y de la altura media actual de la copa.
     pub th_cr: f64,
-    /// Dalponte: crown reach in PIXELS (Chebyshev distance below this).
+    /// Dalponte: alcance de la copa en PÍXELES (distancia de Chebyshev por debajo de esto).
     pub max_cr: f64,
-    /// Silva: crown radius as a share of the tree's height (map units).
+    /// Silva: radio de la copa como proporción de la altura del árbol (unidades del mapa).
     pub max_cr_factor: f64,
-    /// Silva: pixels lower than this share of the tree's height are dropped.
+    /// Silva: los píxeles más bajos que esta proporción de la altura del árbol se descartan.
     pub exclusion: f64,
-    /// Watershed: minimum height difference between two crowns.
+    /// Cuenca: diferencia mínima de altura entre dos copas.
     pub tolerance: f64,
-    /// Watershed: radius in pixels in which a peak must be the highest.
+    /// Cuenca: radio en píxeles en el que un pico debe ser el más alto.
     pub ext: usize,
 }
 
@@ -78,19 +79,19 @@ impl Default for CrownParams {
     }
 }
 
-/// One tree.
+/// Un árbol.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tree {
     pub id: u32,
     pub x: f64,
     pub y: f64,
     pub height: f32,
-    /// Crown area (map units²), once crowns are grown.
+    /// Área de la copa (unidades del mapa²), una vez crecidas las copas.
     pub area: f64,
 }
 
-/// Smooths a CHM with a mean, median or Gaussian filter over a window of `size` map units
-/// (diameter); empty cells stay empty and are ignored by their neighbours.
+/// Suaviza un CHM con un filtro de media, mediana o gaussiano sobre una ventana de `size` unidades
+/// del mapa (diámetro); las celdas vacías siguen vacías y sus vecinas las ignoran.
 pub fn smooth(chm: &Grid, size: f64, method: Smoothing, shape: Shape) -> Grid {
     let r = size / 2.0;
     let rr = (r / chm.cell + 1e-9).floor() as isize;
@@ -151,9 +152,10 @@ pub enum Smoothing {
     Gaussian,
 }
 
-/// Tree tops: cells at least `hmin` high and highest within the window their own height gives
-/// (edge inclusive); equal cells: the first in reading order wins, and only a tie with an
-/// already chosen top rules a cell out (a long equal ridge gives a top every window). Ids follow reading order.
+/// Cimas de árboles: celdas de al menos `hmin` de alto y la más alta dentro de la ventana que da su
+/// propia altura (borde incluido); celdas iguales: gana la primera en orden de lectura, y solo un
+/// empate con una cima ya elegida deja fuera una celda (una cresta igual larga da una cima por
+/// ventana). Los identificadores siguen el orden de lectura.
 pub fn tops(chm: &Grid, p: &TopParams) -> Vec<Tree> {
     let (cols, rows) = (chm.cols as isize, chm.rows as isize);
     let mut out = Vec::new();
@@ -210,7 +212,8 @@ pub fn tops(chm: &Grid, p: &TopParams) -> Vec<Tree> {
     out
 }
 
-/// Cells holding a tree top (index into the grid) for each tree, in list order.
+/// Celdas que contienen una cima de árbol (índice en la rejilla) para cada árbol, en el orden de la
+/// lista.
 fn seeds(chm: &Grid, trees: &[Tree]) -> Vec<Option<usize>> {
     trees
         .iter()
@@ -218,8 +221,8 @@ fn seeds(chm: &Grid, trees: &[Tree]) -> Vec<Option<usize>> {
         .collect()
 }
 
-/// Grows crowns from the tree tops with the method in `p`; the crown id of each cell (0: none).
-/// Sets each tree's area. A watershed ignores `trees` and replaces it with its own.
+/// Hace crecer copas desde las cimas con el método de `p`; el identificador de copa de cada celda
+/// (0: ninguna). Fija el área de cada árbol. Una cuenca ignora `trees` y lo sustituye por el suyo.
 pub fn crowns(chm: &Grid, trees: &mut Vec<Tree>, p: &CrownParams) -> Vec<u32> {
     let id = match p.method {
         Segmenter::Dalponte => dalponte(chm, trees, p),
@@ -242,10 +245,11 @@ pub fn crowns(chm: &Grid, trees: &mut Vec<Tree>, p: &CrownParams) -> Vec<u32> {
     id
 }
 
-/// Dalponte & Coomes: every round, each crown (in list order) offers its 4-neighbours to the
-/// crown; a pixel is taken when it is above `th_tree`, above `th_seed` × the top, above `th_cr` ×
-/// the crown mean, at most 5 % higher than the top, and closer than `max_cr` pixels (Chebyshev).
-/// Two crowns reaching a pixel in the same round: the later one in the list wins.
+/// Dalponte y Coomes: en cada ronda, cada copa (en el orden de la lista) ofrece sus 4 vecinas a la
+/// copa; un píxel se toma cuando está por encima de `th_tree`, por encima de `th_seed` × la cima,
+/// por encima de `th_cr` × la media de la copa, como mucho un 5 % más alto que la cima y más cerca
+/// que `max_cr` píxeles (Chebyshev). Dos copas que alcanzan un píxel en la misma ronda: gana la
+/// posterior de la lista.
 fn dalponte(chm: &Grid, trees: &[Tree], p: &CrownParams) -> Vec<u32> {
     let cols = chm.cols;
     let mut id = vec![0u32; chm.data.len()];
@@ -327,9 +331,9 @@ fn dalponte(chm: &Grid, trees: &[Tree], p: &CrownParams) -> Vec<u32> {
     id
 }
 
-/// Silva et al.: every pixel goes to its nearest tree top (Euclidean, ties to the first in the
-/// list); it is dropped when farther than `max_cr_factor` × that tree's height or lower than
-/// `exclusion` × that height (both edges inclusive).
+/// Silva et al.: cada píxel va a la cima de árbol más cercana (euclídea, los empates a la primera
+/// de la lista); se descarta cuando está más lejos que `max_cr_factor` × la altura de ese árbol o
+/// más bajo que `exclusion` × esa altura (ambos bordes incluidos).
 fn silva(chm: &Grid, trees: &[Tree], p: &CrownParams) -> Vec<u32> {
     let cols = chm.cols;
     let mut id = vec![0u32; chm.data.len()];
@@ -371,15 +375,16 @@ fn silva(chm: &Grid, trees: &[Tree], p: &CrownParams) -> Vec<u32> {
     id
 }
 
-/// Watershed on the CHM turned upside down: each peak (highest within `ext` pixels, above
-/// `th_tree`) floods downhill; two crowns join when the lower peak stands less than `tolerance`
-/// above the pass between them. Ids follow reading order of the surviving peaks.
+/// Cuenca sobre el CHM puesto del revés: cada pico (el más alto dentro de `ext` píxeles, por encima
+/// de `th_tree`) inunda cuesta abajo; dos copas se unen cuando el pico más bajo está a menos de
+/// `tolerance` por encima del paso entre ellas. Los identificadores siguen el orden de lectura de
+/// los picos que sobreviven.
 fn watershed(chm: &Grid, p: &CrownParams) -> Vec<u32> {
     let n = chm.data.len();
     let (cols, rows) = (chm.cols as isize, chm.rows as isize);
     let ext = p.ext as isize;
     let valid = |i: usize| !chm.data[i].is_nan() && f64::from(chm.data[i]) > p.th_tree;
-    // label of each pixel: provisional peak index + 1
+    // etiqueta de cada píxel: índice de pico provisional + 1
     let mut label = vec![0u32; n];
     let mut peak_h: Vec<f32> = Vec::new();
     for r in 0..rows {
@@ -409,7 +414,7 @@ fn watershed(chm: &Grid, p: &CrownParams) -> Vec<u32> {
             }
         }
     }
-    // union-find over peaks, the higher peak is the root
+    // unión-búsqueda sobre los picos, el pico más alto es la raíz
     let mut parent: Vec<usize> = (0..peak_h.len()).collect();
     fn root(parent: &mut [usize], mut a: usize) -> usize {
         while parent[a] != a {
@@ -444,7 +449,7 @@ fn watershed(chm: &Grid, p: &CrownParams) -> Vec<u32> {
             };
             label[i] = first as u32 + 1;
         }
-        // merge crowns whose lower peak is not `tolerance` above this pass
+        // fusionar las copas cuyo pico más bajo no está `tolerance` por encima de este paso
         let mut keep = root(&mut parent, label[i] as usize - 1);
         for &s in &seen {
             let s = root(&mut parent, s);
@@ -462,7 +467,7 @@ fn watershed(chm: &Grid, p: &CrownParams) -> Vec<u32> {
             }
         }
     }
-    // renumber by reading order of each region's first pixel
+    // renumerar por orden de lectura del primer píxel de cada región
     let mut new_id = vec![0u32; peak_h.len()];
     let mut next = 0u32;
     let mut out = vec![0u32; n];
@@ -480,7 +485,7 @@ fn watershed(chm: &Grid, p: &CrownParams) -> Vec<u32> {
     out
 }
 
-/// One tree per region of `ids`: its highest cell (the first in reading order on a tie).
+/// Un árbol por región de `ids`: su celda más alta (la primera en orden de lectura en un empate).
 pub fn trees_from_regions(chm: &Grid, ids: &[u32]) -> Vec<Tree> {
     let mut best: std::collections::BTreeMap<u32, usize> = std::collections::BTreeMap::new();
     for (i, &v) in ids.iter().enumerate() {
@@ -582,7 +587,7 @@ mod tests {
         };
         assert_eq!(count(&dalponte(&g, &t, &p(3.0))), 25);
         assert_eq!(count(&dalponte(&g, &t, &p(5.0))), 81);
-        // two equal seeds on a row: the second takes the shared pixel
+        // dos semillas iguales en una fila: la segunda toma el píxel compartido
         let row = vec![10.0f32; 21];
         let rows: Vec<&[f32]> = (0..9).map(|_| row.as_slice()).collect();
         let g = grid(&rows, 1.0);
@@ -620,13 +625,13 @@ mod tests {
             exclusion: 0.3,
             ..CrownParams::default()
         };
-        // radius 3 map units, edge inclusive: 29 pixels
+        // radio 3 unidades del mapa, borde incluido: 29 píxeles
         assert_eq!(count(&silva(&plateau, &t, &p)), 29);
     }
 
     #[test]
     fn lmf_ties_and_edges() {
-        // 2x2 plateau: the first cell in reading order is the only top
+        // meseta de 2x2: la primera celda en orden de lectura es la única cima
         let mut m = vec![vec![0.0f32; 9]; 9];
         m[3][3] = 10.0;
         m[3][4] = 10.0;
@@ -644,7 +649,8 @@ mod tests {
         );
         assert_eq!(t.len(), 1);
         assert_eq!(g.col_row(t[0].x, t[0].y), Some((3, 3)));
-        // peak 9 at distance 2 from peak 10: window 4 (radius 2) is inclusive, so it is not a top
+        // el pico 9 a distancia 2 del pico 10: la ventana 4 (radio 2) es inclusiva, así que no es
+        // una cima
         let mut m = vec![vec![0.0f32; 13]; 9];
         m[4][3] = 10.0;
         m[4][5] = 9.0;

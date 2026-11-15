@@ -1,11 +1,11 @@
-//! Zonal statistics: the values of a raster inside each polygon (a stand, a management unit, a
-//! plot), as count, minimum, maximum, mean, sum, standard deviation and median.
+//! Estadística zonal: los valores de un ráster dentro de cada polígono (un rodal, una unidad de
+//! gestión, una parcela), como recuento, mínimo, máximo, media, suma, desviación típica y mediana.
 //!
-//! A cell belongs to a region when its centre is inside it (as is usual for raster statistics);
-//! empty cells are skipped. Regions are independent, so they run in parallel. The standard
-//! deviation is the population one (divided by the count), the median of an even count is the
-//! mean of the two middle values. The result is a layer: the polygons with their attributes and
-//! one new field per statistic ([`zonal_layer`]).
+//! Una celda pertenece a una región cuando su centro está dentro de ella (como es habitual en las
+//! estadísticas ráster); las celdas vacías se omiten. Las regiones son independientes, así que se
+//! ejecutan en paralelo. La desviación típica es la de población (dividida entre el recuento), la
+//! mediana de un recuento par es la media de los dos valores centrales. El resultado es una capa:
+//! los polígonos con sus atributos y un campo nuevo por estadístico ([`zonal_layer`]).
 
 use rayon::prelude::*;
 
@@ -13,7 +13,7 @@ use crate::grid::Grid;
 use crate::vector::Region;
 use crate::{Error, Result};
 
-/// The statistics of one region.
+/// Los estadísticos de una región.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Zone {
     pub name: String,
@@ -41,8 +41,8 @@ impl Zone {
     }
 }
 
-/// The statistics of `g` inside each region, in the order of `regions`. Regions and raster must
-/// be in the same coordinate system.
+/// Los estadísticos de `g` dentro de cada región, en el orden de `regions`. Las regiones y el
+/// ráster deben estar en el mismo sistema de coordenadas.
 pub fn zonal_stats(g: &Grid, regions: &[Region]) -> Result<Vec<Zone>> {
     if !(g.cell > 0.0) {
         return Err(Error::Param("la celda del ráster no es válida".into()));
@@ -53,7 +53,7 @@ pub fn zonal_stats(g: &Grid, regions: &[Region]) -> Result<Vec<Zone>> {
 fn one(g: &Grid, r: &Region) -> Zone {
     let b = r.bbox();
     let top = g.y0 + g.rows as f64 * g.cell;
-    // cells whose centres can fall in the box
+    // celdas cuyos centros pueden caer en la caja
     let c0 = (((b[0] - g.x0) / g.cell - 0.5).ceil().max(0.0)) as usize;
     let c1 = ((((b[2] - g.x0) / g.cell - 0.5).floor()).max(-1.0) + 1.0) as usize;
     let r0 = (((top - b[3]) / g.cell - 0.5).ceil().max(0.0)) as usize;
@@ -104,12 +104,12 @@ fn one(g: &Grid, r: &Region) -> Zone {
     }
 }
 
-/// The names of the statistic fields, in order, with an optional prefix (`chm_` gives `chm_mean`).
-/// A shapefile field name has at most 10 characters.
+/// Los nombres de los campos de estadísticos, en orden, con un prefijo opcional (`chm_` da
+/// `chm_mean`). Un nombre de campo de shapefile tiene como mucho 10 caracteres.
 pub const FIELDS: [&str; 7] = ["count", "min", "max", "mean", "sum", "stddev", "median"];
 
-/// The polygons as a layer that keeps their attributes and gains one field per statistic of `g`
-/// inside each one. Regions without cells get empty values and a count of 0.
+/// Los polígonos como una capa que conserva sus atributos y gana un campo por estadístico de `g`
+/// dentro de cada uno. Las regiones sin celdas reciben valores vacíos y un recuento de 0.
 pub fn zonal_layer(g: &Grid, regions: &[Region], prefix: &str) -> Result<crate::geomops::PolyLayer> {
     use crate::geomops::{Feature, PolyLayer, multipolygon_of, rings_of};
     let zones = zonal_stats(g, regions)?;
@@ -122,7 +122,7 @@ pub fn zonal_layer(g: &Grid, regions: &[Region], prefix: &str) -> Result<crate::
             let vals = [z.count.to_string(), num(z.min), num(z.max), num(z.mean), num(z.sum), num(z.stddev), num(z.median)];
             for (f, v) in FIELDS.iter().zip(vals) {
                 let mut name = format!("{prefix}{f}");
-                // never overwrite a field the layer has
+                // nunca sobrescribir un campo que ya tiene la capa
                 while attrs.iter().any(|(k, _)| k.eq_ignore_ascii_case(&name)) {
                     name = format!("z_{name}");
                 }
@@ -153,7 +153,7 @@ mod tests {
         g.data.fill(7.5);
         let z = zonal_stats(&g, &[poly("a", 2.0, 3.0, 12.0, 9.0)])?;
         let z = &z[0];
-        // 10 x 6 cells, centres inside
+        // 10 x 6 celdas, con los centros dentro
         assert_eq!(z.count, 60);
         assert_eq!((z.min, z.max, z.mean, z.median), (7.5, 7.5, 7.5, 7.5));
         assert_eq!(z.sum, 450.0);
@@ -170,11 +170,11 @@ mod tests {
         assert_eq!((z.min, z.max, z.sum, z.median), (1.0, 9.0, 12.0, 2.0));
         assert_eq!(z.mean, 4.0);
         assert!((z.stddev - ((9.0 + 4.0 + 25.0) / 3.0f64).sqrt()).abs() < 1e-12);
-        // an even count: the median is the mean of the two middle values
+        // un recuento par: la mediana es la media de los dos valores centrales
         g.data.copy_from_slice(&[1.0, 2.0, 4.0, 9.0]);
         let z = &zonal_stats(&g, &[poly("r", 0.0, 0.0, 4.0, 1.0)])?[0];
         assert_eq!(z.median, 3.0);
-        // a region outside the raster
+        // una región fuera del ráster
         let z = &zonal_stats(&g, &[poly("fuera", 50.0, 50.0, 60.0, 60.0)])?[0];
         assert_eq!(z.count, 0);
         assert!(z.mean.is_nan());
@@ -199,13 +199,13 @@ mod layer_tests {
         let l = zonal_layer(&g, &[sq(0.0, "A"), sq(50.0, "B")], "")?;
         let a = &l.features[0].attrs;
         assert_eq!(a[0], ("nombre".to_string(), "A".to_string()));
-        // an existing field named like a statistic is not overwritten
+        // un campo existente con el nombre de un estadístico no se sobrescribe
         assert_eq!(a[1], ("mean".to_string(), "viejo".to_string()));
         let get = |k: &str| a.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
         assert_eq!(get("count").unwrap(), "25");
         assert_eq!(get("z_mean").unwrap(), "4");
         assert_eq!(get("sum").unwrap(), "100");
-        // outside the raster: count 0 and empty values
+        // fuera del ráster: recuento 0 y valores vacíos
         let b = &l.features[1].attrs;
         assert_eq!(b.iter().find(|(n, _)| n == "count").unwrap().1, "0");
         assert_eq!(b.iter().find(|(n, _)| n == "max").unwrap().1, "");

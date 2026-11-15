@@ -1,6 +1,7 @@
-//! Taking points out of LAS/LAZ files: to LAS/LAZ, ASCII columns and 3D point shapefiles, with
-//! the same filters as the other tools and, optionally, heights above the ground (each cloud
-//! minus its own DTM). Streams the whole file, so memory does not depend on size.
+//! Extracción de puntos de archivos LAS/LAZ: a LAS/LAZ, a columnas ASCII y a shapefiles de puntos
+//! 3D, con los mismos filtros que las demás herramientas y, opcionalmente, alturas sobre el suelo
+//! (cada nube menos su propio MDT). Recorre el archivo entero en flujo, de modo que la memoria no
+//! depende del tamaño.
 
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -76,22 +77,23 @@ impl Item {
 #[derive(Clone, Debug)]
 pub struct AsciiJob {
     pub inputs: Vec<PathBuf>,
-    /// One file for all inputs, or the folder that gets one `.csv` per input.
+    /// Un archivo para todas las entradas, o la carpeta que recibe un `.csv` por entrada.
     pub output: PathBuf,
     pub items: Vec<Item>,
     pub delimiter: char,
     pub header: bool,
     pub filter: Filter,
     pub decimals: usize,
-    /// One DTM per input to export heights above the ground; empty: the elevations as they are.
+    /// Un MDT por entrada para exportar alturas sobre el suelo; vacío: las elevaciones tal como
+    /// están.
     pub dtms: Vec<PathBuf>,
 }
 
-/// What an export wrote.
+/// Lo que escribió una exportación.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Exported {
     pub points: u64,
-    /// Points left out because the DTM does not cover them (only when normalising).
+    /// Puntos que se dejan fuera porque el MDT no los cubre (solo al normalizar).
     pub no_ground: u64,
 }
 
@@ -101,7 +103,7 @@ impl Exported {
         self.no_ground += other.no_ground;
     }
 
-    /// The sentence the tools show after the export.
+    /// La frase que muestran las herramientas tras la exportación.
     pub fn text(&self, to: &str) -> String {
         let mut s = format!("{} puntos exportados a {to}", self.points);
         if self.no_ground > 0 {
@@ -128,8 +130,9 @@ fn u16_at(b: &[u8], i: usize) -> u16 {
         .map_or(0, |s| u16::from_le_bytes([s[0], s[1]]))
 }
 
-/// Calls `f(point, record)` for every kept point of a file (with `ground`, at its height above
-/// it; points the DTM does not cover are skipped); how many were kept and how many had no ground.
+/// Llama a `f(punto, registro)` para cada punto conservado de un archivo (con `ground`, a su altura
+/// sobre él; los puntos que el MDT no cubre se saltan); cuántos se conservaron y a cuántos les
+/// faltó suelo.
 fn each(
     r: &Reader,
     filter: &Filter,
@@ -169,7 +172,8 @@ fn each(
     Ok(out)
 }
 
-/// Tells the progress counter how many points the inputs hold (before a loop over several).
+/// Dice al contador de progreso cuántos puntos contienen las entradas (antes de un bucle sobre
+/// varias).
 pub fn begin_for(inputs: &[PathBuf]) {
     crate::progress::begin(points_in(inputs));
 }
@@ -182,12 +186,13 @@ fn points_in(inputs: &[PathBuf]) -> u64 {
         .sum()
 }
 
-/// The DTM of input `k`, when the job normalises.
+/// El MDT de la entrada `k`, cuando el trabajo normaliza.
 fn ground_of(dtms: &[PathBuf], k: usize) -> Result<Option<Grid>> {
     dtms.get(k).map(|p| Grid::read(p)).transpose()
 }
 
-/// Writes the chosen items of every kept point as delimited text; returns (files, points).
+/// Escribe los elementos elegidos de cada punto conservado como texto delimitado; devuelve
+/// (archivos, puntos).
 pub fn ascii(job: &AsciiJob) -> Result<(Vec<PathBuf>, Exported)> {
     begin_for(&job.inputs);
     if job.items.is_empty() {
@@ -249,8 +254,8 @@ pub fn ascii(job: &AsciiJob) -> Result<(Vec<PathBuf>, Exported)> {
     Ok((files, total))
 }
 
-/// Writes the kept points as a PointZ shapefile (X, Y, Z, plus class, intensity and return
-/// attributes).
+/// Escribe los puntos conservados como shapefile PointZ (X, Y, Z, más atributos de clase,
+/// intensidad y retorno).
 pub fn shapefile_points(
     input: &Path,
     output: &Path,
@@ -287,8 +292,8 @@ pub fn shapefile_points(
     })
 }
 
-/// Writes the kept points as a LAS or LAZ file (by the extension of `output`), every field of
-/// the originals kept; with `dtm`, Z becomes the height above the ground.
+/// Escribe los puntos conservados como archivo LAS o LAZ (según la extensión de `output`),
+/// conservando cada campo de los originales; con `dtm`, Z pasa a ser la altura sobre el suelo.
 pub fn cloud(input: &Path, output: &Path, filter: &Filter, dtm: Option<&Path>) -> Result<Exported> {
     crate::progress::begin_if_idle(points_in(&[input.to_path_buf()]));
     let r = Reader::open(input)?;

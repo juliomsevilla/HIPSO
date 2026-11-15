@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Compares hipso-crs with PROJ (pyproj) on points over Spain, with the IGN/ICGC grids.
+"""Compara hipso-crs con PROJ (pyproj) en puntos sobre España, con las rejillas del IGN y el ICGC.
 
-    python3 scripts/check_spain_crs.py [dir with the grids]   (default: crates/crs/data/grids)
+    python3 scripts/check_spain_crs.py [carpeta con las rejillas]   (por defecto: crates/crs/data/grids)
 
-Needs pyproj and a built `cargo build -p hipso-crs --release --example batch`.
+Necesita pyproj y haber compilado `cargo build -p hipso-crs --release --example batch`.
 """
 import json, math, subprocess, sys, os, random
 import pyproj
@@ -13,7 +13,7 @@ grids = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "crates/crs/data/g
 pyproj.datadir.append_data_dir(grids)
 os.environ["PROJ_DATA"] = grids
 
-# (lon0, lon1, lat0, lat1) where each system is used in Spain
+# (lon0, lon1, lat0, lat1) donde se usa cada sistema en España
 AREAS = {
     "peninsula_w": (-9.3, -6.0, 36.0, 43.8), "peninsula_c": (-6.0, 0.0, 36.0, 43.8),
     "peninsula_e": (0.0, 3.4, 38.5, 42.9), "baleares": (1.2, 4.4, 38.6, 40.2),

@@ -1,24 +1,25 @@
-//! E57 (ASTM E2807), the exchange format of terrestrial and mobile scanners, converted to LAS or
-//! LAZ. Every scan of the file is placed with its own pose (rotation and translation), spherical
-//! coordinates become Cartesian, and colour and intensity are scaled to 16 bits. The point source
-//! id of each point is the number of its scan (1, 2…), so that the scans can be told apart later.
+//! E57 (ASTM E2807), el formato de intercambio de escáneres terrestres y móviles, convertido a LAS
+//! o LAZ. Cada escaneo del archivo se coloca con su propia pose (rotación y traslación), las
+//! coordenadas esféricas pasan a cartesianas, y el color y la intensidad se escalan a 16 bits. El
+//! identificador de fuente de cada punto es el número de su escaneo (1, 2…), de modo que los
+//! escaneos se puedan distinguir después.
 //!
-//! Two passes over the file: the first finds the extent (for the scale and offset of the integer
-//! coordinates), the second writes; memory does not grow with the number of points.
+//! Dos pasadas sobre el archivo: la primera halla la extensión (para la escala y el desplazamiento
+//! de las coordenadas enteras), la segunda escribe; la memoria no crece con el número de puntos.
 
 use std::path::Path;
 
 use crate::las::{Writer, WriterOptions};
 use crate::{Error, Result};
 
-/// What a conversion did.
+/// Lo que hizo una conversión.
 #[derive(Clone, Debug, PartialEq)]
 pub struct E57Report {
     pub scans: usize,
     pub points: u64,
     pub colour: bool,
     pub intensity: bool,
-    /// Points left out for having no valid coordinates (directions only, or invalid).
+    /// Puntos que se dejan fuera por no tener coordenadas válidas (solo direcciones, o inválidas).
     pub skipped: u64,
 }
 
@@ -26,8 +27,8 @@ fn bad(e: impl std::fmt::Display) -> Error {
     Error::Format(format!("E57: {e}"))
 }
 
-/// Each valid point of every scan, with the scan number (from 0): coordinates, colour and
-/// intensity (both 0 to 1).
+/// Cada punto válido de cada escaneo, con el número de escaneo (desde 0): coordenadas, color e
+/// intensidad (ambos de 0 a 1).
 fn each_point(
     input: &Path,
     mut f: impl FnMut(usize, [f64; 3], Option<[f32; 3]>, Option<f32>) -> Result<()>,
@@ -37,7 +38,7 @@ fn each_point(
     let mut skipped = 0;
     for (k, pc) in clouds.iter().enumerate() {
         let mut it = reader.pointcloud_simple(pc).map_err(bad)?;
-        // colour is colour: an intensity is not passed off as a grey
+        // el color es color: una intensidad no se hace pasar por un gris
         it.intensity_to_color(false);
         for p in it {
             crate::check_cancel()?;
@@ -56,8 +57,8 @@ fn each_point(
     Ok(skipped)
 }
 
-/// Converts an E57 file to LAS or LAZ (by the output's extension). `epsg` is the coordinate
-/// system of the points, which E57 files rarely say in a form that can be read.
+/// Convierte un archivo E57 a LAS o LAZ (según la extensión de la salida). `epsg` es el sistema de
+/// coordenadas de los puntos, que los archivos E57 rara vez dicen de una forma que se pueda leer.
 pub fn convert(input: &Path, output: &Path, epsg: Option<u16>) -> Result<E57Report> {
     let reader = e57::E57Reader::from_file(input).map_err(bad)?;
     let clouds = reader.pointclouds();
@@ -74,7 +75,7 @@ pub fn convert(input: &Path, output: &Path, epsg: Option<u16>) -> Result<E57Repo
     let colour = has("Color");
     let intensity = has("Intensity");
     drop(reader);
-    // pass 1: the extent
+    // pasada 1: la extensión
     let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
     let mut finite = 0u64;
     each_point(input, |_, p, _, _| {
@@ -89,7 +90,8 @@ pub fn convert(input: &Path, output: &Path, epsg: Option<u16>) -> Result<E57Repo
         return Err(bad("no hay ningún punto con coordenadas"));
     }
     let span = (0..3).map(|k| hi[k] - lo[k]).fold(0.0, f64::max);
-    // a tenth of a millimetre for scanners, unless the cloud is too big for the integers
+    // una décima de milímetro para escáneres, salvo que la nube sea demasiado grande para los
+    // enteros
     let scale = if span < 2.0e5 {
         0.0001
     } else if span < 2.0e6 {
@@ -117,7 +119,7 @@ pub fn convert(input: &Path, output: &Path, epsg: Option<u16>) -> Result<E57Repo
         rec[8..12].copy_from_slice(&to_int(p[2], offset[2]).to_le_bytes());
         let i = int.map_or(0.0, |i| (f64::from(i) * 65535.0).clamp(0.0, 65535.0));
         rec[12..14].copy_from_slice(&(i.round() as u16).to_le_bytes());
-        // first of one return, unclassified
+        // primero de un retorno, sin clasificar
         rec[14] = 0x09;
         rec[15] = 1;
         rec[18..20].copy_from_slice(&u16::try_from(scan + 1).unwrap_or(u16::MAX).to_le_bytes());
@@ -142,7 +144,7 @@ pub fn convert(input: &Path, output: &Path, epsg: Option<u16>) -> Result<E57Repo
     })
 }
 
-/// A short text for the report of a conversion.
+/// Un texto corto para el informe de una conversión.
 pub fn describe(r: &E57Report, output: &Path) -> String {
     let mut s = format!(
         "{} puntos de {} escaneo{}",

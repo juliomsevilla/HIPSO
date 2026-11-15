@@ -1,5 +1,5 @@
-//! What comes out of a tree segmentation besides the raster: crown polygons, shapefiles, the
-//! tree id written into the points, and a check against a field inventory.
+//! Lo que sale de una segmentación de árboles además del ráster: polígonos de copa, shapefiles, el
+//! identificador de árbol escrito en los puntos y una comprobación contra un inventario de campo.
 
 use std::path::{Path, PathBuf};
 
@@ -12,7 +12,7 @@ fn fmt_err(e: impl std::fmt::Display) -> Error {
     Error::Format(e.to_string())
 }
 
-/// Convex hull (Andrew's monotone chain), counter-clockwise, without the closing vertex.
+/// Envolvente convexa (cadena monótona de Andrew), antihoraria, sin el vértice de cierre.
 pub fn convex_hull(mut p: Vec<[f64; 2]>) -> Vec<[f64; 2]> {
     p.sort_by(|a, b| a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1])));
     p.dedup();
@@ -50,7 +50,8 @@ pub fn polygon_area(p: &[[f64; 2]]) -> f64 {
         .abs()
 }
 
-/// The crown outline of every tree: the convex hull of its cells' corners, by tree id.
+/// El contorno de la copa de cada árbol: la envolvente convexa de las esquinas de sus celdas, por
+/// identificador de árbol.
 pub fn crown_hulls(g: &Grid, ids: &[u32]) -> std::collections::BTreeMap<u32, Vec<[f64; 2]>> {
     let mut corners: std::collections::BTreeMap<u32, Vec<[f64; 2]>> =
         std::collections::BTreeMap::new();
@@ -131,7 +132,8 @@ pub fn write_crowns_shp(
         let Some(h) = hulls.get(&t.id).filter(|h| h.len() >= 3) else {
             continue;
         };
-        // shapefile outer rings run clockwise: the hull is counter-clockwise
+        // los anillos exteriores de un shapefile van en el sentido de las agujas del reloj: la
+        // envolvente es antihoraria
         let mut pts: Vec<Point> = h.iter().rev().map(|p| Point::new(p[0], p[1])).collect();
         pts.push(pts[0]);
         let mut r = Record::default();
@@ -144,8 +146,8 @@ pub fn write_crowns_shp(
     Ok(())
 }
 
-/// Copies `input` to `output` with a `treeID` extra attribute: the id of the crown under each
-/// point (0 outside every crown); how many points fell in a crown.
+/// Copia `input` en `output` con un atributo adicional `treeID`: el identificador de la copa bajo
+/// cada punto (0 fuera de toda copa); cuántos puntos cayeron en una copa.
 pub fn write_tree_ids(input: &Path, output: &Path, chm: &Grid, ids: &[u32]) -> Result<u64> {
     let r = Reader::open(input)?;
     let opts = WriterOptions {
@@ -175,7 +177,7 @@ pub fn write_tree_ids(input: &Path, output: &Path, chm: &Grid, ids: &[u32]) -> R
     Ok(inside)
 }
 
-/// A field tree.
+/// Un árbol de campo.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FieldTree {
     pub x: f64,
@@ -184,7 +186,7 @@ pub struct FieldTree {
     pub plot: String,
 }
 
-/// Where the columns of a field inventory are.
+/// Dónde están las columnas de un inventario de campo.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FieldColumns {
     pub x: String,
@@ -204,8 +206,8 @@ impl Default for FieldColumns {
     }
 }
 
-/// Reads a delimited text file (tab, `;` or `,`; decimal commas allowed when the delimiter is
-/// not a comma) of field trees; rows without coordinates are skipped.
+/// Lee un archivo de texto delimitado (tabulador, `;` o `,`; se admiten comas decimales cuando el
+/// delimitador no es una coma) de árboles de campo; las filas sin coordenadas se omiten.
 pub fn read_field(path: &Path, cols: &FieldColumns) -> Result<Vec<FieldTree>> {
     let bytes = std::fs::read(path)?;
     let text = String::from_utf8(bytes.clone())
@@ -223,7 +225,8 @@ pub fn read_field(path: &Path, cols: &FieldColumns) -> Result<Vec<FieldTree>> {
         .split(delim)
         .map(|s| s.trim().trim_start_matches('\u{feff}').to_lowercase())
         .collect();
-    // files written before the sampling units were called "Muestra" name them "Parcela"
+    // los archivos escritos antes de que las unidades de muestreo se llamaran «Muestra» las nombran
+    // «Parcela»
     let at = |n: &str| {
         let n = n.to_lowercase();
         let find = |w: &str| names.iter().position(|c| c == w);
@@ -264,7 +267,7 @@ pub fn read_field(path: &Path, cols: &FieldColumns) -> Result<Vec<FieldTree>> {
     Ok(out)
 }
 
-/// Detections against field trees.
+/// Detecciones frente a árboles de campo.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Evaluation {
     pub field: usize,
@@ -279,9 +282,9 @@ pub struct Evaluation {
     pub height_bias: f64,
 }
 
-/// Matches each field tree to the nearest unused detection within `max_dist` (horizontal),
-/// best pairs first; detections count only inside the circles `(x, y, radius)` of `plots`
-/// when any are given. Height error is detected minus field.
+/// Empareja cada árbol de campo con la detección sin usar más cercana a menos de `max_dist`
+/// (horizontal), los mejores pares primero; las detecciones cuentan solo dentro de los círculos
+/// `(x, y, radio)` de `plots` cuando se da alguno. El error de altura es detectada menos de campo.
 pub fn evaluate(
     trees: &[Tree],
     field: &[FieldTree],
@@ -336,7 +339,7 @@ pub fn evaluate(
     }
 }
 
-/// Plot circles from the field file: one per plot, centred on the columns `px`, `py`.
+/// Círculos de parcela del archivo de campo: uno por parcela, centrado en las columnas `px`, `py`.
 pub fn plot_circles(
     path: &Path,
     plot: &str,
@@ -381,7 +384,7 @@ pub fn evaluation_text(e: &Evaluation) -> String {
     )
 }
 
-/// Output path next to `base` with `suffix` (`a.csv` + `crowns.shp` → `a_crowns.shp`).
+/// Ruta de salida junto a `base` con `suffix` (`a.csv` + `crowns.shp` → `a_crowns.shp`).
 pub fn sibling(base: &Path, suffix: &str) -> PathBuf {
     let stem = base
         .file_stem()

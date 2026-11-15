@@ -1,5 +1,5 @@
-//! HIPSO's engine: forestry products from LiDAR point clouds, read as a stream so that
-//! memory depends on the area and cell size, never on the number of points.
+//! El motor de HIPSO: productos forestales a partir de nubes de puntos LiDAR, leídas como flujo
+//! para que la memoria dependa del área y del tamaño de celda, nunca del número de puntos.
 
 pub mod aba;
 pub mod axelsson;
@@ -16,6 +16,11 @@ pub mod cog;
 pub mod colorize;
 pub mod copc;
 pub mod copc_cache;
+pub mod editops;
+pub mod geoproc;
+pub mod topology;
+pub mod model;
+pub mod rasterproc;
 pub mod copc_detail;
 pub mod copc_tiled;
 pub mod copc_write;
@@ -103,14 +108,15 @@ pub mod voronoi;
 pub mod xlsx;
 pub mod zonal;
 
-/// Everything that can go wrong; input files are hostile, so nothing here panics.
+/// Todo lo que puede salir mal; los archivos de entrada son hostiles, así que nada de aquí entra en
+/// pánico.
 #[derive(Debug)]
 pub enum Error {
     Io(std::io::Error),
     Format(String),
     Unsupported(String),
     Param(String),
-    /// The user stopped the job.
+    /// El usuario detuvo el trabajo.
     Cancelled,
 }
 
@@ -126,8 +132,8 @@ impl std::fmt::Display for Error {
     }
 }
 
-/// The messages of the operating system and of the libraries that read files, which come in
-/// English, said in Spanish.
+/// Los mensajes del sistema operativo y de las bibliotecas que leen archivos, que vienen en inglés,
+/// dichos en español.
 fn in_spanish(m: &str) -> String {
     const WORDS: &[(&str, &str)] = &[
         ("IoError: ", ""),
@@ -151,7 +157,7 @@ fn in_spanish(m: &str) -> String {
             "The system cannot find the path specified.",
             "no existe la carpeta",
         ),
-        // Windows in Spanish already says it in Spanish, but with its own words
+        // Windows en español ya lo dice en español, pero con sus propias palabras
         (
             "El sistema no puede encontrar el archivo especificado.",
             "no existe el archivo",
@@ -189,7 +195,8 @@ impl From<std::io::Error> for Error {
     }
 }
 
-/// Opens a file to read, with its path in the error (a bare "no such file" does not say which).
+/// Abre un archivo para leerlo, con su ruta en el error (un «no existe el archivo» a secas no dice
+/// cuál).
 pub(crate) fn open_file(path: &std::path::Path) -> Result<std::fs::File> {
     std::fs::File::open(path).map_err(|e| {
         Error::Io(std::io::Error::new(
@@ -199,8 +206,9 @@ pub(crate) fn open_file(path: &std::path::Path) -> Result<std::fs::File> {
     })
 }
 
-/// A hint for read errors that come from a file that is only in the cloud (OneDrive, iCloud…) and
-/// has not been downloaded: the system answers the reads with a timeout or "not available".
+/// Una pista para los errores de lectura que vienen de un archivo que solo está en la nube
+/// (OneDrive, iCloud…) y no se ha descargado: el sistema responde a las lecturas con un tiempo de
+/// espera agotado o «no disponible».
 pub(crate) fn cloud_hint(message: &str) -> &'static str {
     let m = message.to_ascii_lowercase();
     if m.contains("timed out") || m.contains("os error 60") || m.contains("os error 110") {
@@ -210,7 +218,7 @@ pub(crate) fn cloud_hint(message: &str) -> &'static str {
     }
 }
 
-/// Refuses, with a clear message, a raster in a format that is not read here.
+/// Rechaza, con un mensaje claro, un ráster en un formato que aquí no se lee.
 pub(crate) fn check_raster_format(path: &std::path::Path) -> Result<()> {
     let ext = path
         .extension()
@@ -236,7 +244,7 @@ pub(crate) fn check_raster_format(path: &std::path::Path) -> Result<()> {
     Err(Error::Unsupported(format!("{}: {msg}", path.display())))
 }
 
-/// Refuses, with a clear message, a vector layer in a format that is not read here.
+/// Rechaza, con un mensaje claro, una capa vectorial en un formato que aquí no se lee.
 pub(crate) fn check_vector_format(path: &std::path::Path) -> Result<()> {
     let ext = path
         .extension()
@@ -259,12 +267,12 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 static CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Asks every running job to stop at its next batch of points or tile.
+/// Pide a todo trabajo en marcha que se detenga en su siguiente lote de puntos o tesela.
 pub fn request_cancel() {
     CANCEL.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
-/// Clears a stop request (call before starting a job).
+/// Borra una petición de parada (llámese antes de empezar un trabajo).
 pub fn reset_cancel() {
     CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
 }
@@ -273,7 +281,7 @@ pub fn is_cancelled() -> bool {
     CANCEL.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// `Err(Cancelled)` when a stop was requested.
+/// `Err(Cancelled)` cuando se pidió una parada.
 pub fn check_cancel() -> Result<()> {
     if is_cancelled() {
         Err(Error::Cancelled)
@@ -282,41 +290,42 @@ pub fn check_cancel() -> Result<()> {
     }
 }
 
-/// How far the running job is, for a time estimate: `done` of `total` units of work (points read,
-/// tiles done). Jobs that know their size call [`progress::begin`] and [`progress::advance`];
-/// the others leave the total at 0, and the interface shows no estimate.
+/// Cuánto lleva el trabajo en marcha, para una estimación de tiempo: `done` de `total` unidades de
+/// trabajo (puntos leídos, teselas hechas). Los trabajos que conocen su tamaño llaman a
+/// [`progress::begin`] y [`progress::advance`]; los demás dejan el total en 0 y la interfaz no
+/// muestra estimación.
 pub mod progress {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static DONE: AtomicU64 = AtomicU64::new(0);
     static TOTAL: AtomicU64 = AtomicU64::new(0);
 
-    /// Starts counting a job of `total` units.
+    /// Empieza a contar un trabajo de `total` unidades.
     pub fn begin(total: u64) {
         DONE.store(0, Ordering::Relaxed);
         TOTAL.store(total, Ordering::Relaxed);
     }
 
-    /// Like [`begin`], unless the job already said its size (a loop over files that declared them
-    /// all first).
+    /// Como [`begin`], salvo que el trabajo ya haya dicho su tamaño (un bucle sobre archivos que
+    /// los declararon todos antes).
     pub fn begin_if_idle(total: u64) {
         if TOTAL.load(Ordering::Relaxed) == 0 {
             begin(total);
         }
     }
 
-    /// Adds `units` of finished work.
+    /// Suma `units` de trabajo terminado.
     #[inline]
     pub fn advance(units: u64) {
         DONE.fetch_add(units, Ordering::Relaxed);
     }
 
-    /// Forgets the last job (call before starting another).
+    /// Olvida el último trabajo (llámese antes de empezar otro).
     pub fn reset() {
         begin(0);
     }
 
-    /// The fraction done (0 to 1), when the running job said its size.
+    /// La fracción hecha (0 a 1), cuando el trabajo en marcha dijo su tamaño.
     pub fn fraction() -> Option<f64> {
         let total = TOTAL.load(Ordering::Relaxed);
         (total > 0).then(|| (DONE.load(Ordering::Relaxed) as f64 / total as f64).min(1.0))

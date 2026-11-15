@@ -1,9 +1,9 @@
-//! Tools between clouds and on repeated points: duplicate points, change detection between two
-//! clouds, alignment of one cloud to another (iterative closest point) and the height
-//! difference between flight lines. All of them read the clouds as streams; what they hold in
-//! memory is a thinned copy of the reference, the changed points, or one number per cell.
+//! Herramientas entre nubes y sobre puntos repetidos: puntos duplicados, detección de cambios entre
+//! dos nubes, alineación de una nube con otra (punto más cercano iterativo) y diferencia de altura
+//! entre pasadas. Todas leen las nubes como flujos; lo que guardan en memoria es una copia
+//! adelgazada de la referencia, los puntos cambiados o un número por celda.
 
-// Small fixed-size matrix code reads best with indices.
+// El código de matrices pequeñas de tamaño fijo se lee mejor con índices.
 #![allow(clippy::needless_range_loop)]
 
 use rayon::prelude::*;
@@ -45,7 +45,7 @@ fn pack(ix: i64, iy: i64, iz: i64) -> u64 {
 
 // ----------------------------------------------------------------------------- duplicates
 
-/// Which attributes must also agree for two points at the same place to be duplicates.
+/// Qué atributos deben coincidir también para que dos puntos en el mismo lugar sean duplicados.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DupFields {
     pub class: bool,
@@ -83,9 +83,10 @@ fn dup_key(r: &Reader, rec: &[u8], f: DupFields) -> u64 {
     h.finish()
 }
 
-/// How many passes [`remove_duplicates`] makes over the keys of `points` points: the table of
-/// distinct points takes about 40 bytes a point (with the room a hash table keeps), and it may
-/// take a third of the memory of the machine. `HIPSO_DEDUP_PARTS` forces a number (to test).
+/// Cuántas pasadas hace [`remove_duplicates`] sobre las claves de `points` puntos: la tabla de
+/// puntos distintos ocupa unos 40 bytes por punto (con el espacio que guarda una tabla hash) y
+/// puede ocupar un tercio de la memoria del equipo. `HIPSO_DEDUP_PARTS` fuerza un número (para
+/// probar).
 fn dup_parts(points: u64) -> u64 {
     if let Some(k) = std::env::var("HIPSO_DEDUP_PARTS")
         .ok()
@@ -97,19 +98,19 @@ fn dup_parts(points: u64) -> u64 {
     ((points as f64 * 40.0) / (mem as f64 / 3.0)).ceil().max(1.0) as u64
 }
 
-/// The part of the keys (of `parts`) a key belongs to.
+/// La parte de las claves (de `parts`) a la que pertenece una clave.
 #[inline]
 fn dup_part(key: u64, parts: u64) -> u64 {
     (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32) % parts
 }
 
-/// Writes `input` without its duplicate points: one point is kept from each set of duplicates,
-/// or none with `delete_all`. Returns (points read, points removed).
+/// Escribe `input` sin sus puntos duplicados: se conserva un punto de cada conjunto de duplicados,
+/// o ninguno con `delete_all`. Devuelve (puntos leídos, puntos eliminados).
 ///
-/// Memory: a table of the distinct points of one part of the keys, and a bit for every point of
-/// the cloud. When the table of all the points would not fit in memory the keys are split in
-/// parts, one pass over the cloud for each, so a cloud of billions of points is cleaned with the
-/// memory of a few million.
+/// Memoria: una tabla de los puntos distintos de una parte de las claves y un bit por cada punto de
+/// la nube. Cuando la tabla de todos los puntos no cabría en memoria, las claves se dividen en
+/// partes, con una pasada sobre la nube por cada una, de modo que una nube de miles de millones de
+/// puntos se limpia con la memoria de unos pocos millones.
 pub fn remove_duplicates(
     input: &Path,
     output: &Path,
@@ -124,7 +125,7 @@ pub fn remove_duplicates(
     let r = Reader::open(input)?.for_passes()?;
     let rec_len = usize::from(r.header.record_len);
     let parts = dup_part_count(&r);
-    // a bit for each point: set when the point goes
+    // un bit por cada punto: activado cuando el punto se va
     let mut gone: Vec<u64> = if parts > 1 {
         vec![0; (r.header.count as usize).div_ceil(64)]
     } else {
@@ -165,7 +166,7 @@ pub fn remove_duplicates(
             Ok(())
         })?;
     }
-    // the single-part case keeps its table for the writing pass
+    // el caso de una sola parte conserva su tabla para la pasada de escritura
     let mut count: FxMap<u64, u8> = FxMap::default();
     if parts == 1 {
         r.scan_raw(|bytes| {
@@ -214,7 +215,8 @@ fn dup_part_count(r: &Reader) -> u64 {
 
 // ----------------------------------------------------------------------------- comparing
 
-/// Reference points on a grid of cell `cell`, thinned to a third of it, for nearest-point tests.
+/// Puntos de referencia en una rejilla de celda `cell`, adelgazados a un tercio de ella, para
+/// pruebas de punto más cercano.
 struct RefGrid {
     origin: [f64; 3],
     cell: f64,
@@ -268,7 +270,7 @@ impl RefGrid {
         })
     }
 
-    /// Distance to the nearest reference point if it is below `reach` (at most the cell).
+    /// Distancia al punto de referencia más cercano si es menor que `reach` (como mucho la celda).
     fn nearest(&self, x: f64, y: f64, z: f64, reach: f64) -> Option<f64> {
         let (x, y, z) = (x - self.origin[0], y - self.origin[1], z - self.origin[2]);
         let (cx, cy, cz) = (
@@ -301,9 +303,9 @@ impl RefGrid {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompareParams {
-    /// 3D distance from which a point has changed.
+    /// Distancia 3D a partir de la cual un punto ha cambiado.
     pub min_dist: f64,
-    /// A changed point needs this many other changed points within twice the distance.
+    /// Un punto cambiado necesita tantos otros puntos cambiados dentro del doble de la distancia.
     pub min_neighbors: usize,
 }
 
@@ -321,15 +323,15 @@ pub struct CompareReport {
     pub points: u64,
     pub changed: u64,
     pub kept: u64,
-    /// Mean and RMS distance of the points that did not change.
+    /// Distancia media y cuadrática de los puntos que no cambiaron.
     pub mean: f64,
     pub rms: f64,
-    /// Share of the points with a counterpart within the distance.
+    /// Proporción de los puntos con una contrapartida dentro de la distancia.
     pub completeness: f64,
 }
 
-/// Writes to `output` the points of `source` that lie farther than `min_dist` from every point
-/// of `reference`: what changed between two surveys (or what an edit removed).
+/// Escribe en `output` los puntos de `source` que están más lejos que `min_dist` de todo punto de
+/// `reference`: lo que cambió entre dos vuelos (o lo que quitó una edición).
 pub fn compare_clouds(
     reference: &[PathBuf],
     source: &Path,
@@ -383,7 +385,7 @@ pub fn compare_clouds(
         rep.rms = (sum2 / near as f64).sqrt();
     }
     rep.completeness = near as f64 / rep.points.max(1) as f64 * 100.0;
-    // a lone changed point is noise: keep those that have company
+    // un punto cambiado solo es ruido: se conservan los que tienen compañía
     let reach = 2.0 * p.min_dist;
     let mut cells: FxMap<u64, Vec<u32>> = FxMap::default();
     for (i, (c, _)) in changed.iter().enumerate() {
@@ -453,22 +455,24 @@ pub fn compare_text(r: &CompareReport, out: &Path) -> String {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FitParams {
-    /// 3D thinning (m) of the points used to find the transform.
+    /// Adelgazamiento 3D (m) de los puntos usados para hallar la transformación.
     pub thin: f64,
-    /// Farthest a reference point may be, horizontally and vertically, to pair with a point.
+    /// Lo más lejos que puede estar un punto de referencia, en horizontal y en vertical, para
+    /// emparejarse con un punto.
     pub max_xy: f64,
     pub max_z: f64,
     pub max_iter: usize,
-    /// Stop when the mean distance is below this.
+    /// Se detiene cuando la distancia media es menor que esto.
     pub stop_dist: f64,
-    /// Only translate (no rotation).
+    /// Solo traslada (sin rotación).
     pub shift_only: bool,
-    /// Minimise the distance to the tangent plane of the reference point (point-to-plane)
-    /// instead of the distance to the point itself: converges in fewer iterations on
-    /// surfaces and does not stall on a sparse reference.
+    /// Minimiza la distancia al plano tangente del punto de referencia (punto a plano) en lugar de
+    /// la distancia al propio punto: converge en menos iteraciones sobre superficies y no se atasca
+    /// con una referencia dispersa.
     pub plane: bool,
-    /// Share of the pairs, the closest ones, used to find the motion (1 keeps all). Under 1
-    /// it sets aside the pairs of changed ground, felled trees or moving objects.
+    /// Proporción de los pares, los más cercanos, usados para hallar el movimiento (1 los conserva
+    /// todos). Por debajo de 1 aparta los pares de suelo cambiado, árboles talados u objetos en
+    /// movimiento.
     pub trim: f64,
 }
 
@@ -494,11 +498,11 @@ pub struct FitReport {
     pub before: f64,
     pub after: f64,
     pub shift: [f64; 3],
-    /// Rotation about x, y and z, degrees.
+    /// Rotación alrededor de x, y y z, en grados.
     pub rotation: [f64; 3],
 }
 
-/// Solves the symmetric system `a x = b` (Gauss with pivoting); `None` when singular.
+/// Resuelve el sistema simétrico `a x = b` (Gauss con pivoteo); `None` cuando es singular.
 fn solve<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N]) -> Option<[f64; N]> {
     for c in 0..N {
         let p = (c..N).max_by(|&i, &j| a[i][c].abs().total_cmp(&a[j][c].abs()))?;
@@ -546,7 +550,7 @@ impl Rigid {
         o
     }
 
-    /// `self` after `first`.
+    /// `self` después de `first`.
     fn after(&self, first: &Rigid) -> Rigid {
         let mut r = [[0.0; 3]; 3];
         for i in 0..3 {
@@ -560,7 +564,8 @@ impl Rigid {
         Rigid { r, t }
     }
 
-    /// The rotation for a small turn `w` (radians about x, y, z), by Rodrigues' formula.
+    /// La rotación para un giro pequeño `w` (radianes alrededor de x, y, z), por la fórmula de
+    /// Rodrigues.
     fn small(w: [f64; 3], t: [f64; 3]) -> Rigid {
         let a = (w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt();
         let mut r = Self::ID.r;
@@ -580,8 +585,8 @@ impl Rigid {
     }
 }
 
-/// Unit normal of the best plane through the neighbours of each point within `radius`, or
-/// zeros where there are too few neighbours or they are not flat enough to define one.
+/// Normal unitaria del mejor plano por los vecinos de cada punto dentro de `radius`, o ceros donde
+/// hay muy pocos vecinos o no son suficientemente planos para definir uno.
 fn plane_normals(pts: &[[f64; 3]], radius: f64) -> Vec<[f64; 3]> {
     let mut cells: FxMap<u64, Vec<u32>> = FxMap::default();
     for (i, q) in pts.iter().enumerate() {
@@ -624,8 +629,9 @@ fn plane_normals(pts: &[[f64; 3]], radius: f64) -> Vec<[f64; 3]> {
         .collect()
 }
 
-/// Normal of the least-squares plane through `d` (offsets from any origin), if the points are
-/// flat enough: the smallest eigenvalue of their covariance at most a quarter of the middle one.
+/// Normal del plano de mínimos cuadrados por `d` (desplazamientos desde cualquier origen), si los
+/// puntos son suficientemente planos: el menor autovalor de su covarianza como mucho una cuarta
+/// parte del intermedio.
 fn plane_through(d: &[[f64; 3]]) -> Option<[f64; 3]> {
     if d.len() < 6 {
         return None;
@@ -654,7 +660,8 @@ fn plane_through(d: &[[f64; 3]]) -> Option<[f64; 3]> {
     Some([vecs[0][k], vecs[1][k], vecs[2][k]])
 }
 
-/// Eigenvalues and eigenvectors (as columns) of a symmetric 3×3 matrix, by Jacobi rotations.
+/// Autovalores y autovectores (como columnas) de una matriz simétrica de 3×3, por rotaciones de
+/// Jacobi.
 fn jacobi3(mut a: [[f64; 3]; 3]) -> ([f64; 3], [[f64; 3]; 3]) {
     let mut v = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
     for _ in 0..32 {
@@ -691,7 +698,8 @@ fn jacobi3(mut a: [[f64; 3]; 3]) -> ([f64; 3], [[f64; 3]; 3]) {
     ([a[0][0], a[1][1], a[2][2]], v)
 }
 
-/// Moves `source` to lie on `reference` (iterative closest point) and writes it to `output`.
+/// Mueve `source` para que quede sobre `reference` (punto más cercano iterativo) y lo escribe en
+/// `output`.
 pub fn fit_cloud(
     reference: &[PathBuf],
     source: &Path,
@@ -743,7 +751,7 @@ pub fn fit_cloud(
         Vec::new()
     };
     let r = Reader::open(source)?;
-    // the points that look for their pair: last and single returns, one per 3D cell
+    // los puntos que buscan su pareja: últimos retornos y retornos únicos, uno por celda 3D
     let mut seen: FxMap<u64, ()> = FxMap::default();
     let mut sample: Vec<[f64; 3]> = Vec::new();
     r.scan(|q| {
@@ -772,7 +780,8 @@ pub fn fit_cloud(
     let mut reach = limit;
     for it in 0..p.max_iter.max(1) {
         crate::check_cancel()?;
-        // the search narrows as the clouds come together: a grid of cells as wide as the reach
+        // la búsqueda se estrecha a medida que las nubes se juntan: una rejilla de celdas tan
+        // anchas como el alcance
         let mut cells: FxMap<u64, Vec<u32>> = FxMap::default();
         for (i, q) in flat.iter().enumerate() {
             cells
@@ -848,7 +857,7 @@ pub fn fit_cloud(
             break;
         }
         reach = (3.0 * mean).clamp(p.thin * 1.5, limit);
-        // least squares for the small motion that takes each point to its pair
+        // mínimos cuadrados para el pequeño movimiento que lleva cada punto a su pareja
         let step = if p.shift_only {
             let n = pairs.len() as f64;
             let t = (0..3)
@@ -861,7 +870,7 @@ pub fn fit_cloud(
             for (a, b, o) in &pairs {
                 let (x, y, z) = (a[0] - c0[0], a[1] - c0[1], a[2] - c0[2]);
                 let rows: Vec<([f64; 6], f64)> = if p.plane {
-                    // distance along the normal of the reference point only
+                    // distancia solo a lo largo de la normal del punto de referencia
                     let nv = normals[*o as usize];
                     if nv == [0.0; 3] {
                         continue;
@@ -890,14 +899,15 @@ pub fn fit_cloud(
                 }
             }
             if p.plane {
-                // a flat surface leaves some motions free: a light ridge keeps them at rest
+                // una superficie plana deja libres algunos movimientos: una ligera cresta los
+                // mantiene en reposo
                 let ridge = 1e-9 * (0..6).map(|i| ata[i][i]).sum::<f64>().max(1e-12);
                 for (i, row) in ata.iter_mut().enumerate() {
                     row[i] += ridge;
                 }
             }
             let Some(x) = solve(ata, atb) else { break };
-            // turn about the centre of the sample, then translate
+            // giro alrededor del centro de la muestra y luego traslación
             let rot = Rigid::small([x[0], x[1], x[2]], [0.0; 3]);
             let back = Rigid {
                 r: Rigid::ID.r,
@@ -920,7 +930,7 @@ pub fn fit_cloud(
             break;
         }
     }
-    // the whole cloud follows the motion
+    // toda la nube sigue el movimiento
     crate::paths::ensure_parent(output)?;
     let mut w = Writer::create(output, &r)?;
     let rec_len = usize::from(r.header.record_len);
@@ -942,10 +952,10 @@ pub fn fit_cloud(
         Ok(())
     })?;
     w.finish()?;
-    // the displacement of the middle of the cloud
+    // el desplazamiento del centro de la nube
     let mid = m.apply(c0);
     rep.shift = [mid[0] - c0[0], mid[1] - c0[1], mid[2] - c0[2]];
-    // angles of the final rotation (x-y-z order)
+    // ángulos de la rotación final (orden x-y-z)
     let rr = m.r;
     rep.rotation = [
         rr[2][1].atan2(rr[2][2]).to_degrees(),
@@ -974,7 +984,7 @@ pub fn fit_text(r: &FitReport, out: &Path) -> String {
 
 // ----------------------------------------------------------------------------- swaths
 
-/// Which returns count in the swath separation.
+/// Qué retornos cuentan en la separación entre pasadas.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SwathReturns {
     All,
@@ -986,18 +996,18 @@ pub enum SwathReturns {
 pub struct SwathReport {
     pub cells: usize,
     pub overlap_cells: usize,
-    /// Mean absolute difference and RMS of the differences between swaths, m.
+    /// Diferencia absoluta media y cuadrática de las diferencias entre pasadas, en m.
     pub mean_abs: f64,
     pub rms: f64,
     pub max: f64,
-    /// Share of the overlap cells whose difference passes 8 cm and 16 cm.
+    /// Proporción de las celdas de solape cuya diferencia supera 8 cm y 16 cm.
     pub over_8: f64,
     pub over_16: f64,
 }
 
-/// Height difference between flight lines: per cell, the largest gap between the mean
-/// elevations of the lines (source ids) that have points in it. Writes a GeoTIFF of the
-/// difference and returns the figures of the overlap.
+/// Diferencia de altura entre pasadas: por celda, la mayor diferencia entre las elevaciones medias
+/// de las pasadas (identificadores de fuente) que tienen puntos en ella. Escribe un GeoTIFF de la
+/// diferencia y devuelve las cifras del solape.
 pub fn swath_separation(
     inputs: &[PathBuf],
     output: &Path,
@@ -1013,19 +1023,19 @@ pub fn swath_separation(
     swath_separation_by(inputs, output, cell, returns, by)
 }
 
-/// What tells one swath from another.
+/// Qué distingue una pasada de otra.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SwathBy {
-    /// The point source ID of the points.
+    /// El identificador de fuente del punto de los puntos.
     SourceId,
-    /// Each cloud is a swath.
+    /// Cada nube es una pasada.
     Cloud,
-    /// The flight lines found from the gaps in the GPS time (seconds), when the lines have not
-    /// been written to the source ID.
+    /// Las pasadas halladas a partir de los saltos del tiempo GPS (segundos), cuando las pasadas no
+    /// se han escrito en el identificador de fuente.
     GpsGap(f64),
 }
 
-/// [`swath_separation`] with the way of telling the swaths apart chosen.
+/// [`swath_separation`] con la manera de distinguir las pasadas ya elegida.
 pub fn swath_separation_by(
     inputs: &[PathBuf],
     output: &Path,

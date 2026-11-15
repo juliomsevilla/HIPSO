@@ -41,7 +41,7 @@ Todo trabajo se puede detener con *■ Detener*, y lo que se hubiera escrito a m
 
 La interfaz se organiza en una cinta de opciones, un panel lateral, una barra de estado y un registro, y cada pieza responde a una pregunta distinta: qué se puede hacer, qué hay cargado, dónde está el cursor y qué ha ocurrido.
 
-La cinta de opciones tiene cinco pestañas fijas (*Archivo*, *Vista*, *LiDAR*, *Vectorial* y *Raster*), y a su izquierda el botón naranja *Inicio*, que abre una vista con los archivos recientes, el manual, los atajos de teclado y la información del programa. *Archivo* reúne los proyectos, los archivos recientes y la interfaz (*Registro* y *Tema claro/oscuro*); *Vectorial* tiene los grupos *Capa*, *Geometría* y *Geoprocesos*, y *Raster* los de *Operaciones*, *Geoprocesos* y *Análisis del terreno*. Al estrechar la ventana, los grupos de la derecha se pliegan en un botón con menú, así que todo sigue a un clic. Las herramientas que dependen de lo seleccionado (edición, simbología) no están en la cinta sino en el panel lateral.
+La cinta de opciones tiene seis pestañas fijas (*Archivo*, *Vista*, *LiDAR*, *Vectorial*, *Raster* y *Flujos*), y a su izquierda el botón naranja *Inicio*, que abre una vista con los archivos recientes, los ajustes, el manual, los atajos de teclado y la información del programa. *Archivo* reúne los proyectos, los archivos recientes y la interfaz (*Registro* y *Tema claro/oscuro*); *Vectorial* tiene los grupos *Capa*, *Geometría* y *Geoprocesos*, *Raster* los de *Operaciones*, *Geoprocesos* y *Análisis del terreno*, y *Flujos* los de *Flujo*, *Ejecución*, *Edición* y *Vista* (véase *El constructor de flujos*, en el capítulo 13). Al estrechar la ventana, los grupos de la derecha se pliegan en un botón con menú, así que todo sigue a un clic. Las herramientas que dependen de lo seleccionado (edición, simbología) no están en la cinta sino en el panel lateral.
 
 El panel lateral contiene *Contenido* (el mapa, con sus capas y nubes en forma de árbol), *Información* (el informe de los datos, que *⧉ Copiar todo* lleva entero al portapapeles, como también el botón derecho sobre el texto) , *Edición* y *Simbología*. *Edición* reúne todas las ediciones y depende de lo que esté seleccionado en *Contenido*: con una o varias nubes de puntos (o nada) muestra la edición de puntos (selección, edición e historial), y con una capa vectorial, su edición (capa, herramientas, selección, geometría y atributos). *Simbología* muestra cómo se dibuja la capa elegida: símbolo y etiquetas de una capa vectorial, o bandas, estirado y rampa de una imagen o un ráster. Así la cinta de *Vista* y las herramientas de edición pueden estar abiertas a la vez.
 
@@ -83,7 +83,7 @@ La ampliación a la selección (*Vista → Navegación*, *Zoom a la selección*)
 
 #### Detalle al acercar
 
-La vista dibuja una muestra uniforme de la nube, y esa muestra se queda corta cuando la ventana es pequeña. Por ese motivo el programa lee en segundo plano los puntos de la ventana a más detalle y los dibuja mientras cubran la vista, tanto en la planta como en la vista 3D (en 3D, el suelo que abarca la cámara alrededor de su objetivo, con la nube base dibujada fuera de esa zona). Funciona con cualquier LAS/LAZ, no solo con COPC: la primera vez que se abre una nube que ha habido que muestrear, el programa crea en segundo plano una copia COPC en la carpeta de caché del sistema (`~/Library/Caches/HIPSO/copc` en macOS), sin tocar el original; el registro avisa con «Preparando el detalle al acercar» y «Detalle al acercar listo». La copia se reconoce por la ruta, el tamaño y la fecha del original. Se lee de ella el nivel del octree cuyo espaciado es de un punto por píxel, hasta unos 3 millones de puntos, y se vuelve a leer cuando el zoom entra al menos 1,8 veces más. Solo ocurre cuando la ventana ocupa menos de la mitad del área de la nube. La caché guarda hasta 20 GB: pasado ese tope se borran las copias que llevan más tiempo sin usarse, nunca las de las nubes abiertas.
+La vista dibuja una muestra uniforme de la nube, y esa muestra se queda corta cuando la ventana es pequeña. Por ese motivo el programa lee en segundo plano los puntos de la ventana a más detalle y los dibuja mientras cubran la vista, tanto en la planta como en la vista 3D (en 3D, el suelo que abarca la cámara alrededor de su objetivo, con la nube base dibujada fuera de esa zona). Funciona con cualquier LAS/LAZ, no solo con COPC: la primera vez que se abre una nube que ha habido que muestrear, el programa crea en segundo plano una copia COPC en la carpeta de caché del sistema (`~/Library/Caches/HIPSO/copc` en macOS), sin tocar el original; el registro avisa con «Preparando el detalle al acercar» y «Detalle al acercar listo». La copia se reconoce por la ruta, el tamaño y la fecha del original. Se lee de ella el nivel del octree cuyo espaciado es de un punto por píxel, hasta unos 3 millones de puntos, y se vuelve a leer cuando el zoom entra al menos 1,8 veces más. Solo ocurre cuando la ventana ocupa menos de la mitad del área de la nube. La caché guarda hasta 20 GB: pasado ese tope se borran las copias que llevan más tiempo sin usarse, nunca las de las nubes abiertas. La carpeta y el tope se cambian en *Inicio → Ajustes* (véase *Ajustes*, en el capítulo 4).
 
 #### Rásteres en 3D
 
@@ -99,9 +99,9 @@ Las líneas de vuelo dejan puntos muy juntos a lo largo de la pasada y muy separ
 
 ### 4.2.1 Mapa base
 
-Se enciende y se apaga en el Explorador de capas, con la casilla de la última fila ('Mapa base'). Es un mapa de fondo que queda siempre bajo todas las capas, colocado en el sistema de coordenadas de la nube (por lo que la primera nube debe declararlo). Las fuentes son OpenStreetMap (mundial), la ortofoto PNOA y el mapa base del IGN (ambos de España), o bien otro servidor de teselas con una dirección del tipo `https://…/{z}/{x}/{y}.png`.
+Se enciende y se apaga en el Explorador de capas, con la casilla de la última fila ('Mapa base'). Es un mapa de fondo que queda siempre bajo todas las capas, colocado en el sistema de coordenadas de la nube (por lo que la primera nube debe declararlo). Las fuentes son OpenStreetMap (mundial), la ortofoto PNOA y el mapa base del IGN (ambos de España) o bien otro servidor de teselas con una dirección del tipo `https://…/{z}/{x}/{y}.png`.
 
-Las teselas se descargan en segundo plano de los servidores del proveedor (con el mapa apagado no se descarga nada), con el nombre del programa en la petición y como mucho dos descargas a la vez. Se guardan una semana en la carpeta de caché del sistema (en macOS, `~/Library/Caches/HIPSO/tiles`), por lo que se reutilizan sin conexión. El crédito del proveedor se dibuja en la esquina del mapa. Conviene respetar los términos de cada proveedor, y en particular OpenStreetMap no admite descargas masivas.
+Las teselas se descargan en segundo plano de los servidores del proveedor (con el mapa apagado no se descarga nada), con el nombre del programa en la petición y como mucho dos descargas a la vez. Se guardan una semana en la carpeta de caché del sistema (en macOS, `~/Library/Caches/HIPSO/tiles`), por lo que se reutilizan sin conexión; *Inicio → Ajustes → Borrar caché* las elimina. El crédito del proveedor se dibuja en la esquina del mapa. Conviene respetar los términos de cada proveedor, y en particular OpenStreetMap no admite descargas masivas.
 
 ### 4.2.2 Capas en otros sistemas de coordenadas
 
@@ -139,6 +139,12 @@ Tiene el *Ancho* de la caja, la *Cuadrícula* de cotas, el *Tamaño* de sus punt
 #### Vista → Herramientas
 
 Agrupa, en botones pequeños, *Densidad*, *Perfil*, *Medir*, *TIN* y *Curvas de nivel* (*Consultar* está en *Navegación*); el engranaje junto a *TIN* abre la equidistancia y las clases del TIN.
+
+### Ajustes
+
+*Inicio → Ajustes* reúne lo que el programa guarda en el disco para ir más deprisa. Hoy es la **caché**: las copias COPC con el detalle de las nubes grandes (la primera apertura las crea en segundo plano y las siguientes las encuentran) y las teselas descargadas del mapa base. La página muestra la *carpeta de la caché* (que se escribe, se elige con *Elegir carpeta…* o se devuelve a la de siempre con *Por defecto*), el *tamaño máximo de las copias* en gigabytes (20 GB por defecto; al superarlo se borran las copias que más tiempo llevan sin usarse, y las de las nubes abiertas se respetan) y lo que ocupan ahora las copias y las teselas.
+
+*Borrar caché…* abre un aviso que explica lo que implica antes de borrar nada: los archivos originales, los proyectos y los resultados no se tocan, y lo único que cambia es que la copia de una nube grande tarda de nuevo en prepararse la próxima vez que se abra, y que el mapa base vuelve a descargarse. Las copias de las nubes abiertas en ese momento se conservan, y no se puede deshacer. Cambiar de carpeta no mueve las copias que ya existen (se rehacen en la nueva al abrir las nubes), y en una carpeta elegida por el usuario el programa solo borra sus propios archivos (`*.copc.laz` y las copias a medio escribir), nunca otros que haya en ella. Los ajustes se guardan en el archivo de preferencias; la variable `HIPSO_CACHE_DIR` sigue fijando la carpeta por defecto, y lo elegido en la página tiene preferencia sobre ella.
 
 ## 5. Herramientas de consulta
 
@@ -1127,6 +1133,12 @@ Admite **cualquier número de rásteres a la vez** (se han probado cuatro, con h
 
 La expresión se compila una vez y se evalúa por franjas de filas en paralelo, de modo que la memoria sigue a una franja y no al ráster, y un error de la expresión dice en qué columna está. Se escribe `…_calc.tif`. En la línea de comandos: `hipso calc "if(A > 0, A - B, 0)" A=chm_2020.tif B=chm_2015.tif`.
 
+### Análisis ráster
+
+Cuatro herramientas del grupo *Geoprocesos* de la pestaña *Raster* abren la misma ventana genérica (la que se genera a partir de la orden de la línea de comandos, con las mismas opciones y la ayuda de cada una).
+
+*Rasterizar* convierte una capa vectorial en un GeoTIFF: cada celda recibe el valor del campo elegido del último elemento que la cubre, o 1 si no se indica campo. Las celdas se toman de un ráster de referencia (`--reference`) o de un tamaño de celda (`--cell`). Sirve para llevar rodales o parcelas a la calculadora ráster. *Filtro focal* sustituye cada celda por la media, la mediana, el mínimo, el máximo, la suma, el rango, la desviación típica, la mayoría o un suavizado gaussiano de las celdas de una ventana a su alrededor (cuadrada o circular, de radio `--radius` en celdas); con `--min-valid` se deja vacía la celda que tiene menos vecinas con valor de las indicadas. *Estadísticas ráster* da el recuento, el mínimo, el máximo, la media, la desviación, la mediana y los percentiles de las celdas con valor, y escribe el histograma en un CSV (`--bins` intervalos). *Tabular áreas* mide el área de cada clase de un ráster (`--values`) dentro de cada zona de otro, como tabla CSV. En la línea de comandos son `hipso rasterize`, `focal`, `rstats` y `tabulate`.
+
 ### Vectorizar un ráster
 
 Convierte un ráster en polígonos. Forman un polígono las celdas contiguas que comparten una clase (el mismo valor entero, que es lo normal), que caen en un rango de valores (`--range desde,hasta`) o que están entre dos cortes (`--breaks 0,5,10`, con un polígono por intervalo). El contorno sigue los bordes de las celdas, o se simplifica con *Simplificar* (`--simplify`, en unidades del mapa; 0 conserva los escalones).
@@ -1157,6 +1169,12 @@ Cada una de las demás operaciones tiene su propia ventana (*Comprobar validez* 
 
 En la misma ventana: *Diferencia* quita de la primera capa lo que cubre la segunda (las piezas conservan los campos de la primera), *Diferencia simétrica* deja lo que está solo en una de las dos (lo de la segunda con sus campos precedidos por `b_`), *Centroides* y *Puntos en la superficie* dan una capa de puntos con los atributos de cada elemento (el punto en la superficie cae siempre dentro del polígono, aunque sea cóncavo o tenga huecos, y el centroide no), y *Unir atributos por localización* copia a cada elemento de la primera capa los campos de los elementos de la segunda que intersectan, contiene, tocan o cruzan (el primer coincidente, o la suma y la media de los campos numéricos), con el campo `n_coinc` que cuenta cuántos coinciden. Diferencia y diferencia simétrica exigen polígonos válidos, como las demás operaciones booleanas.
 
+#### Capas y tablas
+
+El grupo *Capas y tablas* de la pestaña *Vectorial* reúne siete herramientas que, como las de análisis ráster, abren una ventana generada a partir de la orden de la línea de comandos, y que también son nodos del constructor de flujos. Las capas deben estar en el mismo sistema de coordenadas que los rásteres y capas con que se combinan, y si no, el programa lo avisa en lugar de mezclarlas.
+
+*Extraer valores* añade a una capa un campo por banda de uno o varios rásteres, con el valor bajo cada elemento (en el punto, o en un punto interior de la línea o del polígono; con `--bilinear` se interpola entre las cuatro celdas más cercanas). *Unir tabla* añade a una capa las columnas de una tabla CSV, de texto o de Excel por un campo clave (`--layer-key` y `--table-key`), y reconoce la coma decimal. *Combinar capas* junta capas del mismo tipo de geometría en una, con la unión de sus campos y, si se pide, un campo con el archivo de origen de cada elemento. *Dividir por campo* escribe una capa por cada valor distinto de un campo, por ejemplo un archivo por rodal. *Recortar capa* conserva de una capa de puntos, líneas o polígonos lo que cae dentro de los polígonos de otra, o con `--erase` lo que cae fuera; cada pieza conserva los atributos de su elemento y el que no deja nada se descarta. *Cercanía* añade la distancia al elemento más cercano de otra capa, su número de orden y, si se pide, uno de sus campos. *Resumen estadístico* calcula el recuento, la suma, la media, el mínimo, el máximo y la desviación de campos numéricos de una capa o tabla, por grupos de un campo. En la línea de comandos son `hipso extract`, `join-table`, `merge`, `split`, `clip-vector`, `near` y `summary`.
+
 #### Voronoi
 
 *Voronoi* (en *Vectorial → Geoprocesos*, y `hipso voronoi` en la línea de comandos) toma una capa de puntos y da una capa de polígonos con la celda de Voronoi de cada punto, es decir, la zona que está más cerca de él que de ningún otro, con los atributos del punto. Sirve, por ejemplo, para repartir el territorio entre estaciones o para medir el área que le toca a cada árbol.
@@ -1172,6 +1190,20 @@ Con una capa de polígonos en edición y *Digitalizar* activo, un trazo que empi
 ### Unir, separar y agrupar
 
 En el panel *Edición* con una capa vectorial elegida, *Unir seleccionados* une los polígonos seleccionados en uno solo (el resultado ocupa el lugar y conserva los atributos del primero; si no se tocan, queda un elemento de varias partes). *Separar partes* convierte cada parte de un elemento de varias partes en un elemento propio, con los mismos atributos, y *Agrupar en multiparte* hace lo contrario sin unir la geometría. Todo se puede deshacer.
+
+### Transformar, reformar, copiar y comprobar
+
+Con una capa vectorial en edición, el panel *Edición* ofrece además las herramientas siguientes.
+
+*Ajustar a bordes* es una casilla junto a *Ajustar a vértices*: al digitalizar o mover vértices, el punto salta a la posición más cercana de un borde de cualquier capa visible, aunque en ese lugar no haya un vértice. Si hay un vértice a tiro, manda sobre el borde.
+
+*Transformar selección* abre una ventana para desplazar, girar y escalar los elementos seleccionados. El giro (en grados, en sentido antihorario) y la escala se aplican alrededor del centro de la selección entera, de modo que los elementos conservan su disposición, y el desplazamiento va en las unidades de la capa. Se puede deshacer.
+
+*Reformar* vale para capas de polígonos y actúa con *Digitalizar*. Un trazo que cruza el contorno de un polígono al menos dos veces sustituye el tramo de borde más corto entre el primer y el último cruce por el trazo: si pasa por dentro, corta una esquina, y si sale y vuelve a entrar, añade un saliente. Se reforman los polígonos seleccionados o, si no hay selección, los que toca el trazo. Mientras el botón está activo, el trazo nunca crea un polígono nuevo.
+
+*Copiar* guarda los elementos seleccionados con sus atributos, *Pegar* los añade a la capa activa y *Pegar como capa* crea con ellos una capa nueva. Solo se pega en una capa del mismo tipo de geometría, y los campos se emparejan por nombre sin distinguir mayúsculas: los que la capa de destino no tiene se descartan y los que la copia no trae quedan vacíos.
+
+*Comprobar topología* abre una ventana que revisa la capa activa. En polígonos busca los **solapes** (superficie común a dos polígonos), los **huecos** (zonas rodeadas de polígonos que ninguno cubre) y las **autointersecciones** (contornos que se cruzan consigo mismos); en líneas, los **cabos sueltos**, es decir, extremos que no tocan ningún otro extremo ni línea. La tolerancia fija la superficie mínima que cuenta como solape o hueco y, en líneas, la distancia a la que dos extremos se tienen por unidos. Pulsar un incumplimiento de la lista selecciona los elementos implicados y acerca el mapa. En la línea de comandos, `hipso topology capa.shp` escribe el informe en un CSV (regla, elementos, coordenadas y superficie).
 
 ### Seleccionar por localización
 
@@ -1331,6 +1363,16 @@ El quinto paso calcula las métricas de toda la superficie: *Métricas por celda
 
 Hay tres cautelas finales. Las unidades de muestreo y la cobertura LiDAR deben ser de fechas próximas (la columna `Date` ayuda a comprobarlo). La unidad de muestreo debe tener el tamaño de la celda. Y conviene excluir las celdas con menos de unos cientos de puntos, las que tienen agua o edificios y las que caen en el borde de las hojas.
 
+### El constructor de flujos
+
+Encadenar a mano los pasos de un inventario (clasificar, MDT, CHM, árboles, métricas) obliga a repetirlos con cada zona. La pestaña *Flujos* los dibuja como un grafo: cada herramienta es un **nodo**, cada archivo que una produce y otra consume es un **hilo**, y el flujo entero se guarda en un archivo `.model.json` que se vuelve a ejecutar sobre otros datos.
+
+A la izquierda está la paleta, con las herramientas agrupadas como en la cinta y un buscador, y las entradas (*Archivo…*, *Carpeta de hojas…* y *Del mapa…*, que toma una capa o nube ya cargada). Un clic añade un nodo en el centro del lienzo. Cada herramienta muestra como **puertos** sus opciones que reciben archivos (la nube, el MDT, el polígono…), con un asterisco los obligatorios; se arrastra desde el puerto de salida de un nodo hasta uno de entrada para conectarlos, y solo se iluminan los puertos que admiten lo que el nodo produce (una herramienta ráster no recibe lo que produce una vectorial). Una entrada que recibe varios archivos, como una carpeta de hojas, ejecuta la herramienta una vez por archivo cuando la opción solo admite uno. A la derecha, el nodo seleccionado muestra sus opciones (las mismas de la línea de comandos, con su ayuda, y las poco usadas plegadas en *Más opciones*) y, sin ningún nodo seleccionado, la carpeta de resultados y si se abren en el mapa al terminar. En el lienzo se desplaza arrastrando el fondo, se acerca con Ctrl y la rueda o con el gesto de pellizco, y *Ordenar* coloca los nodos en columnas según su distancia a las entradas y *Encuadrar* los pone todos a la vista. Supr quita lo seleccionado, Ctrl+D lo duplica y Ctrl+Z y Ctrl+Y deshacen y rehacen.
+
+La **estrella** de la cabecera de cada nodo marca los resultados que se conservan; los de los demás nodos son intermedios y se borran en cuanto nadie los necesita. Bajo el lienzo se listan los **problemas** a medida que se construye (un bucle, una entrada sin archivo, una opción obligatoria vacía, un hilo entre tipos que no encajan), y *Ejecutar* no empieza hasta que no queda ninguno. La ejecución es en segundo plano: cada nodo muestra su estado (naranja en curso, verde hecho, rojo con error), *Cancelar* detiene el proceso en marcha y, si un paso falla o se cancela, se borra todo lo que esa ejecución había escrito, sin dejar medio resultado. Los resultados conservados van a la carpeta elegida, cada nodo en una carpeta con su nombre y sin sobrescribir nunca una existente (si el nombre ya está, se usa `_2`), y se abren en el mapa si así se pidió. El flujo en que se trabaja se guarda solo y se recupera al volver a abrir el programa.
+
+Cada nodo ejecuta el programa `hipso` con las opciones del nodo, de modo que un flujo hace exactamente lo que harían los mismos comandos escritos uno tras otro. Por eso un flujo también se ejecuta sin interfaz: `hipso run flujo.model.json` (con `--input nombre=ruta` para cambiar un nodo de entrada por nombre, y `--results-dir` para la carpeta de resultados) y `hipso model-validate flujo.model.json`, que lista lo que impide ejecutarlo. Un archivo de flujo solo puede nombrar órdenes de `hipso` y sus opciones (nunca una orden de shell ni otro programa), así que ejecutar el flujo de otra persona no ejecuta nada distinto de lo que `hipso` sabe hacer. Las ayudas de las opciones salen del propio programa, de modo que una orden nueva de `hipso` aparece sola en la paleta.
+
 ## 14. Línea de comandos
 
 `hipso` hace lo mismo que la interfaz, por lotes, y con `--help` se ve la lista completa de comandos y de opciones.
@@ -1342,6 +1384,8 @@ hipso classify nube.laz --ground csf --noise isolated --buildings --vegetation
 hipso dtm nube.laz --cell 1 --surface tin
 hipso dsm nube.laz --cell 0.5 --method tin
 hipso chm nube.laz --cell 0.5 --method pitfree
+hipso run flujo.model.json --input Nube=hoja.laz --results-dir resultados
+hipso model-validate flujo.model.json
 hipso terrain mdt.tif --product slope --percent
 hipso terrain mdt.tif --product streams --threshold 10000
 hipso terrain mdt.tif --product viewshed --observer 504000 4405000 --max-distance 2000

@@ -1,10 +1,10 @@
-//! Moves clouds, rasters and regions from one coordinate system to another, with the
-//! transformations of `hipso-crs` (the datum shift grids of Spain are built in).
+//! Lleva nubes, rásteres y regiones de un sistema de coordenadas a otro, con las transformaciones
+//! de `hipso-crs` (las rejillas de ajuste de datum de España están incorporadas).
 //!
-//! Heights change only when a vertical reference is asked for (see [`Vertical`]): then they go
-//! through the geoid model of the pair, as the transformation of `hipso-crs` picks it. Without it
-//! they are kept as they are. Approximations (no datum shift, no geoid for the point, a lesser
-//! operation because a grid is missing) are refused by default; see [`Policy`].
+//! Las alturas cambian solo cuando se pide una referencia vertical (véase [`Vertical`]): entonces
+//! pasan por el modelo de geoide del par, como lo elige la transformación de `hipso-crs`. Sin ella
+//! se conservan tal como están. Las aproximaciones (sin ajuste de datum, sin geoide para el punto,
+//! una operación inferior porque falta una rejilla) se rechazan por defecto; véase [`Policy`].
 
 use std::path::{Path, PathBuf};
 
@@ -18,7 +18,7 @@ use crate::las::{self, Reader, Writer};
 use crate::vector::{Polygon, Region, Shape2};
 use crate::{Error, Result};
 
-/// The transformer between two EPSG codes.
+/// El transformador entre dos códigos EPSG.
 pub fn transformer(from: u16, to: u16) -> Result<Transformer> {
     let parse = |c: u16| {
         SpatialRef::parse(&format!("EPSG:{c}"))
@@ -28,17 +28,18 @@ pub fn transformer(from: u16, to: u16) -> Result<Transformer> {
         .map_err(|e| Error::Param(format!("no se puede pasar de EPSG:{from} a EPSG:{to}: {e}")))
 }
 
-/// A vertical reference of heights.
+/// Una referencia vertical de alturas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerticalRef {
-    /// Height above the ellipsoid of the horizontal datum (what GNSS gives).
+    /// Altura sobre el elipsoide del datum horizontal (lo que da el GNSS).
     Ellipsoidal,
-    /// A vertical CRS by EPSG code (5782: REDNAP orthometric heights; 3855: EGM2008 height).
+    /// Un sistema vertical por código EPSG (5782: alturas ortométricas REDNAP; 3855: altura
+    /// EGM2008).
     Epsg(u16),
 }
 
 impl VerticalRef {
-    /// `ellipsoidal` (or `ell`), or an EPSG code (`5782`, `EPSG:5782`).
+    /// `ellipsoidal` (o `ell`) o un código EPSG (`5782`, `EPSG:5782`).
     pub fn parse(s: &str) -> Result<Self> {
         let t = s.trim();
         if t.eq_ignore_ascii_case("ellipsoidal") || t.eq_ignore_ascii_case("ell") {
@@ -55,15 +56,15 @@ impl VerticalRef {
     }
 }
 
-/// The vertical references of a height change: the one the data is in and the one to give them.
-/// With `output` unset heights are left as they are.
+/// Las referencias verticales de un cambio de alturas: aquella en la que están los datos y aquella
+/// que se les da. Con `output` sin fijar, las alturas se dejan como están.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Vertical {
     pub input: Option<VerticalRef>,
     pub output: Option<VerticalRef>,
 }
 
-/// A transformer with heights: the horizontal codes, plus the vertical ones when given.
+/// Un transformador con alturas: los códigos horizontales más los verticales cuando se dan.
 pub fn transformer_3d(from: u16, to: u16, v: Vertical) -> Result<Transformer> {
     let parse = |h: u16, v: Option<VerticalRef>| {
         let spec = spec_of(h, v);
@@ -92,15 +93,15 @@ fn spec_of(h: u16, v: Option<VerticalRef>) -> String {
     }
 }
 
-/// What a cloud reprojection did.
+/// Lo que hizo una reproyección de una nube.
 #[derive(Debug, Clone, Default)]
 pub struct CloudReport {
     pub read: u64,
-    /// Points outside the domain of the target projection.
+    /// Puntos fuera del dominio de la proyección de destino.
     pub dropped: u64,
-    /// How many points went through each approximation the policy accepted.
+    /// Cuántos puntos pasaron por cada aproximación que aceptó la política.
     pub approximated: Vec<(Approximation, u64)>,
-    /// Sentences for the report.
+    /// Frases para el informe.
     pub notes: Vec<String>,
 }
 
@@ -108,15 +109,16 @@ fn geographic(code: u16) -> bool {
     (4000..5000).contains(&code)
 }
 
-/// Writes `src` in the system `to`, with the points' order, attributes and records unchanged.
-/// Points that cannot be transformed are dropped; how many were read and dropped is returned.
+/// Escribe `src` en el sistema `to`, con el orden, los atributos y los registros de los puntos sin
+/// cambios. Los puntos que no se pueden transformar se descartan; se devuelve cuántos se leyeron y
+/// cuántos se descartaron.
 pub fn cloud(src: &Path, dst: &Path, from: u16, to: u16) -> Result<(u64, u64)> {
     let r = cloud_with(src, dst, from, to, Vertical::default(), Policy::from_env())?;
     Ok((r.read, r.dropped))
 }
 
-/// [`cloud`] with a height change and a policy. A point the policy refuses stops the whole
-/// operation with an error (a refusal is never a silently dropped point).
+/// [`cloud`] con un cambio de alturas y una política. Un punto que la política rechaza detiene toda
+/// la operación con un error (un rechazo nunca es un punto descartado en silencio).
 pub fn cloud_with(
     src: &Path,
     dst: &Path,
@@ -147,7 +149,7 @@ pub fn cloud_with(
         } else {
             notes.push("la nube no declara referencia vertical: las alturas no se tocan".into());
         }
-        // heights stay: no vertical CRS on either side
+        // las alturas se quedan: ninguna referencia vertical en ningún lado
         vertical.input = None;
     }
     let t = transformer_3d(from, to, vertical)?;
@@ -156,15 +158,17 @@ pub fn cloud_with(
     let (x0, y0, x1, y1) = flat
         .transform_bounds((b[0], b[1], b[3], b[4]))
         .map_err(|e| Error::Param(format!("la nube cae fuera del sistema EPSG:{to}: {e}")))?;
-    // stored relative to a round value near the middle, as the new coordinates are far from the old
+    // guardado relativo a un valor redondo cerca del medio, pues las coordenadas nuevas están lejos
+    // de las antiguas
     let round = |v: f64| (v / 1000.0).round() * 1000.0;
     let offset = [
         round((x0 + x1) / 2.0),
         round((y0 + y1) / 2.0),
         r.header.offset[2],
     ];
-    // LAS 1.4 point formats 6 and above carry the system as WKT, which holds the compound
-    // system; the older formats declare the vertical reference in the GeoTIFF keys
+    // Los formatos de punto LAS 1.4 del 6 en adelante llevan el sistema como WKT, que contiene el
+    // sistema compuesto; los formatos más antiguos declaran la referencia vertical en las claves
+    // GeoTIFF
     let vertical_code = match vertical.output {
         Some(VerticalRef::Epsg(v)) => Some(v),
         _ => None,
@@ -175,7 +179,7 @@ pub fn cloud_with(
     let out = Reader::open(src)?;
     let out = match compound {
         Some(wkt) => {
-            // bit 4 of the global encoding: the coordinate system is WKT
+            // bit 4 de la codificación global: el sistema de coordenadas es WKT
             out.with_projection(&las::wkt_record(&wkt), 1, Some(to), Some(wkt))
                 .with_global_encoding_bits(0x10)
         }
@@ -260,19 +264,19 @@ pub fn cloud_with(
     })
 }
 
-/// The clouds of a work, all in the system of the first one that declares it.
+/// Las nubes de un trabajo, todas en el sistema de la primera que lo declara.
 #[derive(Debug, Default)]
 pub struct ProjectClouds {
-    /// The files to load: the originals, or their converted copies, in order and without repeats.
+    /// Los archivos que cargar: los originales o sus copias convertidas, en orden y sin repetidos.
     pub files: Vec<PathBuf>,
-    /// What happened, for the log.
+    /// Lo que ocurrió, para el registro.
     pub notes: Vec<String>,
-    /// How many files had to be converted (or found already converted).
+    /// Cuántos archivos hubo que convertir (o se encontraron ya convertidos).
     pub moved: usize,
 }
 
-/// The system the work is in, and how many of `paths` are in another one (so the caller can say
-/// that loading will take longer before it starts). Geographic clouds count too.
+/// El sistema en que está el trabajo y cuántos de `paths` están en otro (para que quien llama pueda
+/// decir que la carga tardará más antes de empezar). Las nubes geográficas también cuentan.
 pub fn clouds_in_other_system(paths: &[PathBuf]) -> (Option<u16>, usize) {
     let epsgs: Vec<Option<u16>> = paths.iter().map(|p| crate::crs::epsg_of(p)).collect();
     let target = epsgs.iter().flatten().next().copied();
@@ -287,10 +291,10 @@ pub fn clouds_in_other_system(paths: &[PathBuf]) -> (Option<u16>, usize) {
     (target, n)
 }
 
-/// Puts the clouds in the system of the first one that declares it. Those in another system are
-/// converted into a LAZ copy next to them (`<name>_epsg<code>.laz`, in the results folder), which
-/// later loads find ready as long as it is newer than the original. Clouds that cannot be
-/// converted are left out, and the notes say why.
+/// Pone las nubes en el sistema de la primera que lo declara. Las que están en otro sistema se
+/// convierten en una copia LAZ junto a ellas (`<nombre>_epsg<código>.laz`, en la carpeta de
+/// resultados), que las cargas posteriores encuentran lista mientras sea más reciente que el
+/// original. Las nubes que no se pueden convertir se dejan fuera, y las notas dicen por qué.
 pub fn project_clouds(paths: &[PathBuf]) -> ProjectClouds {
     let mut out = ProjectClouds::default();
     let (target, _) = clouds_in_other_system(paths);
@@ -373,7 +377,7 @@ pub fn project_clouds(paths: &[PathBuf]) -> ProjectClouds {
     out
 }
 
-/// The grid in the system `to`, if it is in another one (`from`): `None` when there is nothing to do.
+/// La rejilla en el sistema `to`, si está en otro (`from`): `None` cuando no hay nada que hacer.
 pub fn grid_if_needed(g: &Grid, from: Option<u16>, to: Option<u16>) -> Result<Option<Grid>> {
     match (from, to) {
         (Some(f), Some(t)) if crate::crs::relation(t, f) == crate::crs::Relation::Different => {
@@ -383,10 +387,10 @@ pub fn grid_if_needed(g: &Grid, from: Option<u16>, to: Option<u16>) -> Result<Op
     }
 }
 
-/// The system a cloud that declares none is probably in, from where a layer of a known system
-/// lies: `None` when the layer already overlaps the cloud as it is (they share a system), else
-/// the first of `candidates` in which the layer does overlap it. Bounds are min x, min y,
-/// max x, max y.
+/// El sistema en el que probablemente está una nube que no declara ninguno, a partir de dónde cae
+/// una capa de sistema conocido: `None` cuando la capa ya se solapa con la nube tal como está
+/// (comparten sistema) o, si no, el primero de `candidates` en el que la capa sí se solapa. Los
+/// límites son x mínima, y mínima, x máxima, y máxima.
 pub fn guess_system(layer: [f64; 4], from: u16, target: [f64; 4], candidates: &[u16]) -> Option<u16> {
     let overlap = |a: [f64; 4], b: [f64; 4]| a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
     if !layer.iter().all(|v| v.is_finite()) || overlap(layer, target) {
@@ -412,7 +416,7 @@ pub fn guess_system(layer: [f64; 4], from: u16, target: [f64; 4], candidates: &[
     })
 }
 
-/// Moves the vertices of a vector layer to the system `to`; the bounds are worked out again.
+/// Lleva los vértices de una capa vectorial al sistema `to`; los límites se vuelven a calcular.
 pub fn vector_data(d: &mut crate::view::VectorData, from: u16, to: u16) -> Result<()> {
     let t = transformer(from, to)?;
     let mut b = [
@@ -436,7 +440,8 @@ pub fn vector_data(d: &mut crate::view::VectorData, from: u16, to: u16) -> Resul
     Ok(())
 }
 
-/// A raster holding only whole numbers (classes, labels) must not be blurred by interpolation.
+/// Un ráster que solo contiene números enteros (clases, etiquetas) no debe difuminarse con la
+/// interpolación.
 fn categorical(g: &Grid) -> bool {
     let step = (g.data.len() / 20_000).max(1);
     g.data
@@ -445,17 +450,17 @@ fn categorical(g: &Grid) -> bool {
         .all(|v| v.is_nan() || v.fract() == 0.0)
 }
 
-/// The raster in the system `to`: the same cell size when the units agree (to 1%: between UTM
-/// zones the scale differs by a few parts per thousand, and round cells are worth that), the
-/// cells aligned on multiples of it, values interpolated (or taken from the nearest cell, for
-/// rasters of whole numbers).
+/// El ráster en el sistema `to`: el mismo tamaño de celda cuando las unidades coinciden (al 1 %:
+/// entre zonas UTM la escala difiere en unas pocas partes por mil, y las celdas redondas valen
+/// eso), las celdas alineadas en múltiplos de él, los valores interpolados (o tomados de la celda
+/// más cercana, para rásteres de números enteros).
 pub fn grid(g: &Grid, from: u16, to: u16) -> Result<Grid> {
     let (b, cell) = target_frame_of([g.x0, g.y0, g.cell], g.cols, g.rows, from, to)?;
     grid_onto(g, from, to, Grid::covering(b, cell)?)
 }
 
-/// The extent `[x0, y0, x1, y1]` and the cell of the raster that [`grid`] makes from one whose
-/// lower left corner and cell are `origin` and that has `cols` x `rows` cells.
+/// La extensión `[x0, y0, x1, y1]` y la celda del ráster que [`grid`] hace a partir de uno cuya
+/// esquina inferior izquierda y celda son `origin` y que tiene `cols` x `rows` celdas.
 pub(crate) fn target_frame_of(
     origin: [f64; 3],
     cols: usize,
@@ -469,7 +474,7 @@ pub(crate) fn target_frame_of(
     let (x0, y0, x1, y1) = fwd
         .transform_bounds((gx0, gy0, gx0 + w, gy0 + h))
         .map_err(|e| Error::Param(format!("el ráster cae fuera del sistema EPSG:{to}: {e}")))?;
-    // the cell of the new system: the old one's size where the two systems share units
+    // la celda del sistema nuevo: el tamaño de la antigua donde los dos sistemas comparten unidades
     let (cx, cy) = (gx0 + w / 2.0, gy0 + h / 2.0);
     let (ax, ay) = fwd
         .transform(cx, cy)
@@ -486,9 +491,10 @@ pub(crate) fn target_frame_of(
     Ok(([x0, y0, x1, y1], cell))
 }
 
-/// A raster (all its bands) in the system `to`, in strips of rows whatever its size (see
-/// [`crate::rastertools::warp`]). `resample` and `cell` default to what suits the data and the
-/// units. The policy is applied to the corners and the centre of the raster. Heights are not touched.
+/// Un ráster (todas sus bandas) en el sistema `to`, en franjas de filas sea cual sea su tamaño
+/// (véase [`crate::rastertools::warp`]). `resample` y `cell` toman por defecto lo que conviene a
+/// los datos y a las unidades. La política se aplica a las esquinas y al centro del ráster. Las
+/// alturas no se tocan.
 pub fn raster_file(
     input: &Path,
     output: &Path,
@@ -530,11 +536,12 @@ pub fn raster_file(
     warp(&job)
 }
 
-/// The raster in the system `to` with its values (heights) in another vertical reference. Without
-/// a height change this is [`grid`]. `from` and `to` may be the same: then only the heights change.
+/// El ráster en el sistema `to` con sus valores (alturas) en otra referencia vertical. Sin cambio
+/// de alturas esto es [`grid`]. `from` y `to` pueden ser el mismo: entonces solo cambian las
+/// alturas.
 ///
-/// The policy is applied to the horizontal operation at the corners and the centre of the raster,
-/// and to the height of every cell. A refusal stops the operation with an error.
+/// La política se aplica a la operación horizontal en las esquinas y el centro del ráster y a la
+/// altura de cada celda. Un rechazo detiene la operación con un error.
 pub fn grid_with(
     g: &Grid,
     from: u16,
@@ -607,13 +614,14 @@ pub fn grid_with(
     Ok(out)
 }
 
-/// The raster on the cells of `onto` (an empty grid, in the system `to`): what a model must be
-/// to be combined cell by cell with another one.
+/// El ráster sobre las celdas de `onto` (una rejilla vacía, en el sistema `to`): lo que debe ser un
+/// modelo para combinarse celda a celda con otro.
 pub fn grid_onto(g: &Grid, from: u16, to: u16, out: Grid) -> Result<Grid> {
     grid_onto_with(g, from, to, out, categorical(g))
 }
 
-/// [`grid_onto`] saying whether to take the nearest cell (rasters of whole numbers) or interpolate.
+/// [`grid_onto`] diciendo si se toma la celda más cercana (rásteres de números enteros) o se
+/// interpola.
 fn grid_onto_with(g: &Grid, from: u16, to: u16, mut out: Grid, nearest: bool) -> Result<Grid> {
     let inv = transformer(to, from)?;
     let cols = out.cols;
@@ -630,7 +638,7 @@ fn grid_onto_with(g: &Grid, from: u16, to: u16, mut out: Grid, nearest: bool) ->
                         let got = if nearest {
                             g.index(sx, sy).and_then(|i| g.data.get(i).copied())
                         } else {
-                            // `sample` clamps to the edge: outside the raster there is no value
+                            // `sample` limita al borde: fuera del ráster no hay valor
                             g.index(sx, sy).and_then(|_| g.sample(sx, sy))
                         };
                         got.filter(|v| !v.is_nan()).unwrap_or(f32::NAN)
@@ -642,13 +650,13 @@ fn grid_onto_with(g: &Grid, from: u16, to: u16, mut out: Grid, nearest: bool) ->
     Ok(out)
 }
 
-/// Writes `input` (a cloud or a raster) in the system `to`. `from` says what the file is in when
-/// it does not declare it. Returns a line for the report.
+/// Escribe `input` (una nube o un ráster) en el sistema `to`. `from` dice en qué está el archivo
+/// cuando no lo declara. Devuelve una línea para el informe.
 pub fn file(input: &Path, output: &Path, to: u16, from: Option<u16>) -> Result<String> {
     file_with(input, output, to, from, Vertical::default(), Policy::from_env())
 }
 
-/// [`file`] with a height change and a policy (see [`Vertical`] and [`Policy`]).
+/// [`file`] con un cambio de alturas y una política (véanse [`Vertical`] y [`Policy`]).
 pub fn file_with(
     input: &Path,
     output: &Path,
@@ -722,8 +730,9 @@ pub fn file_with(
     ))
 }
 
-/// The regions in the system `to`. Rectangles become polygons (they are no longer axis-aligned);
-/// a circle keeps its centre's image and its radius, whose distortion is parts per thousand.
+/// Las regiones en el sistema `to`. Los rectángulos pasan a ser polígonos (ya no están alineados
+/// con los ejes); un círculo conserva la imagen de su centro y su radio, cuya distorsión es de
+/// partes por mil.
 pub fn regions(list: &[Region], from: u16, to: u16) -> Result<Vec<Region>> {
     let t = transformer(from, to)?;
     let bad = |e: hipso_crs::Error| {
@@ -792,13 +801,13 @@ mod tests {
 
     #[test]
     fn a_layer_in_degrees_is_placed_over_a_cloud_with_no_system() {
-        // a layer around Santiago (ETRS89 geographic) and a tile in UTM 29N
+        // una capa alrededor de Santiago (ETRS89 geográfico) y una tesela en UTM 29N
         let layer = [-8.6, 42.8, -8.5, 42.9];
         let tile = [530_000.0, 4_745_000.0, 540_000.0, 4_755_000.0];
         assert_eq!(guess_system(layer, 4258, tile, &[25829, 25830]), Some(25829));
-        // already over the cloud as it is: nothing to do
+        // ya sobre la nube tal como está: nada que hacer
         assert_eq!(guess_system(tile, 25829, tile, &[25829, 25830]), None);
-        // nowhere near it
+        // ni de lejos cerca de ella
         assert_eq!(guess_system([10.0, 50.0, 11.0, 51.0], 4258, tile, &[25829, 25830]), None);
     }
 
@@ -808,7 +817,7 @@ mod tests {
         Ok(d)
     }
 
-    /// A LAS 1.2 file of format 1 with the points, declared to be in `epsg`.
+    /// Un archivo LAS 1.2 de formato 1 con los puntos, declarado en `epsg`.
     fn write_las(path: &Path, pts: &[[f64; 3]], epsg: u16) -> Result<()> {
         let mut h = vec![0u8; 227];
         h[..4].copy_from_slice(b"LASF");
@@ -826,7 +835,7 @@ mod tests {
                 hi[k] = hi[k].max(p[k]);
             }
         }
-        // offset near the points, scale 1 mm
+        // desplazamiento cerca de los puntos, escala 1 mm
         let off = [
             (lo[0] / 1000.0).floor() * 1000.0,
             (lo[1] / 1000.0).floor() * 1000.0,
@@ -876,7 +885,7 @@ mod tests {
         Ok(())
     }
 
-    /// A LAS 1.4 file of point format 6, without a projection, with the points.
+    /// Un archivo LAS 1.4 de formato de punto 6, sin proyección, con los puntos.
     fn write_las14(path: &Path, pts: &[[f64; 3]]) -> Result<()> {
         let mut h = vec![0u8; 375];
         h[..4].copy_from_slice(b"LASF");
@@ -939,7 +948,7 @@ mod tests {
         assert_eq!((out.header.epsg, out.header.vertical_epsg), (Some(25830), Some(5782)));
         let wkt = out.meta.wkt.clone().unwrap_or_default();
         assert!(wkt.starts_with("COMPD_CS["), "{wkt}");
-        // the WKT bit of the global encoding is set, and no GeoTIFF keys are left
+        // el bit WKT de la codificación global está activado y no quedan claves GeoTIFF
         assert_eq!(out.meta.global_encoding & 0x10, 0x10);
         assert!(out.projection_records().0.windows(14).all(|w| w != b"GeoKeyDirector"));
         std::fs::remove_dir_all(&d)?;
@@ -966,11 +975,11 @@ mod tests {
         let r = cloud_with(&src, &dst, 25830, 25830, v, Policy::STRICT)?;
         assert_eq!((r.read, r.dropped), (2, 0));
         let out = read_xyz(&dst)?;
-        // Madrid geoid undulation is about +51 m
+        // la ondulación del geoide en Madrid es de unos +51 m
         assert!((out[0][2] - 648.89).abs() < 0.05, "{}", out[0][2]);
         assert!((out[0][0] - 440_295.0).abs() < 0.01);
         assert_eq!(Reader::open(&dst)?.header.vertical_epsg, Some(5782));
-        // the output declares its vertical reference: going back needs no `input`
+        // la salida declara su referencia vertical: volver atrás no necesita `input`
         let back = d.join("b.las");
         let v2 = Vertical {
             input: None,
@@ -993,7 +1002,8 @@ mod tests {
         };
         let e = cloud_with(&src, &dst, 25830, 25830, v, Policy::STRICT).unwrap_err();
         assert!(e.to_string().contains("--vertical-in"), "{e}");
-        // outside the geoid's coverage the strict policy refuses instead of keeping the height
+        // fuera de la cobertura del geoide la política estricta rechaza en lugar de conservar la
+        // altura
         let paris = d.join("p.las");
         write_las(&paris, &[[452_000.0, 5_411_000.0, 100.0]], 25831)?;
         let v = Vertical {
@@ -1011,7 +1021,7 @@ mod tests {
     #[test]
     fn a_cloud_moves_between_utm_zones_and_datums() -> Result<()> {
         let d = dir("cloud")?;
-        // around Madrid, in ED50 UTM 30N
+        // alrededor de Madrid, en ED50 UTM 30N
         let pts: Vec<[f64; 3]> = (0..50)
             .map(|i| {
                 [
@@ -1036,7 +1046,7 @@ mod tests {
                 (x - q[0]).abs() < 2e-3 && (y - q[1]).abs() < 2e-3 && (p[2] - q[2]).abs() < 2e-3
             );
         }
-        // the known shift of ED50 to ETRS89 in Madrid: about -109 m east, -207 m north
+        // el desplazamiento conocido de ED50 a ETRS89 en Madrid: unos -109 m este, -207 m norte
         assert!((out[0][0] - pts[0][0] + 109.4).abs() < 1.0, "{:?}", out[0]);
         assert!((out[0][1] - pts[0][1] + 207.5).abs() < 1.0, "{:?}", out[0]);
         std::fs::remove_dir_all(d)?;
@@ -1069,7 +1079,7 @@ mod tests {
 
     #[test]
     fn a_raster_keeps_its_surface_across_zones() -> Result<()> {
-        // a plane in UTM 29N, over Galicia, moved to UTM 30N
+        // un plano en UTM 29N, sobre Galicia, llevado a UTM 30N
         let mut g = Grid::new(600_000.0, 4_700_000.0, 5.0, 200, 200)?;
         let plane = |x: f64, y: f64| (0.01 * (x - 600_000.0) + 0.02 * (y - 4_700_000.0)) as f32;
         for r in 0..g.rows {
@@ -1133,7 +1143,7 @@ mod tests {
             tmp = moved;
         }
         assert!(!tmp.exists(), "the converted copy is removed");
-        // already in one system: nothing is converted
+        // ya en un sistema: no se convierte nada
         write_las(&d.join("otra.las"), &pts, 25830)?;
         let u = crate::crs::unify(&[d.join("nube.las"), d.join("otra.las")], false)?;
         assert!(u.warnings.is_empty());
@@ -1145,7 +1155,7 @@ mod tests {
     #[test]
     fn clipping_with_plots_in_another_system_keeps_the_right_points() -> Result<()> {
         let d = dir("clip")?;
-        // a cloud in ED50 UTM 30N whose ETRS89 coordinates are a regular lattice
+        // una nube en ED50 UTM 30N cuyas coordenadas ETRS89 son un retículo regular
         let to_ed50 = transformer(25830, 23030)?;
         let mut pts = Vec::new();
         let mut inside = 0;
@@ -1224,12 +1234,13 @@ mod tests {
         Ok(())
     }
 
-    /// A raster moved by `raster_file` (strips, interpolated nodes) agrees with the raster moved
-    /// whole by `grid`: same cells, values within a small fraction of the relief.
+    /// Un ráster movido por `raster_file` (franjas, nodos interpolados) coincide con el ráster
+    /// movido entero por `grid`: mismas celdas, valores dentro de una pequeña fracción del relieve.
     #[test]
     fn strips_move_a_raster_to_the_same_cells_as_the_whole_raster() -> Result<()> {
         let d = dir("strips")?;
-        // a hilly surface in UTM 30N near the edge of the zone (so the move to 29N skews it)
+        // una superficie con colinas en UTM 30N cerca del borde de la zona (para que el paso a 29N
+        // la deforme)
         let mut g = Grid::new(260_000.0, 4_800_000.0, 5.0, 700, 500)?;
         for r in 0..g.rows {
             for c in 0..g.cols {
@@ -1268,7 +1279,8 @@ mod tests {
                 worst = worst.max((a - b).abs());
             }
         }
-        // edge cells (half a pixel of difference in where the data stops) may differ
+        // las celdas del borde (medio píxel de diferencia en dónde terminan los datos) pueden
+        // diferir
         assert!(compared > 100_000 && worst < 0.2 && differ < 2_000, "{compared} cells, worst {worst}, {differ} differ");
         std::fs::remove_dir_all(&d)?;
         Ok(())

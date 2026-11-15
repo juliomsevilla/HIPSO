@@ -1,7 +1,8 @@
-//! Clip a raster with a mask: the cells outside the polygons of a layer (or the cells a mask
-//! raster leaves empty or at zero) become empty, and the raster can be cut to the box of the
-//! mask. The cells are those of the input: nothing is resampled. Rows are read, masked and
-//! written in blocks, so memory follows a block whatever the size of the raster.
+//! Recorta un ráster con una máscara: las celdas fuera de los polígonos de una capa (o las celdas
+//! que un ráster máscara deja vacías o a cero) quedan vacías, y el ráster se puede cortar a la caja
+//! de la máscara. Las celdas son las de la entrada: no se remuestrea nada. Las filas se leen, se
+//! enmascaran y se escriben por bloques, de modo que la memoria sigue a un bloque sea cual sea el
+//! tamaño del ráster.
 
 use std::path::PathBuf;
 
@@ -12,14 +13,14 @@ use crate::rastertools::Dtype;
 use crate::vector::{Region, RegionIndex};
 use crate::{Error, Result};
 
-/// What keeps the cells.
+/// Qué conserva las celdas.
 #[derive(Clone, Debug)]
 pub enum Mask {
-    /// The cells whose centre is inside any of these regions (in the raster's system: see
-    /// [`regions_of`]).
+    /// Las celdas cuyo centro está dentro de alguna de estas regiones (en el sistema del ráster:
+    /// véase [`regions_of`]).
     Regions(Vec<Region>),
-    /// The cells where this raster has data other than zero (its nearest cell; moved to the
-    /// system of the input if it is in another).
+    /// Las celdas donde este ráster tiene datos distintos de cero (su celda más cercana; llevado al
+    /// sistema de la entrada si está en otro).
     Raster(PathBuf),
 }
 
@@ -28,12 +29,12 @@ pub struct MaskJob {
     pub input: PathBuf,
     pub output: PathBuf,
     pub mask: Mask,
-    /// Cut the result to the box of the mask (a block of whole cells of the input).
+    /// Corta el resultado a la caja de la máscara (un bloque de celdas enteras de la entrada).
     pub crop: bool,
-    /// Keep what is outside the mask instead of what is inside.
+    /// Conserva lo que queda fuera de la máscara en lugar de lo que queda dentro.
     pub invert: bool,
-    /// What the cells left out hold; the file's own value, else 0 for 8 and 16 bits and -9999 for
-    /// decimals, when `None`.
+    /// Lo que contienen las celdas dejadas fuera; el valor propio del archivo o, si no, 0 para 8 y
+    /// 16 bits y -9999 para decimales, cuando `None`.
     pub nodata: Option<f32>,
     pub dtype: Option<Dtype>,
     pub compression: Option<crate::tiled::Compression>,
@@ -54,7 +55,7 @@ impl MaskJob {
     }
 }
 
-/// The polygons of a layer, moved to the system `raster_epsg` if the layer declares another.
+/// Los polígonos de una capa, llevados al sistema `raster_epsg` si la capa declara otro.
 pub fn regions_of(layer: &std::path::Path, raster_epsg: Option<u16>) -> Result<Vec<Region>> {
     let mut list = crate::vector::read_regions(layer, &crate::vector::ReadOptions::default())?;
     if list.is_empty() {
@@ -68,20 +69,20 @@ pub fn regions_of(layer: &std::path::Path, raster_epsg: Option<u16>) -> Result<V
     Ok(list)
 }
 
-/// The mask as something that answers for a cell centre.
+/// La máscara como algo que responde por el centro de una celda.
 enum Keeper<'a> {
     Regions(RegionIndex<'a>),
     Raster {
-        /// Tells this raster's strips apart from those of another job in a thread's cache.
+        /// Distingue las franjas de este ráster de las de otro trabajo en la caché de un hilo.
         id: usize,
         pyr: Pyramid,
-        /// Transformer from the input's system to the mask's, when they differ.
+        /// Transformador del sistema de la entrada al de la máscara, cuando difieren.
         tf: Option<crate::reproject::Transformer>,
         nodata: Option<f32>,
     },
 }
 
-/// Clips the raster (all its bands). Returns a line for the report.
+/// Recorta el ráster (todas sus bandas). Devuelve una línea para el informe.
 pub fn clip(job: &MaskJob) -> Result<String> {
     let pyr = Pyramid::open(&job.input)?;
     let nb = pyr.bands;
@@ -117,20 +118,21 @@ pub fn clip(job: &MaskJob) -> Result<String> {
             Keeper::Raster { id, pyr: m, tf, nodata }
         }
     };
-    // the box of the mask in the input's system, to cut the result to it
+    // la caja de la máscara en el sistema de la entrada, para cortar el resultado a ella
     let mbox = match &keeper {
         Keeper::Regions(ix) => ix.bbox(),
         Keeper::Raster { pyr: m, tf, .. } => {
             let b = m.extent();
             match tf {
-                // the box of the mask raster moved back is not what the input needs: the
-                // cells are tested one by one, so only the input's own box is cut to
+                // la caja del ráster máscara llevada de vuelta no es lo que necesita la entrada:
+                // las celdas se comprueban una a una, así que solo se corta a la caja propia de la
+                // entrada
                 Some(_) => e,
                 None => b,
             }
         }
     };
-    // the window of whole input cells that the result covers
+    // la ventana de celdas enteras de la entrada que cubre el resultado
     let (c0, c1, r0, r1) = if job.crop && !job.invert {
         let c0 = (((mbox[0] - e[0]) / cell).floor().max(0.0) as usize).min(cols);
         let c1 = (((mbox[2] - e[0]) / cell).ceil().max(0.0) as usize).min(cols);
@@ -184,7 +186,7 @@ pub fn clip(job: &MaskJob) -> Result<String> {
             return Err(Error::Format("el bloque leído no tiene el tamaño esperado".into()));
         }
         let top = pyr.y_top - (r0 + a) as f64 * cell;
-        // the mask over the block: one flag per cell of the window
+        // la máscara sobre el bloque: un indicador por celda de la ventana
         let keep: Vec<bool> = (0..b - a)
             .into_par_iter()
             .flat_map_iter(|r| {
@@ -243,12 +245,13 @@ pub fn clip(job: &MaskJob) -> Result<String> {
 }
 
 thread_local! {
-    /// The last block of the mask raster read by this thread: (raster id, [strip, first row], image).
+    /// El último bloque del ráster máscara leído por este hilo: (identificador del ráster, [franja,
+    /// primera fila], imagen).
     static CACHE: std::cell::RefCell<Option<(usize, [usize; 2], crate::raster::Image)>> =
         const { std::cell::RefCell::new(None) };
 }
 
-/// Whether the mask raster has data (not empty, not zero) under `(x, y)`: its nearest cell.
+/// Si el ráster máscara tiene datos (ni vacío ni cero) bajo `(x, y)`: su celda más cercana.
 fn mask_cell(id: usize, m: &Pyramid, nodata: Option<f32>, x: f64, y: f64) -> bool {
     let l = m.levels[0];
     let (fc, fr) = ((x - m.x0) / m.cell, (m.y_top - y) / m.cell);
@@ -256,7 +259,7 @@ fn mask_cell(id: usize, m: &Pyramid, nodata: Option<f32>, x: f64, y: f64) -> boo
         return false;
     }
     let (c, r) = (fc as usize, fr as usize);
-    // a strip of 256 rows at a time per thread
+    // una franja de 256 filas cada vez por hilo
     let strip = r / 256;
     CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
@@ -306,15 +309,16 @@ mod tests {
         g.data.fill(7.0);
         g.write_tiff(&d.join("a.tif"), Some(25830))?;
         let m = Mask::Regions(vec![square("a", [110.2, 205.2, 120.0, 215.0])]);
-        // cut: cells whose centre is inside, over the whole box of whole cells
+        // corte: celdas cuyo centro está dentro, sobre toda la caja de celdas enteras
         let job = MaskJob::new(d.join("a.tif"), d.join("c.tif"), m.clone());
         let line = clip(&job)?;
         let c = Grid::read(&d.join("c.tif"))?;
-        // x 110..120 (10 cells), y 205..215 (10 cells); the first column's centre 110.5 is in
+        // x 110..120 (10 celdas), y 205..215 (10 celdas); el centro de la primera columna, 110,5,
+        // está dentro
         assert_eq!((c.cols, c.rows, c.x0, c.y0), (10, 10, 110.0, 205.0), "{line}");
         assert!(c.data.iter().all(|v| *v == 7.0 || v.is_nan()));
         assert!(c.data.iter().filter(|v| **v == 7.0).count() > 80);
-        // no cut: the same size, the outside empty
+        // sin corte: el mismo tamaño, el exterior vacío
         let mut full = MaskJob::new(d.join("a.tif"), d.join("f.tif"), m.clone());
         full.crop = false;
         clip(&full)?;
@@ -322,13 +326,13 @@ mod tests {
         assert_eq!((f.cols, f.rows), (40, 30));
         assert!(f.data[0].is_nan());
         let inside = f.data.iter().filter(|v| **v == 7.0).count();
-        // inverted: what was inside is empty and the rest kept
+        // invertido: lo que estaba dentro queda vacío y el resto se conserva
         let mut inv = MaskJob::new(d.join("a.tif"), d.join("i.tif"), m);
         inv.invert = true;
         clip(&inv)?;
         let i = Grid::read(&d.join("i.tif"))?;
         assert_eq!(i.data.iter().filter(|v| **v == 7.0).count(), 1200 - inside);
-        // a raster mask: the cells where it is not zero
+        // una máscara ráster: las celdas donde no es cero
         let mut mk = Grid::new(100.0, 200.0, 2.0, 20, 15)?;
         for r in 0..15 {
             for c in 0..20 {
@@ -342,7 +346,7 @@ mod tests {
         let r = Grid::read(&d.join("r.tif"))?;
         assert_eq!(r.data[0], 7.0);
         assert!(r.data[30].is_nan());
-        // a mask that does not touch the raster is an error
+        // una máscara que no toca el ráster es un error
         let far = Mask::Regions(vec![square("z", [1000.0, 1000.0, 1010.0, 1010.0])]);
         assert!(clip(&MaskJob::new(d.join("a.tif"), d.join("z.tif"), far)).is_err());
         std::fs::remove_dir_all(&d)?;

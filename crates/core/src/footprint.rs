@@ -1,21 +1,24 @@
-//! The ground a point cloud actually covers. Surfaces are gridded on the cloud's bounding box,
-//! and filling their empty cells would invent values wherever the cloud has no points (the
-//! corners of a rotated block, a gap between flight lines). The footprint records where points
-//! fall, on a coarse grid and closed over small gaps, so a surface can be cut to it.
+//! El terreno que cubre de verdad una nube de puntos. Las superficies se rejillan sobre la caja
+//! envolvente de la nube, y rellenar sus celdas vacías inventaría valores donde la nube no tiene
+//! puntos (las esquinas de un bloque girado, un hueco entre pasadas). La huella registra dónde caen
+//! los puntos, en una rejilla gruesa y cerrada sobre huecos pequeños, de modo que una superficie se
+//! pueda recortar a ella.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::grid::Grid;
 
-/// Cells of the footprint grid, in grid cells of the surface; at least `MIN_SIZE` map units.
+/// Celdas de la rejilla de huella, en celdas de rejilla de la superficie; al menos `MIN_SIZE`
+/// unidades del mapa.
 const SIZE_IN_CELLS: f64 = 6.0;
 const MIN_SIZE: f64 = 3.0;
-/// Coarse cells a gap may span and still count as covered (closing by dilation and erosion).
+/// Celdas gruesas que puede abarcar un hueco y aun así contar como cubierto (cierre por dilatación
+/// y erosión).
 const CLOSE: usize = 2;
-/// Most coarse cells a footprint keeps.
+/// Máximo de celdas gruesas que guarda una huella.
 const MAX_CELLS: usize = 1 << 24;
 
-/// Which coarse cells of an area hold points. Shared across threads: `add` takes `&self`.
+/// Qué celdas gruesas de un área contienen puntos. Compartida entre hilos: `add` toma `&self`.
 pub struct Footprint {
     x0: f64,
     y0: f64,
@@ -26,7 +29,7 @@ pub struct Footprint {
 }
 
 impl Footprint {
-    /// A footprint over `[min x, min y, max x, max y]` for surfaces of `cell`.
+    /// Una huella sobre `[x mínima, y mínima, x máxima, y máxima]` para superficies de `cell`.
     pub fn new(b: [f64; 4], cell: f64) -> Self {
         let mut size = (cell * SIZE_IN_CELLS).max(MIN_SIZE);
         let dims = |s: f64| {
@@ -50,7 +53,7 @@ impl Footprint {
         }
     }
 
-    /// Marks the coarse cell holding `(x, y)`.
+    /// Marca la celda gruesa que contiene `(x, y)`.
     #[inline]
     pub fn add(&self, x: f64, y: f64) {
         let c = ((x - self.x0) / self.size).floor();
@@ -65,8 +68,9 @@ impl Footprint {
         }
     }
 
-    /// The covered cells after bridging gaps narrower than `2 * CLOSE` coarse cells; cells
-    /// beyond the edge of the area count as covered while eroding, so the edge is not eaten.
+    /// Las celdas cubiertas tras salvar los huecos más estrechos que `2 * CLOSE` celdas gruesas;
+    /// las celdas más allá del borde del área cuentan como cubiertas mientras se erosiona, para que
+    /// no se coma el borde.
     fn closed(&self) -> Vec<bool> {
         let mut m: Vec<bool> = self
             .seen
@@ -82,7 +86,7 @@ impl Footprint {
         m
     }
 
-    /// One step of dilation (`grow`) or erosion over the 8 neighbours.
+    /// Un paso de dilatación (`grow`) o de erosión sobre los 8 vecinos.
     fn morph(&self, m: &[bool], grow: bool) -> Vec<bool> {
         let (cols, rows) = (self.cols as isize, self.rows as isize);
         (0..m.len())
@@ -106,7 +110,7 @@ impl Footprint {
             .collect()
     }
 
-    /// Empties the cells of `g` that lie outside the footprint.
+    /// Vacía las celdas de `g` que quedan fuera de la huella.
     pub fn apply(&self, g: &mut Grid) {
         let covered = self.closed();
         for row in 0..g.rows {
@@ -137,7 +141,8 @@ mod tests {
 
     #[test]
     fn a_surface_is_cut_to_the_points_not_to_their_box() -> Result<()> {
-        // an L: points along the bottom and the left edge, the top right corner is empty
+        // una L: puntos a lo largo del borde inferior e izquierdo, la esquina superior derecha está
+        // vacía
         let fp = Footprint::new([0.0, 0.0, 100.0, 100.0], 1.0);
         for k in 0..100 {
             let t = f64::from(k) + 0.5;

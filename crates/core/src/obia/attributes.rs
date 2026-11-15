@@ -1,5 +1,5 @@
-//! What describes an object: its size and shape, and the statistics of every layer over its
-//! cells. One pass over the cells, with the sums kept in vectors indexed by object number.
+//! Lo que describe un objeto: su tamaño y forma, y los estadísticos de cada capa sobre sus celdas.
+//! Una pasada sobre las celdas, con las sumas guardadas en vectores indexados por número de objeto.
 
 use std::io::Write;
 use std::path::Path;
@@ -7,15 +7,15 @@ use std::path::Path;
 use super::{Labels, LayerStack};
 use crate::{Error, Result, check_cancel};
 
-/// One row per object (object `i` is `ids[i]`, numbered from 1), one column per attribute.
+/// Una fila por objeto (el objeto `i` es `ids[i]`, numerados desde 1), una columna por atributo.
 #[derive(Clone, Debug, Default)]
 pub struct AttrTable {
     pub names: Vec<String>,
-    /// Column-major: `cols[c][o]` is attribute `c` of object `o`; NaN when it has no value.
+    /// Por columnas: `cols[c][o]` es el atributo `c` del objeto `o`; NaN cuando no tiene valor.
     pub cols: Vec<Vec<f32>>,
     pub objects: usize,
-    /// Centre of each object in map coordinates, apart from the columns because a float with
-    /// seven digits cannot hold a UTM coordinate to the centimetre.
+    /// Centro de cada objeto en coordenadas del mapa, aparte de las columnas porque un decimal de
+    /// siete dígitos no puede guardar una coordenada UTM al centímetro.
     pub centroid: Vec<[f64; 2]>,
 }
 
@@ -27,12 +27,12 @@ impl AttrTable {
             .map(|c| self.cols[c].as_slice())
     }
 
-    /// The object number of row `o`.
+    /// El número de objeto de la fila `o`.
     pub fn id(o: usize) -> u32 {
         o as u32 + 1
     }
 
-    /// The text of the value at (`o`, column `c`): empty for NaN.
+    /// El texto del valor en (`o`, columna `c`): vacío para NaN.
     pub fn text(&self, c: usize, o: usize) -> String {
         let v = self.cols[c][o];
         if v.is_nan() {
@@ -44,7 +44,7 @@ impl AttrTable {
         }
     }
 
-    /// A text table: the object number, then the attributes.
+    /// Una tabla de texto: el número de objeto y luego los atributos.
     pub fn write_csv(&self, path: &Path) -> Result<()> {
         let mut out = std::io::BufWriter::new(std::fs::File::create(path)?);
         write!(out, "id,x,y")?;
@@ -68,24 +68,26 @@ impl AttrTable {
     }
 }
 
-/// Describes each object: `area` (map units squared), `perimetro`, `compacidad` (1 would be a
-/// disc; a square scores 0.79), `alargamiento` (0 round, towards 1 a line), the centroid (in
-/// [`AttrTable::centroid`]), and for every layer its `_media`, `_desv` (standard deviation), `_min` and `_max` over the
-/// object's cells. Layers named in `only` (all when empty) are described.
+/// Describe cada objeto: `area` (unidades del mapa al cuadrado), `perimetro`, `compacidad` (1 sería
+/// un disco; un cuadrado puntúa 0,79), `alargamiento` (0 redondo, hacia 1 una línea), el centroide
+/// (en [`AttrTable::centroid`]) y, para cada capa, su `_media`, `_desv` (desviación típica), `_min`
+/// y `_max` sobre las celdas del objeto. Se describen las capas nombradas en `only` (todas cuando
+/// está vacío).
 pub fn attributes(labels: &Labels, stack: &LayerStack, only: &[String]) -> Result<AttrTable> {
     attributes_with(labels, stack, only, None)
 }
 
-/// What describes the canopy of an object besides the statistics: the share of its cells where the
-/// first layer (the canopy height model) reaches `cover_height`, and the median and 95th percentile
-/// of that layer. They need the values of the object kept for a moment, hence the separate switch.
+/// Lo que describe el dosel de un objeto además de los estadísticos: la proporción de sus celdas
+/// donde la primera capa (el modelo de altura de copas) alcanza `cover_height`, y la mediana y el
+/// percentil 95 de esa capa. Necesitan guardar un momento los valores del objeto, de ahí el
+/// conmutador aparte.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Canopy {
     pub cover_height: f32,
 }
 
-/// [`attributes`], with the canopy columns `cobertura` (percent), `<capa>_p50` and `<capa>_p95` of
-/// the first layer when `canopy` is given.
+/// [`attributes`], con las columnas de dosel `cobertura` (por ciento), `<capa>_p50` y `<capa>_p95`
+/// de la primera capa cuando se da `canopy`.
 pub fn attributes_with(
     labels: &Labels,
     stack: &LayerStack,
@@ -116,7 +118,7 @@ pub fn attributes_with(
     let k = used.len();
     let mut size = vec![0u32; n_obj];
     let mut outline = vec![0u32; n_obj];
-    // first cell of each object, and the moments of the cells' positions relative to it
+    // primera celda de cada objeto y los momentos de las posiciones de las celdas relativas a ella
     let mut origin = vec![[0u32; 2]; n_obj];
     let mut mom = vec![[0f64; 5]; n_obj];
     let mut count = vec![0u32; n_obj * k];
@@ -189,8 +191,8 @@ pub fn attributes_with(
         }
         let m = mom[o];
         let (mx, my) = (m[0] / n, m[1] / n);
-        // covariance of the cell centres: the cell's own spread (1/12 per axis) keeps a
-        // single-cell or one-row object from having a zero axis
+        // covarianza de los centros de celda: la propia dispersión de la celda (1/12 por eje)
+        // impide que un objeto de una sola celda o de una sola fila tenga un eje nulo
         let cxx = m[2] / n - mx * mx + 1.0 / 12.0;
         let cyy = m[3] / n - my * my + 1.0 / 12.0;
         let cxy = m[4] / n - mx * my;
@@ -238,8 +240,9 @@ pub fn attributes_with(
     })
 }
 
-/// Cover (percent), median and 95th percentile of `data` over each object, by gathering the values
-/// of each object in one run of a vector (counting sort) and selecting in place.
+/// Cobertura (por ciento), mediana y percentil 95 de `data` sobre cada objeto, reuniendo los
+/// valores de cada objeto en una tirada de un vector (ordenación por conteo) y seleccionando en su
+/// sitio.
 fn canopy_columns(
     labels: &Labels,
     data: &[f32],
@@ -297,7 +300,7 @@ mod tests {
 
     #[test]
     fn describes_size_shape_and_layers() -> Result<()> {
-        // object 1: a 2 x 2 block with values 1..4; object 2: a row of four cells
+        // objeto 1: un bloque de 2 x 2 con valores 1..4; objeto 2: una fila de cuatro celdas
         let lat = Lattice {
             x0: 0.0,
             y0: 0.0,
@@ -340,10 +343,10 @@ mod tests {
         assert_eq!(col("h_max")[0], 4.0);
         assert_eq!(col("h_media")[1], 5.0);
         assert_eq!(col("h_desv")[1], 0.0);
-        // a square is more compact than a line, and less elongated
+        // un cuadrado es más compacto que una línea, y menos alargado
         assert!(col("compacidad")[0] > col("compacidad")[1]);
         assert!(col("alargamiento")[0] < 0.01 && col("alargamiento")[1] > 0.5);
-        // centroid of the block: x in [0, 4], y in the upper two of three rows
+        // centroide del bloque: x en [0, 4], y en las dos filas superiores de tres
         assert!((t.centroid[0][0] - 2.0).abs() < 1e-9 && (t.centroid[0][1] - 4.0).abs() < 1e-9);
         Ok(())
     }
@@ -363,7 +366,7 @@ mod tests {
             count: 2,
         };
         let mut stack = LayerStack::new(lat, None);
-        // object 1: 0..4 m; object 2: 10, 20, 30 and an empty cell
+        // objeto 1: 0..4 m; objeto 2: 10, 20, 30 y una celda vacía
         stack.push(
             "h",
             vec![0.0, 1.0, 2.0, 3.0, 4.0, 10.0, 20.0, 30.0, f32::NAN, 99.0],
@@ -374,7 +377,7 @@ mod tests {
         assert_eq!(col("h_p50"), vec![2.0, 20.0]);
         assert_eq!(col("h_p95")[0], 4.0);
         assert_eq!(col("h_p95")[1], 30.0);
-        // without the switch the columns are not there
+        // sin el conmutador las columnas no están
         assert!(
             attributes(&labels, &stack, &[])?
                 .column("cobertura")

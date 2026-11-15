@@ -1,6 +1,6 @@
-//! A number box you type in. It takes the place of egui's drag value: no dragging, no click to
-//! start editing. The value is applied when editing ends (Enter or leaving the box), so a
-//! half-typed number never reaches the program.
+//! Un cuadro numérico en el que se escribe. Ocupa el lugar del valor arrastrable de egui: sin
+//! arrastre y sin clic para empezar a editar. El valor se aplica cuando termina la edición (Intro o
+//! salir del cuadro), de modo que un número a medio escribir nunca llega al programa.
 
 use std::ops::RangeInclusive;
 
@@ -34,7 +34,7 @@ impl<'a, N: Numeric> NumField<'a, N> {
         }
     }
 
-    /// The width of the box, in points (60 by default).
+    /// El ancho del cuadro, en puntos (60 por defecto).
     pub fn width(mut self, w: f32) -> Self {
         self.width = w;
         self
@@ -45,7 +45,8 @@ impl<'a, N: Numeric> NumField<'a, N> {
         self
     }
 
-    /// Kept so the calls written for a drag value still read the same; typing has no speed.
+    /// Se conserva para que las llamadas escritas para un valor arrastrable se lean igual; escribir
+    /// no tiene velocidad.
     pub fn speed(self, _speed: impl Into<f64>) -> Self {
         self
     }

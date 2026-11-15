@@ -1,5 +1,6 @@
-//! The JPEG 2000 codestream's headers (T.800 Annex A): image and tile geometry, coding and
-//! quantisation parameters, and where the data of each tile lies in the file.
+//! Las cabeceras del flujo de código de JPEG 2000 (T.800 anexo A): geometría de la imagen y de las
+//! teselas, parámetros de codificación y cuantificación, y dónde están en el archivo los datos de
+//! cada tesela.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -41,7 +42,7 @@ impl Siz {
     }
 }
 
-/// What the `COD` marker says for the whole tile.
+/// Lo que dice el marcador `COD` para toda la tesela.
 #[derive(Clone, Copy, Debug)]
 pub struct CodParams {
     pub prog: u8,
@@ -51,7 +52,7 @@ pub struct CodParams {
     pub eph: bool,
 }
 
-/// Coding style of a component (`COD` or `COC`).
+/// Estilo de codificación de un componente (`COD` o `COC`).
 #[derive(Clone, Debug)]
 pub struct CompCod {
     pub levels: u8,
@@ -59,21 +60,22 @@ pub struct CompCod {
     pub ycb: u8,
     pub style: u8,
     pub reversible: bool,
-    /// Precinct size exponents per resolution, lowest first; 15 when not set.
+    /// Exponentes del tamaño de recinto por resolución, la más baja primero; 15 cuando no está
+    /// fijado.
     pub precincts: Vec<(u8, u8)>,
 }
 
-/// Quantisation (`QCD` or `QCC`).
+/// Cuantificación (`QCD` o `QCC`).
 #[derive(Clone, Debug)]
 pub struct Quant {
     /// 0 none, 1 scalar derived, 2 scalar expounded.
     pub style: u8,
     pub guard: u8,
-    /// Exponent and mantissa per subband (one only for the derived style).
+    /// Exponente y mantisa por subbanda (solo uno para el estilo derivado).
     pub steps: Vec<(u8, u16)>,
 }
 
-/// The parameters of the main header or of a tile-part header.
+/// Los parámetros de la cabecera principal o de una cabecera de parte de tesela.
 #[derive(Clone, Debug, Default)]
 pub struct Params {
     pub cod: Option<(CodParams, CompCod)>,
@@ -87,7 +89,7 @@ pub struct Params {
 
 #[derive(Clone, Copy, Debug)]
 pub struct TilePart {
-    /// Where the packet data starts in the file and how long it is.
+    /// Dónde empiezan en el archivo los datos de los paquetes y su longitud.
     pub offset: u64,
     pub len: u64,
 }
@@ -150,7 +152,8 @@ fn parse_siz(b: &[u8]) -> Result<Siz> {
     if siz.xt == 0 || siz.yt == 0 || siz.x <= siz.xo || siz.y <= siz.yo {
         return Err(bad("dimensiones no válidas"));
     }
-    // the tile grid starts at or before the image and its first tile reaches into it (T.800 A.5.1)
+    // la rejilla de teselas empieza en la imagen o antes y su primera tesela llega hasta ella
+    // (T.800 A.5.1)
     if siz.xto > siz.xo
         || siz.yto > siz.yo
         || u64::from(siz.xto) + u64::from(siz.xt) <= u64::from(siz.xo)
@@ -232,7 +235,7 @@ fn parse_quant(b: &[u8]) -> Result<Quant> {
     })
 }
 
-/// Reads one marker segment body (the bytes after its length) into `p`.
+/// Lee el cuerpo de un segmento de marcador (los bytes tras su longitud) en `p`.
 fn parse_segment(marker: u16, body: &[u8], ncomps: usize, p: &mut Params) -> Result<()> {
     let comp_index = |b: &[u8]| -> Result<(usize, usize)> {
         if ncomps < 257 {
@@ -278,7 +281,8 @@ fn parse_segment(marker: u16, body: &[u8], ncomps: usize, p: &mut Params) -> Res
         }
         0xFF5F => p.poc = true,
         0xFF60 | 0xFF61 => p.packed = true,
-        // tile-part lengths, packet lengths, component registration, comments
+        // longitudes de parte de tesela, longitudes de paquete, registro de componentes,
+        // comentarios
         0xFF55 | 0xFF57 | 0xFF58 | 0xFF63 | 0xFF64 => {}
         _ => {}
     }
@@ -292,8 +296,8 @@ fn read_u16(r: &mut impl Read) -> Result<u16> {
     Ok(u16::from_be_bytes(b))
 }
 
-/// Reads the headers of the codestream that starts at `start` and ends at `end` (exclusive), and
-/// finds the tile-parts.
+/// Lee las cabeceras del flujo de código que empieza en `start` y termina en `end` (exclusivo), y
+/// halla las partes de tesela.
 pub fn scan(file: &File, start: u64, end: u64) -> Result<Codestream> {
     let mut r = BufReader::with_capacity(1 << 16, file.try_clone()?);
     r.seek(SeekFrom::Start(start))?;
@@ -302,7 +306,7 @@ pub fn scan(file: &File, start: u64, end: u64) -> Result<Codestream> {
     }
     let mut siz: Option<Siz> = None;
     let mut main = Params::default();
-    // the main header, up to the first tile-part
+    // la cabecera principal, hasta la primera parte de tesela
     let mut marker;
     loop {
         marker = read_u16(&mut r)?;
@@ -332,7 +336,7 @@ pub fn scan(file: &File, start: u64, end: u64) -> Result<Codestream> {
     }
     let ntiles = (siz.tiles_across() * siz.tiles_down()) as usize;
     let mut tiles = vec![TileHeader::default(); ntiles];
-    // the tile-parts
+    // las partes de tesela
     while marker == 0xFF90 {
         let sot_at = r.stream_position()? - 2;
         let (lsot, isot, psot) = (read_u16(&mut r)?, read_u16(&mut r)?, {
@@ -345,7 +349,7 @@ pub fn scan(file: &File, start: u64, end: u64) -> Result<Codestream> {
             return Err(bad("tesela fuera de la cuadrícula"));
         }
         let tile = &mut tiles[usize::from(isot)];
-        // the tile-part header, up to SOD
+        // la cabecera de la parte de tesela, hasta SOD
         loop {
             let m = read_u16(&mut r)?;
             if m == 0xFF93 {
@@ -383,8 +387,9 @@ pub fn scan(file: &File, start: u64, end: u64) -> Result<Codestream> {
     Ok(Codestream { siz, main, tiles })
 }
 
-/// The effective parameters of a tile: the main header's, over which those of the tile-part
-/// headers take precedence (a tile's `COC` over its `COD` over the main `COC` over the main `COD`).
+/// Los parámetros efectivos de una tesela: los de la cabecera principal, sobre los que prevalecen
+/// los de las cabeceras de partes de tesela (el `COC` de una tesela sobre su `COD`, sobre el `COC`
+/// principal, sobre el `COD` principal).
 pub struct Effective<'a> {
     pub main: &'a Params,
     pub tile: &'a Params,

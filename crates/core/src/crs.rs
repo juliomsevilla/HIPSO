@@ -1,14 +1,14 @@
-//! Coordinate systems: which one each file is in, and whether files can be combined. Nothing is
-//! reprojected; what matters is that two data sets in different systems are never mixed without a
-//! word: a polygon in UTM 30 over a cloud in UTM 29 clips nothing (or clips the wrong place),
-//! and a raster off by a zone is hundreds of kilometres away.
+//! Sistemas de coordenadas: en cuál está cada archivo y si los archivos se pueden combinar. No se
+//! reproyecta nada; lo que importa es que dos conjuntos de datos en sistemas distintos nunca se
+//! mezclen sin avisar: un polígono en UTM 30 sobre una nube en UTM 29 no recorta nada (o recorta el
+//! sitio equivocado), y un ráster desplazado una zona está a cientos de kilómetros.
 
 use std::path::{Path, PathBuf};
 
 use crate::las::Reader;
 use crate::{Error, Result};
 
-/// A file and the system it declares, if it declares one.
+/// Un archivo y el sistema que declara, si declara uno.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Item {
     pub label: String,
@@ -23,8 +23,9 @@ impl Item {
         }
     }
 
-    /// The system a file declares: a cloud's header, a GeoTIFF's keys, a shapefile's (or ASCII
-    /// grid's) `.prj`. A file that cannot be read has none.
+    /// El sistema que declara un archivo: la cabecera de una nube, las claves de un GeoTIFF, el
+    /// `.prj` de un shapefile (o de una rejilla ASCII). Un archivo que no se puede leer no tiene
+    /// ninguno.
     pub fn of(path: &Path) -> Self {
         let label = path.file_name().map_or_else(
             || path.display().to_string(),
@@ -34,7 +35,7 @@ impl Item {
     }
 }
 
-/// The EPSG code a file declares, if any.
+/// El código EPSG que declara un archivo, si declara alguno.
 pub fn epsg_of(path: &Path) -> Option<u16> {
     let ext = path
         .extension()
@@ -52,7 +53,8 @@ pub fn epsg_of(path: &Path) -> Option<u16> {
     }
 }
 
-/// The EPSG code of the vertical reference a file declares, if any (LAS/LAZ and GeoTIFF).
+/// El código EPSG de la referencia vertical que declara un archivo, si declara alguna (LAS/LAZ y
+/// GeoTIFF).
 pub fn vertical_epsg_of(path: &Path) -> Option<u16> {
     let ext = path
         .extension()
@@ -65,7 +67,7 @@ pub fn vertical_epsg_of(path: &Path) -> Option<u16> {
     }
 }
 
-/// A readable name for a code, with the code: `ETRS89 / UTM 30N (EPSG:25830)`.
+/// Un nombre legible para un código, con el código: `ETRS89 / UTM 30N (EPSG:25830)`.
 pub fn name(epsg: u16) -> String {
     let utm = |datum: &str, zone: u16, south: bool| {
         format!(
@@ -86,12 +88,12 @@ pub fn name(epsg: u16) -> String {
     }
 }
 
-/// How two declared systems relate.
+/// Cómo se relacionan dos sistemas declarados.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Relation {
     Same,
-    /// ETRS89 and WGS 84 UTM of one zone: they differ by about a metre in Europe, which matters
-    /// for nothing at the scale of forest products but is worth saying.
+    /// ETRS89 y WGS 84 UTM de una misma zona: difieren en aproximadamente un metro en Europa, lo
+    /// que no importa para nada a la escala de los productos forestales, pero conviene decirlo.
     NearlyEqual,
     Different,
 }
@@ -113,13 +115,13 @@ pub fn relation(a: u16, b: u16) -> Relation {
     }
 }
 
-/// Checks that everything that is going to be combined is in one system.
+/// Comprueba que todo lo que se va a combinar está en un solo sistema.
 ///
-/// - Two items in different systems: an error that names them, since the result would be wrong.
-/// - Items that declare nothing: they cannot be checked, so a warning says so.
-/// - ETRS89 against WGS 84 of the same zone: a warning.
+/// - Dos elementos en sistemas distintos: un error que los nombra, pues el resultado sería erróneo.
+/// - Elementos que no declaran nada: no se pueden comprobar, así que un aviso lo dice.
+/// - ETRS89 contra WGS 84 de la misma zona: un aviso.
 ///
-/// Returns the warnings, for the caller to put in its report.
+/// Devuelve los avisos, para que quien llama los ponga en su informe.
 pub fn check(items: &[Item]) -> Result<Vec<String>> {
     let known: Vec<(&Item, u16)> = items
         .iter()
@@ -155,7 +157,7 @@ pub fn check(items: &[Item]) -> Result<Vec<String>> {
         .map(|i| i.label.as_str())
         .collect();
     if !unknown.is_empty() && items.len() > 1 {
-        // a long list says nothing more than its first names
+        // una lista larga no dice más que sus primeros nombres
         let shown: Vec<String> = unknown.iter().take(3).map(|l| format!("«{l}»")).collect();
         warnings.push(format!(
             "no se ha podido comprobar el sistema de coordenadas de {}{} (no lo declara): se da por bueno",
@@ -170,16 +172,16 @@ pub fn check(items: &[Item]) -> Result<Vec<String>> {
     Ok(warnings)
 }
 
-/// Files in one coordinate system, ready to be combined: those that were in another one are
-/// converted into a temporary copy (removed when this is dropped).
+/// Archivos en un solo sistema de coordenadas, listos para combinarse: los que estaban en otro se
+/// convierten en una copia temporal (que se borra cuando esto se suelta).
 #[derive(Debug, Default)]
 pub struct Unified {
     moved: Vec<(PathBuf, PathBuf)>,
-    /// The system everything is in now, when any file declares one.
+    /// El sistema en que está todo ahora, cuando algún archivo declara uno.
     pub target: Option<u16>,
-    /// What the user should know: what was converted, what could not be checked.
+    /// Lo que debe saber el usuario: qué se convirtió, qué no se pudo comprobar.
     pub warnings: Vec<String>,
-    /// Vector files in another system, to convert in memory with [`Unified::regions`].
+    /// Archivos vectoriales en otro sistema, que convertir en memoria con [`Unified::regions`].
     vectors: Vec<(PathBuf, u16)>,
     dir: Option<PathBuf>,
 }
@@ -193,7 +195,7 @@ impl Drop for Unified {
 }
 
 impl Unified {
-    /// The file to use in place of `p`: its converted copy, or `p` itself.
+    /// El archivo que usar en lugar de `p`: su copia convertida o el propio `p`.
     pub fn path(&self, p: &Path) -> PathBuf {
         self.moved
             .iter()
@@ -205,7 +207,7 @@ impl Unified {
         paths.iter().map(|p| self.path(p)).collect()
     }
 
-    /// The regions read from `source`, in the system everything else is in now.
+    /// Las regiones leídas de `source`, en el sistema en que está ahora todo lo demás.
     pub fn regions(
         &self,
         list: &[crate::vector::Region],
@@ -223,7 +225,7 @@ impl Unified {
         }
     }
 
-    /// `warnings` as report lines.
+    /// `warnings` como líneas de informe.
     pub fn notes(&self) -> String {
         notes(&self.warnings)
     }
@@ -239,19 +241,19 @@ fn is_raster(p: &Path) -> bool {
         .is_some_and(|e| crate::raster::is_raster_ext(&e.to_string_lossy().to_ascii_lowercase()))
 }
 
-/// Puts everything that is going to be combined in one coordinate system.
+/// Pone todo lo que se va a combinar en un solo sistema de coordenadas.
 ///
-/// The system is the first cloud's (else the first file's that declares one). Clouds and rasters
-/// in another system are converted into temporary copies, which cost a pass over them: nothing
-/// is converted when the files already agree. With `vectors`, polygon files in another system
-/// are left for [`Unified::regions`] to convert in memory, which is nearly free; without it they
-/// are an error, as any file that cannot be converted.
+/// El sistema es el de la primera nube (o, si no, el del primer archivo que declara uno). Las nubes
+/// y los rásteres en otro sistema se convierten en copias temporales, que cuestan una pasada sobre
+/// ellos: no se convierte nada cuando los archivos ya concuerdan. Con `vectors`, los archivos de
+/// polígonos en otro sistema se dejan para que [`Unified::regions`] los convierta en memoria, lo
+/// que es casi gratis; sin él son un error, como todo archivo que no se puede convertir.
 pub fn unify<P: AsRef<Path>>(paths: &[P], vectors: bool) -> Result<Unified> {
     unify_like(paths, vectors, None)
 }
 
-/// [`unify`] where the rasters that have to move land on the cells of the raster `like` (which
-/// sets the system too): for jobs that combine rasters cell by cell.
+/// [`unify`] donde los rásteres que tienen que moverse caen sobre las celdas del ráster `like` (que
+/// fija también el sistema): para trabajos que combinan rásteres celda a celda.
 pub fn unify_like<P: AsRef<Path>>(
     paths: &[P],
     vectors: bool,
@@ -346,8 +348,8 @@ pub fn unify_like<P: AsRef<Path>>(
             }
         }
     }
-    // whatever is left: a file that could not be converted is still an error, and near-equal
-    // or undeclared systems still warn
+    // lo que quede: un archivo que no se pudo convertir sigue siendo un error, y los sistemas casi
+    // iguales o no declarados siguen avisando
     let rest = check(&items)?;
     u.warnings.extend(rest);
     Ok(u)
@@ -359,13 +361,13 @@ fn nonce() -> u64 {
     N.fetch_add(1, Ordering::Relaxed)
 }
 
-/// `check` for files.
+/// `check` para archivos.
 pub fn check_paths<P: AsRef<Path>>(paths: &[P]) -> Result<Vec<String>> {
     let items: Vec<Item> = paths.iter().map(|p| Item::of(p.as_ref())).collect();
     check(&items)
 }
 
-/// The report lines for some warnings: nothing when there are none.
+/// Las líneas de informe de algunos avisos: nada cuando no los hay.
 pub fn notes(warnings: &[String]) -> String {
     warnings
         .iter()
@@ -421,7 +423,7 @@ mod tests {
         let w = check(&[item("a.laz", Some(25830)), item("b.tif", Some(32630))])?;
         assert_eq!(w.len(), 1);
         assert!(check(&[item("a.laz", Some(25830)), item("b.tif", Some(25830))])?.is_empty());
-        // one thing alone has nothing to be compared with
+        // una cosa sola no tiene con qué compararse
         assert!(check(&[item("a.laz", None)])?.is_empty());
         assert!(notes(&[]).is_empty());
         Ok(())

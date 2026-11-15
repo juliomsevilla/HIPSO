@@ -1,5 +1,5 @@
-//! The rows that choose a file in the windows of the tools: a raster or a vector layer, either
-//! from a file or from the layers already on the map.
+//! Las filas que eligen un archivo en las ventanas de las herramientas: un ráster o una capa
+//! vectorial, de un archivo o de las capas que ya están en el mapa.
 
 use super::*;
 use hipso_core::paths;
@@ -39,7 +39,7 @@ fn pick(
     });
 }
 
-/// A raster: its name, "Archivo…" and the loaded rasters.
+/// Un ráster: su nombre, «Archivo…» y los rásteres cargados.
 pub fn raster(
     ui: &mut egui::Ui,
     label: &str,
@@ -56,7 +56,7 @@ pub fn raster(
     );
 }
 
-/// A vector layer: its name, "Archivo…" and the loaded layers.
+/// Una capa vectorial: su nombre, «Archivo…» y las capas cargadas.
 pub fn vector(
     ui: &mut egui::Ui,
     label: &str,
@@ -76,7 +76,7 @@ pub fn vector(
     );
 }
 
-/// The rasters and the vector layers on the map, as (name, path).
+/// Los rásteres y las capas vectoriales del mapa, como (nombre, ruta).
 impl App {
     pub fn loaded_rasters(&self) -> Vec<(String, PathBuf)> {
         self.refs

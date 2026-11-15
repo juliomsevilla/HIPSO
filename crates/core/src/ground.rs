@@ -1,30 +1,30 @@
-//! Bare-earth extraction with the Kraus & Pfeifer (1998) filter,
-//! done in streaming passes: each pass reads the cloud once and keeps two sums
-//! per surface node, so memory depends on the area, never on the number of points.
+//! Extracción de suelo desnudo con el filtro de Kraus y Pfeifer (1998), hecha en pasadas en flujo:
+//! cada pasada lee la nube una vez y guarda dos sumas por nodo de la superficie, de modo que la
+//! memoria depende del área, nunca del número de puntos.
 //!
-//! The intermediate surface is a grid of nodes `filter_cell` apart: each node holds the
-//! weighted mean elevation of the points nearest to it, short gaps are filled from the nearest
-//! nodes in 8 directions, and a point's residual is its elevation minus the surface
-//! interpolated bilinearly under it.
+//! La superficie intermedia es una rejilla de nodos separados `filter_cell`: cada nodo guarda la
+//! elevación media ponderada de los puntos más cercanos a él, los huecos cortos se rellenan desde
+//! los nodos más cercanos en 8 direcciones y el residuo de un punto es su elevación menos la
+//! superficie interpolada bilinealmente bajo él.
 
 use crate::footprint::Footprint;
 use crate::grid::{Grid, MeanGrid};
 use crate::las::{Cloud, Point};
 use crate::{Error, Result};
 
-/// The filter's parameters (default values).
+/// Los parámetros del filtro (valores por defecto).
 #[derive(Clone, Debug, PartialEq)]
 pub struct GroundParams {
-    /// Spacing of the intermediate surface's nodes.
+    /// Separación de los nodos de la superficie intermedia.
     pub filter_cell: f64,
-    /// Residual at or below which a point gets full weight.
+    /// Residuo igual o inferior al cual un punto recibe peso completo.
     pub g: f64,
-    /// Width above `g` over which the weight falls to 0.
+    /// Anchura por encima de `g` en la que el peso cae a 0.
     pub w: f64,
     pub a: f64,
     pub b: f64,
     pub iterations: u32,
-    /// Ground = within this distance of the final surface (default: residual <= g + w).
+    /// Suelo = a esta distancia de la superficie final (por defecto: residuo <= g + w).
     pub tolerance: Option<f64>,
 }
 
@@ -43,7 +43,7 @@ impl Default for GroundParams {
 }
 
 impl GroundParams {
-    /// The weight of a residual `v` (point minus surface), by the filter's weight function.
+    /// El peso de un residuo `v` (punto menos superficie), por la función de peso del filtro.
     #[inline]
     pub fn weight(&self, v: f64) -> f64 {
         if v <= self.g {
@@ -71,10 +71,10 @@ impl GroundParams {
     }
 }
 
-/// Gaps up to this many nodes from a valued node are filled before each pass.
+/// Los huecos de hasta tantos nodos de un nodo con valor se rellenan antes de cada pasada.
 const FILL_STEPS: usize = 2;
 
-/// The intermediate surface: node values, NaN where no point weighed in.
+/// La superficie intermedia: valores de los nodos, NaN donde ningún punto pesó.
 struct Surface {
     x0: f64,
     y0: f64,
@@ -85,7 +85,7 @@ struct Surface {
 }
 
 impl Surface {
-    /// Nodes from the cloud's south-west corner, covering it.
+    /// Nodos desde la esquina suroeste de la nube, que la cubren.
     fn new(b: [f64; 6], cell: f64) -> Result<Self> {
         let cols = ((b[3] - b[0] + cell / 2.0) / cell) as usize + 1;
         let rows = ((b[4] - b[1] + cell / 2.0) / cell) as usize + 1;
@@ -105,7 +105,7 @@ impl Surface {
         })
     }
 
-    /// The node nearest a point (row 0 is the south).
+    /// El nodo más cercano a un punto (la fila 0 es el sur).
     #[inline]
     fn node(&self, x: f64, y: f64) -> usize {
         let c = (((x - self.x0) / self.cell + 0.5).max(0.0) as usize).min(self.cols - 1);
@@ -113,7 +113,7 @@ impl Surface {
         r * self.cols + c
     }
 
-    /// The surface under a point, bilinear between the 4 nodes around it; None over a gap.
+    /// La superficie bajo un punto, bilineal entre los 4 nodos de alrededor; None sobre un hueco.
     #[inline]
     fn at(&self, x: f64, y: f64) -> Option<f64> {
         let (fx, fy) = ((x - self.x0) / self.cell, (y - self.y0) / self.cell);
@@ -134,8 +134,8 @@ impl Surface {
         Some(south + (north - south) * ty)
     }
 
-    /// Fills gaps from the first valued node within [`FILL_STEPS`] in each of 8 directions,
-    /// weighted by inverse distance; wider gaps stay empty.
+    /// Rellena los huecos desde el primer nodo con valor dentro de [`FILL_STEPS`] en cada una de 8
+    /// direcciones, ponderado por el inverso de la distancia; los huecos más anchos quedan vacíos.
     fn fill_gaps(&mut self) {
         let snap = self.z.clone();
         let (cols, rows) = (self.cols as isize, self.rows as isize);
@@ -186,7 +186,7 @@ impl Surface {
     }
 }
 
-/// What the filter did.
+/// Lo que hizo el filtro.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GroundReport {
     pub points: u64,
@@ -194,8 +194,8 @@ pub struct GroundReport {
     pub passes: u32,
 }
 
-/// Filters the ground and grids it onto a DTM with cells of `cell`: each cell is the mean
-/// elevation of its ground points, and empty cells are filled from their neighbours.
+/// Filtra el suelo y lo rasteriza en un MDT con celdas de `cell`: cada celda es la elevación media
+/// de sus puntos de suelo, y las celdas vacías se rellenan desde sus vecinas.
 pub fn dtm<C: Cloud>(cloud: &C, cell: f64, p: &GroundParams) -> Result<(Grid, GroundReport)> {
     let (filter, passes) = GroundFilter::run(cloud, p)?;
     let b = cloud.bounds();
@@ -225,21 +225,22 @@ pub fn dtm<C: Cloud>(cloud: &C, cell: f64, p: &GroundParams) -> Result<(Grid, Gr
     Ok((dtm, report))
 }
 
-/// The filter's final surface, which tells ground points apart.
+/// La superficie final del filtro, que distingue los puntos de suelo.
 pub struct GroundFilter {
     s: Surface,
     p: GroundParams,
 }
 
 impl GroundFilter {
-    /// Runs the filter over a cloud; the filter and how many passes it read.
+    /// Ejecuta el filtro sobre una nube; el filtro y cuántas pasadas leyó.
     pub fn run<C: Cloud>(cloud: &C, p: &GroundParams) -> Result<(Self, u32)> {
         p.validate()?;
         let mut s = Surface::new(cloud.bounds(), p.filter_cell)?;
         let mut sum_wz = vec![0.0f64; s.z.len()];
         let mut sum_w = vec![0.0f32; s.z.len()];
         let mut passes = 0;
-        // Pass 0 weighs every point alike; then each pass reweighs against the last surface.
+        // La pasada 0 pesa igual todos los puntos; luego cada pasada vuelve a pesar contra la
+        // última superficie.
         for pass in 0..=p.iterations {
             if pass > 0 {
                 s.fill_gaps();
@@ -279,8 +280,8 @@ impl GroundFilter {
         Ok((Self { s, p: p.clone() }, passes))
     }
 
-    /// Whether a point lies on the ground: at most g + w above the surface (or within the
-    /// tolerance of it).
+    /// Si un punto está en el suelo: como mucho a g + w por encima de la superficie (o dentro de la
+    /// tolerancia de ella).
     #[inline]
     pub fn is_ground(&self, pt: &Point) -> bool {
         match self.s.at(pt.x, pt.y) {
@@ -313,7 +314,8 @@ mod tests {
         assert_eq!((s.cols, s.rows), (5, 1));
         s.z = vec![10.0, f32::NAN, f32::NAN, f32::NAN, 20.0];
         s.fill_gaps();
-        // Node 1 sees node 0 at 1 step and node 4 at 3 (beyond reach); node 2 sees both at 2.
+        // El nodo 1 ve el nodo 0 a 1 paso y el nodo 4 a 3 (más allá del alcance); el nodo 2 ve
+        // ambos a 2.
         assert_eq!(s.z[1], 10.0);
         assert_eq!(s.z[2], 15.0);
         assert_eq!(s.z[3], 20.0);

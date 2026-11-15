@@ -1,11 +1,12 @@
-//! Colour of every point from an image of the same place (an orthophoto, usually): each point
-//! takes the red, green and blue of the pixel it falls on, and the near infrared too when the
-//! cloud's format keeps it (8 and 10) and the image has that band.
+//! Color de cada punto a partir de una imagen del mismo lugar (una ortofoto, normalmente): cada
+//! punto toma el rojo, el verde y el azul del píxel en que cae, y también el infrarrojo cercano
+//! cuando el formato de la nube lo guarda (8 y 10) y la imagen tiene esa banda.
 //!
-//! Point formats without colour are written in the nearest one that has it: 0 and 1 become 7
-//! (LAS 1.4: every attribute is kept, the class gets a whole byte), 6 becomes 7. Formats 4 and 9
-//! (waveforms) are not converted. The image is read once per cloud, only over the cloud's
-//! extent; a window too large for memory is read from a coarser overview, and the report says so.
+//! Los formatos de punto sin color se escriben en el más cercano que lo tiene: 0 y 1 pasan a 7 (LAS
+//! 1.4: se conserva todo atributo, la clase recibe un byte entero), 6 pasa a 7. Los formatos 4 y 9
+//! (formas de onda) no se convierten. La imagen se lee una vez por nube, solo sobre la extensión de
+//! la nube; una ventana demasiado grande para la memoria se lee de una vista reducida más gruesa, y
+//! el informe lo dice.
 
 use std::path::{Path, PathBuf};
 
@@ -13,24 +14,24 @@ use crate::las::{Reader, Writer, WriterOptions};
 use crate::pyramid::Pyramid;
 use crate::{Error, Result};
 
-/// Most pixels of the window read from the image (about 1.2 GB with three bands).
+/// Máximo de píxeles de la ventana leída de la imagen (unos 1,2 GB con tres bandas).
 const MAX_PIXELS: u64 = 100_000_000;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ColorizeJob {
-    /// The image (GeoTIFF, JPEG 2000…) in the cloud's coordinate system.
+    /// La imagen (GeoTIFF, JPEG 2000…) en el sistema de coordenadas de la nube.
     pub image: PathBuf,
-    /// Bands of the image (from 1) for red, green and blue.
+    /// Bandas de la imagen (desde 1) para rojo, verde y azul.
     pub rgb: [usize; 3],
-    /// Band of the near infrared, for formats 8 and 10.
+    /// Banda del infrarrojo cercano, para los formatos 8 y 10.
     pub nir: Option<usize>,
-    /// Each cloud and where its coloured copy goes.
+    /// Cada nube y adónde va su copia coloreada.
     pub inputs: Vec<(PathBuf, PathBuf)>,
-    /// Points the image does not cover keep the colour they had (else they get black).
+    /// Los puntos que la imagen no cubre conservan el color que tenían (si no, quedan negros).
     pub keep_outside: bool,
 }
 
-/// Where each format keeps its colour.
+/// Dónde guarda cada formato su color.
 fn rgb_at(format: u8) -> Option<usize> {
     match format {
         2 => Some(20),
@@ -40,7 +41,8 @@ fn rgb_at(format: u8) -> Option<usize> {
     }
 }
 
-/// The format a cloud is written in: its own if it has colour, else the nearest one that has.
+/// El formato en que se escribe una nube: el suyo si tiene color o, si no, el más cercano que lo
+/// tiene.
 fn coloured_format(format: u8) -> Result<u8> {
     match format {
         2 | 3 | 5 | 7 | 8 | 10 => Ok(format),
@@ -51,13 +53,14 @@ fn coloured_format(format: u8) -> Result<u8> {
     }
 }
 
-/// The record of format `old` in format `new` (only the conversions of [`coloured_format`]).
+/// El registro del formato `old` en el formato `new` (solo las conversiones de
+/// [`coloured_format`]).
 fn convert(old: u8, new: u8, rec: &[u8], out: &mut Vec<u8>) {
     if old == new {
         out.clear();
         out.extend_from_slice(rec);
     } else if old == 6 {
-        // 7 is 6 with the colour after its 30 bytes; extra attributes follow
+        // 7 es 6 con el color tras sus 30 bytes; siguen los atributos adicionales
         out.clear();
         out.extend_from_slice(&rec[..30.min(rec.len())]);
         out.extend_from_slice(&[0; 6]);
@@ -67,14 +70,14 @@ fn convert(old: u8, new: u8, rec: &[u8], out: &mut Vec<u8>) {
     }
 }
 
-/// How a sample of the image is brought to the 16 bits of LAS colour.
+/// Cómo se lleva una muestra de la imagen a los 16 bits del color de LAS.
 fn to_u16(v: f32, bits: u8) -> u16 {
     let k = if bits <= 8 { 257.0 } else { 1.0 };
     (v * k).round().clamp(0.0, 65535.0) as u16
 }
 
-/// Colours one cloud; returns the points coloured, those left uncoloured and a note on the
-/// resolution used.
+/// Colorea una nube; devuelve los puntos coloreados, los que quedaron sin colorear y una nota sobre
+/// la resolución usada.
 fn colour_one(
     pyr: &Pyramid,
     job: &ColorizeJob,
@@ -99,7 +102,7 @@ fn colour_one(
         b[3] + pyr.cell,
         b[4] + pyr.cell,
     ];
-    // the finest level whose window fits the memory budget
+    // el nivel más fino cuya ventana cabe en el presupuesto de memoria
     let px = |level: usize| {
         let c = pyr.cell_at(level);
         (((win[2] - win[0]) / c).ceil() * ((win[3] - win[1]) / c).ceil()).max(0.0) as u64
@@ -174,7 +177,7 @@ fn colour_one(
     Ok((done, missed, coarse))
 }
 
-/// Colours every cloud of the job.
+/// Colorea cada nube del trabajo.
 pub fn run(job: &ColorizeJob) -> Result<String> {
     if job.inputs.is_empty() {
         return Err(Error::Param("no hay nube de entrada".into()));
@@ -220,7 +223,8 @@ mod tests {
     fn points_take_the_colour_of_their_pixel() -> Result<()> {
         let dir = std::env::temp_dir().join(format!("el_colorize_{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
-        // a 20 x 20 m image of 1 m pixels: red rises to the east, green to the north, blue 7
+        // una imagen de 20 x 20 m de píxeles de 1 m: el rojo sube hacia el este, el verde hacia el
+        // norte, el azul 7
         let img = dir.join("orto.tif");
         let spec = Spec {
             cols: 20,
@@ -245,7 +249,7 @@ mod tests {
             }
             Ok(v)
         })?;
-        // a cloud of format 1 (no colour) with points at known pixels and one outside
+        // una nube de formato 1 (sin color) con puntos en píxeles conocidos y uno fuera
         let tpl = crate::ply::template(&dir, 0, 0.01, [1000.0, 2000.0, 0.0], Some(25830))?;
         let cloud = dir.join("nube.las");
         let mut w = Writer::create(&cloud, &tpl)?;
@@ -271,7 +275,7 @@ mod tests {
         let text = run(&job)?;
         assert!(text.contains("2 puntos coloreados"), "{text}");
         let r = Reader::open(&out)?;
-        // format 0 has no colour: it is written as 7
+        // el formato 0 no tiene color: se escribe como 7
         assert_eq!(r.header.format, 7);
         let rec_len = usize::from(r.header.record_len);
         let mut got = Vec::new();

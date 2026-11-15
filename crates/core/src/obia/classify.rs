@@ -1,5 +1,5 @@
-//! Giving each object a class: by rules written as text, or by a random forest trained on
-//! objects that sample polygons cover.
+//! Dar una clase a cada objeto: por reglas escritas como texto o por un bosque aleatorio entrenado
+//! con objetos que cubren polígonos de muestra.
 
 use std::collections::HashMap;
 
@@ -10,8 +10,8 @@ use super::attributes::AttrTable;
 use crate::vector::Region;
 use crate::{Error, Result, check_cancel};
 
-/// The class of every object (0: none), how sure the choice is (1 for rules), the class names
-/// (class `c` is `names[c - 1]`) and a text on how it went.
+/// La clase de cada objeto (0: ninguna), cuán segura es la elección (1 para las reglas), los
+/// nombres de las clases (la clase `c` es `names[c - 1]`) y un texto sobre cómo fue.
 #[derive(Clone, Debug, Default)]
 pub struct Classified {
     pub class: Vec<u16>,
@@ -43,9 +43,9 @@ pub struct Rule {
     pub conds: Vec<Cond>,
 }
 
-/// Reads rules, one per line: `class: column >= value and column < value`. A class with several
-/// lines takes an object that meets any of them; the first line that fits wins. Blank lines and
-/// lines starting with `#` are skipped.
+/// Lee reglas, una por línea: `clase: columna >= valor and columna < valor`. Una clase con varias
+/// líneas toma un objeto que cumpla cualquiera de ellas; gana la primera línea que encaja. Las
+/// líneas en blanco y las que empiezan por `#` se omiten.
 pub fn parse_rules(text: &str) -> Result<Vec<Rule>> {
     let mut rules = Vec::new();
     for (n, raw) in text.lines().enumerate() {
@@ -64,7 +64,7 @@ pub fn parse_rules(text: &str) -> Result<Vec<Rule>> {
         let mut conds = Vec::new();
         for part in rest.split(" and ") {
             let part = part.trim();
-            // two-character operators first
+            // primero los operadores de dos caracteres
             let found = ["<=", ">=", "==", "!=", "<", ">", "="]
                 .iter()
                 .find_map(|op| part.find(op).map(|at| (*op, at)));
@@ -110,7 +110,7 @@ pub fn parse_rules(text: &str) -> Result<Vec<Rule>> {
 impl Cond {
     #[inline]
     fn holds(&self, v: f32) -> bool {
-        // a missing value fails every condition
+        // un valor que falta incumple toda condición
         !v.is_nan()
             && match self.op {
                 Op::Lt => v < self.value,
@@ -123,10 +123,10 @@ impl Cond {
     }
 }
 
-/// A rule ready to run: its class code and, per condition, the column it reads.
+/// Una regla lista para ejecutar: su código de clase y, por condición, la columna que lee.
 type Compiled<'a> = (u16, Vec<(&'a [f32], &'a Cond)>);
 
-/// Classifies the objects by rules.
+/// Clasifica los objetos por reglas.
 pub fn classify_rules(table: &AttrTable, rules: &[Rule]) -> Result<Classified> {
     let mut names: Vec<String> = Vec::new();
     for r in rules {
@@ -134,7 +134,7 @@ pub fn classify_rules(table: &AttrTable, rules: &[Rule]) -> Result<Classified> {
             names.push(r.class.clone());
         }
     }
-    // each rule: class code and the columns of its conditions
+    // cada regla: código de clase y las columnas de sus condiciones
     let mut compiled: Vec<Compiled> = Vec::new();
     for r in rules {
         let code = names
@@ -181,17 +181,19 @@ pub fn classify_rules(table: &AttrTable, rules: &[Rule]) -> Result<Classified> {
     })
 }
 
-/// The training sample: the objects the sample polygons cover, and their class codes.
+/// La muestra de entrenamiento: los objetos que cubren los polígonos de muestra y sus códigos de
+/// clase.
 pub struct Samples {
     pub names: Vec<String>,
-    /// (object index, class code)
+    /// (índice de objeto, código de clase)
     pub objects: Vec<(usize, u16)>,
 }
 
-/// Which objects the sample polygons stand for. `regions` are named by their class. An object
-/// takes the class that covers most of its cells, as long as the polygons cover at least
-/// `min_cover` of it (half is a good value): a polygon drawn well inside an object is enough
-/// only when the object is small, so draw samples that fill the objects they mean.
+/// Qué objetos representan los polígonos de muestra. Las `regions` se nombran por su clase. Un
+/// objeto toma la clase que cubre más de sus celdas, siempre que los polígonos cubran al menos
+/// `min_cover` de él (la mitad es un buen valor): un polígono dibujado bien dentro de un objeto
+/// basta solo cuando el objeto es pequeño, así que conviene dibujar muestras que llenen los objetos
+/// a que se refieren.
 pub fn sample_objects(labels: &Labels, regions: &[Region], min_cover: f64) -> Result<Samples> {
     let lat = labels.lat;
     let mut names: Vec<String> = Vec::new();
@@ -236,7 +238,7 @@ pub fn sample_objects(labels: &Labels, regions: &[Region], min_cover: f64) -> Re
     for &l in &labels.ids {
         size[l as usize] += 1;
     }
-    // for each object, the class with the most covered cells
+    // para cada objeto, la clase con más celdas cubiertas
     let mut best: HashMap<u32, (u16, u32)> = HashMap::new();
     for (&(id, c), &n) in &covered {
         let e = best.entry(id).or_insert((c, n));
@@ -257,10 +259,11 @@ pub fn sample_objects(labels: &Labels, regions: &[Region], min_cover: f64) -> Re
 pub struct ForestParams {
     pub trees: usize,
     pub max_depth: usize,
-    /// Fewest samples in a leaf.
+    /// Menor número de muestras en una hoja.
     pub min_leaf: usize,
     pub seed: u64,
-    /// Attributes left out of the training (the position makes a forest learn places).
+    /// Atributos que se dejan fuera del entrenamiento (la posición hace que un bosque aprenda
+    /// lugares).
     pub exclude: Vec<String>,
 }
 
@@ -294,10 +297,10 @@ impl Rng {
 
 #[derive(Clone, Copy)]
 struct Node {
-    /// `u32::MAX` for a leaf.
+    /// `u32::MAX` para una hoja.
     feature: u32,
     threshold: f32,
-    /// Child nodes; in a leaf, `left` is the class.
+    /// Nodos hijos; en una hoja, `left` es la clase.
     left: u32,
     right: u32,
 }
@@ -369,7 +372,7 @@ impl Builder<'_> {
             return at as u32;
         }
         let parent = Self::gini(&counts, n);
-        // best split among a few attributes drawn at random
+        // mejor división entre unos pocos atributos sacados al azar
         let mut order: Vec<usize> = (0..self.f).collect();
         for i in 0..self.mtry.min(self.f) {
             let j = i + self.rng.below(self.f - i);
@@ -408,7 +411,7 @@ impl Builder<'_> {
             return at as u32;
         };
         self.importance[feat] += gain * n;
-        // partition in place
+        // partición en su sitio
         let mut mid = 0;
         for i in 0..idx.len() {
             if self.x[idx[i] as usize * self.f + feat] <= thr {
@@ -429,17 +432,18 @@ impl Builder<'_> {
     }
 }
 
-/// A random forest (Breiman 2001): trees grown on resamples of the training objects, each split
-/// chosen among a few attributes drawn at random, and the class the trees vote for.
+/// Un bosque aleatorio (Breiman 2001): árboles crecidos sobre remuestreos de los objetos de
+/// entrenamiento, cada división elegida entre unos pocos atributos sacados al azar, y la clase que
+/// votan los árboles.
 pub struct Forest {
     trees: Vec<Tree>,
     classes: usize,
-    /// The attributes used, by name, and the value that stands for a missing one.
+    /// Los atributos usados, por nombre, y el valor que representa uno que falta.
     features: Vec<String>,
     fill: Vec<f32>,
 }
 
-/// How well a forest does on the objects it did not see in training.
+/// Qué tal le va a un bosque con los objetos que no vio en el entrenamiento.
 pub struct Accuracy {
     /// `matrix[reference][predicted]`.
     pub matrix: Vec<Vec<u32>>,
@@ -473,12 +477,12 @@ impl Accuracy {
     }
 }
 
-/// A forest, how well it does and the attributes ranked by how much they count.
+/// Un bosque, qué tal le va y los atributos clasificados por cuánto cuentan.
 pub type Trained = (Forest, Accuracy, Vec<(String, f64)>);
 
 impl Forest {
-    /// Trains on the rows `samples` of the table (object, class code starting at 1), and tells how
-    /// it does on the samples each tree left out.
+    /// Entrena con las filas `samples` de la tabla (objeto, código de clase empezando en 1) y dice
+    /// qué tal le va con las muestras que dejó fuera cada árbol.
     pub fn train(
         table: &AttrTable,
         samples: &[(usize, u16)],
@@ -563,7 +567,7 @@ impl Forest {
             })
             .collect();
         check_cancel()?;
-        // votes of the trees that did not train on each sample
+        // votos de los árboles que no se entrenaron con cada muestra
         let mut votes = vec![0u32; s * n_classes];
         for (tree, in_bag, _) in &grown {
             for i in 0..s {
@@ -608,7 +612,7 @@ impl Forest {
         Ok((forest, Accuracy::from_matrix(matrix), ranked))
     }
 
-    /// The class of every object of the table and the share of the trees that chose it.
+    /// La clase de cada objeto de la tabla y la proporción de los árboles que la eligieron.
     pub fn predict(&self, table: &AttrTable) -> Result<(Vec<u16>, Vec<f32>)> {
         let cols: Vec<&[f32]> = self
             .features
@@ -647,8 +651,8 @@ impl Forest {
     }
 }
 
-/// Trains a forest on the objects the `regions` (named by class) cover and classifies every
-/// object with it.
+/// Entrena un bosque con los objetos que cubren las `regions` (nombradas por clase) y clasifica con
+/// él cada objeto.
 pub fn classify_samples(
     labels: &Labels,
     table: &AttrTable,
@@ -711,11 +715,11 @@ pub fn classify_samples(
     })
 }
 
-/// Groups the objects into `k` strata by how alike they are, without rules or samples: k-means
-/// (Lloyd 1982, seeded as in Arthur & Vassilvitskii 2007) on the standardised `features`, each
-/// object weighing its area so that big objects set the strata. With no `features`, the means
-/// and 95th percentiles of the layers and the canopy cover are used. Strata are numbered from the
-/// lowest value of the first feature to the highest.
+/// Agrupa los objetos en `k` estratos según su parecido, sin reglas ni muestras: k-medias (Lloyd
+/// 1982, sembrado como en Arthur y Vassilvitskii 2007) sobre las `features` estandarizadas, pesando
+/// cada objeto por su área de modo que los objetos grandes fijen los estratos. Sin `features`, se
+/// usan las medias y los percentiles 95 de las capas y la cobertura del dosel. Los estratos se
+/// numeran desde el menor valor de la primera característica hasta el mayor.
 pub fn classify_kmeans(
     table: &AttrTable,
     k: usize,
@@ -753,7 +757,7 @@ pub fn classify_kmeans(
         None => vec![1.0; n],
     };
     let total_w: f64 = weight.iter().sum();
-    // weighted mean and spread of each feature, and the objects in those units
+    // media ponderada y dispersión de cada característica, y los objetos en esas unidades
     let mut x = vec![0f64; n * f];
     let mut mean = vec![0f64; f];
     let mut spread = vec![1f64; f];
@@ -787,7 +791,7 @@ pub fn classify_kmeans(
     let dist2 = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(p, q)| (p - q) * (p - q)).sum::<f64>();
     let mut rng = Rng(seed ^ 0x5DEE_CE66_D1CE_4E5B);
     let unit = |r: &mut Rng| (r.next() >> 11) as f64 / (1u64 << 53) as f64;
-    // seeding: far-apart objects, more likely when they weigh more
+    // sembrado: objetos alejados entre sí, más probables cuando pesan más
     let mut centres: Vec<f64> = Vec::with_capacity(k * f);
     let pick = |r: &mut Rng, w: &[f64]| {
         let total: f64 = w.iter().sum();
@@ -850,7 +854,7 @@ pub fn classify_kmeans(
                     centres[c * f + j] = sum[c * f + j] / sw[c];
                 }
             } else {
-                // an empty stratum starts again at the object farthest from its centre
+                // un estrato vacío empieza de nuevo en el objeto más alejado de su centro
                 let far = (0..n)
                     .max_by(|&a, &b| {
                         let da = dist2(
@@ -871,7 +875,7 @@ pub fn classify_kmeans(
             break;
         }
     }
-    // number the strata from the lowest value of the first feature
+    // se numeran los estratos desde el menor valor de la primera característica
     let mut order: Vec<usize> = (0..k).collect();
     order.sort_by(|&a, &b| centres[a * f].total_cmp(&centres[b * f]));
     let mut code = vec![0u16; k];
@@ -956,7 +960,7 @@ mod tests {
 
     #[test]
     fn a_forest_learns_two_separable_classes() -> Result<()> {
-        // class 1 where h is low, class 2 where it is high; "ruido" carries no signal
+        // clase 1 donde h es baja, clase 2 donde es alta; «ruido» no lleva señal
         let n = 200;
         let h: Vec<f32> = (0..n)
             .map(|i| (i % 100) as f32 / 10.0 + if i < 100 { 0.0 } else { 20.0 })
@@ -975,7 +979,7 @@ mod tests {
             assert_eq!(class[i], if i < 100 { 1 } else { 2 }, "object {i}");
             assert!(conf[i] > 0.5);
         }
-        // the same seed gives the same forest
+        // la misma semilla da el mismo bosque
         let (again, _, _) = Forest::train(&t, &samples, 2, &ForestParams::default())?;
         assert_eq!(again.predict(&t)?.0, class);
         Ok(())
@@ -983,13 +987,13 @@ mod tests {
 
     #[test]
     fn kmeans_finds_the_groups_and_numbers_them_by_height() -> Result<()> {
-        // three groups of objects by height; the area weights are equal
+        // tres grupos de objetos por altura; los pesos de área son iguales
         let h: Vec<f32> = (0..90)
             .map(|i| [20.0, 2.0, 9.0][i / 30] + (i % 5) as f32 * 0.1)
             .collect();
         let t = table(vec![("h_media", h), ("area", vec![100.0; 90])]);
         let a = classify_kmeans(&t, 3, &[], 7)?;
-        // lowest group (objects 30..60) is stratum 1, highest (0..30) stratum 3
+        // el grupo más bajo (objetos 30..60) es el estrato 1, el más alto (0..30) el estrato 3
         assert!(a.class[30..60].iter().all(|&c| c == 1));
         assert!(a.class[60..90].iter().all(|&c| c == 2));
         assert!(a.class[0..30].iter().all(|&c| c == 3));

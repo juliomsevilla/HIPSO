@@ -1,5 +1,5 @@
-//! The classes the user has added to the ASPRS table (codes 23–255): name and colour, kept in
-//! a small text file so they are there the next time.
+//! Las clases que el usuario ha añadido a la tabla ASPRS (códigos 23–255): nombre y color,
+//! guardadas en un pequeño archivo de texto para que estén ahí la próxima vez.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -8,9 +8,9 @@ use hipso_core::classes;
 
 #[derive(Default)]
 pub struct ClassTable {
-    /// code → (name, colour)
+    /// código → (nombre, color)
     pub custom: BTreeMap<u8, (String, [u8; 3])>,
-    /// The new class being typed in the window.
+    /// La clase nueva que se está escribiendo en la ventana.
     pub draft: (String, String),
 }
 
@@ -61,7 +61,7 @@ impl ClassTable {
             .map_or_else(|| classes::name(c).to_string(), |(n, _)| n.clone())
     }
 
-    /// Adds or renames a class; its colour goes to `colors`. Err: why it was refused.
+    /// Añade o renombra una clase; su color va a `colors`. Err: por qué se rechazó.
     pub fn add(
         &mut self,
         code: &str,
@@ -94,14 +94,14 @@ impl ClassTable {
         self.save();
     }
 
-    /// Applies the saved colours.
+    /// Aplica los colores guardados.
     pub fn paint(&self, colors: &mut [[u8; 3]; 256]) {
         for (c, (_, k)) in &self.custom {
             colors[usize::from(*c)] = *k;
         }
     }
 
-    /// Codes to offer: the ASPRS ones, the user's, and those in `present`.
+    /// Códigos que ofrecer: los de ASPRS, los del usuario y los que están en `present`.
     pub fn known(&self, present: &[u64; 256]) -> Vec<u8> {
         (0..=255u8)
             .filter(|c| {

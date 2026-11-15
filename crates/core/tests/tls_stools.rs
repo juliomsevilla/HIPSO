@@ -1,10 +1,10 @@
-//! The TLS cubing on a cloud made of cylinders: a tree on its own, a stool with two sprouts and a
-//! tree that forks above the height of the diameter.
+//! El cubicado TLS sobre una nube hecha de cilindros: un árbol solo, una cepa con dos brotes y un
+//! árbol que se bifurca por encima de la altura del diámetro.
 
 use hipso_core::Result;
 use hipso_core::tls::{TlsParams, analyse};
 
-/// Points on the surface of a vertical (or leaning) cylinder, every ~1.5 cm.
+/// Puntos sobre la superficie de un cilindro vertical (o inclinado), cada ~1,5 cm.
 fn cylinder(out: &mut Vec<[f64; 3]>, c: (f64, f64), r: f64, z0: f64, z1: f64, lean: (f64, f64)) {
     let step = 0.015;
     let rings = ((z1 - z0) / step).round() as usize;
@@ -12,7 +12,7 @@ fn cylinder(out: &mut Vec<[f64; 3]>, c: (f64, f64), r: f64, z0: f64, z1: f64, le
     for k in 0..=rings {
         let z = z0 + k as f64 * step;
         let (cx, cy) = (c.0 + lean.0 * (z - z0), c.1 + lean.1 * (z - z0));
-        // every other ring is turned half a step, so the surface has no stripes
+        // un anillo de cada dos se gira medio paso, para que la superficie no tenga rayas
         let phase = if k % 2 == 0 { 0.0 } else { 0.5 };
         for a in 0..around {
             let t = (a as f64 + phase) * std::f64::consts::TAU / around as f64;
@@ -21,7 +21,7 @@ fn cylinder(out: &mut Vec<[f64; 3]>, c: (f64, f64), r: f64, z0: f64, z1: f64, le
     }
 }
 
-/// A LAS 1.2 file of point format 1 (scale 1 mm) written to the temporary folder.
+/// Un archivo LAS 1.2 de formato de punto 1 (escala 1 mm) escrito en la carpeta temporal.
 fn write_las(name: &str, pts: &[[f64; 3]]) -> Result<std::path::PathBuf> {
     let min = pts.iter().fold([f64::INFINITY; 3], |m, p| {
         [m[0].min(p[0]), m[1].min(p[1]), m[2].min(p[2])]
@@ -68,10 +68,10 @@ fn write_las(name: &str, pts: &[[f64; 3]]) -> Result<std::path::PathBuf> {
 fn params() -> TlsParams {
     TlsParams {
         voxel: 0.02,
-        // the cylinders stand on a ground at z = 0: the cloud is already heights
+        // los cilindros se apoyan en un suelo en z = 0: la nube ya son alturas
         normalized: true,
-        // a perfect cylinder has a disc for neighbourhood, as tall as it is wide: the
-        // verticality of real stems (rough, seen from one side) is not what is tested here
+        // un cilindro perfecto tiene un disco por entorno, tan alto como ancho: la verticalidad de
+        // los troncos reales (rugosos, vistos desde un lado) no es lo que se prueba aquí
         vert_min: 0.0,
         ..TlsParams::default()
     }
@@ -80,12 +80,12 @@ fn params() -> TlsParams {
 #[test]
 fn a_stem_a_stool_and_a_fork() -> Result<()> {
     let mut pts = Vec::new();
-    // a tree on its own, 24 cm across
+    // un árbol solo, de 24 cm de diámetro
     cylinder(&mut pts, (0.0, 0.0), 0.12, 0.0, 7.0, (0.0, 0.0));
     // a stool: two sprouts 35 cm apart, 16 cm across
     cylinder(&mut pts, (6.0, 0.0), 0.08, 0.0, 7.0, (0.0, 0.0));
     cylinder(&mut pts, (6.35, 0.0), 0.08, 0.0, 7.0, (0.0, 0.0));
-    // a tree 30 cm across that forks at 2.5 m into two branches 18 cm across
+    // un árbol de 30 cm de diámetro que se bifurca a 2,5 m en dos ramas de 18 cm de diámetro
     cylinder(&mut pts, (12.0, 0.0), 0.15, 0.0, 2.5, (0.0, 0.0));
     cylinder(&mut pts, (12.0, 0.0), 0.09, 2.5, 7.0, (0.25, 0.0));
     cylinder(&mut pts, (12.0, 0.0), 0.09, 2.5, 7.0, (-0.25, 0.0));
@@ -110,7 +110,7 @@ fn a_stem_a_stool_and_a_fork() -> Result<()> {
             .map(|(_, t)| *t)
             .collect()
     };
-    // the tree on its own
+    // el árbol solo
     let single = near(near_origin(&r));
     assert_eq!(single.len(), 1);
     assert!(single[0].sprouts == 1 && single[0].fork_h.is_none());
@@ -119,7 +119,7 @@ fn a_stem_a_stool_and_a_fork() -> Result<()> {
         "{:?}",
         single[0].dbh
     );
-    // the stool: two trees of one stool, each with its own diameter
+    // la cepa: dos árboles de una cepa, cada uno con su propio diámetro
     let xs: Vec<f64> = r.trees.iter().map(|t| t.x).collect();
     let min_x = xs.iter().copied().fold(f64::INFINITY, f64::min);
     let sprouts: Vec<_> = r
@@ -139,7 +139,7 @@ fn a_stem_a_stool_and_a_fork() -> Result<()> {
             .iter()
             .all(|t| t.dbh.is_some_and(|d| (d - 0.16).abs() < 0.03))
     );
-    // the fork: one tree, with the diameter of its stem and the fork where it is
+    // la bifurcación: un árbol, con el diámetro de su tronco y la bifurcación donde está
     let forked: Vec<_> = r
         .trees
         .iter()
@@ -160,7 +160,7 @@ fn a_stem_a_stool_and_a_fork() -> Result<()> {
     Ok(())
 }
 
-/// The x of the leftmost tree, where the tree on its own stands.
+/// La x del árbol más a la izquierda, donde está el árbol solo.
 fn near_origin(r: &hipso_core::tls::TlsResult) -> f64 {
     r.trees
         .iter()
@@ -172,7 +172,7 @@ fn near_origin(r: &hipso_core::tls::TlsResult) -> f64 {
 fn a_stem_with_an_unmeasured_stretch_is_followed_through_it() -> Result<()> {
     let mut pts = Vec::new();
     cylinder(&mut pts, (0.0, 0.0), 0.12, 0.0, 9.0, (0.0, 0.0));
-    // an occlusion: nothing of the stem between 4.0 and 5.5 m
+    // una oclusión: nada del tronco entre 4,0 y 5,5 m
     pts.retain(|p| !(4.0..5.5).contains(&p[2]));
     let input = write_las("gap", &pts)?;
     let followed = analyse(&input, &params());
@@ -191,7 +191,7 @@ fn a_stem_with_an_unmeasured_stretch_is_followed_through_it() -> Result<()> {
             .flat_map(|t| t.sections.iter().filter(|s| s.ok).map(|s| s.h))
             .fold(0.0, f64::max)
     };
-    // with the default stretch the stem goes on above the occlusion; with a short one it is lost
+    // con el tramo por defecto el tronco sigue por encima de la oclusión; con uno corto se pierde
     assert!(top(&followed) > 8.0, "{}", top(&followed));
     assert!(top(&lost) < 4.5, "{}", top(&lost));
     Ok(())

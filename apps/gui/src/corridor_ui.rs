@@ -1,5 +1,5 @@
-//! Corredores eléctricos (Inventario de la vegetación): conductors, poles and vegetation that comes too
-//! close or could fall on the line.
+//! Corredores eléctricos (Inventario de la vegetación): conductores, postes y vegetación que se
+//! acerca demasiado o podría caer sobre la línea.
 
 use super::*;
 use crate::numfield::NumField;

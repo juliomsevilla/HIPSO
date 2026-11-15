@@ -1,6 +1,6 @@
-//! Every tool as a job: its parameters in one value, run by one function that returns a
-//! summary. The command line and the desktop app both build jobs and run them here, so they
-//! always behave alike.
+//! Cada herramienta como trabajo: sus parámetros en un valor, ejecutado por una función que
+//! devuelve un resumen. La línea de comandos y la aplicación de escritorio construyen trabajos y
+//! los ejecutan aquí, de modo que siempre se comportan igual.
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -16,7 +16,7 @@ use crate::{Result, chm, ground, paths};
 
 pub use crate::obia::job::{ClassifyBy, ObiaJob, StrataOpts, obia};
 
-/// A full report on the files: header, points, quality warnings.
+/// Un informe completo de los archivos: cabecera, puntos, avisos de calidad.
 pub fn info(paths: &[PathBuf]) -> Result<String> {
     let sum = crate::inspect::inspect_many(paths)?;
     let mut out: Vec<String> = sum.files.iter().map(crate::inspect::render).collect();
@@ -47,7 +47,7 @@ pub fn info(paths: &[PathBuf]) -> Result<String> {
     ))
 }
 
-/// What a classification did, naming only the classes it touched.
+/// Lo que hizo una clasificación, nombrando solo las clases que tocó.
 fn report(r: &pipeline::Report) -> String {
     let mut parts = vec![format!("{} de suelo", r.ground)];
     for (n, what) in [
@@ -82,8 +82,8 @@ pub fn classify(j: &ClassifyJob) -> Result<String> {
     classify_with(j, &[])
 }
 
-/// [`classify`] on a sheet of a block: `context` are the neighbouring sheets, whose points the
-/// filters see near the edges of the sheet; the file written has the sheet's points only.
+/// [`classify`] sobre una hoja de un bloque: `context` son las hojas vecinas, cuyos puntos ven los
+/// filtros cerca de los bordes de la hoja; el archivo escrito tiene solo los puntos de la hoja.
 pub fn classify_with(j: &ClassifyJob, context: &[PathBuf]) -> Result<String> {
     paths::ensure_parent(&j.output)?;
     let r = pipeline::classify_with_context(&j.inputs, context, &j.output, &j.steps, &j.tiling)?;
@@ -98,22 +98,23 @@ pub struct DtmJob {
     pub surface: Surface,
     pub steps: Steps,
     pub tiling: Tiling,
-    /// Smoothing window in map units (0: none) and its kind.
+    /// Ventana de suavizado en unidades del mapa (0: ninguna) y su tipo.
     pub smooth: f64,
     pub smoothing: trees::Smoothing,
-    /// Breaklines (shapefile of lines or polygons, with or without elevations) that the ground
-    /// model must follow; TIN and IDW surfaces only.
+    /// Líneas de ruptura (shapefile de líneas o polígonos, con o sin elevaciones) que debe seguir
+    /// el modelo del suelo; solo superficies TIN e IDW.
     pub breaklines: Option<PathBuf>,
 }
 
-/// The Kraus & Pfeifer filter on one file, with a mean surface and no other step, runs streamed over the
-/// whole file (same result as the tiled path); anything else runs tiled.
+/// El filtro de Kraus y Pfeifer sobre un archivo, con una superficie media y ningún otro paso, se
+/// ejecuta en flujo sobre todo el archivo (mismo resultado que por teselas); todo lo demás se
+/// ejecuta por teselas.
 pub fn dtm(j: &DtmJob) -> Result<String> {
     dtm_with(j, &[])
 }
 
-/// [`dtm`] on a sheet of a block: `context` are the neighbouring sheets, whose points the
-/// triangulation sees near the edges of the sheet (as far as the tiles' buffer reaches).
+/// [`dtm`] sobre una hoja de un bloque: `context` son las hojas vecinas, cuyos puntos ve la
+/// triangulación cerca de los bordes de la hoja (hasta donde llega el margen de las teselas).
 pub fn dtm_with(j: &DtmJob, context: &[PathBuf]) -> Result<String> {
     paths::ensure_parent(&j.output)?;
     let lines = match &j.breaklines {
@@ -179,14 +180,15 @@ pub fn dtm_with(j: &DtmJob, context: &[PathBuf]) -> Result<String> {
     Ok(text)
 }
 
-/// How a surface model (highest returns) is made.
+/// Cómo se hace un modelo de superficie (retornos más altos).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DsmMethod {
-    /// Highest point of each cell, in one streaming pass.
+    /// Punto más alto de cada celda, en una pasada en flujo.
     Max,
-    /// TIN through the highest point of each cell, tile by tile.
+    /// TIN por el punto más alto de cada celda, tesela a tesela.
     Tin,
-    /// Inverse-distance weighting of the highest points of the cells, tile by tile.
+    /// Ponderación por el inverso de la distancia de los puntos más altos de las celdas, tesela a
+    /// tesela.
     Idw,
 }
 
@@ -196,25 +198,25 @@ pub struct DsmJob {
     pub output: PathBuf,
     pub cell: f64,
     pub method: DsmMethod,
-    /// Fill the empty cells of the streamed surface.
+    /// Rellena las celdas vacías de la superficie en flujo.
     pub fill: bool,
     pub tiling: Tiling,
     pub smooth: f64,
     pub smoothing: trees::Smoothing,
 }
 
-/// What a sheet of a block needs besides its own points, to have at its edges what the block
-/// would have given: the neighbouring sheets (read as context by the methods that triangulate), the
-/// strip of their points near this sheet (for the methods that take the highest point of a cell),
-/// their ground models, and the extent the result is cut to.
+/// Lo que necesita una hoja de un bloque además de sus propios puntos para tener en sus bordes lo
+/// que habría dado el bloque: las hojas vecinas (leídas como contexto por los métodos que
+/// trianguan), la franja de sus puntos cerca de esta hoja (para los métodos que toman el punto más
+/// alto de una celda), sus modelos del suelo y la extensión a la que se recorta el resultado.
 #[derive(Default)]
 pub struct SheetContext {
     pub extra: Vec<PathBuf>,
     pub halo: Vec<crate::las::Point>,
-    /// How far (m) the strip reaches beyond the sheet.
+    /// Hasta dónde (m) llega la franja más allá de la hoja.
     pub margin: f64,
     pub ground_around: Vec<PathBuf>,
-    /// `[min x, min y, max x, max y]` of the sheet; the result is cut to it.
+    /// `[x mínima, y mínima, x máxima, y máxima]` de la hoja; el resultado se recorta a ella.
     pub crop: Option<[f64; 4]>,
 }
 
@@ -231,7 +233,7 @@ pub fn dsm(j: &DsmJob) -> Result<String> {
     dsm_with(j, &SheetContext::default())
 }
 
-/// [`dsm`] on a sheet of a block, with its context.
+/// [`dsm`] sobre una hoja de un bloque, con su contexto.
 pub fn dsm_with(j: &DsmJob, ctx: &SheetContext) -> Result<String> {
     paths::ensure_parent(&j.output)?;
     let (g, epsg) = match j.method {
@@ -254,7 +256,8 @@ pub fn dsm_with(j: &DsmJob, ctx: &SheetContext) -> Result<String> {
             &j.tiling,
         )?,
     };
-    // smoothed on the whole surface and cut afterwards, so the smoothing has no seam either
+    // suavizado sobre toda la superficie y recortado después, de modo que el suavizado tampoco
+    // tiene costura
     let g = ctx.cut(smoothed(g, j.smooth, j.smoothing))?;
     g.write_tiff(&j.output, epsg)?;
     Ok(format!(
@@ -265,7 +268,8 @@ pub fn dsm_with(j: &DsmJob, ctx: &SheetContext) -> Result<String> {
     ))
 }
 
-/// A surface smoothed with a window of `size` map units (unchanged when `size` is 0).
+/// Una superficie suavizada con una ventana de `size` unidades del mapa (sin cambios cuando `size`
+/// es 0).
 fn smoothed(g: Grid, size: f64, kind: trees::Smoothing) -> Grid {
     if size > 0.0 {
         trees::smooth(&g, size, kind, trees::Shape::Circle)
@@ -274,8 +278,8 @@ fn smoothed(g: Grid, size: f64, kind: trees::Smoothing) -> Grid {
     }
 }
 
-/// A surface model turned into heights above `dtm` (negative heights count as 0); cells the DTM
-/// does not cover are empty.
+/// Un modelo de superficie convertido en alturas sobre `dtm` (las alturas negativas cuentan como
+/// 0); las celdas que el MDT no cubre quedan vacías.
 fn above_ground(mut g: Grid, dtm: &Grid) -> Grid {
     for row in 0..g.rows {
         for col in 0..g.cols {
@@ -291,16 +295,17 @@ fn above_ground(mut g: Grid, dtm: &Grid) -> Grid {
     g
 }
 
-/// How a CHM is made.
+/// Cómo se hace un CHM.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChmMethod {
-    /// Highest point per cell ; empty cells filled unless `fill` is false.
+    /// Punto más alto por celda; las celdas vacías se rellenan salvo que `fill` sea falso.
     Max { fill: bool },
-    /// Pit-free stack of TINs.
+    /// Pila de TIN sin picos.
     PitFree(PitFree),
-    /// TIN through the highest point of each cell, minus the DTM.
+    /// TIN por el punto más alto de cada celda, menos el MDT.
     Tin,
-    /// Inverse-distance weighting of the highest points of the cells, minus the DTM.
+    /// Ponderación por el inverso de la distancia de los puntos más altos de las celdas, menos el
+    /// MDT.
     Idw,
 }
 
@@ -312,7 +317,7 @@ pub struct ChmJob {
     pub cell: f64,
     pub method: ChmMethod,
     pub tiling: Tiling,
-    /// Smoothing window in map units (0: none) and its kind.
+    /// Ventana de suavizado en unidades del mapa (0: ninguna) y su tipo.
     pub smooth: f64,
     pub smoothing: trees::Smoothing,
 }
@@ -321,7 +326,7 @@ pub fn chm(j: &ChmJob) -> Result<String> {
     chm_with(j, &SheetContext::default())
 }
 
-/// [`chm`] on a sheet of a block, with its context.
+/// [`chm`] sobre una hoja de un bloque, con su contexto.
 pub fn chm_with(j: &ChmJob, ctx: &SheetContext) -> Result<String> {
     let u = crate::crs::unify(&[j.input.as_path(), j.dtm.as_path()], false)?;
     let j = ChmJob {
@@ -335,7 +340,7 @@ pub fn chm_with(j: &ChmJob, ctx: &SheetContext) -> Result<String> {
 fn chm_run(j: &ChmJob, ctx: &SheetContext) -> Result<String> {
     paths::ensure_parent(&j.output)?;
     let mut ground = Grid::read(&j.dtm)?;
-    // the points of the neighbours need the ground under them
+    // los puntos de las vecinas necesitan el suelo bajo ellos
     if !ctx.ground_around.is_empty() && ctx.margin > 0.0 {
         ground = grown_with_neighbours(ground, &ctx.ground_around, ctx.margin)?.0;
     }
@@ -393,7 +398,7 @@ pub struct MetricsJob {
 }
 
 impl MetricsJob {
-    /// `<output stem>_<suffix>.csv` next to the output.
+    /// `<nombre de salida>_<sufijo>.csv` junto a la salida.
     pub fn sibling(&self, suffix: &str) -> PathBuf {
         let stem = self
             .output
@@ -403,26 +408,26 @@ impl MetricsJob {
     }
 }
 
-/// Metrics by cell. A `.shp` output (the default) gives a polygon per cell with the metrics as
-/// attributes (DBF field names are short: `<name>_campos.txt` lists their meaning); a `.csv`
-/// output keeps the FUSION-compatible text table.
+/// Métricas por celda. Una salida `.shp` (la de por defecto) da un polígono por celda con las
+/// métricas como atributos (los nombres de campo DBF son cortos: `<nombre>_campos.txt` lista su
+/// significado); una salida `.csv` conserva la tabla de texto compatible con FUSION.
 pub fn metrics(j: &MetricsJob) -> Result<String> {
     metrics_with(j, &MetricsContext::default())
 }
 
-/// What a sheet of a block needs besides its own points and ground model (see
-/// [`crate::metrics::Context`]): the strip of its neighbours' points, the ground models of the
-/// neighbours, and which cells the sheet writes.
+/// Lo que necesita una hoja de un bloque además de sus propios puntos y su modelo del suelo (véase
+/// [`crate::metrics::Context`]): la franja de los puntos de sus vecinas, los modelos del suelo de
+/// las vecinas y qué celdas escribe la hoja.
 #[derive(Default)]
 pub struct MetricsContext {
     pub halo: Vec<crate::las::Point>,
-    /// Ground models of the neighbouring sheets, used `margin` metres beyond this one's.
+    /// Modelos del suelo de las hojas vecinas, usados `margin` metros más allá del de esta.
     pub ground_around: Vec<PathBuf>,
     pub margin: f64,
     pub owns: Option<Box<dyn Fn(f64, f64) -> bool + Send + Sync>>,
 }
 
-/// [`metrics`] on a sheet of a block, with its context.
+/// [`metrics`] sobre una hoja de un bloque, con su contexto.
 pub fn metrics_with(j: &MetricsJob, ctx: &MetricsContext) -> Result<String> {
     let u = crate::crs::unify(&[j.input.as_path(), j.dtm.as_path()], false)?;
     let j = MetricsJob {
@@ -444,7 +449,8 @@ fn metrics_run(j: &MetricsJob, ctx: &MetricsContext) -> Result<String> {
         };
         return metrics_csv(&job, &csv_main, ctx);
     }
-    // the vector layers are made from the text tables, which are kept when asked for
+    // las capas vectoriales se hacen a partir de las tablas de texto, que se conservan cuando se
+    // piden
     let csv_target = if f.csv {
         csv_main
     } else {
@@ -564,12 +570,13 @@ fn metrics_csv(j: &MetricsJob, output: &std::path::Path, ctx: &MetricsContext) -
     ))
 }
 
-/// Field inventory to check the detections against.
+/// Inventario de campo con el que comprobar las detecciones.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FieldJob {
     pub file: PathBuf,
     pub columns: crate::forest::FieldColumns,
-    /// Plot centre columns, and the plot radius; detections count only inside the plots.
+    /// Columnas del centro de la parcela y radio de la parcela; las detecciones cuentan solo dentro
+    /// de las parcelas.
     pub plot_x: String,
     pub plot_y: String,
     pub plot_radius: f64,
@@ -579,44 +586,47 @@ pub struct FieldJob {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TreesJob {
     pub chm: PathBuf,
-    /// Base path of the trees table (its extension is replaced by the formats chosen).
+    /// Ruta base de la tabla de árboles (su extensión se sustituye por los formatos elegidos).
     pub output: PathBuf,
     pub formats: paths::Formats,
-    /// Crown raster of tree ids.
+    /// Ráster de copas con los identificadores de árbol.
     pub crowns: Option<PathBuf>,
     pub crowns_shp: Option<PathBuf>,
     pub tops_shp: Option<PathBuf>,
-    /// A cloud and the copy of it that gets a `treeID` attribute.
+    /// Una nube y la copia suya que recibe un atributo `treeID`.
     pub cloud: Option<(PathBuf, PathBuf)>,
-    /// Tree tops given by hand (CSV: x,y per line) instead of searched for.
+    /// Cimas de árboles dadas a mano (CSV: x,y por línea) en lugar de buscadas.
     pub tops_file: Option<PathBuf>,
     pub tops: TopParams,
     pub crown: CrownParams,
-    /// Smoothing window of the CHM in map units (0: none).
+    /// Ventana de suavizado del CHM en unidades del mapa (0: ninguna).
     pub smooth: f64,
     pub smoothing: trees::Smoothing,
     pub field: Option<FieldJob>,
-    /// Canopy models of the sheets around this one (same cell size). With them, the trees are
-    /// searched for on this model grown by `margin` metres on every side with what the
-    /// neighbours have there, and only the trees whose top is on this sheet are kept: a tree
-    /// cut by the edge of a sheet is found once, whole, by the sheet that holds its top.
+    /// Modelos de copas de las hojas que rodean a esta (mismo tamaño de celda). Con ellos, los
+    /// árboles se buscan en este modelo ampliado `margin` metros por cada lado con lo que tienen
+    /// allí las vecinas, y solo se conservan los árboles cuya cima está en esta hoja: un árbol
+    /// cortado por el borde de una hoja lo encuentra una sola vez, entero, la hoja que contiene su
+    /// cima.
     pub around: Vec<PathBuf>,
     pub margin: f64,
-    /// Also write the tops and the crowns together in one GeoPackage (`<output>.gpkg`, tables
-    /// `apices` and `copas`).
+    /// Escribe además las cimas y las copas juntas en un GeoPackage (`<salida>.gpkg`, tablas
+    /// `apices` y `copas`).
     pub gpkg: bool,
-    /// Clouds whose points inside each crown are measured (the metrics of Extraer muestras);
-    /// the crown polygons carry them as attributes. Empty: no metrics.
+    /// Nubes cuyos puntos dentro de cada copa se miden (las métricas de Extraer muestras); los
+    /// polígonos de copa las llevan como atributos. Vacío: sin métricas.
     pub crown_metrics: Vec<PathBuf>,
 }
 
-/// A row of a layer built in memory: the rings of a feature and its attribute values.
+/// Una fila de una capa construida en memoria: los anillos de un elemento y sus valores de
+/// atributo.
 type LayerRow = (Vec<Vec<[f64; 2]>>, Vec<String>);
 
-/// The crown metrics of each tree, as columns and as a row of values for each tree.
+/// Las métricas de copa de cada árbol, como columnas y como una fila de valores por árbol.
 type CrownTable = (Vec<String>, std::collections::HashMap<u32, Vec<String>>);
 
-/// A vector layer built in memory: one feature per row, its rings and its attribute values.
+/// Una capa vectorial construida en memoria: un elemento por fila, sus anillos y sus valores de
+/// atributo.
 fn vector_of(
     fields: Vec<String>,
     rows: Vec<LayerRow>,
@@ -650,8 +660,8 @@ fn vector_of(
     d
 }
 
-/// The metrics of Extraer muestras for the points inside each crown: the names of the columns
-/// and, by tree id, their values.
+/// Las métricas de Extraer muestras para los puntos dentro de cada copa: los nombres de las
+/// columnas y, por identificador de árbol, sus valores.
 fn crown_metrics(
     clouds: &[PathBuf],
     trees: &[trees::Tree],
@@ -693,7 +703,7 @@ fn crown_metrics(
     let text = text?;
     let mut lines = text.lines();
     let head: Vec<&str> = lines.next().unwrap_or("").split(',').collect();
-    // Muestra, Area, the metrics, Date
+    // Muestra, Area, las métricas, Date
     let names: Vec<String> = head
         .get(2..head.len().saturating_sub(1))
         .unwrap_or(&[])
@@ -717,7 +727,8 @@ fn crown_metrics(
     Ok((names, by_id))
 }
 
-/// Tops from a CSV of `x,y` lines (a header line is skipped), their height read from the CHM.
+/// Cimas a partir de un CSV de líneas `x,y` (se salta una línea de cabecera), con su altura leída
+/// del CHM.
 fn manual_tops(path: &std::path::Path, g: &Grid) -> Result<Vec<trees::Tree>> {
     let text = std::fs::read_to_string(path)?;
     let mut out = Vec::new();
@@ -753,8 +764,8 @@ pub fn trees(j: &TreesJob) -> Result<String> {
     trees_run(&j).map(|s| s + &u.notes())
 }
 
-/// This sheet's model grown by `margin` with what the sheets around have there; the own extent
-/// and the number of cells added on each side.
+/// El modelo de esta hoja ampliado `margin` con lo que tienen allí las hojas de alrededor; la
+/// extensión propia y el número de celdas añadidas por cada lado.
 fn grown_with_neighbours(
     own: Grid,
     around: &[PathBuf],
@@ -796,7 +807,7 @@ fn grown_with_neighbours(
 fn trees_run(j: &TreesJob) -> Result<String> {
     use crate::forest;
     let mut g = Grid::read(&j.chm)?;
-    // the own extent and the margin, when the neighbours are used
+    // la extensión propia y el margen, cuando se usan las vecinas
     let mut owned: Option<([f64; 4], usize)> = None;
     if !j.around.is_empty() && j.margin > 0.0 {
         let (grown, own, k) = grown_with_neighbours(g, &j.around, j.margin)?;
@@ -811,8 +822,8 @@ fn trees_run(j: &TreesJob) -> Result<String> {
         None => trees::tops(&g, &j.tops),
     };
     let mut ids = trees::crowns(&g, &mut list, &j.crown);
-    // the trees whose top is on this sheet (the west and south edges belong to it, the east and
-    // north ones to the next sheet, so no tree is found twice)
+    // los árboles cuya cima está en esta hoja (los bordes oeste y sur le pertenecen, los este y
+    // norte a la hoja siguiente, de modo que ningún árbol se encuentra dos veces)
     let mut dropped = 0usize;
     if let Some((b, _)) = owned {
         let mine = |t: &trees::Tree| t.x >= b[0] && t.x < b[2] && t.y >= b[1] && t.y < b[3];
@@ -858,7 +869,7 @@ fn trees_run(j: &TreesJob) -> Result<String> {
         written.push(path.display().to_string());
     }
     if f.vector {
-        // the tree tops with their attributes
+        // las cimas de los árboles con sus atributos
         let path = paths::swap_ext(&j.output, "shp");
         forest::write_tops_shp(&path, &list, &hulls, epsg)?;
         written.push(path.display().to_string());
@@ -871,7 +882,7 @@ fn trees_run(j: &TreesJob) -> Result<String> {
     }
     if let Some(path) = &j.crowns {
         paths::ensure_parent(path)?;
-        // with neighbours the crown raster is cut back to the sheet's own extent
+        // con vecinas, el ráster de copas se recorta de nuevo a la extensión propia de la hoja
         let cut: Option<(Grid, Vec<u32>)> = owned.map(|(b, k)| {
             let mut own = Grid::new(b[0], b[1], g.cell, g.cols - 2 * k, g.rows - 2 * k)
                 .unwrap_or_else(|_| g.like());
@@ -888,8 +899,8 @@ fn trees_run(j: &TreesJob) -> Result<String> {
             Some((a, b)) => (a, b),
             None => (&g, &ids),
         };
-        // a 32-bit float holds whole numbers exactly up to 2^24 and every viewer reads it; past
-        // that the numbers go in an integer raster, which keeps them all
+        // un decimal de 32 bits guarda números enteros exactamente hasta 2^24 y todo visor lo lee;
+        // más allá, los números van en un ráster entero, que los conserva todos
         if ids.iter().copied().max().unwrap_or(0) > 1 << 24 {
             let labels = crate::obia::Labels {
                 lat: crate::obia::Lattice::of(g),
@@ -908,7 +919,7 @@ fn trees_run(j: &TreesJob) -> Result<String> {
         }
         lines.push(format!("  individuos (ráster): {}", path.display()));
     }
-    // the crown polygons as a layer in memory, when they carry metrics or go in the GeoPackage
+    // los polígonos de copa como capa en memoria, cuando llevan métricas o van en el GeoPackage
     let want_layer = j.crowns_shp.is_some() || j.gpkg;
     let crown_layer = if want_layer && (j.gpkg || !j.crown_metrics.is_empty()) {
         let (names, by_id) = if j.crown_metrics.is_empty() {
@@ -988,7 +999,7 @@ fn trees_run(j: &TreesJob) -> Result<String> {
         crate::gpkg_write::write(&path, &tables)?;
         lines.push(format!("  GeoPackage (ápices y copas): {}", path.display()));
     }
-    // the tops shapefile is already the main result when vector output is on
+    // el shapefile de cimas ya es el resultado principal cuando la salida vectorial está activada
     if let Some(path) = j.tops_shp.as_ref().filter(|_| !f.vector) {
         paths::ensure_parent(path)?;
         forest::write_tops_shp(path, &list, &hulls, epsg)?;
@@ -1018,7 +1029,7 @@ fn trees_run(j: &TreesJob) -> Result<String> {
     Ok(lines.join("\n"))
 }
 
-/// Clips clouds with regions and says what each output holds.
+/// Recorta nubes con regiones y dice qué contiene cada salida.
 pub fn clip(job: &crate::clip::ClipJob) -> Result<String> {
     let (moved, unified) = crate::clip::unified(job)?;
     let r = crate::clip::run(&moved)?;
@@ -1057,7 +1068,7 @@ pub fn clip(job: &crate::clip::ClipJob) -> Result<String> {
     Ok(lines.join("\n") + &crate::crs::notes(&warnings))
 }
 
-/// Default Kraus & Pfeifer parameters, for building steps.
+/// Parámetros por defecto de Kraus y Pfeifer, para construir pasos.
 pub fn fusion_ground() -> Ground {
     Ground::Fusion(GroundParams::default())
 }

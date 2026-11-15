@@ -1,9 +1,10 @@
-//! Volumes between a surface raster and a reference, for the whole raster or for regions.
+//! Volúmenes entre un ráster de superficie y una referencia, para todo el ráster o para regiones.
 //!
-//! The surface is a DSM or a CHM; the reference is a DTM, a level, or nothing (a CHM already
-//! holds heights above ground). Each surface cell is `h = surface - reference` high: cells at
-//! least `min_height` above the reference add `h * cell²` to the volume above it, cells at least
-//! that far below add to the volume under it. Regions that overlap are measured one by one.
+//! La superficie es un MDS o un CHM; la referencia es un MDT, un nivel o nada (un CHM ya contiene
+//! alturas sobre el suelo). Cada celda de superficie tiene `h = superficie - referencia` de alto:
+//! las celdas al menos `min_height` por encima de la referencia suman `h * celda²` al volumen sobre
+//! ella, las que están al menos tan por debajo suman al volumen bajo ella. Las regiones que se
+//! solapan se miden una a una.
 
 use std::path::{Path, PathBuf};
 
@@ -11,30 +12,30 @@ use crate::grid::Grid;
 use crate::vector::{self, Region};
 use crate::{Error, Result};
 
-/// What the surface is measured against.
+/// Contra qué se mide la superficie.
 #[derive(Clone, Copy, Debug)]
 pub enum Reference<'a> {
-    /// The surface already holds heights (a canopy height model).
+    /// La superficie ya contiene alturas (un modelo de altura de copas).
     Zero,
-    /// A horizontal plane at this elevation.
+    /// Un plano horizontal a esta elevación.
     Level(f64),
-    /// A terrain model, sampled at the centre of every surface cell.
+    /// Un modelo del terreno, muestreado en el centro de cada celda de superficie.
     Dtm(&'a Grid),
 }
 
-/// The measure of one region.
+/// La medida de una región.
 #[derive(Clone, Debug, PartialEq)]
 pub struct VolumeRow {
     pub name: String,
-    /// Area (m²) of the cells measured: those with a surface value and a reference.
+    /// Área (m²) de las celdas medidas: las que tienen valor de superficie y una referencia.
     pub area: f64,
-    /// Volume (m³) above the reference, and under it.
+    /// Volumen (m³) sobre la referencia y bajo ella.
     pub above: f64,
     pub below: f64,
-    /// Mean and largest height of the cells above the reference (NaN when there are none).
+    /// Altura media y mayor de las celdas por encima de la referencia (NaN cuando no hay ninguna).
     pub mean_h: f64,
     pub max_h: f64,
-    /// Cells with a surface value that the DTM does not cover: not measured.
+    /// Celdas con un valor de superficie que el MDT no cubre: no medidas.
     pub no_reference: u64,
 }
 
@@ -44,7 +45,8 @@ impl VolumeRow {
     }
 }
 
-/// Columns and rows of the cells whose centres can lie inside `bbox` (min x, min y, max x, max y).
+/// Columnas y filas de las celdas cuyos centros pueden estar dentro de `bbox` (x mínima, y mínima,
+/// x máxima, y máxima).
 fn window(g: &Grid, bbox: [f64; 4]) -> (std::ops::Range<usize>, std::ops::Range<usize>) {
     let top = g.y0 + g.rows as f64 * g.cell;
     let lim = |v: f64, n: usize| v.clamp(0.0, n as f64) as usize;
@@ -56,8 +58,9 @@ fn window(g: &Grid, bbox: [f64; 4]) -> (std::ops::Range<usize>, std::ops::Range<
     )
 }
 
-/// Volumes of the surface over `reference`, one row per region (one row for the whole raster
-/// when there are none). Heights closer than `min_height` to the reference count as nothing.
+/// Volúmenes de la superficie sobre `reference`, una fila por región (una fila para todo el ráster
+/// cuando no hay ninguna). Las alturas más cercanas que `min_height` a la referencia cuentan como
+/// nada.
 pub fn volumes(
     surface: &Grid,
     reference: Reference,
@@ -95,7 +98,7 @@ pub fn volumes(
                 let base = match reference {
                     Reference::Zero => Some(0.0),
                     Reference::Level(l) => Some(l),
-                    // `sample` clamps to the edge: outside the DTM there is no reference
+                    // `sample` limita al borde: fuera del MDT no hay referencia
                     Reference::Dtm(d) => d.index(x, y).and_then(|_| d.sample(x, y)).map(f64::from),
                 };
                 let Some(base) = base else {
@@ -136,7 +139,7 @@ pub fn volumes(
     Ok(out)
 }
 
-/// Where the reference of a run comes from.
+/// De dónde viene la referencia de una ejecución.
 #[derive(Clone, Debug)]
 pub enum ReferenceSource {
     Zero,
@@ -148,10 +151,10 @@ pub enum ReferenceSource {
 pub struct VolumeJob {
     pub surface: PathBuf,
     pub reference: ReferenceSource,
-    /// Empty: the whole raster.
+    /// Vacío: todo el ráster.
     pub regions: Vec<Region>,
     pub min_height: f64,
-    /// Name of the sheet (cloud) the rasters belong to.
+    /// Nombre de la hoja (nube) a la que pertenecen los rásteres.
     pub sheet: String,
 }
 
@@ -163,7 +166,7 @@ fn csv_field(s: &str) -> String {
     }
 }
 
-/// The rows as a CSV table; with `sheets` (one name per row) a first column tells the sheet.
+/// Las filas como tabla CSV; con `sheets` (un nombre por fila), una primera columna dice la hoja.
 pub fn csv_text(rows: &[VolumeRow], sheets: Option<&[String]>) -> String {
     let num = |v: f64| {
         if v.is_finite() {
@@ -196,8 +199,8 @@ pub fn csv_text(rows: &[VolumeRow], sheets: Option<&[String]>) -> String {
     s
 }
 
-/// Measures the volumes of every job and writes one table with all the rows (a `Hoja` column
-/// tells the sheet when there are several); one line about the result.
+/// Mide los volúmenes de cada trabajo y escribe una tabla con todas las filas (una columna `Hoja`
+/// dice la hoja cuando hay varias); una línea sobre el resultado.
 pub fn run_all(jobs: &[VolumeJob], output: &Path) -> Result<String> {
     let (mut rows, mut names) = (Vec::new(), Vec::new());
     for job in jobs {
@@ -224,12 +227,13 @@ pub fn run_all(jobs: &[VolumeJob], output: &Path) -> Result<String> {
     Ok(summary(&rows, output))
 }
 
-/// The names of the volume fields of a polygon layer, in the order of [`VolumeRow`] values.
+/// Los nombres de los campos de volumen de una capa de polígonos, en el orden de los valores de
+/// [`VolumeRow`].
 pub const LAYER_FIELDS: [&str; 7] = ["Area_m2", "Vol_sobre", "Vol_bajo", "Vol_neto", "H_media", "H_max", "Sin_MDT"];
 
-/// Measures the volumes of the polygons in the file `source` and writes them as a polygon
-/// layer: the polygons with their own attributes plus the volume fields (a field of the layer
-/// with the same name is replaced). One line about the result.
+/// Mide los volúmenes de los polígonos del archivo `source` y los escribe como capa de polígonos:
+/// los polígonos con sus propios atributos más los campos de volumen (un campo de la capa con el
+/// mismo nombre se sustituye). Una línea sobre el resultado.
 pub fn run_layer(job: &VolumeJob, source: &Path, output: &Path) -> Result<String> {
     use crate::geomops::{self, Feature, PolyLayer};
     crate::check_cancel()?;
@@ -272,7 +276,7 @@ pub fn run_layer(job: &VolumeJob, source: &Path, output: &Path) -> Result<String
     Ok(summary(&rows, output))
 }
 
-/// One line about a set of rows.
+/// Una línea sobre un conjunto de filas.
 pub fn summary(rows: &[VolumeRow], out: &Path) -> String {
     let (above, below, area): (f64, f64, f64) = rows.iter().fold((0.0, 0.0, 0.0), |a, r| {
         (a.0 + r.above, a.1 + r.below, a.2 + r.area)
@@ -288,11 +292,12 @@ pub fn summary(rows: &[VolumeRow], out: &Path) -> String {
     format!("{text}: {}", out.display())
 }
 
-/// Fields that identify a region, in order of preference; the first one the file has names the
-/// rows, so a table of tree crowns keeps the `TREEID` of the trees and links to their table.
+/// Campos que identifican una región, por orden de preferencia; el primero que tiene el archivo
+/// nombra las filas, de modo que una tabla de copas de árboles conserva el `TREEID` de los árboles
+/// y se enlaza con su tabla.
 const NAME_FIELDS: &[&str] = &["treeid", "tree_id", "id", "fid", "nombre", "name"];
 
-/// Reads regions from a vector file for a volume run.
+/// Lee regiones de un archivo vectorial para una ejecución de volúmenes.
 pub fn read_regions(path: &Path) -> Result<Vec<Region>> {
     let name_field = shapefile::dbase::Reader::from_path(path.with_extension("dbf"))
         .ok()
@@ -322,7 +327,7 @@ mod tests {
 
     #[test]
     fn a_plateau_over_a_flat_dtm() -> Result<()> {
-        // 16 cells of 4 m² at 12 m over a terrain at 10 m: 64 m² x 2 m
+        // 16 celdas de 4 m² a 12 m sobre un terreno a 10 m: 64 m² x 2 m
         let rows = volumes(&grid(12.0)?, Reference::Dtm(&grid(10.0)?), &[], 0.0)?;
         assert_eq!(rows.len(), 1);
         assert!((rows[0].area - 64.0).abs() < 1e-9);
@@ -336,7 +341,7 @@ mod tests {
     fn heights_below_the_reference_and_the_minimum_height() -> Result<()> {
         let rows = volumes(&grid(9.0)?, Reference::Level(10.0), &[], 0.0)?;
         assert!((rows[0].below - 64.0).abs() < 1e-9 && rows[0].above == 0.0);
-        // a 2 m surface under a 3 m minimum height counts as nothing
+        // una superficie de 2 m bajo una altura mínima de 3 m cuenta como nada
         let rows = volumes(&grid(2.0)?, Reference::Zero, &[], 3.0)?;
         assert_eq!(rows[0].above, 0.0);
         assert!(rows[0].mean_h.is_nan());
@@ -345,7 +350,7 @@ mod tests {
 
     #[test]
     fn a_region_takes_only_its_cells() -> Result<()> {
-        // the left half of the raster: x from 0 to 4
+        // la mitad izquierda del ráster: x de 0 a 4
         let left = Region {
             name: "izquierda".into(),
             shape: Shape2::Rect([0.0, 0.0, 4.0, 8.0]),
@@ -361,7 +366,7 @@ mod tests {
     fn cells_outside_the_dtm_are_counted_apart() -> Result<()> {
         let mut small = Grid::new(0.0, 0.0, 2.0, 2, 2)?;
         small.data.fill(0.0);
-        // the DTM covers the south-west quarter only
+        // el MDT cubre solo el cuarto suroeste
         let rows = volumes(&grid(1.0)?, Reference::Dtm(&small), &[], 0.0)?;
         assert!(rows[0].no_reference > 0);
         assert!(rows[0].area < 64.0);
@@ -393,7 +398,7 @@ mod tests {
         assert_eq!(back.features.len(), 2);
         let get = |i: usize, k: &str| back.features[i].attrs.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
         assert_eq!(get(0, "zona").as_deref(), Some("A"));
-        // 4 cells of 4 m² at 5 m
+        // 4 celdas de 4 m² a 5 m
         assert_eq!(get(0, "Vol_sobre").and_then(|v| v.parse::<f64>().ok()), Some(80.0));
         std::fs::remove_dir_all(&dir)?;
         Ok(())

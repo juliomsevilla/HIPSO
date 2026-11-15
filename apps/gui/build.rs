@@ -1,10 +1,11 @@
-//! Lists every `assets/icons/*.svg` so a new icon only needs its file dropped in the folder.
+//! Lista cada `assets/icons/*.svg` para que un icono nuevo solo necesite que se deje su archivo en
+//! la carpeta.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // not canonicalized: on Windows that gives a `\\?\` path, which `include_str!` can fail on
+    // no canonicalizado: en Windows eso da una ruta `\\?\`, con la que `include_str!` puede fallar
     let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?).join("../../assets/icons");
     println!("cargo:rerun-if-changed={}", dir.display());
     let mut names: Vec<String> = std::fs::read_dir(&dir)?

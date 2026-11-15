@@ -1,5 +1,5 @@
-//! Cubicación de pilas (Ráster › Volúmenes): the material over a base surface inside the outline
-//! of each pile.
+//! Cubicación de pilas (Ráster › Volúmenes): el material sobre una superficie base dentro del
+//! contorno de cada pila.
 
 use super::*;
 use crate::numfield::NumField;

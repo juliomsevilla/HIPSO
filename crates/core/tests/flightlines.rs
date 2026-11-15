@@ -1,5 +1,5 @@
-//! Flight lines from the gaps in the GPS time: the lines found, the small ones dropped, the
-//! number written to the points, and the files that cannot be used.
+//! Pasadas a partir de los saltos del tiempo GPS: las líneas halladas, las pequeñas descartadas, el
+//! número escrito en los puntos y los archivos que no se pueden usar.
 
 mod common;
 
@@ -9,7 +9,8 @@ use hipso_core::flightlines::{FlightJob, FlightParams, Write, assign, detect, ru
 use hipso_core::las::Reader;
 use std::path::PathBuf;
 
-/// Points every 0.1 s in each `(from, to)` block of time, along x, 10 m apart in y per block.
+/// Puntos cada 0,1 s en cada bloque de tiempo `(desde, hasta)`, a lo largo de x, a 10 m en y por
+/// bloque.
 fn blocks(spans: &[(f64, f64)]) -> (Vec<[f64; 3]>, Vec<f64>) {
     let (mut pts, mut times) = (Vec::new(), Vec::new());
     for (b, (t0, t1)) in spans.iter().enumerate() {
@@ -37,7 +38,7 @@ fn file(name: &str, spans: &[(f64, f64)]) -> Result<PathBuf> {
 
 #[test]
 fn the_gap_decides_how_many_lines() -> Result<()> {
-    // times start at 1000: a time of 0 means no GPS time
+    // los tiempos empiezan en 1000: un tiempo de 0 significa sin tiempo GPS
     let f = file(
         "fl_gap",
         &[(1000.0, 1010.0), (1100.0, 1110.0), (1300.0, 1310.0)],
@@ -49,7 +50,7 @@ fn the_gap_decides_how_many_lines() -> Result<()> {
         vec![100, 100, 100]
     );
     assert!((three.lines[1].t0 - 1100.0).abs() < 1e-6 && (three.lines[1].t1 - 1109.9).abs() < 1e-6);
-    // the silences are 90 s and 190 s: a gap of 150 keeps the first two together
+    // los silencios son de 90 s y 190 s: un salto de 150 mantiene juntas las dos primeras
     let two = detect(std::slice::from_ref(&f), &params(150.0, 1))?;
     assert_eq!(two.lines.len(), 2);
     assert_eq!(two.lines[0].points, 200);
@@ -67,7 +68,7 @@ fn small_stretches_are_not_lines() -> Result<()> {
     let rep = detect(&[f], &params(30.0, 50))?;
     assert_eq!(rep.lines.len(), 2);
     assert_eq!(rep.discarded, 3);
-    // the lines are numbered by time, without a hole
+    // las líneas se numeran por tiempo, sin huecos
     assert_eq!(
         rep.lines.iter().map(|l| l.id).collect::<Vec<_>>(),
         vec![1, 2]
@@ -80,7 +81,7 @@ fn small_stretches_are_not_lines() -> Result<()> {
 #[test]
 fn a_file_without_gps_time_is_refused() -> Result<()> {
     let f = file("fl_nogps", &[(1000.0, 1010.0)])?;
-    // the same file declared as point format 0, which has no time
+    // el mismo archivo declarado como formato de punto 0, que no tiene tiempo
     let mut bytes = std::fs::read(&f)?;
     bytes[104] = 0;
     let g = f.with_file_name("hipso_fl_nogps0.las");
@@ -97,7 +98,7 @@ fn a_file_without_gps_time_is_refused() -> Result<()> {
 fn the_order_of_the_points_does_not_matter() -> Result<()> {
     let spans = [(1000.0, 1010.0), (1100.0, 1110.0), (1300.0, 1310.0)];
     let (pts, times) = blocks(&spans);
-    // the same points back to front
+    // los mismos puntos de atrás hacia delante
     let n = pts.len();
     let back = write_las_with_gps(
         "fl_back",
@@ -143,7 +144,7 @@ fn the_line_number_is_written_and_read_back() -> Result<()> {
     })?;
     assert_eq!(ids.len(), 200);
     assert!(ids[..100].iter().all(|i| *i == 1) && ids[100..].iter().all(|i| *i == 2));
-    // in the user data byte
+    // en el byte de datos de usuario
     let out = assign(
         std::slice::from_ref(&f),
         &dir.join("u"),
@@ -159,7 +160,7 @@ fn the_line_number_is_written_and_read_back() -> Result<()> {
         Ok(())
     })?;
     assert!(data[..100].iter().all(|i| *i == 1) && data[100..].iter().all(|i| *i == 2));
-    // more lines than the field holds
+    // más líneas de las que cabe en el campo
     let mut many = rep.clone();
     many.lines = (1..=300)
         .map(|k| hipso_core::flightlines::Line {
@@ -212,7 +213,7 @@ fn bad_settings_are_refused() -> Result<()> {
 #[test]
 fn the_separation_between_passes_can_use_the_gaps_in_time() -> Result<()> {
     use hipso_core::cloudtools::{SwathBy, SwathReturns, swath_separation_by};
-    // two passes over the same ground 0.2 m apart, both with source id 0
+    // dos pasadas sobre el mismo terreno a 0,2 m una de otra, ambas con identificador de fuente 0
     let (mut pts, mut times) = (Vec::new(), Vec::new());
     for (pass, t0) in [(0.0, 1000.0), (0.2, 1200.0)] {
         for k in 0..100 {

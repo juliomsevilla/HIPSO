@@ -1,13 +1,14 @@
-//! Pictures whose coordinate system is not the work's, drawn as a grid of small triangles whose
-//! corners are moved to where they belong: straight edges become the curves they should be.
+//! Imágenes cuyo sistema de coordenadas no es el del trabajo, dibujadas como una rejilla de
+//! pequeños triángulos cuyas esquinas se mueven adonde les corresponde: los bordes rectos pasan a
+//! ser las curvas que deben ser.
 
 use eframe::egui::{self, Color32, Pos2, Rect};
 use hipso_core::reproject::Transformer;
 use hipso_core::view::Plan;
 
-/// Paints the texture of an image that covers `extent` (min x, min y, max x, max y) in the
-/// system `tf` converts from, in the system of the plan. `n` is how many cells the grid has along
-/// each side: more cells follow the curvature better.
+/// Pinta la textura de una imagen que cubre `extent` (x mínima, y mínima, x máxima, y máxima) en el
+/// sistema desde el que convierte `tf`, en el sistema de la planta. `n` es cuántas celdas tiene la
+/// rejilla a lo largo de cada lado: más celdas siguen mejor la curvatura.
 #[allow(clippy::too_many_arguments)]
 pub fn paint_warped(
     painter: &egui::Painter,

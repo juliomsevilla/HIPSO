@@ -1,12 +1,13 @@
-//! Diagnostic graphics of a transition model: observed against predicted, residuals against
-//! fitted values, normal Q–Q of the residuals and Cook's distance. They are read from the plot
-//! table (`…_muestras.csv`) the model writes, and drawn with the painter: no plotting library.
+//! Gráficos de diagnóstico de un modelo de transición: observado frente a predicho, residuos frente
+//! a valores ajustados, Q–Q normal de los residuos y distancia de Cook. Se leen de la tabla de
+//! parcelas (`…_muestras.csv`) que escribe el modelo y se dibujan con el pintor: sin biblioteca de
+//! gráficos.
 
 use super::*;
 use eframe::egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use hipso_core::aba::normal_quantile;
 
-/// One plot of the model as the table has it.
+/// Una parcela del modelo como la tiene la tabla.
 #[derive(Clone)]
 pub struct Row {
     pub key: String,
@@ -15,18 +16,18 @@ pub struct Row {
     pub cv: f64,
     pub stud: f64,
     pub cook: f64,
-    /// The table flagged it (outlier, leverage, influential).
+    /// La tabla la marcó (valor atípico, apalancamiento, influyente).
     pub flag: bool,
 }
 
-/// The diagnostics of the last model.
+/// Los diagnósticos del último modelo.
 pub struct Diag {
     pub rows: Vec<Row>,
     pub response: String,
 }
 
 impl Diag {
-    /// Reads the plot table of a model.
+    /// Lee la tabla de parcelas de un modelo.
     pub fn read(path: &Path, response: &str) -> Option<Self> {
         let text = std::fs::read_to_string(path).ok()?;
         let mut rows = Vec::new();
@@ -62,7 +63,7 @@ struct Pt {
     hollow: bool,
 }
 
-/// A line in data coordinates.
+/// Una línea en coordenadas de datos.
 struct Ln {
     a: [f64; 2],
     b: [f64; 2],
@@ -70,7 +71,7 @@ struct Ln {
     dashed: bool,
 }
 
-/// A rounded step that gives about `n` ticks over `span`.
+/// Un paso redondeado que da unas `n` marcas sobre `span`.
 pub(crate) fn nice_step(span: f64, n: f64) -> f64 {
     let raw = span / n;
     let mag = 10f64.powf(raw.log10().floor());
@@ -95,7 +96,7 @@ pub(crate) fn tick_text(v: f64, step: f64) -> String {
     format!("{v:.decimals$}")
 }
 
-/// A small scatter chart with axes. `stems` draws each point as a bar from zero.
+/// Un pequeño diagrama de dispersión con ejes. `stems` dibuja cada punto como una barra desde cero.
 #[allow(clippy::too_many_arguments)]
 fn chart(
     ui: &mut egui::Ui,
@@ -139,7 +140,8 @@ fn chart(
         lo[1] = lo[1].min(0.0);
     }
     for l in lines {
-        // lines widen the range only on the axis they are given for (thresholds, not the span)
+        // las líneas ensanchan el rango solo en el eje para el que se dan (umbrales, no el
+        // recorrido)
         if l.a[0] == l.b[0] {
             lo[0] = lo[0].min(l.a[0]);
             hi[0] = hi[0].max(l.a[0]);
@@ -164,7 +166,7 @@ fn chart(
             plot.bottom() - ((y - lo[1]) / (hi[1] - lo[1])) as f32 * plot.height(),
         )
     };
-    // ticks and grid
+    // marcas y cuadrícula
     for k in 0..2 {
         let step = nice_step(hi[k] - lo[k], 4.0);
         let mut t = (lo[k] / step).ceil() * step;
@@ -207,7 +209,8 @@ fn chart(
         FontId::proportional(11.0),
         weak,
     );
-    // the label of the vertical axis reads upwards, in its own strip left of the tick numbers
+    // la etiqueta del eje vertical se lee hacia arriba, en su propia franja a la izquierda de los
+    // números de las marcas
     let galley = painter.layout_no_wrap(yl.to_string(), FontId::proportional(11.0), weak);
     let gw = galley.size().x.min(plot.height());
     let at = Pos2::new(r.left() + 4.0, plot.center().y + gw / 2.0);
@@ -258,7 +261,7 @@ fn chart(
 }
 
 impl Diag {
-    /// The window with the four graphics.
+    /// La ventana con los cuatro gráficos.
     pub fn show(&self, ui: &mut egui::Ui) {
         const BLUE: Color32 = Color32::from_rgb(0, 122, 194);
         const ORANGE: Color32 = Color32::from_rgb(232, 145, 45);
@@ -268,7 +271,7 @@ impl Diag {
         let w = ((ui.available_width() - 16.0) / 2.0).max(240.0);
         let size = Vec2::new(w, 250.0);
         let mark = |r: &Row| if r.flag { RED } else { BLUE };
-        // 1. observed against predicted, by the fit and by the cross-validation
+        // 1. observado frente a predicho, por el ajuste y por la validación cruzada
         let mut obs_pred: Vec<Pt> = self
             .rows
             .iter()
@@ -292,7 +295,7 @@ impl Diag {
             lo = lo.min(p.x.min(p.y));
             hi = hi.max(p.x.max(p.y));
         }
-        // 3. normal Q–Q of the studentized residuals
+        // 3. Q–Q normal de los residuos estudentizados
         let mut order: Vec<usize> = (0..n).collect();
         order.sort_by(|&a, &b| self.rows[a].stud.total_cmp(&self.rows[b].stud));
         let qq: Vec<Pt> = order
@@ -464,10 +467,10 @@ mod tests {
             ..egui::RawInput::default()
         };
         if let Some(d) = Diag::read(&p, "VOL") {
-            // two frames: the first one lays the fonts out
+            // dos fotogramas: el primero dispone las fuentes
             for _ in 0..2 {
                 let mut out = ctx.run_ui(raw.clone(), |ui| d.show(ui));
-                // nothing paints the textures here: say so, or dropping them panics
+                // nada pinta aquí las texturas: se dice, o soltarlas provoca un pánico
                 out.textures_delta.clear();
             }
         }

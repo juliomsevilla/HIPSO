@@ -1,5 +1,5 @@
-//! A WKT 1 (OGC and ESRI) reader that turns a CRS definition into a PROJ string, as GDAL does,
-//! with its linear and angular units.
+//! Un lector de WKT 1 (OGC y ESRI) que convierte la definición de un sistema en una cadena PROJ,
+//! como hace GDAL, con sus unidades lineales y angulares.
 
 /// A WKT node: `KEYWORD[arg, arg, ...]`.
 #[derive(Debug, Clone, PartialEq)]
@@ -17,7 +17,7 @@ pub(crate) struct Node {
 }
 
 impl Node {
-    /// The first child node with a keyword.
+    /// El primer nodo hijo con una palabra clave.
     pub fn child(&self, key: &str) -> Option<&Node> {
         self.args.iter().find_map(|a| match a {
             Arg::Node(n) if n.key.eq_ignore_ascii_case(key) => Some(n),
@@ -25,7 +25,7 @@ impl Node {
         })
     }
 
-    /// The child nodes with a keyword.
+    /// Los nodos hijos con una palabra clave.
     pub fn children<'a>(&'a self, key: &'a str) -> impl Iterator<Item = &'a Node> + 'a {
         self.args.iter().filter_map(move |a| match a {
             Arg::Node(n) if n.key.eq_ignore_ascii_case(key) => Some(n),
@@ -33,7 +33,7 @@ impl Node {
         })
     }
 
-    /// The node's name (its first argument, when a string).
+    /// El nombre del nodo (su primer argumento, cuando es una cadena).
     pub fn name(&self) -> Option<&str> {
         match self.args.first() {
             Some(Arg::Str(s)) => Some(s),
@@ -41,7 +41,7 @@ impl Node {
         }
     }
 
-    /// The `i`th argument as a number.
+    /// El `i`-ésimo argumento como número.
     pub fn num(&self, i: usize) -> Option<f64> {
         match self.args.get(i) {
             Some(Arg::Num(v)) => Some(*v),
@@ -50,7 +50,7 @@ impl Node {
         }
     }
 
-    /// The EPSG code of the node's `AUTHORITY` or `ID`.
+    /// El código EPSG del `AUTHORITY` o `ID` del nodo.
     pub fn epsg(&self) -> Option<u32> {
         let n = self.child("AUTHORITY").or_else(|| self.child("ID"))?;
         if !n.name()?.eq_ignore_ascii_case("EPSG") {
@@ -64,7 +64,7 @@ impl Node {
     }
 }
 
-/// Parses WKT into its tree.
+/// Analiza WKT y lo convierte en su árbol.
 pub(crate) fn parse(s: &str) -> Option<Node> {
     let b = s.as_bytes();
     let mut i = 0;
@@ -124,7 +124,7 @@ fn node(b: &[u8], i: &mut usize) -> Option<Node> {
             args.push(Arg::Str(String::from_utf8_lossy(&s).into_owned()));
             continue;
         }
-        // A number, an identifier or a nested node.
+        // Un número, un identificador o un nodo anidado.
         let start = *i;
         while *i < b.len() && !matches!(b[*i], b',' | b'[' | b'(' | b']' | b')') {
             *i += 1;
@@ -149,19 +149,20 @@ pub(crate) fn norm(s: &str) -> String {
         .to_ascii_lowercase()
 }
 
-/// A WKT 1 CRS as a PROJ string, with the code of its geographic CRS when it declares one.
+/// Un sistema WKT 1 como cadena PROJ, con el código de su sistema geográfico cuando lo declara.
 pub(crate) struct Converted {
     pub proj: String,
-    /// The `GEOGCS` node, for identifying the datum.
+    /// El nodo `GEOGCS`, para identificar el datum.
     pub geogcs: Node,
-    /// The EPSG geographic CRS, when the reader knows it.
+    /// El sistema geográfico EPSG, cuando el lector lo conoce.
     pub geog: Option<u32>,
-    /// A WKT 1 `GEOGCS` to identify the datum by, when the WKT has none of its own (WKT 2).
+    /// Un `GEOGCS` de WKT 1 con el que identificar el datum, cuando el WKT no tiene uno propio (WKT
+    /// 2).
     pub geogcs_wkt1: Option<String>,
 }
 
-/// Converts a WKT 1 `GEOGCS` or `PROJCS` (ESRI or OGC flavour) into a PROJ string. `None` for
-/// other kinds of CRS and projections terrio does not know.
+/// Convierte un `GEOGCS` o `PROJCS` de WKT 1 (variante ESRI u OGC) en una cadena PROJ. `None` para
+/// otros tipos de sistema y proyecciones que terrio no conoce.
 pub(crate) fn to_proj(root: &Node) -> Option<Converted> {
     let key = root.key.to_ascii_uppercase();
     let geogcs = match key.as_str() {
@@ -175,13 +176,13 @@ pub(crate) fn to_proj(root: &Node) -> Option<Converted> {
         .or_else(|| datum.child("ELLIPSOID"))?;
     let a = sph.num(1)?;
     let rf = sph.num(2)?;
-    // Angular unit of the geographic CRS, in degrees.
+    // Unidad angular del sistema geográfico, en grados.
     let ang = geogcs
         .child("UNIT")
         .and_then(|u| u.num(1))
         .map(|r| r.to_degrees())
         .unwrap_or(1.0);
-    // WKT rounds the size of a degree (0.0174532925199433) and of a grad.
+    // WKT redondea el tamaño de un grado (0,0174532925199433) y de un grado centesimal.
     let ang = [1.0, 0.9]
         .into_iter()
         .find(|u| (ang - u).abs() < 1e-9)
@@ -340,7 +341,7 @@ pub(crate) fn to_proj(root: &Node) -> Option<Converted> {
         "mercatorauxiliarysphere" | "popularvisualisationpseudomercator" => {
             out.push("+proj=merc".into());
             push(&mut out, "lon_0", lon_0);
-            // Spherical formulas on the semi-major axis.
+            // Fórmulas esféricas sobre el semieje mayor.
             tail[1] = format!("+b={a}");
         }
         "polarstereographic" | "polarstereographicvarianta" | "polarstereographicvariantb" => {
@@ -399,8 +400,8 @@ pub(crate) fn to_proj(root: &Node) -> Option<Converted> {
             push(&mut out, "gamma", gamma.or(azimuth));
             push(&mut out, "k", k.or(Some(1.0)));
         }
-        // With an azimuth (and a rectified grid angle, ESRI's being the azimuth) of 90°, the Swiss
-        // oblique Mercator, as PROJ reads it (and writes it, from `+proj=somerc`).
+        // Con un acimut (y un ángulo de rejilla rectificada, que en ESRI es el acimut) de 90°, la
+        // Mercator oblicua suiza, como la lee PROJ (y la escribe, a partir de `+proj=somerc`).
         "hotineobliquemercatorazimuthcenter" | "hotineobliquemercatorvariantb"
             if azimuth.is_some_and(|a| (a - 90.0).abs() < 1e-9)
                 && gamma.is_none_or(|g| (g - 90.0).abs() < 1e-9) =>
@@ -429,8 +430,8 @@ pub(crate) fn to_proj(root: &Node) -> Option<Converted> {
             push(&mut out, "k_0", k.or(Some(1.0)));
         }
         "krovak" => {
-            // Its axes: ESRI's scale and rotation of the plane (-1 and 90° for east-north), else
-            // the WKT's, east-north unless south and west, as PROJ reads them.
+            // Sus ejes: la escala y la rotación del plano de ESRI (-1 y 90° para este-norte) o, si
+            // no, los del WKT, este-norte salvo sur y oeste, como los lee PROJ.
             let east_north = match (get(&["xscale"]), get(&["xyplanerotation"])) {
                 (Some(sx), Some(rot)) => sx < 0.0 && (rot - 90.0).abs() < 1e-10,
                 _ => {
@@ -478,7 +479,7 @@ pub(crate) fn to_proj(root: &Node) -> Option<Converted> {
             push(&mut out, "lon_0", lon_0);
             push(&mut out, "k_0", k.or(Some(1.0)));
         }
-        // GDAL's latitude of origin, ESRI's central parallel.
+        // La latitud de origen de GDAL, el paralelo central de ESRI.
         "loximuthal" => {
             out.push("+proj=loxim".into());
             push(
@@ -533,8 +534,8 @@ pub(crate) fn to_proj(root: &Node) -> Option<Converted> {
             out.push("+proj=robin".into());
             push(&mut out, "lon_0", lon_0);
         }
-        // GDAL's `satellite_height` and ESRI's `Height` (ESRI's `Option` changes nothing, and
-        // its WKT cannot give a sweep axis: sweep y). Without a height, PROJ refuses the CRS.
+        // `satellite_height` de GDAL y `Height` de ESRI (la `Option` de ESRI no cambia nada, y su
+        // WKT no puede dar un eje de barrido: barrido y). Sin altura, PROJ rechaza el sistema.
         "geostationarysatellite" => {
             out.push("+proj=geos".into());
             push(&mut out, "lon_0", lon_0);
@@ -549,7 +550,8 @@ pub(crate) fn to_proj(root: &Node) -> Option<Converted> {
             push(&mut out, "lat_0", lat_0);
             push(&mut out, "lon_0", lon_0);
         }
-        // Projections terrio computes on an ellipsoid as PROJ does (#126), not through wbprojection.
+        // Proyecciones que terrio calcula sobre un elipsoide como PROJ (#126), no a través de
+        // wbprojection.
         "sinusoidal" | "millercylindrical" | "vandergrinten" | "vandergrinteni" => {
             let name = match method.as_str() {
                 "sinusoidal" => "sinu",
@@ -569,8 +571,8 @@ pub(crate) fn to_proj(root: &Node) -> Option<Converted> {
             push(&mut out, "lat_1", sp1.or(lat_0));
             push(&mut out, "lon_0", lon_0);
         }
-        // World projections terrio ports from PROJ, as GDAL names them (wbprojection reads them as
-        // others).
+        // Proyecciones del mundo que terrio porta de PROJ, como las nombra GDAL (wbprojection las
+        // lee como otras).
         "gallstereographic" | "flatpolarquartic" | "werenskioldi" => {
             let name = match method.as_str() {
                 "gallstereographic" => "gall",
@@ -580,7 +582,7 @@ pub(crate) fn to_proj(root: &Node) -> Option<Converted> {
             out.push(format!("+proj={name}"));
             push(&mut out, "lon_0", lon_0);
         }
-        // World projections of a central meridian, as terrio writes them.
+        // Proyecciones del mundo de un meridiano central, como las escribe terrio.
         m => {
             let (proj, _) = super::wkt1_write::WORLD
                 .iter()

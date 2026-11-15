@@ -1,19 +1,20 @@
-//! Multiscale Curvature Classification of ground points (Evans & Hudak 2007), implemented from
-//! the paper.
+//! Clasificación por curvatura multiescala de puntos de suelo (Evans y Hudak 2007), implementada a
+//! partir del artículo.
 //!
-//! Three scale domains, with cell sizes 0.5 s, s and 1.5 s and curvature thresholds t, t + 0.1
-//! and t + 0.2. In each, passes repeat until fewer than 1%, 0.1% and 0.01% of the remaining
-//! points are dropped: a thin-plate spline through the remaining points is rasterised, averaged
-//! with a 3 x 3 kernel, and every point higher than the surface of its cell plus the threshold
-//! is classified as non-ground. Works in memory: run it on tiles of bounded size.
+//! Tres dominios de escala, con tamaños de celda 0,5 s, s y 1,5 s y umbrales de curvatura t, t +
+//! 0,1 y t + 0,2. En cada uno se repiten pasadas hasta que se descartan menos del 1 %, el 0,1 % y
+//! el 0,01 % de los puntos restantes: se rasteriza una spline de placa delgada por los puntos
+//! restantes, se promedia con un núcleo de 3 x 3 y todo punto más alto que la superficie de su
+//! celda más el umbral se clasifica como no suelo. Funciona en memoria: ejecútese sobre teselas de
+//! tamaño acotado.
 
 use crate::las::Point;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MccParams {
-    /// Cell size of scale domain 2 (about the point spacing).
+    /// Tamaño de celda del dominio de escala 2 (aproximadamente el espaciado de los puntos).
     pub spacing: f64,
-    /// Curvature threshold of scale domain 1.
+    /// Umbral de curvatura del dominio de escala 1.
     pub threshold: f64,
 }
 
@@ -26,13 +27,13 @@ impl Default for MccParams {
     }
 }
 
-/// Points per spline, as the paper sets it.
+/// Puntos por spline, como lo fija el artículo.
 const PTS_PER_REGION: usize = 12;
-/// A spline that stays singular with this many points is given up.
+/// Una spline que sigue siendo singular con tantos puntos se abandona.
 const MAX_SPLINE_PTS: usize = 300;
 const MAX_PASSES: u32 = 100;
 
-/// Which points are ground. Noise and withheld points are never ground and take no part.
+/// Qué puntos son suelo. El ruido y los puntos retenidos nunca son suelo y no participan.
 pub fn ground(pts: &[Point], p: &MccParams) -> Vec<bool> {
     let mut ground = vec![false; pts.len()];
     if !(p.spacing > 0.0) || !p.threshold.is_finite() {
@@ -46,8 +47,8 @@ pub fn ground(pts: &[Point], p: &MccParams) -> Vec<bool> {
     };
     let (ox, oy) = pts.get(first).map_or((0.0, 0.0), |q| (q.x, q.y));
 
-    // Stacked points: of those sharing x and y, only the lowest can be ground; duplicates of
-    // the lowest are set aside and take the class of the one kept.
+    // Puntos apilados: de los que comparten x e y, solo el más bajo puede ser suelo; los duplicados
+    // del más bajo se apartan y toman la clase del que se conserva.
     let mut order = cand.clone();
     let at = |i: usize| pts.get(i).copied().unwrap_or_default();
     order.sort_unstable_by(|&a, &b| {
@@ -74,8 +75,8 @@ pub fn ground(pts: &[Point], p: &MccParams) -> Vec<bool> {
         k = e;
     }
 
-    // Coordinates relative to the first point keep the splines well conditioned.
-    // In file order, in file order.
+    // Las coordenadas relativas al primer punto mantienen bien condicionadas las splines. En orden
+    // de archivo, en orden de archivo.
     keep.sort_unstable();
     let mut u: Vec<(usize, [f64; 3])> = keep
         .iter()
@@ -131,8 +132,8 @@ pub fn ground(pts: &[Point], p: &MccParams) -> Vec<bool> {
     ground
 }
 
-/// A raster surface over the points' extent with half a cell of margin; NaN where no spline
-/// could be computed.
+/// Una superficie ráster sobre la extensión de los puntos con media celda de margen; NaN donde no
+/// se pudo calcular ninguna spline.
 struct Raster {
     x0: f64,
     y0: f64,
@@ -174,8 +175,8 @@ impl Raster {
             .filter(|v| !v.is_nan())
     }
 
-    /// Fills the raster with thin-plate splines, each fitted to the points of one region of
-    /// about [`PTS_PER_REGION`] points (topped up from the nearest rings of regions).
+    /// Rellena el ráster con splines de placa delgada, cada una ajustada a los puntos de una región
+    /// de unos [`PTS_PER_REGION`] puntos (completada con los anillos de regiones más cercanos).
     fn interpolate(&mut self, u: &[(usize, [f64; 3])]) {
         let (w, h) = (self.cols as f64 * self.cell, self.rows as f64 * self.cell);
         let wanted = (u.len() / PTS_PER_REGION).max(1);
@@ -220,7 +221,7 @@ impl Raster {
                         .flatten()
                         .filter_map(|&k| u.get(k as usize).map(|p| p.1)),
                 );
-                // Neighbours ring by ring, nearest to the region first.
+                // Vecinos anillo a anillo, empezando por el más cercano a la región.
                 let mut ring = 0usize;
                 let mut pool: Vec<(f64, [f64; 3])> = Vec::new();
                 let mut want = PTS_PER_REGION.saturating_sub(chosen.len());
@@ -242,9 +243,10 @@ impl Raster {
                                     }
                                 }
                             }
-                            // MCC-LIDAR means to take the nearest first, but its sort is empty
-                            // (`std::sort(begin, begin)`): points come in ring order. Kept so,
-                            // to classify alike; taken from the end.
+                            // MCC-LIDAR pretende tomar primero el más cercano, pero su ordenación
+                            // está vacía (`std::sort(begin, begin)`): los puntos llegan en orden de
+                            // anillo. Se mantiene así, para clasificar igual; tomado desde el
+                            // final.
                             pool.reverse();
                             continue;
                         }
@@ -281,7 +283,7 @@ impl Raster {
         }
     }
 
-    /// Replaces every valued cell by the mean of the valued cells in its 3 x 3 window.
+    /// Sustituye cada celda con valor por la media de las celdas con valor de su ventana de 3 x 3.
     fn average3(&mut self) {
         let src = self.z.clone();
         for r in 0..self.rows {
@@ -307,9 +309,9 @@ impl Raster {
     }
 }
 
-/// The regions on the square ring `d` regions away from `(r, c)` (rows grow northward), in
-/// The order: from the north-west corner, east along the north edge, south along the
-/// east edge, west along the south edge and north along the west edge, ending at the corner.
+/// Las regiones del anillo cuadrado a `d` regiones de `(r, c)` (las filas crecen hacia el norte),
+/// en el orden de MCC: desde la esquina noroeste, al este por el borde norte, al sur por el borde
+/// este, al oeste por el borde sur y al norte por el borde oeste, terminando en la esquina.
 fn ring_cells(r: usize, c: usize, d: usize, nr: usize, nc: usize) -> Vec<(usize, usize)> {
     let (r, c, d) = (r as isize, c as isize, d as isize);
     let (mut rr, mut cc) = (r + d, c - d);
@@ -326,7 +328,8 @@ fn ring_cells(r: usize, c: usize, d: usize, nr: usize, nc: usize) -> Vec<(usize,
     out
 }
 
-/// An interpolating thin-plate spline z(x, y) = a0 + a1 x + a2 y + Σ wi U(|p - pi|), U(r) = r² ln r.
+/// Una spline de placa delgada interpolante z(x, y) = a0 + a1 x + a2 y + Σ wi U(|p - pi|), U(r) =
+/// r² ln r.
 struct Spline {
     pts: Vec<[f64; 2]>,
     w: Vec<f64>,
@@ -341,7 +344,7 @@ fn u_fn(r2: f64) -> f64 {
 }
 
 impl Spline {
-    /// None when the points don't determine a spline (too few, or collinear).
+    /// None cuando los puntos no determinan una spline (muy pocos o colineales).
     fn fit(pts: &[[f64; 3]]) -> Option<Self> {
         let n = pts.len();
         if n < 3 {
@@ -387,7 +390,7 @@ impl Spline {
     }
 }
 
-/// Gaussian elimination with partial pivoting; None when singular.
+/// Eliminación gaussiana con pivoteo parcial; None cuando es singular.
 #[allow(clippy::needless_range_loop)]
 fn solve(a: &mut [f64], b: &mut [f64], m: usize) -> Option<Vec<f64>> {
     let scale = a.iter().fold(0.0f64, |s, v| s.max(v.abs())).max(1.0);
@@ -441,7 +444,7 @@ mod tests {
             cy: 0.0,
         });
         assert!((s.at(1.0, 1.0) - 1.5).abs() < 1e-6);
-        // A plane is reproduced between the points too.
+        // Un plano también se reproduce entre los puntos.
         assert!((s.at(1.5, 0.5) - 2.25).abs() < 1e-6);
     }
 
@@ -458,7 +461,7 @@ mod tests {
                 });
             }
         }
-        // A crown 10 m up over the middle.
+        // Una copa a 10 m de altura sobre el medio.
         for i in 15..25 {
             for j in 15..25 {
                 pts.push(Point {

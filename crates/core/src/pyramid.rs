@@ -1,7 +1,8 @@
-//! Windowed reading of large GeoTIFFs: the file's own overviews (reduced-resolution images stored
-//! after the main one) are the levels of a pyramid, and only the tiles of the window asked for are
-//! decoded. A 90 000 x 60 000 aerial photo shows at once at the zoom that fits the screen and
-//! sharpens as one zooms in, with memory that depends on the window, not on the file.
+//! Lectura por ventanas de GeoTIFF grandes: las propias vistas reducidas del archivo (imágenes de
+//! resolución reducida guardadas tras la principal) son los niveles de una pirámide, y solo se
+//! decodifican las teselas de la ventana pedida. Una foto aérea de 90 000 x 60 000 se muestra de
+//! golpe con el zoom que cabe en la pantalla y se afina al acercar, con una memoria que depende de
+//! la ventana, no del archivo.
 
 use std::fs::File;
 use std::io::BufReader;
@@ -21,7 +22,7 @@ fn tiff_err(e: tiff::TiffError) -> Error {
     Error::Format(format!("TIFF: {e}{}", crate::cloud_hint(&e.to_string())))
 }
 
-/// One resolution of the file: the main image (`ifd` 0) or an overview.
+/// Una resolución del archivo: la imagen principal (`ifd` 0) o una vista reducida.
 #[derive(Clone, Copy, Debug)]
 pub struct Level {
     pub ifd: usize,
@@ -29,32 +30,32 @@ pub struct Level {
     pub rows: u32,
 }
 
-/// A GeoTIFF opened for windowed reads. Cheap to clone and share between threads.
+/// Un GeoTIFF abierto para lecturas por ventanas. Barato de clonar y compartir entre hilos.
 #[derive(Clone, Debug)]
 pub struct Pyramid {
     path: PathBuf,
-    /// Finest first.
+    /// El más fino primero.
     pub levels: Vec<Level>,
-    /// West edge, north edge and cell size of the main image.
+    /// Borde oeste, borde norte y tamaño de celda de la imagen principal.
     pub x0: f64,
     pub y_top: f64,
     pub cell: f64,
     pub bands: usize,
-    /// Bits of each sample (8 for ordinary photos).
+    /// Bits de cada muestra (8 para fotos normales).
     pub bits: u8,
-    /// The EPSG code of the projected or geographic system, when the file says it.
+    /// El código EPSG del sistema proyectado o geográfico, cuando el archivo lo dice.
     pub epsg: Option<u16>,
     planar: bool,
     ycbcr: bool,
     nodata: Option<f32>,
-    /// Set when the file is JPEG 2000: the levels are then its wavelet reductions (`Level::ifd`
-    /// holds the number of halvings).
+    /// Se fija cuando el archivo es JPEG 2000: los niveles son entonces sus reducciones de
+    /// ondículas (`Level::ifd` guarda el número de reducciones a la mitad).
     jp2: Option<Jp2>,
-    /// Set for the formats that are read whole (PNG, JPEG, ENVI, HGT).
+    /// Se fija para los formatos que se leen enteros (PNG, JPEG, ENVI, HGT).
     mem: Option<Arc<Image>>,
 }
 
-/// Whether the file starts like a JPEG 2000 file (whatever its extension).
+/// Si el archivo empieza como un archivo JPEG 2000 (sea cual sea su extensión).
 pub fn is_jp2_file(path: &Path) -> bool {
     use std::io::Read;
     let mut head = [0u8; 12];
@@ -98,8 +99,8 @@ fn to_f32(buf: DecodingResult) -> Option<Vec<f32>> {
     })
 }
 
-/// The JPEG-in-TIFF decoder hands YCbCr samples over as they are; this makes them RGB (in place,
-/// for interleaved triplets).
+/// El decodificador JPEG-en-TIFF entrega las muestras YCbCr tal como están; esto las convierte en
+/// RGB (en su sitio, para tripletes entrelazados).
 pub fn ycbcr_to_rgb(px: &mut [f32]) {
     for t in px.as_chunks_mut::<3>().0.iter_mut() {
         let (y, cb, cr) = (t[0], t[1] - 128.0, t[2] - 128.0);
@@ -109,8 +110,8 @@ pub fn ycbcr_to_rgb(px: &mut [f32]) {
     }
 }
 
-/// The part of the output that one decoded tile fills: its corner and size in output pixels,
-/// samples per pixel and values.
+/// La parte de la salida que llena una tesela decodificada: su esquina y tamaño en píxeles de
+/// salida, muestras por píxel y valores.
 struct Piece {
     plane: usize,
     ox: usize,
@@ -122,7 +123,7 @@ struct Piece {
 }
 
 impl Pyramid {
-    /// The value the file declares as "no data", if any.
+    /// El valor que declara el archivo como «sin datos», si lo hay.
     pub fn nodata(&self) -> Option<f32> {
         self.nodata
     }
@@ -154,8 +155,8 @@ impl Pyramid {
             .get_tag_ascii_string(Tag::GdalNodata)
             .ok()
             .and_then(|s| s.trim().parse::<f32>().ok());
-        // GeoKeyDirectory: a header of four numbers, then four per key (id, location, count,
-        // value); 3072 is the projected system and 2048 the geographic one
+        // GeoKeyDirectory: una cabecera de cuatro números y luego cuatro por clave (identificador,
+        // ubicación, recuento, valor); 3072 es el sistema proyectado y 2048 el geográfico
         let epsg = d
             .get_tag_u32_vec(Tag::GeoKeyDirectoryTag)
             .ok()
@@ -179,7 +180,7 @@ impl Pyramid {
         while d.more_images() && d.next_image().is_ok() {
             ifd += 1;
             let (cw, ch) = d.dimensions().map_err(tiff_err)?;
-            // bit 2 of the subfile type marks a transparency mask, not a picture
+            // el bit 2 del tipo de subarchivo marca una máscara de transparencia, no una imagen
             let masked = d.get_tag_u32(Tag::NewSubfileType).unwrap_or(0) & 4 != 0;
             let same = d.get_tag_u32(Tag::SamplesPerPixel).unwrap_or(1) as usize == spp;
             if !masked && same && cw < w && ch < h {
@@ -278,13 +279,13 @@ impl Pyramid {
         ]
     }
 
-    /// Ground size of one pixel of a level.
+    /// Tamaño sobre el terreno de un píxel de un nivel.
     pub fn cell_at(&self, level: usize) -> f64 {
         self.cell * f64::from(self.levels[0].cols)
             / f64::from(self.levels[level.min(self.levels.len() - 1)].cols)
     }
 
-    /// The coarsest level that still has a pixel at least as small as `map_per_px`.
+    /// El nivel más grueso que todavía tiene un píxel al menos tan pequeño como `map_per_px`.
     pub fn level_for(&self, map_per_px: f64) -> usize {
         (0..self.levels.len())
             .rev()
@@ -292,8 +293,8 @@ impl Pyramid {
             .unwrap_or(0)
     }
 
-    /// Rows `r0..r1` (0 is the northernmost) of the full-resolution image, all columns, decoded
-    /// on all cores. The cells are exactly those of the file.
+    /// Filas `r0..r1` (0 es la más al norte) de la imagen a resolución completa, todas las
+    /// columnas, decodificadas en todos los núcleos. Las celdas son exactamente las del archivo.
     pub fn read_rows(&self, r0: usize, r1: usize) -> Result<Image> {
         let l = self.levels[0];
         let (r1, q) = (r1.min(l.rows as usize), self.cell * 0.25);
@@ -306,15 +307,15 @@ impl Pyramid {
         self.read(0, win)
     }
 
-    /// Decodes the part of `level` that lies in `win` (west, south, east, north), whole tiles at
-    /// a time, on all cores. The image returned starts at a pixel boundary of the level.
+    /// Decodifica la parte de `level` que está en `win` (oeste, sur, este, norte), teselas enteras
+    /// cada vez, en todos los núcleos. La imagen devuelta empieza en un límite de píxel del nivel.
     pub fn read(&self, level: usize, win: [f64; 4]) -> Result<Image> {
         self.read_step(level, win, 1)
     }
 
-    /// As [`Pyramid::read`], keeping one pixel in every `step` along each axis (the cell of the
-    /// image returned is `step` times the level's). Each tile is thinned as soon as it is decoded,
-    /// so memory follows the output, not the file.
+    /// Como [`Pyramid::read`], conservando un píxel de cada `step` a lo largo de cada eje (la celda
+    /// de la imagen devuelta es `step` veces la del nivel). Cada tesela se adelgaza en cuanto se
+    /// decodifica, de modo que la memoria sigue a la salida, no al archivo.
     pub fn read_step(&self, level: usize, win: [f64; 4], step: usize) -> Result<Image> {
         let step = step.max(1);
         let level = level.min(self.levels.len() - 1);
@@ -399,7 +400,7 @@ impl Pyramid {
                     if self.ycbcr {
                         ycbcr_to_rgb(&mut data);
                     }
-                    // the output pixels whose source falls in this tile
+                    // los píxeles de salida cuyo origen cae en esta tesela
                     let first =
                         |from: usize, origin: usize| from.saturating_sub(origin).div_ceil(step);
                     let (ox0, oy0) = (first(tx, c0), first(ty, r0));
@@ -467,8 +468,8 @@ impl Pyramid {
         })
     }
 
-    /// The whole image with at most about `max_px` pixels: the finest level that fits, or the
-    /// coarsest one thinned. Returns the image and its reduction against the file's resolution.
+    /// La imagen entera con como mucho unos `max_px` píxeles: el nivel más fino que cabe o el más
+    /// grueso adelgazado. Devuelve la imagen y su reducción respecto a la resolución del archivo.
     pub fn overview(&self, max_px: u64) -> Result<(Image, usize)> {
         let fits = self
             .levels
@@ -501,12 +502,12 @@ mod tests {
         let mut p = [128.0, 128.0, 128.0, 76.0, 85.0, 255.0];
         ycbcr_to_rgb(&mut p);
         assert!((p[0] - 128.0).abs() < 1.0 && (p[1] - 128.0).abs() < 1.0);
-        // pure red in YCbCr is (76, 85, 255)
+        // el rojo puro en YCbCr es (76, 85, 255)
         assert!(p[3] > 250.0 && p[4] < 5.0 && p[5] < 5.0);
     }
 
-    /// Writes a window of the file named by `HIPSO_IMAGE` as `HIPSO_OUT` (a PNG) and
-    /// prints the levels (`-- --ignored --nocapture`).
+    /// Escribe una ventana del archivo que nombra `HIPSO_IMAGE` como `HIPSO_OUT` (un PNG) e imprime
+    /// los niveles (`-- --ignored --nocapture`).
     #[test]
     #[ignore]
     fn sample_window() -> Result<()> {

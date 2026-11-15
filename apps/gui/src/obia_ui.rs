@@ -1,5 +1,5 @@
-//! Object-based analysis (Inventario de la vegetación): group the cells of the canopy height model and of
-//! other layers into objects, describe them and classify them.
+//! Análisis por objetos (Inventario de la vegetación): agrupa las celdas del modelo de altura de
+//! copas y de otras capas en objetos, los describe y los clasifica.
 
 use super::*;
 use crate::numfield::NumField;
@@ -14,11 +14,11 @@ pub struct ObiaTool {
     pub open: bool,
     pub chm: Option<PathBuf>,
     pub extra: Vec<PathBuf>,
-    /// Intensity, returns, ground share, density.
+    /// Intensidad, retornos, proporción de suelo, densidad.
     pub cloud: [bool; 4],
     pub roughness: usize,
-    /// Cells without points in the cloud layers: filled from the nearest cell up to this many
-    /// cells away, and averaged over this radius.
+    /// Celdas sin puntos en las capas de nube: se rellenan desde la celda más cercana hasta tantas
+    /// celdas de distancia y se promedian sobre este radio.
     pub cloud_fill: usize,
     pub cloud_smooth: usize,
     pub mask: bool,
@@ -30,13 +30,13 @@ pub struct ObiaTool {
     pub mask_max: f64,
     pub diagonal: bool,
     pub min_cells: u32,
-    /// 0 no classification, 1 rules, 2 samples.
+    /// 0 sin clasificación, 1 reglas, 2 muestras.
     pub classify: u8,
     pub rules: Option<PathBuf>,
     pub samples: Option<PathBuf>,
     pub class_field: String,
     pub trees: usize,
-    /// Strata by similarity: how many.
+    /// Estratos por similitud: cuántos.
     pub k: usize,
     pub strata: bool,
     pub strata_min_cells: u32,
@@ -48,7 +48,7 @@ pub struct ObiaTool {
     pub simplify: f64,
     pub out: String,
     pub out_manual: bool,
-    /// Runs by itself once the CHM is chosen (for screenshots).
+    /// Se ejecuta solo una vez elegido el CHM (para capturas de pantalla).
     pub autorun: bool,
 }
 

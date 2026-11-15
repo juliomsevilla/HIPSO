@@ -1,15 +1,16 @@
-//! A WKT 2 (ISO 19162, 2015 and 2019) reader for geographic and projected CRSs, turning them
-//! into PROJ strings as [`super::wkt1`] does for WKT 1, so they go through terrio's projections.
+//! Un lector de WKT 2 (ISO 19162, 2015 y 2019) para sistemas geográficos y proyectados, que los
+//! convierte en cadenas PROJ como hace [`super::wkt1`] con WKT 1, de modo que pasan por las
+//! proyecciones de terrio.
 //!
-//! In WKT 2 a parameter's value is in the unit of its own `ANGLEUNIT`, `LENGTHUNIT` or
-//! `SCALEUNIT` node; without one, angles are in the base CRS's angular unit and lengths in the
-//! projected CS's unit. Methods and parameters are named as in EPSG, and identified by their
-//! EPSG codes when the WKT gives them.
+//! En WKT 2 el valor de un parámetro está en la unidad de su propio nodo `ANGLEUNIT`, `LENGTHUNIT`
+//! o `SCALEUNIT`; sin él, los ángulos están en la unidad angular del sistema base y las longitudes
+//! en la unidad del sistema de coordenadas proyectado. Los métodos y parámetros se nombran como en
+//! EPSG y se identifican por sus códigos EPSG cuando el WKT los da.
 
 use super::wkt1::{Arg, Converted, Node, norm};
 use crate::{Error, Result};
 
-/// The keywords of the WKT 2 CRSs this reader converts.
+/// Las palabras clave de los sistemas WKT 2 que convierte este lector.
 const GEOGRAPHIC: [&str; 4] = ["GEOGCRS", "GEOGRAPHICCRS", "GEODCRS", "GEODETICCRS"];
 const PROJECTED: [&str; 2] = ["PROJCRS", "PROJECTEDCRS"];
 const BASE: [&str; 4] = [
@@ -19,18 +20,18 @@ const BASE: [&str; 4] = [
     "BASEGEODETICCRS",
 ];
 
-/// Whether `root` is a WKT 2 CRS this reader converts.
+/// Si `root` es un sistema WKT 2 que convierte este lector.
 pub(crate) fn handles(root: &Node) -> bool {
     let key = root.key.to_ascii_uppercase();
     if key == "BOUNDCRS" {
-        // Only of a CRS this reader converts.
+        // Solo de un sistema que convierte este lector.
         return root
             .child("SOURCECRS")
             .and_then(first_node)
             .is_some_and(handles);
     }
     if GEOGRAPHIC.contains(&key.as_str()) {
-        // A geocentric GEODCRS (a Cartesian CS) is not a longitude-latitude CRS.
+        // Un GEODCRS geocéntrico (un sistema cartesiano) no es un sistema de longitud y latitud.
         return !root
             .child("CS")
             .is_some_and(|cs| matches!(cs.args.first(), Some(Arg::Ident(t)) if !t.eq_ignore_ascii_case("ellipsoidal")));
@@ -38,9 +39,9 @@ pub(crate) fn handles(root: &Node) -> bool {
     PROJECTED.contains(&key.as_str())
 }
 
-/// Converts a WKT 2 geographic or projected CRS, or a `BOUNDCRS` to WGS 84 of one, into a PROJ
-/// string. Fails on what it cannot convert faithfully: an unknown method, or an unknown
-/// parameter.
+/// Convierte en cadena PROJ un sistema geográfico o proyectado WKT 2, o un `BOUNDCRS` a WGS 84 de
+/// uno. Falla con lo que no puede convertir fielmente: un método desconocido o un parámetro
+/// desconocido.
 pub(crate) fn to_proj(root: &Node) -> Result<Converted> {
     let key = root.key.to_ascii_uppercase();
     if key == "BOUNDCRS" {
@@ -84,7 +85,7 @@ pub(crate) fn to_proj(root: &Node) -> Result<Converted> {
         return Ok(geog.converted(out.join(" ")));
     }
 
-    // The projected CS's linear unit, and its axes' directions.
+    // La unidad lineal del sistema de coordenadas proyectado y las direcciones de sus ejes.
     let to_meter = root
         .child("LENGTHUNIT")
         .or_else(|| root.child("UNIT"))
@@ -95,8 +96,8 @@ pub(crate) fn to_proj(root: &Node) -> Result<Converted> {
         .map(|u| u.num(1).ok_or_else(|| bad("a unit without its size")))
         .transpose()?
         .unwrap_or(1.0);
-    // Polar CSs give their axes' directions along meridians ("south" along 90°E): those are
-    // read east-north, as GDAL does.
+    // Los sistemas de coordenadas polares dan las direcciones de sus ejes a lo largo de los
+    // meridianos («south» a lo largo de 90° E): esos se leen este-norte, como hace GDAL.
     let polar = root.children("AXIS").any(|a| a.child("MERIDIAN").is_some());
     let directions: Vec<String> = root
         .children("AXIS")
@@ -118,7 +119,8 @@ pub(crate) fn to_proj(root: &Node) -> Result<Converted> {
     let method = conv
         .child("METHOD")
         .ok_or_else(|| bad("a CONVERSION without its METHOD"))?;
-    // PROJ's own methods (`METHOD["PROJ hammer"]`), with its parameters by their PROJ names.
+    // Los métodos propios de PROJ (`METHOD["PROJ hammer"]`), con sus parámetros por sus nombres de
+    // PROJ.
     let generic = proj_method(conv, method, geog.ang, to_meter)?;
     let p = if generic.is_some() {
         Params::default()
@@ -136,7 +138,7 @@ pub(crate) fn to_proj(root: &Node) -> Result<Converted> {
             out.push(format!("+{k}={v}"));
         }
     };
-    // Natural origin, false origin and projection centre: the origin of most methods.
+    // Origen natural, origen falso y centro de proyección: el origen de la mayoría de los métodos.
     let lat_0 = || {
         p.get(LAT_NAT)
             .or_else(|| p.get(LAT_FALSE))
@@ -196,7 +198,7 @@ pub(crate) fn to_proj(root: &Node) -> Result<Converted> {
         "merc"
     } else if is(&["popularvisualisationpseudomercator"], &[1024]) {
         push("lon_0", lon_0());
-        // Spherical formulas on the semi-major axis.
+        // Fórmulas esféricas sobre el semieje mayor.
         tail.retain(|t| !t.starts_with("+rf=") && !t.starts_with("+b="));
         tail.push(format!("+b={}", geog.a));
         "merc"
@@ -239,8 +241,8 @@ pub(crate) fn to_proj(root: &Node) -> Result<Converted> {
         && p.get(AZIMUTH).is_some_and(|a| (a - 90.0).abs() < 1e-9)
         && p.get(GAMMA).is_some_and(|g| (g - 90.0).abs() < 1e-9)
     {
-        // With an azimuth and a rectified grid angle of 90°, the Swiss oblique Mercator, as PROJ
-        // reads it (and writes it, from `+proj=somerc`).
+        // Con un acimut y un ángulo de rejilla rectificada de 90°, la Mercator oblicua suiza, como
+        // la lee PROJ (y la escribe, a partir de `+proj=somerc`).
         fe = p.get(FE_CENTRE).unwrap_or(fe);
         fn_ = p.get(FN_CENTRE).unwrap_or(fn_);
         push("lat_0", p.get(LAT_CENTRE).or_else(lat_0));
@@ -317,7 +319,7 @@ pub(crate) fn to_proj(root: &Node) -> Result<Converted> {
         push("lon_0", lon_0());
         "gnom"
     } else if is(&["bonne"], &[9827]) {
-        // PROJ's `lat_1` is EPSG's latitude of natural origin.
+        // El `lat_1` de PROJ es la latitud del origen natural de EPSG.
         push("lat_1", lat_0());
         push("lon_0", lon_0());
         "bonne"
@@ -329,7 +331,7 @@ pub(crate) fn to_proj(root: &Node) -> Result<Converted> {
         &[],
     ) {
         push("lon_0", lon_0());
-        // PROJ refuses a geostationary CRS without a height.
+        // PROJ rechaza un sistema geoestacionario sin altura.
         push(
             "h",
             Some(
@@ -344,7 +346,7 @@ pub(crate) fn to_proj(root: &Node) -> Result<Converted> {
         });
         "geos"
     } else if is(&["krovaknorthorientated"], &[1041]) {
-        // As PROJ, whose Krovak fixes the pseudo standard parallel and writes none.
+        // Como PROJ, cuya Krovak fija el paralelo estándar pseudo y no escribe ninguno.
         p.get(LAT_PSEUDO_SP);
         push("lat_0", p.get(LAT_CENTRE).or_else(lat_0));
         push("lon_0", lon_0());
@@ -359,7 +361,7 @@ pub(crate) fn to_proj(root: &Node) -> Result<Converted> {
         );
         "krovak"
     } else if is(&["loximuthal"], &[]) {
-        // PROJ's `lat_1` is the latitude of natural origin.
+        // El `lat_1` de PROJ es la latitud del origen natural.
         push("lat_1", lat_0());
         push("lon_0", lon_0());
         "loxim"
@@ -405,7 +407,7 @@ pub(crate) fn to_proj(root: &Node) -> Result<Converted> {
             match k.as_str() {
                 "x_0" => fe = *v,
                 "y_0" => fn_ = *v,
-                // The figure, datum, units and axes come from the CRS, not from the method.
+                // La figura, el datum, las unidades y los ejes vienen del sistema, no del método.
                 "proj" | "ellps" | "datum" | "a" | "b" | "rf" | "f" | "es" | "e" | "R" | "R_A"
                 | "units" | "to_meter" | "towgs84" | "nadgrids" | "geoidgrids" | "init"
                 | "type" | "pm" | "axis" | "no_defs" | "wktext" | "over" => {
@@ -421,8 +423,8 @@ pub(crate) fn to_proj(root: &Node) -> Result<Converted> {
             method.name().unwrap_or("")
         )));
     };
-    // Parameters the method does not use would be ignored: refuse them, as they change the
-    // coordinates.
+    // Los parámetros que el método no usa se ignorarían: se rechazan, porque cambian las
+    // coordenadas.
     if let Some(unused) = p.unused() {
         return Err(bad(&format!(
             "parameter '{unused}' of the method '{}'",
@@ -449,9 +451,9 @@ pub(crate) fn to_proj(root: &Node) -> Result<Converted> {
     Ok(geog.converted(proj_str.join(" ")))
 }
 
-/// A derived geographic CRS (a `GEOGCRS` with a `DERIVINGCONVERSION`) as a PROJ string: a
-/// rotated-pole grid, in one of the three forms PROJ writes. Fails on any other conversion, which
-/// would otherwise be dropped.
+/// Un sistema geográfico derivado (un `GEOGCRS` con un `DERIVINGCONVERSION`) como cadena PROJ: una
+/// rejilla de polo girado, en una de las tres formas que escribe PROJ. Falla con cualquier otra
+/// conversión, que si no se descartaría.
 fn derived(root: &Node, conv: &Node) -> Result<Converted> {
     let base = BASE
         .iter()
@@ -462,7 +464,7 @@ fn derived(root: &Node, conv: &Node) -> Result<Converted> {
         .child("METHOD")
         .ok_or_else(|| bad("a DERIVINGCONVERSION without its METHOD"))?;
     let method_name = method.name().unwrap_or("");
-    // The parameters, in degrees, by normalised name.
+    // Los parámetros, en grados, por nombre normalizado.
     let mut values = Vec::new();
     for n in conv.children("PARAMETER") {
         let name = n.name().unwrap_or("");
@@ -492,14 +494,14 @@ fn derived(root: &Node, conv: &Node) -> Result<Converted> {
             ))
         })
     };
-    // `+o_lat_p`, `+o_lon_p` and `+lon_0`.
+    // `+o_lat_p`, `+o_lon_p` y `+lon_0`.
     let (lat_p, lon_p, lon_0) = match norm(method_name).as_str() {
         "projobtranoprojlonglat" => (
             need("olatp")?,
             get("olonp").unwrap_or(0.0),
             get("lon0").unwrap_or(0.0),
         ),
-        // The grid's north pole, and the grid longitude of the geographic north pole.
+        // El polo norte de la rejilla y la longitud de rejilla del polo norte geográfico.
         "polerotationnetcdfcfconvention" => {
             let lat = need("gridnorthpolelatitudenetcdfcfconvention")?;
             let lon = need("gridnorthpolelongitudenetcdfcfconvention")?;
@@ -509,7 +511,7 @@ fn derived(root: &Node, conv: &Node) -> Result<Converted> {
                 lon + 180.0,
             )
         }
-        // The grid's south pole, and the rotation about its axis.
+        // El polo sur de la rejilla y el giro alrededor de su eje.
         "polerotationgribconvention" => {
             let lat = need("latitudeofthesouthernpolegribconvention")?;
             let lon = need("longitudeofthesouthernpolegribconvention")?;
@@ -530,7 +532,7 @@ fn derived(root: &Node, conv: &Node) -> Result<Converted> {
     let mut out = vec![format!(
         "+proj=ob_tran +o_proj=longlat +o_lat_p={lat_p} +o_lon_p={lon_p} +lon_0={lon_0}"
     )];
-    // The grid's angular unit: its CS axes'.
+    // La unidad angular de la rejilla: la de los ejes de su sistema de coordenadas.
     let unit = root
         .children("AXIS")
         .find_map(|a| a.child("ANGLEUNIT").or_else(|| a.child("UNIT")))
@@ -542,12 +544,12 @@ fn derived(root: &Node, conv: &Node) -> Result<Converted> {
     Ok(geog.converted(out.join(" ")))
 }
 
-/// A PROJ projection and its parameters by their PROJ names.
+/// Una proyección PROJ y sus parámetros por sus nombres de PROJ.
 type ProjMethod = (String, Vec<(String, f64)>);
 
-/// A method PROJ writes as `PROJ name` (a projection without a WKT 2 method of its own), with
-/// its parameters, named as in PROJ strings: angles in degrees and lengths in metres. `None` for
-/// other methods.
+/// Un método que PROJ escribe como `PROJ name` (una proyección sin método WKT 2 propio), con sus
+/// parámetros, nombrados como en las cadenas PROJ: ángulos en grados y longitudes en metros. `None`
+/// para otros métodos.
 fn proj_method(conv: &Node, method: &Node, ang: f64, to_meter: f64) -> Result<Option<ProjMethod>> {
     let Some(name) = method.name().and_then(|n| n.strip_prefix("PROJ ")) else {
         return Ok(None);
@@ -576,8 +578,8 @@ fn proj_method(conv: &Node, method: &Node, ang: f64, to_meter: f64) -> Result<Op
             || key.starts_with("lon")
             || matches!(key, "alpha" | "gamma" | "azi" | "theta" | "tilt")
         {
-            // Without a unit: angles in the CRS's angular unit, lengths in its linear unit, and
-            // the others (scale factors, shape parameters) as they are.
+            // Sin unidad: ángulos en la unidad angular del sistema, longitudes en su unidad lineal
+            // y los demás (factores de escala, parámetros de forma) tal como están.
             v * ang
         } else if matches!(key, "x_0" | "y_0" | "h") {
             v * to_meter
@@ -589,8 +591,8 @@ fn proj_method(conv: &Node, method: &Node, ang: f64, to_meter: f64) -> Result<Op
     Ok(Some((name.to_string(), params)))
 }
 
-/// Pseudocylindrical and other world projections PROJ names without an EPSG method, which take a
-/// central meridian only.
+/// Proyecciones pseudocilíndricas y otras proyecciones del mundo que PROJ nombra sin método EPSG y
+/// que toman solo un meridiano central.
 const WORLD: [(&str, &str); 26] = [
     ("mollweide", "moll"),
     ("robinson", "robin"),
@@ -620,9 +622,9 @@ const WORLD: [(&str, &str); 26] = [
     ("gallstereographic", "gall"),
 ];
 
-/// The axis order of a projected CS as PROJ's `+axis`, when not east then north. As GDAL's
-/// traditional GIS order, a north-east CS is read east-north: only west and south change the
-/// coordinates.
+/// El orden de ejes de un sistema de coordenadas proyectado como `+axis` de PROJ, cuando no es este
+/// y luego norte. Como el orden tradicional de los SIG de GDAL, un sistema norte-este se lee
+/// este-norte: solo el oeste y el sur cambian las coordenadas.
 fn axis(directions: &[String]) -> Option<String> {
     let has = |d: &str| directions.iter().any(|x| x == d);
     let (e, n) = (
@@ -632,7 +634,7 @@ fn axis(directions: &[String]) -> Option<String> {
     (e != 'e' || n != 'n').then(|| format!("{e}{n}u"))
 }
 
-/// The first child node of a node.
+/// El primer nodo hijo de un nodo.
 fn first_node(n: &Node) -> Option<&Node> {
     n.args
         .iter()
@@ -643,16 +645,16 @@ fn bad(what: &str) -> Error {
     Error::Crs(format!("unsupported WKT 2: {what}"))
 }
 
-/// A geodetic CRS's ellipsoid, prime meridian, angular unit and datum.
+/// El elipsoide, el meridiano origen, la unidad angular y el datum de un sistema geodésico.
 struct Geodetic {
     node: Node,
     a: f64,
     rf: f64,
-    /// The angular unit, in degrees.
+    /// La unidad angular, en grados.
     ang: f64,
-    /// The prime meridian, in degrees.
+    /// El meridiano origen, en grados.
     pm: f64,
-    /// The EPSG geographic CRS this one is, by its code or its datum's.
+    /// El sistema geográfico EPSG que es este, por su código o el de su datum.
     geog: Option<u32>,
     datum_name: String,
     ellipsoid_name: String,
@@ -680,8 +682,8 @@ impl Geodetic {
         let rf = ell
             .num(2)
             .ok_or_else(|| bad("an ellipsoid without its inverse flattening"))?;
-        // The CRS's angular unit: its own node, else its CS axes' (a geographic CRS), else the
-        // prime meridian's, else degrees.
+        // La unidad angular del sistema: su propio nodo o, si no, la de los ejes de su sistema de
+        // coordenadas (un sistema geográfico) o, si no, la del meridiano origen o, si no, grados.
         let unit = n
             .child("ANGLEUNIT")
             .or_else(|| n.child("UNIT"))
@@ -712,8 +714,8 @@ impl Geodetic {
             }
             None => 0.0,
         };
-        // The EPSG geographic CRS: by the CRS's code, else its datum's (6xxx for 4xxx), else its
-        // name, on the same ellipsoid.
+        // El sistema geográfico EPSG: por el código del sistema o, si no, el de su datum (6xxx para
+        // 4xxx) o, si no, su nombre, sobre el mismo elipsoide.
         let geog = n.epsg().or_else(|| {
             let d = datum.epsg()?;
             let code = d.checked_sub(2000)?;
@@ -723,8 +725,8 @@ impl Geodetic {
         });
         let geog = geog.or_else(|| {
             let name = n.name().filter(|s| !s.eq_ignore_ascii_case("unknown"))?;
-            // The official name is exact (realizations have their own, "NAD83(HARN)"); still,
-            // an ambiguous name identifies nothing.
+            // El nombre oficial es exacto (las realizaciones tienen el suyo, «NAD83(HARN)»); aun
+            // así, un nombre ambiguo no identifica nada.
             let es = if rf == 0.0 {
                 0.0
             } else {
@@ -748,7 +750,7 @@ impl Geodetic {
         })
     }
 
-    /// The ellipsoid and prime meridian, as the end of a PROJ string.
+    /// El elipsoide y el meridiano origen, como final de una cadena PROJ.
     fn tail(&self) -> Vec<String> {
         let mut t = vec![
             format!("+a={}", self.a),
@@ -765,7 +767,7 @@ impl Geodetic {
     }
 
     fn converted(&self, proj: String) -> Converted {
-        // A WKT 1 `GEOGCS` of the datum, for identifying it by name when it has no code.
+        // Un `GEOGCS` de WKT 1 del datum, para identificarlo por el nombre cuando no tiene código.
         let q = |s: &str| s.replace('"', "\"\"");
         let geogcs_wkt1 = format!(
             "GEOGCS[\"{}\",DATUM[\"{}\",SPHEROID[\"{}\",{},{}]],PRIMEM[\"Greenwich\",{}],UNIT[\"degree\",0.0174532925199433]]",
@@ -785,8 +787,8 @@ impl Geodetic {
     }
 }
 
-/// Whether an EPSG geographic 2D CRS is on an ellipsoid (its semi-major axis and eccentricity
-/// squared).
+/// Si un sistema geográfico 2D de EPSG está sobre un elipsoide (su semieje mayor y su excentricidad
+/// al cuadrado).
 pub(crate) fn same_ellipsoid(code: u32, a: f64, es: f64) -> bool {
     let Some(e) =
         super::epsg::get(code).filter(|e| e.proj.starts_with("+proj=longlat") && !e.three_d)
@@ -799,8 +801,8 @@ pub(crate) fn same_ellipsoid(code: u32, a: f64, es: f64) -> bool {
     (d.ell.a - a).abs() < 1e-3 && (d.ell.es - es).abs() < 1e-9
 }
 
-/// The size of an angular unit given in radians, in degrees, with WKT's rounded degree and grad
-/// made exact.
+/// El tamaño de una unidad angular dada en radianes, en grados, con el grado y el grado centesimal
+/// redondeados de WKT hechos exactos.
 fn degrees(radians: f64) -> f64 {
     let d = radians.to_degrees();
     [1.0, 0.9, 1.0 / 3600.0]
@@ -809,7 +811,7 @@ fn degrees(radians: f64) -> f64 {
         .unwrap_or(d)
 }
 
-/// The kind of a parameter's value.
+/// El tipo del valor de un parámetro.
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
     Angle,
@@ -817,7 +819,7 @@ enum Kind {
     Scale,
 }
 
-/// A parameter: its normalised EPSG names and its EPSG code.
+/// Un parámetro: sus nombres EPSG normalizados y su código EPSG.
 type Param = (&'static [&'static str], u32, Kind);
 
 const LAT_NAT: Param = (
@@ -861,7 +863,8 @@ const CO_LAT_CONE: Param = (&["colatitudeofconeaxis"], 1036, Kind::Angle);
 const LAT_PSEUDO_SP: Param = (&["latitudeofpseudostandardparallel"], 8818, Kind::Angle);
 const K_PSEUDO_SP: Param = (&["scalefactoronpseudostandardparallel"], 8819, Kind::Scale);
 
-/// PROJ's parameters without an EPSG code: codes down from `u32::MAX`, which match no `ID`.
+/// Los parámetros de PROJ sin código EPSG: códigos descendiendo desde `u32::MAX`, que no coinciden
+/// con ningún `ID`.
 const SAT_HEIGHT: Param = (&["satelliteheight"], u32::MAX, Kind::Length);
 const LAT_P1: Param = (&["latitudeof1stpoint"], u32::MAX - 1, Kind::Angle);
 const LON_P1: Param = (&["longitudeof1stpoint"], u32::MAX - 2, Kind::Angle);
@@ -901,7 +904,7 @@ const PARAMS: [Param; 29] = [
     K_PSEUDO_SP,
 ];
 
-/// A conversion's parameters, in degrees, metres and unity, and which were used.
+/// Los parámetros de una conversión, en grados, metros y unidad, y cuáles se usaron.
 #[derive(Default)]
 struct Params {
     values: Vec<(u32, String, f64)>,
@@ -932,7 +935,7 @@ impl Params {
             };
             values.push((param.1, name.to_string(), v));
         }
-        // Easting and northing at the false origin are the false easting and northing.
+        // El este y el norte en el origen falso son el falso este y el falso norte.
         for v in &mut values {
             if v.0 == FE_FALSE.1 {
                 v.0 = FE.1;
@@ -946,14 +949,14 @@ impl Params {
         })
     }
 
-    /// The value of a parameter, marked used.
+    /// El valor de un parámetro, marcado como usado.
     fn get(&self, p: Param) -> Option<f64> {
         let v = self.values.iter().find(|v| v.0 == p.1)?;
         self.used.borrow_mut().push(p.1);
         Some(v.2)
     }
 
-    /// The name of a parameter no method arm used, with a value that matters (not 0).
+    /// El nombre de un parámetro que ningún brazo de método usó, con un valor que importa (no 0).
     fn unused(&self) -> Option<&str> {
         let used = self.used.borrow();
         self.values
@@ -963,8 +966,8 @@ impl Params {
     }
 }
 
-/// The 3 or 7 `+towgs84` parameters of a `BOUNDCRS`'s transformation to WGS 84: `None` when
-/// it is to another CRS, or does not shift.
+/// Los 3 o 7 parámetros `+towgs84` de la transformación a WGS 84 de un `BOUNDCRS`: `None` cuando es
+/// a otro sistema o no desplaza.
 fn towgs84(root: &Node) -> Result<Option<Vec<f64>>> {
     let target = root.child("TARGETCRS").and_then(first_node);
     let to_wgs84 = target.is_some_and(|t| {
@@ -977,8 +980,9 @@ fn towgs84(root: &Node) -> Result<Option<Vec<f64>>> {
     let Some(t) = root.child("ABRIDGEDTRANSFORMATION") else {
         return Ok(None);
     };
-    // A transformation to another CRS has no `+towgs84`: the source CRS is kept, and its datum
-    // identified as without a BOUNDCRS (GDAL, too, reads the source CRS of such a BOUNDCRS).
+    // Una transformación a otro sistema no tiene `+towgs84`: se conserva el sistema de origen y su
+    // datum se identifica como sin BOUNDCRS (GDAL también lee el sistema de origen de un BOUNDCRS
+    // así).
     if !to_wgs84 {
         return Ok(None);
     }
@@ -986,9 +990,9 @@ fn towgs84(root: &Node) -> Result<Option<Vec<f64>>> {
         .child("METHOD")
         .map(|m| (norm(m.name().unwrap_or("")), m.epsg()))
         .unwrap_or_default();
-    // So is one that is not a 3 or 7 parameter Helmert transformation (a grid's, NTv2 or
-    // NADCON, whose file is a PARAMETERFILE): geocentric translations, position vector and
-    // coordinate frame, in the geog2D, geocentric and geog3D domains.
+    // Lo mismo ocurre con la que no es una transformación de Helmert de 3 o 7 parámetros (la de una
+    // rejilla, NTv2 o NADCON, cuyo archivo es un PARAMETERFILE): traslaciones geocéntricas, vector
+    // de posición y marco de coordenadas, en los dominios geog2D, geocéntrico y geog3D.
     let helmert = [
         "geocentrictranslations",
         "positionvector",
@@ -1003,7 +1007,8 @@ fn towgs84(root: &Node) -> Result<Option<Vec<f64>>> {
     if !helmert {
         return Ok(None);
     }
-    // Coordinate frame rotations turn the other way from PROJ's (position vector) `+towgs84`.
+    // Las rotaciones del marco de coordenadas giran al revés que el `+towgs84` de PROJ (vector de
+    // posición).
     let frame =
         method.0.contains("coordinateframe") || matches!(method.1, Some(9607 | 1032 | 1038));
     let mut v = [0.0; 7];
@@ -1035,13 +1040,13 @@ fn towgs84(root: &Node) -> Result<Option<Vec<f64>>> {
         };
         v[i] = match i {
             0..=2 => x * unit.unwrap_or(1.0),
-            // Arc-seconds, and parts per million.
+            // Segundos de arco y partes por millón.
             3..=5 => {
                 x * unit.map(|r| r.to_degrees() * 3600.0).unwrap_or(1.0)
                     * if frame { -1.0 } else { 1.0 }
             }
-            // A scale difference in its unit, or without one as the ratio PROJ writes
-            // (1.0000067 for 6.7 ppm): any other unit-less value is ambiguous.
+            // Una diferencia de escala en su unidad o, sin ella, como la razón que escribe PROJ
+            // (1,0000067 para 6,7 ppm): cualquier otro valor sin unidad es ambiguo.
             _ => match unit {
                 Some(u) => x * u * 1e6,
                 None if (x - 1.0).abs() < 0.01 => (x - 1.0) * 1e6,

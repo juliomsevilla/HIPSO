@@ -1,5 +1,5 @@
-//! Desmonte y terraplén (Ráster › Volúmenes): earth to remove and to add to take a terrain to a
-//! design.
+//! Desmonte y terraplén (Ráster › Volúmenes): la tierra que quitar y añadir para llevar un terreno
+//! a un diseño.
 
 use super::*;
 use crate::numfield::NumField;

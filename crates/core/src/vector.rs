@@ -1,5 +1,6 @@
-//! Vector data: the polygons, circles and rectangles points are clipped with, and ESRI
-//! shapefiles read and written for them (stands, inventory plots, tree tops, crowns, POI/AOI).
+//! Datos vectoriales: los polígonos, círculos y rectángulos con los que se recortan los puntos, y
+//! shapefiles de ESRI leídos y escritos para ellos (rodales, parcelas de inventario, cimas de
+//! árboles, copas, POI/AOI).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -9,11 +10,12 @@ use shapefile::{Point as ShpPoint, PointZ, PolygonRing, Shape};
 
 use crate::{Error, Result};
 
-/// Vertices from which a polygon gets a lookup mask: a point far from every edge is then
-/// answered from a table instead of by walking all the edges.
+/// Vértices a partir de los cuales un polígono recibe una máscara de consulta: un punto lejos de
+/// todo borde se responde entonces con una tabla en lugar de recorrer todos los bordes.
 const MASK_FROM: usize = 200;
 
-/// A polygon with holes and parts: a point is inside when it is inside an odd number of rings.
+/// Un polígono con huecos y partes: un punto está dentro cuando está dentro de un número impar de
+/// anillos.
 #[derive(Clone, Debug)]
 pub struct Polygon {
     pub rings: Vec<Vec<[f64; 2]>>,
@@ -29,7 +31,7 @@ struct Mask {
     cell: f64,
     cols: usize,
     rows: usize,
-    /// 0 outside, 1 inside, 2 near an edge.
+    /// 0 fuera, 1 dentro, 2 cerca de un borde.
     state: Vec<u8>,
 }
 
@@ -70,7 +72,7 @@ impl Polygon {
         self.contains_exact(x, y)
     }
 
-    /// Even-odd test over every ring.
+    /// Prueba par-impar sobre todo anillo.
     pub fn contains_exact(&self, x: f64, y: f64) -> bool {
         let mut inside = false;
         for ring in &self.rings {
@@ -91,15 +93,16 @@ impl Polygon {
         inside
     }
 
-    /// The area: the net of the rings' signed areas (outer rings run clockwise, holes the
-    /// other way, as shapefiles keep them).
+    /// El área: el neto de las áreas con signo de los anillos (los anillos exteriores van en el
+    /// sentido de las agujas del reloj y los huecos al revés, como los guardan los shapefiles).
     pub fn area(&self) -> f64 {
         let net: f64 = self.rings.iter().map(|r| ring_signed_area(r)).sum();
         net.abs()
     }
 }
 
-/// Twice nothing: the signed area by the shoelace sum (counter-clockwise positive).
+/// El doble de nada: el área con signo por la suma del cordón de zapatos (positiva en sentido
+/// antihorario).
 fn ring_signed_area(r: &[[f64; 2]]) -> f64 {
     let n = r.len();
     if n < 3 {
@@ -120,7 +123,8 @@ impl Mask {
         let cell = (w.max(h) / 1024.0).max(1e-9);
         let (cols, rows) = ((w / cell) as usize + 2, (h / cell) as usize + 2);
         let mut state = vec![0u8; cols * rows];
-        // Inside: each row's centre line against every edge, filling between crossing pairs.
+        // Dentro: la línea central de cada fila contra cada borde, rellenando entre pares de
+        // cruces.
         let mut xs: Vec<f64> = Vec::new();
         for r in 0..rows {
             let y = bbox[1] + (r as f64 + 0.5) * cell;
@@ -152,7 +156,7 @@ impl Mask {
                 }
             }
         }
-        // Edges: every cell an edge passes through, and its neighbours, is decided exactly.
+        // Bordes: cada celda por la que pasa un borde, y sus vecinas, se decide exactamente.
         for ring in rings {
             let n = ring.len();
             for i in 0..n {
@@ -200,7 +204,7 @@ impl Mask {
     }
 }
 
-/// The shape of a region.
+/// La forma de una región.
 #[derive(Clone, Debug)]
 pub enum Shape2 {
     Polygon(Polygon),
@@ -211,12 +215,12 @@ pub enum Shape2 {
     },
     /// min x, min y, max x, max y.
     Rect([f64; 4]),
-    /// A polygon grown (distance > 0) or shrunk (< 0) by a distance in map units: the points
-    /// whose distance to the polygon is within it, with round corners.
+    /// Un polígono ampliado (distancia > 0) o reducido (< 0) una distancia en unidades del mapa:
+    /// los puntos cuya distancia al polígono está dentro de ella, con esquinas redondeadas.
     Buffered(Box<Buffered>),
 }
 
-/// A polygon with a buffer distance, and the index its distance test uses.
+/// Un polígono con una distancia de búfer y el índice que usa su prueba de distancia.
 #[derive(Clone, Debug)]
 pub struct Buffered {
     pub poly: Polygon,
@@ -225,7 +229,7 @@ pub struct Buffered {
     seg_cell: f64,
     seg_cols: usize,
     seg_rows: usize,
-    /// Per cell, the segments (ring, index) within `|dist|` of it.
+    /// Por celda, los segmentos (anillo, índice) a menos de `|dist|` de ella.
     cells: Vec<Vec<(u32, u32)>>,
 }
 
@@ -273,7 +277,7 @@ impl Buffered {
         self.bbox
     }
 
-    /// Whether some boundary segment is within `|dist|` of the point.
+    /// Si algún segmento del contorno está a menos de `|dist|` del punto.
     fn near_boundary(&self, x: f64, y: f64) -> bool {
         let d = self.dist.abs();
         let b = self.poly.bbox;
@@ -317,12 +321,12 @@ fn dist2_to_segment(x: f64, y: f64, a: [f64; 2], b: [f64; 2]) -> f64 {
     (x - px).powi(2) + (y - py).powi(2)
 }
 
-/// A region to clip with: a stand, an inventory plot, an area of interest.
+/// Una región con la que recortar: un rodal, una parcela de inventario, un área de interés.
 #[derive(Clone, Debug)]
 pub struct Region {
     pub name: String,
     pub shape: Shape2,
-    /// The attribute table's values, as text.
+    /// Los valores de la tabla de atributos, como texto.
     pub attrs: Vec<(String, String)>,
 }
 
@@ -351,8 +355,8 @@ impl Region {
             Shape2::Polygon(p) => p.area(),
             Shape2::Circle { r, .. } => std::f64::consts::PI * r * r,
             Shape2::Rect(b) => (b[2] - b[0]) * (b[3] - b[1]),
-            // the polygon's plus the strip around its boundary, to first order (round corners
-            // add pi d^2 per turn of 360 degrees)
+            // el del polígono más la franja alrededor de su contorno, en primer orden (las esquinas
+            // redondeadas añaden pi d^2 por cada vuelta de 360 grados)
             Shape2::Buffered(b) => {
                 let perimeter: f64 = b
                     .poly
@@ -371,17 +375,17 @@ impl Region {
         }
     }
 
-    /// This region grown by `dist` map units (shrunk when negative). A polygon is not turned into
-    /// a bigger polygon (as `geomops::buffer` does with the `geo` library): the points are tested
-    /// against the distance to its boundary with a grid of segments. Measured on a polygon of
-    /// 50 000 vertices and 3 million points, that takes 2 ms to prepare and 1.3 s to test, where
-    /// building the buffer polygon takes 5.6 s (16 s for a buffer of 100 m) before it tests
-    /// the same points in 0.4 s; and the polygon only approximates the arcs (it disagreed with
-    /// the exact distance on 1 800 of 2 million points at 100 m). The polygon wins only when a
-    /// buffer serves tens of millions of points, which a polygon of a clip rarely meets.
-    /// Circles and rectangles
-    /// stay what they are; a polygon becomes a buffered polygon. The distance is in the units of
-    /// the region's coordinate system: degrees if it is geographic.
+    /// Esta región ampliada `dist` unidades del mapa (reducida cuando es negativa). Un polígono no
+    /// se convierte en un polígono mayor (como hace `geomops::buffer` con la biblioteca `geo`): los
+    /// puntos se comparan con la distancia a su contorno con una rejilla de segmentos. Medido en un
+    /// polígono de 50 000 vértices y 3 millones de puntos, eso tarda 2 ms en prepararse y 1,3 s en
+    /// comprobar, donde construir el polígono del búfer tarda 5,6 s (16 s para un búfer de 100 m)
+    /// antes de comprobar los mismos puntos en 0,4 s; y el polígono solo aproxima los arcos
+    /// (discrepó de la distancia exacta en 1 800 de 2 millones de puntos a 100 m). El polígono gana
+    /// solo cuando un búfer sirve a decenas de millones de puntos, lo que un polígono de un recorte
+    /// rara vez encuentra. Los círculos y rectángulos se quedan como son; un polígono pasa a ser un
+    /// polígono con búfer. La distancia está en las unidades del sistema de coordenadas de la
+    /// región: grados si es geográfico.
     pub fn buffered(&self, dist: f64) -> Region {
         if dist == 0.0 {
             return self.clone();
@@ -396,7 +400,7 @@ impl Region {
                 cy: *cy,
                 r: (r + dist).max(0.0),
             },
-            // a rectangle grown is a rounded rectangle: as a polygon
+            // un rectángulo ampliado es un rectángulo redondeado: como polígono
             Shape2::Rect(b) => {
                 let ring = vec![[b[0], b[1]], [b[0], b[3]], [b[2], b[3]], [b[2], b[1]]];
                 Shape2::Buffered(Box::new(Buffered::new(Polygon::new(vec![ring]), dist)))
@@ -409,15 +413,15 @@ impl Region {
         }
     }
 
-    /// The separate parts of a multipart polygon (each outer ring with the holes inside it) as
-    /// regions named `<name>_p1`, `<name>_p2`… A region of one part, or not a polygon, is
-    /// returned as it is.
+    /// Las partes separadas de un polígono de varias partes (cada anillo exterior con los huecos
+    /// que hay dentro) como regiones llamadas `<nombre>_p1`, `<nombre>_p2`… Una región de una
+    /// parte, o que no es un polígono, se devuelve tal cual.
     pub fn split_parts(&self) -> Vec<Region> {
         let Shape2::Polygon(p) = &self.shape else {
             return vec![self.clone()];
         };
         let rings = &p.rings;
-        // depth of a ring: how many other rings hold its first vertex
+        // profundidad de un anillo: cuántos otros anillos contienen su primer vértice
         let holds = |outer: usize, inner: usize| {
             rings[inner].first().is_some_and(|v| {
                 Polygon::new(vec![rings[outer].clone()]).contains_exact(v[0], v[1])
@@ -436,7 +440,7 @@ impl Region {
             .map(|(k, &o)| {
                 let mut parts = vec![rings[o].clone()];
                 for h in 0..rings.len() {
-                    // a hole belongs to the innermost outer ring that holds it
+                    // un hueco pertenece al anillo exterior más interno que lo contiene
                     if depth[h] % 2 == 1 && holds(o, h) && depth[o] + 1 == depth[h] {
                         parts.push(rings[h].clone());
                     }
@@ -451,14 +455,14 @@ impl Region {
     }
 }
 
-/// Finds the regions holding a point without testing them all.
+/// Halla las regiones que contienen un punto sin comprobarlas todas.
 pub struct RegionIndex<'a> {
     regions: &'a [Region],
     bbox: [f64; 4],
     cell: f64,
     cols: usize,
     rows: usize,
-    /// Per grid cell, the regions whose box reaches it; empty when there are few regions.
+    /// Por celda de la rejilla, las regiones cuya caja la alcanza; vacío cuando hay pocas regiones.
     cells: Vec<Vec<u32>>,
 }
 
@@ -513,12 +517,12 @@ impl<'a> RegionIndex<'a> {
         (f(lo), f(hi))
     }
 
-    /// The extent of all the regions.
+    /// La extensión de todas las regiones.
     pub fn bbox(&self) -> [f64; 4] {
         self.bbox
     }
 
-    /// Calls `f` with every region that holds the point.
+    /// Llama a `f` con cada región que contiene el punto.
     #[inline]
     pub fn for_each(&self, x: f64, y: f64, mut f: impl FnMut(usize)) {
         if self.cells.is_empty() {
@@ -547,7 +551,7 @@ impl<'a> RegionIndex<'a> {
         }
     }
 
-    /// The first region (in file order) that holds the point.
+    /// La primera región (en el orden del archivo) que contiene el punto.
     #[inline]
     pub fn first(&self, x: f64, y: f64) -> Option<usize> {
         let mut best: Option<usize> = None;
@@ -563,25 +567,28 @@ impl<'a> RegionIndex<'a> {
     }
 }
 
-/// How regions are read from a file.
+/// Cómo se leen las regiones de un archivo.
 #[derive(Clone, Debug, Default)]
 pub struct ReadOptions {
-    /// The attribute that names each region: a field name or its 1-based position.
+    /// El atributo que da nombre a cada región: el nombre de un campo o su posición contando desde
+    /// 1.
     pub name_field: Option<String>,
-    /// Radius for point shapes (plot centres), in map units.
+    /// Radio para las formas de puntos (centros de parcelas), en unidades del mapa.
     pub radius: Option<f64>,
-    /// An attribute holding each point's own radius.
+    /// Un atributo que guarda el radio propio de cada punto.
     pub radius_field: Option<String>,
-    /// Plots given as points are squares (or rectangles) instead of circles.
+    /// Las parcelas dadas como puntos son cuadradas (o rectangulares) en lugar de circulares.
     pub square: bool,
-    /// Fixed side of the squares, or the attributes that hold the sides along x and y (metres).
+    /// Lado fijo de los cuadrados, o los atributos que guardan los lados a lo largo de x e y
+    /// (metros).
     pub side: Option<f64>,
     pub side_x_field: Option<String>,
     pub side_y_field: Option<String>,
 }
 
-/// The long names of the fields of a plot-metrics layer whose `_campos.txt` is missing: short
-/// name (lower case) to long name, for the height break whose columns match the most fields.
+/// Los nombres largos de los campos de una capa de métricas de parcelas cuyo `_campos.txt` falta:
+/// nombre corto (en minúsculas) a nombre largo, para la altura de corte cuyas columnas coinciden
+/// con más campos.
 fn restored_plot_names(fields: &[String]) -> HashMap<String, String> {
     let mut best: (usize, HashMap<String, String>) = (0, HashMap::new());
     for hb in [2.0, 1.0, 1.3, 0.5, 1.5, 3.0, 4.0, 5.0, 10.0] {
@@ -603,7 +610,7 @@ fn restored_plot_names(fields: &[String]) -> HashMap<String, String> {
             best = (hits, map);
         }
     }
-    // only when most of the table is recognised: a layer of something else is left as it is
+    // solo cuando se reconoce la mayor parte de la tabla: una capa de otra cosa se deja como está
     if best.0 * 2 >= fields.len() {
         best.1
     } else {
@@ -611,8 +618,9 @@ fn restored_plot_names(fields: &[String]) -> HashMap<String, String> {
     }
 }
 
-/// The attribute table of a shapefile as text: the field names, with the long names restored
-/// from `<name>_campos.txt` when the process that wrote it had to shorten them, and the rows.
+/// La tabla de atributos de un shapefile como texto: los nombres de los campos, con los nombres
+/// largos restaurados de `<nombre>_campos.txt` cuando el proceso que la escribió tuvo que
+/// acortarlos, y las filas.
 pub(crate) fn attribute_table(path: &Path) -> Result<(Vec<String>, Vec<Vec<String>>)> {
     let dbf = path.with_extension("dbf");
     let bad = |e: dbase::Error| Error::Format(format!("{}: {e}", dbf.display()));
@@ -636,9 +644,9 @@ pub(crate) fn attribute_table(path: &Path) -> Result<(Vec<String>, Vec<Vec<Strin
                     .collect()
             })
             .unwrap_or_default();
-    // Without the `_campos.txt` (a layer copied alone) the long names of a plots layer are worked
-    // out again: the shortening is deterministic, so the table of plot metrics gives the same
-    // short names.
+    // Sin el `_campos.txt` (una capa copiada sola) los nombres largos de una capa de parcelas se
+    // vuelven a calcular: el acortamiento es determinista, así que la tabla de métricas de parcelas
+    // da los mismos nombres cortos.
     let long = if long.is_empty() {
         restored_plot_names(&order)
     } else {
@@ -690,7 +698,7 @@ fn ring_points<P>(points: &[P], xy: impl Fn(&P) -> [f64; 2]) -> Vec<[f64; 2]> {
     points.iter().map(xy).collect()
 }
 
-/// Reads regions from a shapefile (polygons, or points with a radius) or a text list.
+/// Lee regiones de un shapefile (polígonos, o puntos con un radio) o de una lista de texto.
 pub fn read_regions(path: &Path, opts: &ReadOptions) -> Result<Vec<Region>> {
     crate::check_vector_format(path)?;
     let ext = path
@@ -711,7 +719,8 @@ pub fn read_regions(path: &Path, opts: &ReadOptions) -> Result<Vec<Region>> {
 }
 
 fn read_shapefile(path: &Path, opts: &ReadOptions) -> Result<Vec<Region>> {
-    // The table's fields in the file's own order (a record comes as an unordered map).
+    // Los campos de la tabla en el orden propio del archivo (un registro llega como un mapa sin
+    // orden).
     let order: Vec<String> = dbase::Reader::from_path(path.with_extension("dbf"))
         .map(|r| r.fields().iter().map(|f| f.name().to_string()).collect())
         .unwrap_or_default();
@@ -732,7 +741,8 @@ fn read_shapefile(path: &Path, opts: &ReadOptions) -> Result<Vec<Region>> {
         };
         let name = match &opts.name_field {
             Some(f) => match f.parse::<usize>() {
-                // A number is a 1-based position among the fields, as in the FUSION-compatible shape option.
+                // Un número es una posición contando desde 1 entre los campos, como en la opción de
+                // forma compatible con FUSION.
                 Ok(i) if by_name(f).is_none() => {
                     attrs.get(i.saturating_sub(1)).map(|(_, v)| v.clone())
                 }
@@ -784,8 +794,8 @@ fn read_shapefile(path: &Path, opts: &ReadOptions) -> Result<Vec<Region>> {
     Ok(out)
 }
 
-/// A plot centred on a point: a circle, or a square or rectangle (sides from the attributes or
-/// fixed, in metres).
+/// Una parcela centrada en un punto: un círculo, o un cuadrado o rectángulo (lados de los atributos
+/// o fijos, en metros).
 fn plot_at(
     x: f64,
     y: f64,
@@ -830,9 +840,9 @@ fn circle(x: f64, y: f64, radius: Option<f64>, path: &Path) -> Result<Shape2> {
     }
 }
 
-/// A text list, one region a line: `name x y radius`, `x y radius`, or `name minx miny maxx
-/// maxy`; separated by commas, semicolons, tabs or spaces; a first line that is not numbers is
-/// a header.
+/// Una lista de texto, una región por línea: `nombre x y radio`, `x y radio` o `nombre minx miny
+/// maxx maxy`; separados por comas, puntos y comas, tabuladores o espacios; una primera línea que
+/// no es de números es una cabecera.
 fn read_text_regions(path: &Path, opts: &ReadOptions) -> Result<Vec<Region>> {
     let text = std::fs::read_to_string(path)?;
     let mut out = Vec::new();
@@ -880,12 +890,12 @@ fn shp_err(e: shapefile::Error) -> Error {
     Error::Format(format!("shapefile: {e}"))
 }
 
-/// The error of opening a shapefile, with its path.
+/// El error de abrir un shapefile, con su ruta.
 fn shp_open_err(path: &Path) -> impl Fn(shapefile::Error) -> Error + '_ {
     move |e| Error::Format(format!("{}: {e}", path.display()))
 }
 
-/// A value in an attribute table.
+/// Un valor de una tabla de atributos.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Val {
     Text(String),
@@ -893,12 +903,12 @@ pub enum Val {
     Int(i64),
 }
 
-/// A column of an attribute table.
+/// Una columna de una tabla de atributos.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ColKind {
-    /// Text of up to this many bytes.
+    /// Texto de hasta tantos bytes.
     Text(u8),
-    /// A number: total width and decimals.
+    /// Un número: anchura total y decimales.
     Num(u8, u8),
 }
 
@@ -947,7 +957,7 @@ impl Table {
     }
 }
 
-/// At most `len` bytes of a string, cut on a character boundary.
+/// Como mucho `len` bytes de una cadena, cortados en el límite de un carácter.
 fn truncate(s: &str, len: usize) -> String {
     let mut end = len.min(s.len());
     while !s.is_char_boundary(end) {
@@ -956,7 +966,7 @@ fn truncate(s: &str, len: usize) -> String {
     s[..end].to_string()
 }
 
-/// Writes points as a shapefile, 3D when `with_z`; row `k` of `table` describes point `k`.
+/// Escribe puntos como shapefile, 3D cuando `with_z`; la fila `k` de `table` describe el punto `k`.
 pub fn write_points(
     path: &Path,
     pts: &[[f64; 3]],
@@ -979,7 +989,8 @@ pub fn write_points(
     write_prj(path, prj)
 }
 
-/// Writes polygons (each ring an outer ring, clockwise) as a shapefile.
+/// Escribe polígonos (cada anillo un anillo exterior, en el sentido de las agujas del reloj) como
+/// shapefile.
 pub fn write_polygons(
     path: &Path,
     polys: &[Polygon],
@@ -1005,9 +1016,10 @@ pub fn write_polygons(
     write_prj(path, prj)
 }
 
-/// Writes polygons with holes as a shapefile: feature `k` is a list of rings, each flagged as a
-/// hole or not; row `k` of `table` describes it. Features with no ring are left out. Rings are closed and oriented as the format
-/// asks. `prj` is the text of the `.prj` file.
+/// Escribe polígonos con huecos como shapefile: el elemento `k` es una lista de anillos, cada uno
+/// marcado como hueco o no; la fila `k` de `table` lo describe. Los elementos sin anillos se dejan
+/// fuera. Los anillos se cierran y se orientan como pide el formato. `prj` es el texto del archivo
+/// `.prj`.
 pub fn write_polygon_layer(
     path: &Path,
     features: &[Vec<(Vec<[f64; 2]>, bool)>],
@@ -1029,7 +1041,8 @@ pub fn write_polygon_layer(
             })
             .collect();
         if rings.is_empty() {
-            // the format's writer here has no empty shape: a feature with no geometry is left out
+            // el escritor del formato aquí no tiene forma vacía: un elemento sin geometría se deja
+            // fuera
             continue;
         }
         let shape = shapefile::Polygon::with_rings(rings);
@@ -1040,7 +1053,7 @@ pub fn write_polygon_layer(
     write_prj(path, prj)
 }
 
-/// Writes polylines (contours, profiles) as a shapefile.
+/// Escribe polilíneas (curvas de nivel, perfiles) como shapefile.
 pub fn write_polylines(
     path: &Path,
     lines: &[Vec<[f64; 3]>],
@@ -1077,18 +1090,18 @@ fn write_prj(path: &Path, prj: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// What a shapefile holds that a viewer draws: polylines and polygons as rings of 3D points,
-/// and points.
+/// Lo que guarda un shapefile y dibuja un visor: polilíneas y polígonos como anillos de puntos 3D,
+/// y puntos.
 #[derive(Clone, Debug, Default)]
 pub struct Drawing {
     pub points: Vec<[f64; 3]>,
-    /// Open and closed parts; `true` for a ring of a polygon.
+    /// Partes abiertas y cerradas; `true` para un anillo de un polígono.
     pub lines: Vec<(Vec<[f64; 3]>, bool)>,
-    /// Whether the shapes carry their own elevations.
+    /// Si las formas llevan sus propias elevaciones.
     pub has_z: bool,
 }
 
-/// Reads any shapefile for display, keeping elevations when it has them.
+/// Lee cualquier shapefile para mostrarlo, conservando las elevaciones cuando las tiene.
 pub fn read_drawing(path: &Path) -> Result<Drawing> {
     let mut reader = shapefile::ShapeReader::from_path(path).map_err(shp_open_err(path))?;
     let mut d = Drawing::default();
@@ -1155,8 +1168,8 @@ pub fn read_drawing(path: &Path) -> Result<Drawing> {
     Ok(d)
 }
 
-/// The EPSG code a `.prj` text names: from its authority, or from the name of a UTM zone of
-/// ETRS89, WGS 84 or ED50.
+/// El código EPSG que nombra un texto `.prj`: de su autoridad o del nombre de una zona UTM de
+/// ETRS89, WGS 84 o ED50.
 pub fn epsg_from_prj(text: &str) -> Option<u16> {
     if let Some(code) = crate::las::epsg_from_wkt(text) {
         return Some(code);
@@ -1181,8 +1194,8 @@ pub fn epsg_from_prj(text: &str) -> Option<u16> {
     }
 }
 
-/// A `.prj` text (OGC WKT with its EPSG identifiers, which every GIS reads the same way) for a
-/// UTM code of ETRS89, WGS 84 or ED50.
+/// Un texto `.prj` (WKT de OGC con sus identificadores EPSG, que todo SIG lee igual) para un código
+/// UTM de ETRS89, WGS 84 o ED50.
 pub fn prj_for_epsg(code: u16) -> Option<String> {
     let (zone, name, geogcs, south) = match code {
         25828..=25838 => (
@@ -1230,17 +1243,17 @@ mod tests {
             attrs: vec![],
         };
         let b = r.buffered(10.0);
-        // along a side: 10 m out is in, 10.1 m is out
+        // a lo largo de un lado: 10 m hacia fuera está dentro, 10,1 m está fuera
         assert!(b.contains(50.0, -9.9) && !b.contains(50.0, -10.1));
         assert!(b.contains(109.9, 50.0) && !b.contains(110.1, 50.0));
-        // round corner: the diagonal reach is 10 m, not 10 * sqrt(2)
+        // esquina redondeada: el alcance en diagonal es 10 m, no 10 * raíz de 2
         assert!(b.contains(-7.0, -7.0) && !b.contains(-7.2, -7.2));
         let bb = b.bbox();
         assert_eq!(bb, [-10.0, -10.0, 110.0, 110.0]);
         // shrinking
         let s = r.buffered(-10.0);
         assert!(s.contains(50.0, 50.0) && !s.contains(5.0, 50.0) && s.contains(10.5, 50.0));
-        // a hole's wall grows too, into the hole
+        // la pared de un hueco también crece, hacia dentro del hueco
         let holed = Region {
             name: "h".into(),
             shape: Shape2::Polygon(Polygon::new(vec![
@@ -1270,7 +1283,7 @@ mod tests {
         assert!((parts[0].area() - (10_000.0 - 400.0)).abs() < 1e-6);
         assert!((parts[1].area() - 2_500.0).abs() < 1e-6);
         assert_eq!(parts[1].attrs[0].1, "7");
-        // one part stays one
+        // una parte sigue siendo una
         let one = Region {
             name: "x".into(),
             shape: Shape2::Polygon(Polygon::new(vec![sq(0.0, 0.0, 5.0)])),
@@ -1283,7 +1296,7 @@ mod tests {
     #[test]
     fn a_saved_layer_keeps_its_holes() {
         use crate::view::{Feature, GeomKind, VectorData};
-        // the hole drawn in the same direction as the ring around it
+        // el hueco dibujado en el mismo sentido que el anillo que lo rodea
         let outer = vec![
             [0.0, 0.0],
             [10.0, 0.0],
@@ -1326,8 +1339,8 @@ mod tests {
         }
     }
 
-    /// Writes one layer of each kind to the folder named by `HIPSO_MARKUP_OUT`, to open them in
-    /// other software (`cargo test -- --ignored`).
+    /// Escribe una capa de cada tipo en la carpeta que nombra `HIPSO_MARKUP_OUT`, para abrirlas en
+    /// otro programa (`cargo test -- --ignored`).
     #[test]
     #[ignore]
     fn write_layer_samples() -> Result<()> {
@@ -1371,7 +1384,7 @@ mod tests {
     use super::*;
 
     fn square(x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<[f64; 2]> {
-        // Clockwise, as shapefile outer rings.
+        // En el sentido de las agujas del reloj, como los anillos exteriores de un shapefile.
         vec![[x0, y0], [x0, y1], [x1, y1], [x1, y0], [x0, y0]]
     }
 
@@ -1388,7 +1401,7 @@ mod tests {
 
     #[test]
     fn the_lookup_mask_agrees_with_the_exact_test() {
-        // A star with many vertices, so the mask is used.
+        // Una estrella con muchos vértices, para que se use la máscara.
         let n = 400;
         let ring: Vec<[f64; 2]> = (0..n)
             .map(|i| {
@@ -1527,9 +1540,10 @@ mod tests {
 }
 
 // ---------------------------------------------------------------------------------------
-// Attribute tables on polygons (metrics by cell or by plot) as shapefiles.
+// Tablas de atributos sobre polígonos (métricas por celda o por parcela) como shapefiles.
 
-/// Words of the metric names and the short form used in a 10-character DBF field name.
+/// Palabras de los nombres de métricas y la forma corta que se usa en un nombre de campo DBF de 10
+/// caracteres.
 fn short_word(w: &str) -> String {
     let s = match w.to_ascii_lowercase().as_str() {
         "elev" => "E",
@@ -1581,8 +1595,9 @@ fn short_word(w: &str) -> String {
     }
 }
 
-/// DBF field names (10 characters at most, unique) for long column names, with the long names
-/// they stand for. Strata columns become `E`/`I` + `S` + stratum number + statistic.
+/// Nombres de campo DBF (10 caracteres como mucho, únicos) para nombres de columna largos, con los
+/// nombres largos que representan. Las columnas de estratos pasan a ser `E`/`I` + `S` + número de
+/// estrato + estadístico.
 pub fn dbf_names(cols: &[String]) -> Vec<(String, String)> {
     let mut strata: HashMap<(char, String), usize> = HashMap::new();
     let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -1635,25 +1650,26 @@ enum FieldKind {
     Text,
 }
 
-/// Name of the column with the date the LiDAR data were captured (blank when it is not known).
-/// It is never the day the table was made.
+/// Nombre de la columna con la fecha en que se capturaron los datos LiDAR (en blanco cuando no se
+/// sabe). Nunca es el día en que se hizo la tabla.
 pub const CAPTURE_FIELD: &str = "captura";
 
-/// Records with polygon geometry written one at a time, so a table with a row per grid cell
-/// never sits in memory. Column types come from the first row: whole numbers, decimals or text.
-/// The `.dbf` of a table written straight, record by record: fixed-width fields, as the format
-/// says. (A generic writer builds a map of values for each record, which for a table with a row
-/// per grid cell and dozens of columns takes far longer than writing the bytes.)
+/// Registros con geometría de polígono escritos de uno en uno, de modo que una tabla con una fila
+/// por celda de rejilla nunca está en memoria. Los tipos de columna salen de la primera fila:
+/// enteros, decimales o texto. El `.dbf` de una tabla escrita directamente, registro a registro:
+/// campos de ancho fijo, como dice el formato. (Un escritor genérico construye un mapa de valores
+/// para cada registro, lo que para una tabla con una fila por celda de rejilla y decenas de
+/// columnas tarda mucho más que escribir los bytes.)
 struct DbfOut {
     out: std::io::BufWriter<std::fs::File>,
-    /// Width and decimals of every field, in order.
+    /// Ancho y decimales de cada campo, en orden.
     fields: Vec<(usize, usize, bool)>,
     count: u32,
     buf: Vec<u8>,
 }
 
 impl DbfOut {
-    /// `columns`: name (up to 10 bytes), whether it is a number, width, decimals.
+    /// `columns`: nombre (hasta 10 bytes), si es un número, ancho, decimales.
     fn create(path: &Path, columns: &[(String, bool, usize, usize)]) -> Result<Self> {
         use std::io::Write;
         let mut out = std::io::BufWriter::with_capacity(1 << 20, std::fs::File::create(path)?);
@@ -1687,7 +1703,8 @@ impl DbfOut {
         })
     }
 
-    /// Adds a record: one value per field (numbers as text to parse, an empty one is blank).
+    /// Añade un registro: un valor por campo (los números como texto que analizar, uno vacío es en
+    /// blanco).
     fn push<'a>(&mut self, values: impl Iterator<Item = &'a str>) -> Result<()> {
         use std::io::Write;
         self.buf.clear();
@@ -1695,14 +1712,14 @@ impl DbfOut {
         for (&(width, dec, numeric), v) in self.fields.iter().zip(values) {
             let at = self.buf.len();
             if numeric && plain_number(v, width, dec) {
-                // already written the way the field wants it: the text itself, right-aligned
+                // ya escrito como lo quiere el campo: el propio texto, alineado a la derecha
                 self.buf.resize(at + width - v.len(), b' ');
                 self.buf.extend_from_slice(v.as_bytes());
             } else if numeric {
                 let text = match v.parse::<f64>() {
                     Ok(x) if x.is_finite() => {
                         let mut t = format!("{x:.dec$}");
-                        // a number that does not fit loses decimals before it loses digits
+                        // un número que no cabe pierde decimales antes que dígitos
                         let mut d = dec;
                         while t.len() > width && d > 0 {
                             d -= 1;
@@ -1741,9 +1758,9 @@ impl DbfOut {
     }
 }
 
-/// Whether `v` is a plain decimal number (`-12`, `0.0038`) with at most `dec` decimals that fits
-/// in `width`: it can be written as it is, without being read as a float and formatted again
-/// (which is what takes the time when a table has millions of rows).
+/// Si `v` es un número decimal simple (`-12`, `0.0038`) con como mucho `dec` decimales que cabe en
+/// `width`: se puede escribir tal cual, sin leerlo como decimal y volver a darle formato (que es lo
+/// que lleva el tiempo cuando una tabla tiene millones de filas).
 fn plain_number(v: &str, width: usize, dec: usize) -> bool {
     let b = v.as_bytes();
     if b.is_empty() || b.len() > width {
@@ -1757,16 +1774,16 @@ fn plain_number(v: &str, width: usize, dec: usize) -> bool {
     !int.is_empty()
         && int.iter().all(u8::is_ascii_digit)
         && frac.is_none_or(|f| !f.is_empty() && f.len() <= dec && f.iter().all(u8::is_ascii_digit))
-        // "-0" and "-0.0" would read back as negative zero: let the formatter decide
+        // «-0» y «-0.0» se leerían de vuelta como cero negativo: que decida el formateador
         && !(b[0] == b'-' && int == b"0")
 }
 
-/// Today's date (year, month, day), from the clock.
+/// La fecha de hoy (año, mes, día), del reloj.
 fn today() -> (i64, i64, i64) {
     let days = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| (d.as_secs() / 86_400) as i64);
-    // civil date from days since 1970 (Howard Hinnant's algorithm)
+    // fecha civil a partir de días desde 1970 (algoritmo de Howard Hinnant)
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
@@ -1782,22 +1799,23 @@ pub struct PolyTable {
     shp: shapefile::ShapeWriter<std::io::BufWriter<std::fs::File>>,
     dbf: DbfOut,
     names: Vec<String>,
-    /// Value of the extra `captura` column, the capture date of the LiDAR data: blank unless the
-    /// caller gives it. `None` when a column of the data is the capture date already.
+    /// Valor de la columna adicional `captura`, la fecha de captura de los datos LiDAR: en blanco
+    /// salvo que la dé quien llama. `None` cuando una columna de los datos ya es la fecha de
+    /// captura.
     capture: Option<String>,
     path: std::path::PathBuf,
     prj: Option<String>,
 }
 
 impl PolyTable {
-    /// Creates `path` (and `<name>_campos.txt` with the long names when they were shortened).
+    /// Crea `path` (y `<nombre>_campos.txt` con los nombres largos cuando se acortaron).
     pub fn create(
         path: &Path,
         columns: &[String],
         first_row: &[impl AsRef<str>],
         prj: Option<&str>,
     ) -> Result<Self> {
-        // a `Date` column of the data is the capture date: one date field, not two
+        // una columna `Date` de los datos es la fecha de captura: un campo de fecha, no dos
         let columns: Vec<String> = columns
             .iter()
             .map(|c| {
@@ -1828,7 +1846,7 @@ impl PolyTable {
                 FieldKind::Text => (short.clone(), false, 50, 0),
             })
             .collect();
-        // every polygon says when its LiDAR data were captured; blank when that is not known
+        // cada polígono dice cuándo se capturaron sus datos LiDAR; en blanco cuando no se sabe
         let capture = (!named
             .iter()
             .any(|(s, _)| s.eq_ignore_ascii_case(CAPTURE_FIELD)))
@@ -1861,8 +1879,8 @@ impl PolyTable {
         })
     }
 
-    /// Sets the capture date of the LiDAR data the polygons come from (the extra `captura`
-    /// column, which is blank otherwise).
+    /// Fija la fecha de captura de los datos LiDAR de los que proceden los polígonos (la columna
+    /// adicional `captura`, que si no queda en blanco).
     pub fn with_capture(mut self, date: Option<String>) -> Self {
         if self.capture.is_some() {
             self.capture = Some(date.unwrap_or_default());
@@ -1870,7 +1888,7 @@ impl PolyTable {
         self
     }
 
-    /// Writes the attributes of a record: the row's values, then the capture date.
+    /// Escribe los atributos de un registro: los valores de la fila y luego la fecha de captura.
     fn attributes<S: AsRef<str>>(&mut self, row: &[S]) -> Result<()> {
         let names = &self.names;
         let capture = self.capture.as_deref();
@@ -1879,7 +1897,7 @@ impl PolyTable {
             .enumerate()
             .map(|(k, name)| {
                 let v = row.get(k).map_or("", |v| v.as_ref().trim());
-                // `NA` is how the text tables say the capture date is not known
+                // `NA` es como dicen las tablas de texto que la fecha de captura no se conoce
                 if name.eq_ignore_ascii_case(CAPTURE_FIELD) && v.eq_ignore_ascii_case("na") {
                     ""
                 } else {
@@ -1890,7 +1908,7 @@ impl PolyTable {
         self.dbf.push(values)
     }
 
-    /// Adds a record: its rings (each an outer ring) and one value per column.
+    /// Añade un registro: sus anillos (cada uno un anillo exterior) y un valor por columna.
     pub fn push<S: AsRef<str>>(&mut self, rings: &[Vec<[f64; 2]>], row: &[S]) -> Result<()> {
         let parts: Vec<PolygonRing<ShpPoint>> = rings
             .iter()
@@ -1921,8 +1939,9 @@ impl PolyTable {
         self.attributes(row)
     }
 
-    /// Adds a record made of outer rings and the holes cut in them (rings of any orientation:
-    /// outer rings are written clockwise and holes counter-clockwise, as readers expect).
+    /// Añade un registro hecho de anillos exteriores y los huecos practicados en ellos (anillos de
+    /// cualquier orientación: los exteriores se escriben en el sentido de las agujas del reloj y
+    /// los huecos en sentido contrario, como esperan los lectores).
     pub fn push_with_holes(
         &mut self,
         outers: &[Vec<[f64; 2]>],
@@ -1939,7 +1958,7 @@ impl PolyTable {
                 .map(|(a, b)| a[0] * b[1] - b[0] * a[1])
                 .sum();
             let mut pts: Vec<ShpPoint> = r.iter().map(|p| ShpPoint::new(p[0], p[1])).collect();
-            // a positive sum is counter-clockwise
+            // una suma positiva es antihoraria
             if (area > 0.0) == clockwise {
                 pts.reverse();
             }
@@ -1975,9 +1994,10 @@ impl PolyTable {
     }
 }
 
-/// Turns a metrics CSV into a shapefile of square cells. Each row names its cell by `row` and
-/// `col`; `centres` gives the centre of every `(row, col)` (filled from the first file that has
-/// `center X`/`center Y` columns, so the strata file, which has none, can use it too).
+/// Convierte un CSV de métricas en un shapefile de celdas cuadradas. Cada fila nombra su celda por
+/// `row` y `col`; `centres` da el centro de cada `(row, col)` (rellenado a partir del primer
+/// archivo que tiene columnas `center X`/`center Y`, de modo que el archivo de estratos, que no las
+/// tiene, también puede usarlo).
 pub fn metrics_csv_to_shp(
     csv: &Path,
     out: &Path,
@@ -2032,7 +2052,7 @@ pub fn metrics_csv_to_shp(
     Ok(n)
 }
 
-/// Whether the point is inside the ring (even-odd rule).
+/// Si el punto está dentro del anillo (regla par-impar).
 fn ring_contains(ring: &[[f64; 2]], p: [f64; 2]) -> bool {
     let mut inside = false;
     let mut j = ring.len() - 1;
@@ -2048,8 +2068,8 @@ fn ring_contains(ring: &[[f64; 2]], p: [f64; 2]) -> bool {
     inside
 }
 
-/// Saves a layer made in the viewer: its features and its attribute table (a field is a number
-/// when every value in it is one, else text), with the `.prj` text of the coordinate system.
+/// Guarda una capa hecha en el visor: sus elementos y su tabla de atributos (un campo es numérico
+/// cuando todos sus valores lo son; si no, texto), con el texto `.prj` del sistema de coordenadas.
 pub fn write_layer(
     path: &Path,
     d: &crate::view::VectorData,
@@ -2094,7 +2114,8 @@ pub fn write_layer(
         return crate::geojson::write_vector(path, d, kind, prj.and_then(epsg_from_prj));
     }
     use crate::fieldtype::FieldType;
-    // every field is written as what it is: the type it was given, else what its values say
+    // cada campo se escribe como lo que es: el tipo que se le dio o, si no, lo que digan sus
+    // valores
     let types: Vec<FieldType> = (0..d.fields.len()).map(|c| d.field_type(c)).collect();
     let names: Vec<String> = dbf_names(&d.fields).into_iter().map(|n| n.0).collect();
     let mut b = TableWriterBuilder::new();
@@ -2156,8 +2177,9 @@ pub fn write_layer(
                 }
             }
             GeomKind::Polygon => {
-                // a ring inside an odd number of the others is a hole: outer rings go clockwise
-                // and holes counter-clockwise, which is what readers use to tell them apart
+                // un anillo dentro de un número impar de los demás es un hueco: los anillos
+                // exteriores van en el sentido de las agujas del reloj y los huecos en sentido
+                // contrario, que es lo que usan los lectores para distinguirlos
                 let all: Vec<&Vec<[f64; 2]>> = f.parts.iter().filter(|r| r.len() >= 3).collect();
                 let rings: Vec<PolygonRing<ShpPoint>> = all
                     .iter()
@@ -2176,7 +2198,7 @@ pub fn write_layer(
                             .sum();
                         let mut pts: Vec<ShpPoint> =
                             r.iter().map(|p| ShpPoint::new(p[0], p[1])).collect();
-                        // a positive sum is counter-clockwise
+                        // una suma positiva es antihoraria
                         if (area > 0.0) != hole {
                             pts.reverse();
                         }
@@ -2202,9 +2224,9 @@ pub fn write_layer(
     write_prj(path, prj)
 }
 
-/// The shapefile cannot tell a hyperlink from text: the fields that are links go in
-/// `<name>_tipos.txt` (one name per line, as they are in the table), which is removed when there
-/// are none.
+/// El shapefile no distingue un hipervínculo de un texto: los campos que son enlaces van en
+/// `<nombre>_tipos.txt` (un nombre por línea, como están en la tabla), que se borra cuando no hay
+/// ninguno.
 fn write_types_sidecar(path: &Path, d: &crate::view::VectorData, types: &[crate::fieldtype::FieldType]) {
     let side = crate::view::types_sidecar(path);
     let links: Vec<&str> = d
@@ -2229,7 +2251,7 @@ mod capture_tests {
         vec![vec![[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]]]
     }
 
-    /// The capture-date column of a one-row table written with `cols`/`row`.
+    /// La columna de la fecha de captura de una tabla de una fila escrita con `cols`/`row`.
     fn captura_of(name: &str, cols: &[&str], row: &[&str]) -> Result<(Vec<String>, String)> {
         let dir = std::env::temp_dir().join(format!("hipso_capture_{name}"));
         std::fs::create_dir_all(&dir)?;
@@ -2265,7 +2287,7 @@ mod capture_tests {
         let (names, v) = captura_of("na", &["id", "Date"], &["1", "NA"])?;
         assert_eq!(names.len(), 2);
         assert_eq!(v, "");
-        // a table with no date at all gets the field, blank: never the day it was made
+        // una tabla sin fecha alguna recibe el campo, en blanco: nunca el día en que se hizo
         let (names, v) = captura_of("none", &["id"], &["1"])?;
         assert_eq!(names, vec!["id".to_string(), CAPTURE_FIELD.to_string()]);
         assert_eq!(v, "");
@@ -2292,14 +2314,14 @@ mod restored_names_tests {
             &row,
         )?;
         t.finish()?;
-        // with the file: long names
+        // con el archivo: nombres largos
         let (with, _) = attribute_table(&path)?;
         assert!(with.iter().any(|n| n == "Elev P95"), "{with:?}");
-        // the layer copied alone: the same long names, worked out
+        // la capa copiada sola: los mismos nombres largos, recalculados
         std::fs::remove_file(dir.join("p_campos.txt"))?;
         let (without, _) = attribute_table(&path)?;
         assert_eq!(with, without);
-        // a table of something else is left as it is
+        // una tabla de otra cosa se deja como está
         let other = dir.join("o.shp");
         let cols = vec!["id".to_string(), "uso".to_string(), "sup".to_string()];
         let row = vec!["1".to_string(), "x".to_string(), "2.5".to_string()];

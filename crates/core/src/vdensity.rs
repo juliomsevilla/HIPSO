@@ -1,12 +1,12 @@
-//! Point density by Voronoi cells, for the quality control of a cloud.
+//! Densidad de puntos por celdas de Voronoi, para el control de calidad de una nube.
 //!
-//! The density of a raster cell is not "points divided by area": it is `n / Σ area` of the Voronoi
-//! cells of its `n` points, which does not depend on where the edge of the raster cell falls
-//! among them. Cells of a point that are larger than a limit are gaps in the data (water, a roof
-//! with no return) and are left out of the density, and their area is reported apart.
+//! La densidad de una celda ráster no es «puntos divididos por área»: es `n / Σ área` de las celdas
+//! de Voronoi de sus `n` puntos, que no depende de dónde cae el borde de la celda ráster entre
+//! ellos. Las celdas de un punto mayores que un límite son huecos en los datos (agua, un tejado sin
+//! retorno) y se dejan fuera de la densidad, y su área se comunica aparte.
 //!
-//! The cloud is cut into tiles with a margin, so that the cells of the points at the edge of a tile
-//! are right; memory follows a tile and the output rasters, not the cloud.
+//! La nube se corta en teselas con un margen, para que las celdas de los puntos del borde de una
+//! tesela sean correctas; la memoria sigue a una tesela y a los rásteres de salida, no a la nube.
 
 use std::path::PathBuf;
 
@@ -20,17 +20,17 @@ use crate::{Error, Result};
 
 pub struct VDensityJob {
     pub inputs: Vec<PathBuf>,
-    /// Cell of the output rasters (m).
+    /// Celda de los rásteres de salida (m).
     pub cell: f64,
     pub filter: Filter,
-    /// Points per m² the density must reach to pass.
+    /// Puntos por m² que debe alcanzar la densidad para pasar.
     pub threshold: f64,
-    /// A Voronoi cell larger than this (m²) is a gap in the data.
+    /// Una celda de Voronoi mayor que esto (m²) es un hueco en los datos.
     pub max_cell_area: f64,
     pub tiling: Tiling,
-    /// Base path of the results: `<output>.tif`, `<output>_cumple.tif`, `<output>.csv`.
+    /// Ruta base de los resultados: `<salida>.tif`, `<salida>_cumple.tif`, `<salida>.csv`.
     pub output: PathBuf,
-    /// A raster of 1 where the density reaches the threshold and 0 where it does not.
+    /// Un ráster de 1 donde la densidad alcanza el umbral y 0 donde no.
     pub pass_fail: bool,
     pub csv: bool,
 }
@@ -40,7 +40,7 @@ impl VDensityJob {
         Self {
             inputs,
             cell: 5.0,
-            // the pulses: first returns only
+            // los pulsos: solo primeros retornos
             filter: Filter {
                 returns: ReturnSel::parse("F").unwrap_or_else(|_| ReturnSel::all()),
                 classes: ClassSel::all(),
@@ -57,18 +57,18 @@ impl VDensityJob {
     }
 }
 
-/// The density of the cloud.
+/// La densidad de la nube.
 #[derive(Clone, Debug, PartialEq)]
 pub struct VDensityReport {
     pub mean: f64,
     pub median: f64,
     pub p05: f64,
     pub p95: f64,
-    /// Share of the cells with a density that reach the threshold.
+    /// Proporción de las celdas con una densidad que alcanzan el umbral.
     pub pass_pct: f64,
-    /// Area (m²) of the Voronoi cells taken for gaps.
+    /// Área (m²) de las celdas de Voronoi tomadas por huecos.
     pub void_area: f64,
-    /// Cells with a density.
+    /// Celdas con una densidad.
     pub cells: u64,
     pub points: u64,
 }
@@ -82,8 +82,8 @@ fn percentile(sorted: &[f64], q: f64) -> f64 {
     sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo as f64)
 }
 
-/// The density rasters and the report for `job`; the density is empty where no point had a
-/// Voronoi cell small enough.
+/// Los rásteres de densidad y el informe de `job`; la densidad está vacía donde ningún punto tuvo
+/// una celda de Voronoi suficientemente pequeña.
 pub fn density(job: &VDensityJob) -> Result<(Grid, Option<Grid>, VDensityReport, Option<u16>)> {
     if !(job.cell > 0.0) || !(job.max_cell_area > 0.0) || !(job.threshold >= 0.0) {
         return Err(Error::Param(
@@ -149,7 +149,7 @@ pub fn density(job: &VDensityJob) -> Result<(Grid, Option<Grid>, VDensityReport,
                 let clip = Clip::Bbox([e[0] - buffer, e[1] - buffer, e[2] + buffer, e[3] + buffer]);
                 let areas = match voronoi::cell_areas(&sites, &clip) {
                     Ok(a) => a,
-                    // too few distinct points or all on a line: nothing to measure here
+                    // muy pocos puntos distintos o todos en una línea: nada que medir aquí
                     Err(Error::Param(_)) => vec![f64::NAN; sites.len()],
                     Err(e) => return Err(e),
                 };
@@ -233,7 +233,7 @@ pub fn density(job: &VDensityJob) -> Result<(Grid, Option<Grid>, VDensityReport,
     Ok((dens, passfail, report, epsg))
 }
 
-/// Computes the density and writes what was asked; returns the summary.
+/// Calcula la densidad y escribe lo pedido; devuelve el resumen.
 pub fn run(job: &VDensityJob) -> Result<String> {
     let (dens, passfail, rep, epsg) = density(job)?;
     crate::paths::ensure_parent(&job.output)?;

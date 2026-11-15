@@ -1,8 +1,8 @@
-//! Height above ground of every point, from the ground points the cloud already has: a TIN of
-//! the points of the ground class gives the ground under each point, and the height is the
-//! difference. No separate ground model is needed. Written either as the elevation of the points
-//! (the cloud normalised, as the other tools that take a ground model do) or as an extra
-//! attribute `HeightAboveGround`, keeping the elevations.
+//! Altura sobre el suelo de cada punto, a partir de los puntos de suelo que ya tiene la nube: un
+//! TIN de los puntos de la clase suelo da el suelo bajo cada punto, y la altura es la diferencia.
+//! No hace falta un modelo del suelo aparte. Se escribe como elevación de los puntos (la nube
+//! normalizada, como hacen las demás herramientas que toman un modelo del suelo) o como atributo
+//! adicional `HeightAboveGround`, conservando las elevaciones.
 
 use std::path::Path;
 
@@ -12,12 +12,12 @@ use crate::{Error, Result, tin};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct HagParams {
-    /// Cell of the ground surface the TIN is sampled on, in map units.
+    /// Celda de la superficie del suelo sobre la que se muestrea el TIN, en unidades del mapa.
     pub cell: f64,
-    /// The class of the ground points (2 in the ASPRS convention).
+    /// La clase de los puntos de suelo (2 en el convenio ASPRS).
     pub ground_class: u8,
-    /// Replace the elevation with the height (the cloud normalised), else keep the elevations and
-    /// add the height as an extra attribute.
+    /// Sustituye la elevación por la altura (la nube normalizada); si no, conserva las elevaciones
+    /// y añade la altura como atributo adicional.
     pub replace_z: bool,
 }
 
@@ -31,17 +31,18 @@ impl Default for HagParams {
     }
 }
 
-/// The largest ground surface, in cells.
+/// La mayor superficie de suelo, en celdas.
 const MAX_CELLS: usize = 400_000_000;
 
-/// Writes `input` with the height above ground of each point; the report line says what was done.
+/// Escribe `input` con la altura sobre el suelo de cada punto; la línea de informe dice lo que se
+/// hizo.
 pub fn run(input: &Path, output: &Path, p: &HagParams) -> Result<String> {
     if !(p.cell > 0.0) {
         return Err(Error::Param("la celda debe ser positiva".into()));
     }
     let r = Reader::open(input)?;
     let rec_len = usize::from(r.header.record_len);
-    // pass 1: the ground points
+    // pasada 1: los puntos de suelo
     let mut ground: Vec<[f64; 3]> = Vec::new();
     r.scan(|q| {
         if q.class == p.ground_class && !q.is_noise() {
@@ -56,7 +57,8 @@ pub fn run(input: &Path, output: &Path, p: &HagParams) -> Result<String> {
     }
     let b = r.header.bounds;
     let cell = {
-        // a surface over the whole extent must fit in memory: a larger cell if it would not
+        // una superficie sobre toda la extensión debe caber en memoria: una celda mayor si no
+        // cabría
         let cells = ((b[3] - b[0]) / p.cell + 1.0) * ((b[4] - b[1]) / p.cell + 1.0);
         if cells > MAX_CELLS as f64 {
             p.cell * (cells / MAX_CELLS as f64).sqrt()
@@ -112,7 +114,8 @@ pub fn run(input: &Path, output: &Path, p: &HagParams) -> Result<String> {
                 }
                 w.write(&rec_out)?;
             } else {
-                // no ground under the point: not a number, so nothing mistakes it for a height
+                // sin suelo bajo el punto: no es un número, de modo que nada lo confunde con una
+                // altura
                 w.write_with_extra(rec, &height.unwrap_or(f32::NAN).to_le_bytes())?;
             }
             written += 1;
@@ -139,7 +142,7 @@ pub fn run(input: &Path, output: &Path, p: &HagParams) -> Result<String> {
 mod tests {
     use super::*;
 
-    /// A LAS 1.2 file of format 1 with (x, y, z, class) points on a millimetre grid.
+    /// Un archivo LAS 1.2 de formato 1 con puntos (x, y, z, clase) en una rejilla milimétrica.
     fn write_las(path: &Path, pts: &[(f64, f64, f64, u8)]) -> Result<()> {
         let mut h = vec![0u8; 227];
         h[..4].copy_from_slice(b"LASF");
@@ -196,7 +199,7 @@ mod tests {
         for i in 0..80 {
             for j in 0..80 {
                 let (x, y) = (f64::from(i) * 0.5, f64::from(j) * 0.5);
-                // a 5 m object over the middle, with ground only around it
+                // un objeto de 5 m sobre el medio, con suelo solo alrededor
                 if (15.0..25.0).contains(&x) && (15.0..25.0).contains(&y) {
                     pts.push((x, y, ground(x, y) + 5.0, 1));
                 } else {
@@ -212,7 +215,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rl_hag_{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
         write_las(&dir.join("in.las"), &scene())?;
-        // as an extra attribute: the elevations stay
+        // como atributo adicional: las elevaciones se quedan
         let p = HagParams {
             cell: 0.5,
             ..HagParams::default()
@@ -236,15 +239,16 @@ mod tests {
             Ok(())
         })?;
         assert_eq!(object.len(), 400);
-        // the surface under the object is the TIN across the gap: a plane, so exact
+        // la superficie bajo el objeto es el TIN a través del hueco: un plano, así que exacta
         assert!(
             object.iter().all(|h| (h - 5.0).abs() < 0.05),
             "{:?}",
             &object[..5]
         );
-        // at the edge of the cloud the surface is filled in, off by about the cell times the slope
+        // en el borde de la nube la superficie se rellena, desviada en aproximadamente la celda por
+        // la pendiente
         assert!(flat.iter().all(|h| h.abs() < 0.06));
-        // normalised: the elevation is the height
+        // normalizada: la elevación es la altura
         let p = HagParams {
             replace_z: true,
             ..p

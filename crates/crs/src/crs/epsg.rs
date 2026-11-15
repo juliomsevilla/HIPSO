@@ -1,12 +1,13 @@
-//! The EPSG table terrio carries: official names, WKT, coordinate conversions as PROJ strings,
-//! the datum transformations GDAL uses (without and with grids), vertical and compound CRSs and
-//! geoid models, generated from GDAL and PROJ by `scripts/gen_epsg_table.py`. The ESRI table
-//! (`scripts/gen_esri_table.py`) holds the geographic and projected CRSs of PROJ's ESRI
-//! authority in the same form.
+//! La tabla EPSG que lleva terrio: nombres oficiales, WKT, conversiones de coordenadas como cadenas
+//! PROJ, las transformaciones de datum que usa GDAL (sin rejillas y con ellas), sistemas verticales
+//! y compuestos y modelos de geoide, generada a partir de GDAL y PROJ por
+//! `scripts/gen_epsg_table.py`. La tabla ESRI (`scripts/gen_esri_table.py`) guarda de la misma
+//! forma los sistemas geográficos y proyectados de la autoridad ESRI de PROJ.
 //!
-//! Derived from the EPSG Geodetic Parameter Dataset (<https://epsg.org>), whose terms of use
-//! permit redistribution with attribution, and from PROJ's database; the ESRI table and ESRI datum
-//! names from Esri's projection engine data (Apache-2.0). See `NOTICE`.
+//! Derivada del conjunto de parámetros geodésicos de EPSG (<https://epsg.org>), cuyos términos de
+//! uso permiten la redistribución con atribución, y de la base de datos de PROJ; la tabla ESRI y
+//! los nombres de datum de ESRI proceden de los datos del motor de proyecciones de Esri
+//! (Apache-2.0). Véase `NOTICE`.
 
 use super::datum::{Op, parse_steps};
 use std::collections::HashMap;
@@ -15,53 +16,53 @@ use std::sync::{Arc, OnceLock};
 
 static DATA: &[u8] = include_bytes!("../../data/epsg.tsv.zst");
 static ESRI_DATA: &[u8] = include_bytes!("../../data/esri.tsv.zst");
-/// Transformations between EPSG vertical CRSs (`scripts/gen_vertical_table.py`).
+/// Transformaciones entre sistemas verticales EPSG (`scripts/gen_vertical_table.py`).
 static VERTICAL_DATA: &[u8] = include_bytes!("../../data/epsg_vertical.tsv.zst");
 
-/// The names and aliases of EPSG datums, generated from PROJ by `scripts/gen_datum_names.py`:
-/// `code<TAB>rank<TAB>name` lines.
+/// Los nombres y alias de los datums EPSG, generados a partir de PROJ por
+/// `scripts/gen_datum_names.py`: líneas `código<TAB>rango<TAB>nombre`.
 static DATUM_NAMES: &[u8] = include_bytes!("../../data/datums.tsv.zst");
 
-/// An EPSG (or ESRI) CRS of the table.
+/// Un sistema EPSG (o ESRI) de la tabla.
 #[derive(Debug)]
 pub(crate) struct Entry {
-    /// The official name.
+    /// El nombre oficial.
     pub name: String,
-    /// The EPSG code of its datum, 0 when unknown.
+    /// El código EPSG de su datum, 0 cuando se desconoce.
     pub datum: u32,
-    /// The EPSG code of its geographic CRS, 0 when unknown.
+    /// El código EPSG de su sistema geográfico, 0 cuando se desconoce.
     pub geog: u32,
-    /// Its datum transformations to WGS 84, in the order GDAL tries them when no grid is
-    /// installed.
+    /// Sus transformaciones de datum a WGS 84, en el orden en que las prueba GDAL cuando no hay
+    /// rejillas instaladas.
     pub ops: Vec<Arc<Op>>,
-    /// Those GDAL tries when grids are available (empty when the same).
+    /// Las que prueba GDAL cuando hay rejillas disponibles (vacío cuando son las mismas).
     pub grid_ops: Vec<Arc<Op>>,
-    /// Whether it is a dynamic CRS (its datum is a dynamic reference frame).
+    /// Si es un sistema dinámico (su datum es un marco de referencia dinámico).
     pub dynamic: bool,
-    /// Whether it is a geographic 3D CRS.
+    /// Si es un sistema geográfico 3D.
     pub three_d: bool,
-    /// Its area of use: west, south, east and north in degrees.
+    /// Su área de uso: oeste, sur, este y norte en grados.
     pub area: Option<[f64; 4]>,
-    /// The PROJ string of its coordinate conversion (without datum shift).
+    /// La cadena PROJ de su conversión de coordenadas (sin ajuste de datum).
     pub proj: String,
-    /// The WKT GDAL writes for it.
+    /// El WKT que escribe GDAL para él.
     pub wkt: String,
 }
 
-/// An EPSG vertical CRS.
+/// Un sistema vertical EPSG.
 #[derive(Debug)]
 pub(crate) struct Vertical {
     pub name: String,
-    /// The EPSG vertical datum code.
+    /// El código del datum vertical EPSG.
     pub datum: u32,
-    /// Metres per unit.
+    /// Metros por unidad.
     pub to_meter: f64,
-    /// Whether heights are depths (positive down).
+    /// Si las alturas son profundidades (positivas hacia abajo).
     pub down: bool,
     pub wkt: String,
 }
 
-/// An EPSG compound CRS: a horizontal CRS and a vertical CRS.
+/// Un sistema compuesto EPSG: un sistema horizontal y uno vertical.
 #[derive(Debug)]
 pub(crate) struct Compound {
     pub name: String,
@@ -70,50 +71,51 @@ pub(crate) struct Compound {
     pub wkt: String,
 }
 
-/// Transformations without and with grids.
+/// Transformaciones sin rejillas y con ellas.
 type OpLists = (Vec<Arc<Op>>, Vec<Arc<Op>>);
 
-/// A transformation between vertical CRSs, with the geographic CRS it interpolates in.
+/// Una transformación entre sistemas verticales, con el sistema geográfico en el que interpola.
 #[derive(Debug, Clone)]
 pub(crate) struct VerticalOp {
     pub op: Arc<Op>,
-    /// The EPSG geographic CRS its grids or offsets are referenced to: PROJ chains the
-    /// horizontal transformation to it when the compound CRSs are on another datum.
+    /// El sistema geográfico EPSG al que se refieren sus rejillas o desfases: PROJ le encadena la
+    /// transformación horizontal cuando los sistemas compuestos están sobre otro datum.
     pub interpolation: Option<u32>,
 }
 
-/// Transformations between vertical CRSs without and with grids.
+/// Transformaciones entre sistemas verticales sin rejillas y con ellas.
 type VerticalLists = (Vec<VerticalOp>, Vec<VerticalOp>);
 
-/// The transformations GDAL lists from one geographic CRS to another, without and with grids.
+/// Las transformaciones que GDAL lista de un sistema geográfico a otro, sin rejillas y con ellas.
 struct PairLists {
     lists: OpLists,
 }
 
-/// The table: its text, decompressed once, and an index of its lines. Entries are parsed on
-/// first use.
+/// La tabla: su texto, descomprimido una vez, y un índice de sus líneas. Las entradas se analizan
+/// la primera vez que se usan.
 struct Table {
     text: String,
     crs: HashMap<u32, Lazy<Option<Entry>>>,
     ops: HashMap<u32, Lazy<Option<Arc<Op>>>>,
-    /// Direct transformations between geographic CRSs, by (source, target) code.
+    /// Transformaciones directas entre sistemas geográficos, por código (origen, destino).
     pairs: HashMap<(u32, u32), Lazy<PairLists>>,
     verticals: HashMap<u32, Lazy<Option<Vertical>>>,
     compounds: HashMap<u32, Lazy<Option<Compound>>>,
-    /// Geoid models from geographic 3D CRSs to vertical CRSs, by vertical CRS.
+    /// Modelos de geoide de sistemas geográficos 3D a sistemas verticales, por sistema vertical.
     geoids: HashMap<u32, Vec<(u32, Lazy<OpLists>)>>,
-    /// Transformations between vertical CRSs, by (source, target) code.
+    /// Transformaciones entre sistemas verticales, por código (origen, destino).
     vertical_ops: HashMap<(u32, u32), Lazy<VerticalLists>>,
-    /// Old names of grids.
+    /// Nombres antiguos de las rejillas.
     alternatives: HashMap<String, Vec<String>>,
-    /// The publication dates of datums (`2007-01-01`), by datum code.
+    /// Las fechas de publicación de los datums (`2007-01-01`), por código de datum.
     dates: HashMap<u32, String>,
-    /// The lines of the geodetic CRSs (`E`) and registered operations (`R`), after their kind.
+    /// Las líneas de los sistemas geodésicos (`E`) y de las operaciones registradas (`R`), según su
+    /// tipo.
     geodetic: Vec<(usize, usize)>,
     registered: Vec<(usize, usize)>,
 }
 
-/// A line of the table (its fields after the code) and what it parses to.
+/// Una línea de la tabla (sus campos tras el código) y en qué se convierte al analizarla.
 struct Lazy<T> {
     line: (u32, u32),
     value: OnceLock<T>,
@@ -133,7 +135,7 @@ impl<T> Lazy<T> {
     }
 }
 
-/// A table's decompressed text.
+/// El texto descomprimido de una tabla.
 fn decompress(data: &[u8]) -> String {
     let mut text = String::new();
     if let Ok(mut d) = ruzstd::decoding::StreamingDecoder::new(&mut &data[..]) {
@@ -157,7 +159,7 @@ fn esri_table() -> &'static Table {
     TABLE.get_or_init(|| load(ESRI_DATA))
 }
 
-/// Decompresses a table and indexes its lines.
+/// Descomprime una tabla e indexa sus líneas.
 fn load(data: &[u8]) -> Table {
     let text = decompress(data);
     let (mut crs, mut ops, mut pairs) = (HashMap::new(), HashMap::new(), HashMap::new());
@@ -180,9 +182,9 @@ fn load(data: &[u8]) -> Table {
         let (Some(kind), Some(key)) = (f.next(), f.next()) else {
             continue;
         };
-        // The rest of the line, after the kind and key fields.
+        // El resto de la línea, tras los campos de tipo y clave.
         let rest = (start + kind.len() + key.len() + 2).min(end);
-        // The rest after one more field.
+        // El resto tras un campo más.
         let after_second = || {
             (rest
                 + line[rest - start..]
@@ -268,8 +270,8 @@ fn load(data: &[u8]) -> Table {
 }
 
 impl Table {
-    /// The transformation with an id, parsed from its line (`bounds`, `accuracy`, `flags`,
-    /// `steps`, `name`, `chain accuracy`, `chain bounds`).
+    /// La transformación con un identificador, analizada a partir de su línea (`bounds`,
+    /// `accuracy`, `flags`, `steps`, `name`, `chain accuracy`, `chain bounds`).
     fn op(&self, id: u32) -> Option<Arc<Op>> {
         self.ops
             .get(&id)?
@@ -315,8 +317,8 @@ impl Table {
             .clone()
     }
 
-    /// The field of a transformation's line after its 8 others (the interpolation CRS of the
-    /// vertical table).
+    /// El campo de la línea de una transformación tras los otros 8 (el sistema de interpolación de
+    /// la tabla vertical).
     fn op_interpolation(&self, id: u32) -> Option<u32> {
         let lazy = self.ops.get(&id)?;
         self.text[lazy.line.0 as usize..lazy.line.1 as usize]
@@ -326,7 +328,7 @@ impl Table {
             .ok()
     }
 
-    /// Vertical transformations by `ops<TAB>grid ops` lists of ids.
+    /// Transformaciones verticales por listas `ops<TAB>grid ops` de identificadores.
     fn vertical_lists(&self, ids: &str) -> VerticalLists {
         let list = |s: &str| -> Vec<VerticalOp> {
             s.split(',')
@@ -343,7 +345,7 @@ impl Table {
         (list(a), list(b))
     }
 
-    /// Transformations by a comma-separated list of ids.
+    /// Transformaciones por una lista de identificadores separados por comas.
     fn resolve(&self, ids: &str) -> Vec<Arc<Op>> {
         ids.split(',')
             .filter_map(|i| i.parse().ok())
@@ -393,9 +395,9 @@ impl Table {
     }
 }
 
-/// The operations GDAL uses given the grids that can be found: those listed with grids, without
-/// the ones whose grids are missing, when at least one operation needing grids remains; else
-/// those listed without grids.
+/// Las operaciones que usa GDAL dadas las rejillas que se pueden encontrar: las listadas con
+/// rejillas, sin aquellas cuyas rejillas faltan, cuando queda al menos una operación que necesita
+/// rejillas; si no, las listadas sin rejillas.
 pub(crate) fn usable(ops: &[Arc<Op>], grid_ops: &[Arc<Op>]) -> Vec<Arc<Op>> {
     if grid_ops.is_empty() {
         return ops.to_vec();
@@ -408,8 +410,8 @@ pub(crate) fn usable(ops: &[Arc<Op>], grid_ops: &[Arc<Op>]) -> Vec<Arc<Op>> {
     }
 }
 
-/// Starts loading the table in the background, for work that will need it after reading its
-/// input (native builds; a no-op in WebAssembly).
+/// Empieza a cargar la tabla en segundo plano, para trabajos que la necesitarán tras leer su
+/// entrada (compilaciones nativas; no hace nada en WebAssembly).
 pub(crate) fn prefetch() {
     #[cfg(not(target_family = "wasm"))]
     rayon::spawn(|| {
@@ -417,17 +419,17 @@ pub(crate) fn prefetch() {
     });
 }
 
-/// The table's entry for an EPSG code.
+/// La entrada de la tabla para un código EPSG.
 pub(crate) fn get(code: u32) -> Option<&'static Entry> {
     table().entry(code)
 }
 
-/// The table's entry for an ESRI code.
+/// La entrada de la tabla para un código ESRI.
 pub(crate) fn esri(code: u32) -> Option<&'static Entry> {
     esri_table().entry(code)
 }
 
-/// An index of a table's CRSs by name, as `key` gives it.
+/// Un índice de los sistemas de una tabla por nombre, tal como lo da `key`.
 fn name_index(t: &Table, key: impl Fn(&str) -> String) -> HashMap<String, Vec<u32>> {
     let mut names = HashMap::<String, Vec<u32>>::new();
     for (code, l) in &t.crs {
@@ -442,8 +444,8 @@ fn name_index(t: &Table, key: impl Fn(&str) -> String) -> HashMap<String, Vec<u3
     names
 }
 
-/// The codes of the CRSs with an official name, whatever its case, in order: from an index of
-/// the names built on first use.
+/// Los códigos de los sistemas con un nombre oficial, sea cual sea su capitalización, en orden: a
+/// partir de un índice de nombres construido la primera vez que se usa.
 pub(crate) fn named(name: &str) -> Vec<u32> {
     static NAMES: OnceLock<HashMap<String, Vec<u32>>> = OnceLock::new();
     let names = NAMES.get_or_init(|| name_index(table(), str::to_ascii_lowercase));
@@ -453,8 +455,8 @@ pub(crate) fn named(name: &str) -> Vec<u32> {
         .unwrap_or_default()
 }
 
-/// A datum name as datums are compared by name: its ASCII letters, digits and `+` (CH1903+ is
-/// not CH1903), whatever their case, without ESRI's `D_` prefix.
+/// Un nombre de datum tal como se comparan los datums por el nombre: sus letras ASCII, dígitos y
+/// `+` (CH1903+ no es CH1903), sea cual sea su capitalización, sin el prefijo `D_` de ESRI.
 pub(crate) fn datum_key(name: &str) -> String {
     let name = name.strip_prefix("D_").unwrap_or(name);
     name.chars()
@@ -463,10 +465,11 @@ pub(crate) fn datum_key(name: &str) -> String {
         .collect()
 }
 
-/// The rank of the names ESRI writes for CRSs on another datum (`D_ETRS_1989` for ETRS89-NOR).
+/// El rango de los nombres que ESRI escribe para sistemas sobre otro datum (`D_ETRS_1989` para
+/// ETRS89-NOR).
 const ESRI_WRITTEN: u8 = 5;
 
-/// The datum names of the table by rank: those of ranks 0 to 4, and those ESRI writes.
+/// Los nombres de datum de la tabla por rango: los de los rangos 0 a 4 y los que escribe ESRI.
 type DatumNames = (HashMap<String, (u8, Vec<u32>)>, HashMap<String, Vec<u32>>);
 
 fn datum_names() -> &'static DatumNames {
@@ -502,15 +505,15 @@ fn datum_names() -> &'static DatumNames {
         }
         names.values_mut().for_each(|(_, c)| c.sort_unstable());
         written.values_mut().for_each(|c| c.sort_unstable());
-        // Without it, every WKT without a datum code would be left without EPSG code.
+        // Sin ello, todo WKT sin código de datum se quedaría sin código EPSG.
         debug_assert!(!names.is_empty(), "the datum name table did not decompress");
         (names, written)
     })
 }
 
-/// The EPSG datums a name stands for, as PROJ's database lists them: those it is the official
-/// name (or GDAL's WKT 1 name) of, else an EPSG alias of, else a PROJ, an ESRI (`D_ETRS_1989`)
-/// or a former name of, in order of code.
+/// Los datums EPSG que representa un nombre, como los lista la base de datos de PROJ: aquellos de
+/// los que es el nombre oficial (o el nombre WKT 1 de GDAL), si no un alias EPSG, si no un nombre
+/// de PROJ, de ESRI (`D_ETRS_1989`) o antiguo, por orden de código.
 pub(crate) fn datums_named(name: &str) -> Vec<u32> {
     datum_names()
         .0
@@ -519,8 +522,8 @@ pub(crate) fn datums_named(name: &str) -> Vec<u32> {
         .unwrap_or_default()
 }
 
-/// The other EPSG datums whose CRSs ESRI writes with a datum name: ETRS89-NOR for
-/// `D_ETRS_1989` (ETRS89-NOR [EUREF89] / NTM zone 18, EPSG:5118), S-JTSK (Ferro) for `D_S_JTSK`.
+/// Los otros datums EPSG cuyos sistemas escribe ESRI con un nombre de datum: ETRS89-NOR para
+/// `D_ETRS_1989` (ETRS89-NOR [EUREF89] / NTM zone 18, EPSG:5118), S-JTSK (Ferro) para `D_S_JTSK`.
 pub(crate) fn datums_written_as(name: &str) -> &'static [u32] {
     datum_names()
         .1
@@ -528,7 +531,7 @@ pub(crate) fn datums_written_as(name: &str) -> &'static [u32] {
         .map_or(&[], Vec::as_slice)
 }
 
-/// The EPSG geographic 2D CRSs on a datum, without deprecated ones, in order of code.
+/// Los sistemas geográficos 2D de EPSG sobre un datum, sin los obsoletos, por orden de código.
 pub(crate) fn geographic_on(datum: u32) -> &'static [u32] {
     static INDEX: OnceLock<HashMap<u32, Vec<u32>>> = OnceLock::new();
     let index = INDEX.get_or_init(|| {
@@ -538,7 +541,7 @@ pub(crate) fn geographic_on(datum: u32) -> &'static [u32] {
             let f: Vec<&str> = t.text[l.line.0 as usize..l.line.1 as usize]
                 .splitn(9, '\t')
                 .collect();
-            // A deprecated code has its replacement's geographic CRS.
+            // Un código obsoleto tiene el sistema geográfico de su sustituto.
             let [_, datum_field, geog, _, _, flags, _, proj, ..] = f[..] else {
                 continue;
             };
@@ -556,8 +559,8 @@ pub(crate) fn geographic_on(datum: u32) -> &'static [u32] {
     index.get(&datum).map_or(&[], Vec::as_slice)
 }
 
-/// The EPSG projected CRSs on a geographic CRS, without deprecated ones, in order of code, with
-/// their projection method (`+proj=tmerc`).
+/// Los sistemas proyectados de EPSG sobre un sistema geográfico, sin los obsoletos, por orden de
+/// código, con su método de proyección (`+proj=tmerc`).
 pub(crate) fn projected_on(geog: u32) -> &'static [(u32, &'static str)] {
     static INDEX: OnceLock<HashMap<u32, Vec<(u32, &'static str)>>> = OnceLock::new();
     let index = INDEX.get_or_init(|| {
@@ -570,7 +573,7 @@ pub(crate) fn projected_on(geog: u32) -> &'static [(u32, &'static str)] {
             let [_, _, geog, _, _, flags, _, proj, wkt] = f[..] else {
                 continue;
             };
-            // A deprecated code has its replacement's WKT.
+            // Un código obsoleto tiene el WKT de su sustituto.
             let current = super::declared_epsg(wkt) == Some(*code);
             let method = proj.split_whitespace().next().unwrap_or_default();
             if current
@@ -587,8 +590,8 @@ pub(crate) fn projected_on(geog: u32) -> &'static [(u32, &'static str)] {
     index.get(&geog).map_or(&[], Vec::as_slice)
 }
 
-/// The ESRI codes of the CRSs with a name, whatever its case and with spaces for underscores
-/// (`World Mollweide` for `World_Mollweide`), in order.
+/// Los códigos ESRI de los sistemas con un nombre, sea cual sea su capitalización y con espacios
+/// por guiones bajos (`World Mollweide` por `World_Mollweide`), en orden.
 pub(crate) fn esri_named(name: &str) -> Vec<u32> {
     static NAMES: OnceLock<HashMap<String, Vec<u32>>> = OnceLock::new();
     let key = |n: &str| n.to_ascii_lowercase().replace(' ', "_");
@@ -596,7 +599,7 @@ pub(crate) fn esri_named(name: &str) -> Vec<u32> {
     names.get(&key(name)).cloned().unwrap_or_default()
 }
 
-/// The kind of a geodetic CRS.
+/// El tipo de un sistema geodésico.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GeodeticKind {
     Geographic2D,
@@ -604,8 +607,8 @@ pub(crate) enum GeodeticKind {
     Geocentric,
 }
 
-/// An EPSG geodetic CRS (geographic 2D or 3D, or geocentric), as PROJ chains transformations
-/// through them.
+/// Un sistema geodésico de EPSG (geográfico 2D o 3D, o geocéntrico), como PROJ encadena
+/// transformaciones a través de ellos.
 #[derive(Debug)]
 pub(crate) struct Geodetic {
     pub code: u32,
@@ -614,40 +617,42 @@ pub(crate) struct Geodetic {
     pub name: String,
 }
 
-/// A transformation PROJ's database registers between two geodetic CRSs of different datums.
+/// Una transformación que la base de datos de PROJ registra entre dos sistemas geodésicos de datums
+/// distintos.
 #[derive(Debug)]
 pub(crate) struct Registered {
-    /// Its authority and code (`EPSG:1321`).
+    /// Su autoridad y código (`EPSG:1321`).
     pub key: String,
-    /// The CRSs PROJ's database registers it from and to.
+    /// Los sistemas de los que parte y a los que llega según la base de datos de PROJ.
     pub source: u32,
     pub target: u32,
-    /// The transformation, run between the geographic coordinates of the two datums.
+    /// La transformación, ejecutada entre las coordenadas geográficas de los dos datums.
     pub op: Arc<Op>,
-    /// The keys of the transformations that replace it between the same CRSs.
+    /// Las claves de las transformaciones que la sustituyen entre los mismos sistemas.
     pub replaced_by: Vec<String>,
-    /// Whether it needs the coordinates' epochs (a time-dependent transformation).
+    /// Si necesita las épocas de las coordenadas (una transformación dependiente del tiempo).
     pub time_dependent: bool,
-    /// Whether it is PROJ's null transformation between a datum ensemble and one of its members
-    /// (WGS 84 to WGS 84 (G1762)).
+    /// Si es la transformación nula de PROJ entre un conjunto de datums y uno de sus miembros (WGS
+    /// 84 a WGS 84 (G1762)).
     pub ensemble: bool,
-    /// The CRSs a concatenation goes through.
+    /// Los sistemas por los que pasa una concatenación.
     pub via: Vec<u32>,
 }
 
-/// The geodetic CRSs and registered transformations PROJ chains transformations with.
+/// Los sistemas geodésicos y las transformaciones registradas con las que PROJ encadena
+/// transformaciones.
 #[derive(Debug, Default)]
 pub(crate) struct Registry {
     pub geodetic: HashMap<u32, Geodetic>,
-    /// The codes of the geodetic CRSs of each datum, in order.
+    /// Los códigos de los sistemas geodésicos de cada datum, en orden.
     pub by_datum: HashMap<u32, Vec<u32>>,
     pub ops: Vec<Registered>,
-    /// The indices in `ops` of the transformations registered from or to each CRS.
+    /// Los índices en `ops` de las transformaciones registradas desde o hacia cada sistema.
     pub at: HashMap<u32, Vec<usize>>,
 }
 
-/// The geodetic CRSs and the transformations PROJ's database registers between them, which
-/// terrio chains through intermediate datums as PROJ does.
+/// Los sistemas geodésicos y las transformaciones que la base de datos de PROJ registra entre
+/// ellos, que terrio encadena a través de datums intermedios como lo hace PROJ.
 pub(crate) fn registry() -> &'static Registry {
     static REGISTRY: OnceLock<Registry> = OnceLock::new();
     REGISTRY.get_or_init(|| {
@@ -718,8 +723,8 @@ pub(crate) fn registry() -> &'static Registry {
     })
 }
 
-/// The direct transformations from one geographic CRS to another (those GDAL uses given the
-/// grids available), and whether they run in reverse (the table holds each pair once).
+/// Las transformaciones directas de un sistema geográfico a otro (las que usa GDAL dadas las
+/// rejillas disponibles) y si se ejecutan a la inversa (la tabla guarda cada par una vez).
 pub(crate) fn pair(from: u32, to: u32) -> Option<(Vec<Arc<Op>>, bool)> {
     let t = table();
     let (p, reverse) = t
@@ -729,7 +734,7 @@ pub(crate) fn pair(from: u32, to: u32) -> Option<(Vec<Arc<Op>>, bool)> {
     Some((usable(&p.lists.0, &p.lists.1), reverse))
 }
 
-/// An EPSG vertical CRS.
+/// Un sistema vertical EPSG.
 pub(crate) fn vertical(code: u32) -> Option<&'static Vertical> {
     let t = table();
     t.verticals
@@ -750,7 +755,7 @@ pub(crate) fn vertical(code: u32) -> Option<&'static Vertical> {
         .as_ref()
 }
 
-/// An EPSG compound CRS.
+/// Un sistema compuesto EPSG.
 pub(crate) fn compound(code: u32) -> Option<&'static Compound> {
     let t = table();
     t.compounds
@@ -770,8 +775,8 @@ pub(crate) fn compound(code: u32) -> Option<&'static Compound> {
         .as_ref()
 }
 
-/// The geoid models (transformations from geographic 3D CRSs) of a vertical CRS, with the
-/// code of their geographic 3D CRS, as GDAL uses them given the grids available.
+/// Los modelos de geoide (transformaciones desde sistemas geográficos 3D) de un sistema vertical,
+/// con el código de su sistema geográfico 3D, como los usa GDAL dadas las rejillas disponibles.
 pub(crate) fn geoid_models(vertical: u32) -> Vec<(u32, Vec<Arc<Op>>)> {
     let t = table();
     let Some(list) = t.geoids.get(&vertical) else {
@@ -786,9 +791,10 @@ pub(crate) fn geoid_models(vertical: u32) -> Vec<(u32, Vec<Arc<Op>>)> {
         .collect()
 }
 
-/// The transformations from a vertical CRS to another that PROJ lists (vertical offsets, offsets
-/// and slopes, VERTCON and other grids, chained through an intermediate vertical CRS), given the
-/// grids that can be found. Empty when the EPSG dataset connects them by none but PROJ's ballpark.
+/// Las transformaciones de un sistema vertical a otro que lista PROJ (desfases verticales, desfases
+/// y pendientes, VERTCON y otras rejillas, encadenadas a través de un sistema vertical intermedio),
+/// dadas las rejillas que se pueden encontrar. Vacío cuando el conjunto de datos EPSG los conecta
+/// solo por la aproximación de PROJ.
 pub(crate) fn vertical_transformations(source: u32, target: u32) -> Vec<VerticalOp> {
     let t = vertical_table();
     let Some(lazy) = t.vertical_ops.get(&(source, target)) else {
@@ -808,12 +814,12 @@ pub(crate) fn vertical_transformations(source: u32, target: u32) -> Vec<Vertical
         .collect()
 }
 
-/// The publication date of an EPSG datum (`2007-01-01`), when it has one.
+/// La fecha de publicación de un datum EPSG (`2007-01-01`), cuando la tiene.
 pub(crate) fn datum_date(datum: u32) -> Option<&'static str> {
     table().dates.get(&datum).map(String::as_str)
 }
 
-/// The names a PROJ-data grid had before PROJ 7.
+/// Los nombres que tuvo una rejilla de PROJ-data antes de PROJ 7.
 pub(crate) fn grid_alternatives(name: &str) -> Vec<String> {
     table().alternatives.get(name).cloned().unwrap_or_default()
 }

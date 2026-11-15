@@ -1,5 +1,5 @@
-//! The name, the descriptor and the claim, and the pieces of the brand drawn in the interface
-//! (`assets/brand`). Renaming the program on screen is a matter of changing `NAME`.
+//! El nombre, el descriptor y el eslogan, y las piezas de la marca dibujadas en la interfaz
+//! (`assets/brand`). Cambiar el nombre del programa en pantalla es cuestión de cambiar `NAME`.
 
 use eframe::egui::{self, ColorImage, Id, TextureHandle, TextureOptions, Ui};
 use resvg::{tiny_skia, usvg};
@@ -8,19 +8,20 @@ pub const NAME: &str = "HIPSO";
 pub const DESCRIPTOR: &str = "Procesamiento y edición de nubes de puntos";
 pub const CLAIM: &str = "Visualiza. Edita. Procesa.";
 
-/// What the interface draws of the brand.
+/// Lo que dibuja la interfaz de la marca.
 #[derive(Clone, Copy)]
 pub enum Art {
-    /// The orange point cloud over its grid: the logo of the program.
+    /// La nube de puntos naranja sobre su rejilla: el logotipo del programa.
     Logo,
-    /// HIPSO written out: wherever the name of the program appears.
+    /// HIPSO escrito: dondequiera que aparece el nombre del programa.
     Wordmark,
 }
 
-/// The H on graphite: icon of the window and of the task bar.
+/// La H sobre grafito: icono de la ventana y de la barra de tareas.
 const ICON_H: &[u8] = include_bytes!("../../../assets/icon-256.png");
 
-/// The SVG of a piece: graphite lines on light surfaces, white ones on dark surfaces.
+/// El SVG de una pieza: líneas de grafito sobre superficies claras, blancas sobre superficies
+/// oscuras.
 fn source(art: Art, dark: bool) -> &'static str {
     match (art, dark) {
         (Art::Logo, false) => include_str!("../../../assets/brand/hipso-logo.svg"),
@@ -46,7 +47,8 @@ fn rasterise(svg: &str, height_px: u32) -> Option<ColorImage> {
     ))
 }
 
-/// Draws a piece of the brand `height` points tall (its width follows), sharp at any scale.
+/// Dibuja una pieza de la marca de `height` puntos de alto (su ancho la sigue), nítida a cualquier
+/// escala.
 pub fn paint(ui: &mut Ui, art: Art, dark: bool, height: f32) {
     let ctx = ui.ctx().clone();
     let ppp = ctx.pixels_per_point();
@@ -66,7 +68,7 @@ pub fn paint(ui: &mut Ui, art: Art, dark: bool, height: f32) {
     ui.image((tex.id(), tex.size_vec2() / ppp));
 }
 
-/// The icon of the window and of the task bar.
+/// El icono de la ventana y de la barra de tareas.
 pub fn app_icon() -> egui::IconData {
     let decoded = (|| {
         let mut r = png::Decoder::new(std::io::Cursor::new(ICON_H))

@@ -1,11 +1,11 @@
-//! What the tools that group things share: the union-find that merges them, the chaining of
-//! points that lie within a distance of each other, and the median.
+//! Lo que comparten las herramientas que agrupan cosas: la unión-búsqueda que las fusiona, el
+//! encadenamiento de puntos que están a una distancia unos de otros y la mediana.
 
 use std::collections::HashMap;
 
-/// Union-find over `n` items (indices kept as `u32`: it is used on rasters of hundreds of millions
-/// of cells). The root of a set is its smallest index, so the groups come out the same whatever
-/// the order the pairs were joined in.
+/// Unión-búsqueda sobre `n` elementos (índices guardados como `u32`: se usa en rásteres de cientos
+/// de millones de celdas). La raíz de un conjunto es su menor índice, de modo que los grupos salen
+/// igual sea cual sea el orden en que se unieron los pares.
 pub struct Dsu(Vec<u32>);
 
 impl Dsu {
@@ -14,7 +14,7 @@ impl Dsu {
         Self((0..n as u32).collect())
     }
 
-    /// A new item, alone in its set; returns its index.
+    /// Un elemento nuevo, solo en su conjunto; devuelve su índice.
     pub fn push(&mut self) -> usize {
         let i = u32::try_from(self.0.len()).expect("too many items for a union-find");
         self.0.push(i);
@@ -47,10 +47,10 @@ impl Dsu {
     }
 }
 
-/// The group of each of `n` points (given by `at`): two points within `link` of each other are in
-/// the same one, and so is everything chained to them. `zscale` weighs heights against distances
-/// on the plan (1: the distance in space; 0: on the plan only; between, two points that are
-/// `link / zscale` apart vertically are still linked). A group is named by its first point.
+/// El grupo de cada uno de `n` puntos (dados por `at`): dos puntos a menos de `link` uno del otro
+/// están en el mismo, y también todo lo encadenado a ellos. `zscale` pesa las alturas frente a las
+/// distancias en planta (1: la distancia en el espacio; 0: solo en planta; entre medias, dos puntos
+/// separados `link / zscale` en vertical siguen enlazados). Un grupo se nombra por su primer punto.
 pub fn link_labels(
     n: usize,
     at: impl Fn(usize) -> [f64; 3] + Sync,
@@ -99,14 +99,14 @@ pub fn link_labels(
     (0..n).map(|j| dsu.find(j)).collect()
 }
 
-/// Cosine of the turn at the middle one of three points in a row (8°).
+/// Coseno del giro en el punto del medio de tres puntos en fila (8°).
 pub const STRAIGHT: f64 = 0.99;
 
-/// Joins the points that stand in a row: three points, each at most `max_step` and at least
-/// `min_step` from the next, with the turn at the middle one under 8° and the steepness of both
-/// steps (|dz| over the distance) within `max_slope`, are in one set. Three in a row by chance, that
-/// far apart, hardly happens in a crown; the pieces of a conductor that a survey sees here and
-/// there along its length are in a row. `straight` is the cosine of the largest turn.
+/// Une los puntos que están en fila: tres puntos, cada uno como mucho a `max_step` y al menos a
+/// `min_step` del siguiente, con el giro en el del medio por debajo de 8° y la pendiente de ambos
+/// tramos (|dz| sobre la distancia) dentro de `max_slope`, están en un conjunto. Tres en fila por
+/// casualidad, tan separados, apenas ocurre en una copa; los trozos de un conductor que un vuelo ve
+/// aquí y allá a lo largo de su longitud están en fila. `straight` es el coseno del mayor giro.
 pub fn in_a_row(
     pts: &[[f64; 3]],
     min_step: f64,
@@ -129,7 +129,7 @@ pub fn in_a_row(
     for (j, p) in pts.iter().enumerate() {
         by_cell.entry(cell(p)).or_default().push(j);
     }
-    // the unit step from a to b, if it is a step of a row
+    // el paso unitario de a a b, si es un paso de una fila
     let step = |a: &[f64; 3], b: &[f64; 3]| -> Option<[f64; 3]> {
         let v = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
         let d = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
@@ -150,7 +150,7 @@ pub fn in_a_row(
                 }
             }
         }
-        // two points on opposite sides of this one, on the same line
+        // dos puntos en lados opuestos de este, en la misma línea
         for a in 0..near.len() {
             for b in a + 1..near.len() {
                 let (u, v) = (near[a].1, near[b].1);
@@ -164,7 +164,7 @@ pub fn in_a_row(
     dsu
 }
 
-/// The groups of `labels` as lists of indices, ordered by their first point.
+/// Los grupos de `labels` como listas de índices, ordenados por su primer punto.
 pub fn groups(labels: &[usize]) -> Vec<Vec<usize>> {
     let mut by: HashMap<usize, Vec<usize>> = HashMap::new();
     for (i, &g) in labels.iter().enumerate() {
@@ -175,10 +175,10 @@ pub fn groups(labels: &[usize]) -> Vec<Vec<usize>> {
     out
 }
 
-/// How far the values spread without their stragglers: the distance between the 5th and the 95th
-/// percentile, times 1.25 (so that it is the width of a uniform spread, whatever the stragglers).
-/// A tower's width on the plan is this, and not the box of its points, which what hangs from it
-/// (the conductors that reach it, a branch that touches it) stretches.
+/// Cuánto se dispersan los valores sin sus rezagados: la distancia entre los percentiles 5 y 95,
+/// por 1,25 (de modo que es la anchura de una dispersión uniforme, sean cuales sean los rezagados).
+/// La anchura de una torre en planta es esto, y no la caja de sus puntos, que estira lo que cuelga
+/// de ella (los conductores que llegan a ella, una rama que la toca).
 pub fn core_spread(v: &[f64]) -> f64 {
     if v.is_empty() {
         return 0.0;
@@ -189,7 +189,7 @@ pub fn core_spread(v: &[f64]) -> f64 {
     (at(0.95) - at(0.05)) * 1.25
 }
 
-/// The median of `v` (the upper middle one with an even count); reorders `v`.
+/// La mediana de `v` (la del medio superior con un recuento par); reordena `v`.
 pub fn median(v: &mut [f64]) -> f64 {
     let m = v.len() / 2;
     v.select_nth_unstable_by(m, |a, b| a.total_cmp(b));
@@ -214,7 +214,7 @@ mod tests {
         assert_eq!(l[0], l[2]);
         assert_ne!(l[0], l[3]);
         assert_ne!(l[0], l[4], "5 m above is not linked in space");
-        // on the plan only, the point 5 m above joins; with heights weighed down, too
+        // solo en planta, el punto 5 m por encima se une; con las alturas pesando menos, también
         assert_eq!(link_labels(5, at, 1.2, 0.0)[4], l[0]);
         assert_eq!(link_labels(5, at, 1.2, 0.2)[4], l[0]);
         assert_eq!(groups(&l).len(), 3);

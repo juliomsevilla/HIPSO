@@ -1,0 +1,107 @@
+{
+ "hipso_modelo": 1,
+ "results": "",
+ "nodes": [
+  {
+   "id": "n1",
+   "label": "Nube",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n2",
+   "label": "MDT",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "dtm",
+   "args": {
+    "cell": [
+     "1"
+    ]
+   }
+  },
+  {
+   "id": "n3",
+   "label": "Pendiente",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "terrain",
+   "args": {
+    "product": [
+     "slope"
+    ],
+    "percent": [
+     "true"
+    ]
+   }
+  },
+  {
+   "id": "n4",
+   "label": "Rugosidad",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "terrain",
+   "args": {
+    "product": [
+     "roughness"
+    ]
+   }
+  },
+  {
+   "id": "n5",
+   "label": "Sombreado",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "hillshade",
+   "args": {}
+  },
+  {
+   "id": "n6",
+   "label": "Curvas de nivel",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "contour",
+   "args": {}
+  }
+ ],
+ "edges": [
+  {
+   "from": "n1",
+   "to": "n2",
+   "port": "inputs"
+  },
+  {
+   "from": "n2",
+   "to": "n3",
+   "port": "input"
+  },
+  {
+   "from": "n2",
+   "to": "n4",
+   "port": "input"
+  },
+  {
+   "from": "n2",
+   "to": "n5",
+   "port": "input"
+  },
+  {
+   "from": "n2",
+   "to": "n6",
+   "port": "input"
+  }
+ ]
+}

@@ -1,6 +1,7 @@
-//! What a point-cloud viewer needs, with no window in it: a compact in-memory store of
-//! (decimated) points, colouring and filters, and CPU renderers for the plan, 3D and profile
-//! views. The GUI paints the images these make; `hipso render` writes them as PNG.
+//! Lo que necesita un visor de nubes de puntos, sin ventana: un almacén compacto en memoria de
+//! puntos (diezmados), coloreado y filtros, y visualizadores en la CPU para las vistas de planta,
+//! 3D y perfil. La interfaz pinta las imágenes que estos hacen; `hipso render` las escribe como
+//! PNG.
 
 use std::path::{Path, PathBuf};
 
@@ -9,41 +10,44 @@ use crate::grid::Grid;
 use crate::las::Reader;
 use crate::{Error, Result};
 
-/// Points kept in memory, 21 bytes each, with coordinates relative to `origin` in f32.
+/// Puntos guardados en memoria, 21 bytes cada uno, con coordenadas relativas a `origin` en f32.
 #[derive(Clone, Debug, Default)]
 pub struct PointStore {
     pub origin: [f64; 3],
-    /// min x, min y, min z, max x, max y, max z of the kept points.
+    /// x mínima, y mínima, z mínima, x máxima, y máxima, z máxima de los puntos guardados.
     pub bounds: [f64; 6],
     pub x: Vec<f32>,
     pub y: Vec<f32>,
     pub z: Vec<f32>,
     pub class: Vec<u8>,
     pub intensity: Vec<u16>,
-    /// Return number in the low nibble, number of returns in the high one.
+    /// Número de retorno en el cuarteto bajo y número de retornos en el alto.
     pub ret: Vec<u8>,
     pub src: Vec<u16>,
-    /// Scan angle in tenths of a degree (0 when the file has none).
+    /// Ángulo de barrido en décimas de grado (0 cuando el archivo no lo tiene).
     pub scan: Vec<i16>,
     pub file: Vec<u8>,
-    /// Empty when no file carries colour.
+    /// Vacío cuando ningún archivo trae color.
     pub rgb: Vec<[u8; 3]>,
-    /// The crown number (`treeID`) of each point; empty when no file carries one.
+    /// El número de copa (`treeID`) de cada punto; vacío cuando ningún archivo trae uno.
     pub tree: Vec<u32>,
     pub files: Vec<String>,
-    /// Selected points (empty: none selected) and points removed by edits (empty: none).
+    /// Puntos seleccionados (vacío: ninguno seleccionado) y puntos eliminados por ediciones (vacío:
+    /// ninguno).
     pub selected: Vec<bool>,
     pub deleted: Vec<bool>,
-    /// Area the files cover (the sum of their extents), in map units squared; 0 when unknown.
-    /// It sets the dot size: clouds far apart must not count the empty land between them.
+    /// Superficie que cubren los archivos (la suma de sus extensiones), en unidades del mapa al
+    /// cuadrado; 0 cuando se desconoce. Fija el tamaño del punto: las nubes muy separadas no deben
+    /// contar el terreno vacío que hay entre ellas.
     pub area: f64,
-    /// The extent of each file (min x, min y, min z, max x, max y, max z), in the order of `files`;
-    /// empty when a file has no header (ASCII).
+    /// La extensión de cada archivo (x mínima, y mínima, z mínima, x máxima, y máxima, z máxima),
+    /// en el orden de `files`; vacía cuando un archivo no tiene cabecera (ASCII).
     pub file_bounds: Vec<[f64; 6]>,
-    /// Points in the files, and one kept in every `stride`.
+    /// Puntos de los archivos, y uno conservado de cada `stride`.
     pub total: u64,
     pub stride: u64,
-    /// The coordinate system of the first cloud as `.prj` text (for files made from it).
+    /// El sistema de coordenadas de la primera nube como texto `.prj` (para archivos hechos a
+    /// partir de ella).
     pub prj: Option<String>,
 }
 
@@ -56,7 +60,7 @@ impl PointStore {
         self.x.is_empty()
     }
 
-    /// Absolute coordinates of point `i`.
+    /// Coordenadas absolutas del punto `i`.
     pub fn xyz(&self, i: usize) -> [f64; 3] {
         [
             self.origin[0] + f64::from(self.x[i]),
@@ -65,15 +69,17 @@ impl PointStore {
         ]
     }
 
-    /// Whether the points come from an aircraft or drone: some have a scan angle. The gaps of a
-    /// flight line (points close along the line and far between lines) are what filling closes;
-    /// a terrestrial scan has none, and filling its sparse points only makes blocks.
+    /// Si los puntos proceden de un avión o un dron: algunos tienen ángulo de barrido. Los huecos
+    /// de una pasada (puntos cercanos a lo largo de la pasada y separados entre pasadas) son lo que
+    /// cierra el relleno; un escaneo terrestre no los tiene, y rellenar sus puntos dispersos solo
+    /// hace bloques.
     pub fn airborne(&self) -> bool {
         let step = (self.scan.len() / 4096).max(1);
         self.scan.iter().step_by(step).any(|a| *a != 0)
     }
 
-    /// Keeps the points at even positions (the 1st, 3rd, ...): half of them, evenly.
+    /// Conserva los puntos de posiciones pares (el 1.º, el 3.º, ...): la mitad, repartidos por
+    /// igual.
     fn keep_every_other(&mut self) {
         fn half<T: Copy>(v: &mut Vec<T>) {
             let mut k = 0;
@@ -95,8 +101,8 @@ impl PointStore {
         half(&mut self.tree);
     }
 
-    /// The store without the points of file `k`, or `None` when it is the only one. The other
-    /// files keep their points as they were read, so nothing is read again from disk.
+    /// El almacén sin los puntos del archivo `k`, o `None` cuando es el único. Los demás archivos
+    /// conservan sus puntos tal como se leyeron, de modo que no se vuelve a leer nada del disco.
     pub fn without_file(&self, k: usize) -> Option<PointStore> {
         if self.files.len() < 2 || k >= self.files.len() {
             return None;
@@ -145,7 +151,7 @@ impl PointStore {
             let side = |b: &[f64; 6]| (b[3] - b[0]) * (b[4] - b[1]);
             s.area = (s.area - side(&gone)).max(0.0);
         }
-        // total counts the points of the files, so the share of the removed one goes
+        // el total cuenta los puntos de los archivos, así que va la parte del eliminado
         s.total = s.total * s.len() as u64 / self.len().max(1) as u64;
         let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
         for i in 0..s.len() {
@@ -183,17 +189,18 @@ fn u16_at(b: &[u8], i: usize) -> u16 {
         .map_or(0, |s| u16::from_le_bytes([s[0], s[1]]))
 }
 
-/// x, y, z, intensity, return byte, class, source id, file id, colour.
+/// x, y, z, intensidad, byte de retorno, clase, identificador de fuente, identificador de archivo,
+/// color.
 type Staged = (f64, f64, f64, u16, u8, u8, u16, u8, Option<[u8; 3]>, i16, u32);
 
-/// Reads LAS/LAZ (and ASCII `x y z [intensity [class]]`) files keeping about `max_points` of
-/// them: one point in every `stride`, so large clouds fit in memory.
+/// Lee archivos LAS/LAZ (y ASCII `x y z [intensidad [clase]]`) conservando unos `max_points`
+/// puntos: uno de cada `stride`, de modo que las nubes grandes caben en memoria.
 pub fn load(paths: &[PathBuf], max_points: usize) -> Result<PointStore> {
     load_from(paths, paths, max_points)
 }
 
-/// Like [`load`], reading each cloud from `read[i]` (a COPC copy of it, which gives the sample
-/// without decompressing the rest) while the store keeps the names of `paths[i]`.
+/// Como [`load`], leyendo cada nube de `read[i]` (una copia COPC de ella, que da la muestra sin
+/// descomprimir el resto) mientras el almacén conserva los nombres de `paths[i]`.
 pub fn load_from(paths: &[PathBuf], read: &[PathBuf], max_points: usize) -> Result<PointStore> {
     let mut readers = Vec::new();
     let mut names = Vec::new();
@@ -220,7 +227,8 @@ pub fn load_from(paths: &[PathBuf], read: &[PathBuf], max_points: usize) -> Resu
     }
     let stride = total.div_ceil(max_points.max(1) as u64).max(1);
     crate::progress::begin(total);
-    // the land the clouds cover: their own extents, so clouds far apart do not count the gap
+    // el terreno que cubren las nubes: sus propias extensiones, para que las nubes muy separadas no
+    // cuenten el hueco
     let area = if ascii.is_empty() {
         readers
             .iter()
@@ -309,9 +317,9 @@ pub fn load_from(paths: &[PathBuf], read: &[PathBuf], max_points: usize) -> Resu
         );
         let file_id = fi.min(255) as u8;
         let tree_field = r.extra_field("treeID");
-        // A COPC file that has to be thinned gives its first levels (an even sample of the whole
-        // cloud) without decompressing the rest.
-        // (a file that says it is COPC but cannot be read as one is read as a plain LAZ)
+        // Un archivo COPC que hay que adelgazar da sus primeros niveles (una muestra uniforme de
+        // toda la nube) sin descomprimir el resto. (un archivo que dice ser COPC pero no se puede
+        // leer como tal se lee como un LAZ normal)
         let copc = if stride > 1 {
             match crate::copc::Copc::open(r.path()).ok().flatten() {
                 Some(c) => {
@@ -409,12 +417,13 @@ pub fn load_from(paths: &[PathBuf], read: &[PathBuf], max_points: usize) -> Resu
     Ok(s)
 }
 
-/// The points of `paths` inside the rectangle `region` `[x0, y0, x1, y1]`, with their file ids,
-/// colours and coordinate system laid out like `like` (the store of the same clouds), so the
-/// styles and edits of the viewer work on it unchanged. At most about `cap` points are kept:
-/// below that every point comes, above it one in every few. This is what a profile draws, so
-/// it is not thinned like the whole cloud is. A COPC file is read by the nodes the region
-/// touches; any other file is scanned whole, skipping the ones whose extent misses the region.
+/// Los puntos de `paths` dentro del rectángulo `region` `[x0, y0, x1, y1]`, con sus identificadores
+/// de archivo, colores y sistema de coordenadas dispuestos como en `like` (el almacén de las mismas
+/// nubes), de modo que los estilos y ediciones del visor funcionan sobre él sin cambios. Se guardan
+/// como mucho unos `cap` puntos: por debajo de eso llegan todos los puntos, por encima, uno de cada
+/// pocos. Es lo que dibuja un perfil, así que no se adelgaza como se adelgaza la nube entera. Un
+/// archivo COPC se lee por los nodos que toca la región; cualquier otro archivo se recorre entero,
+/// saltándose aquellos cuya extensión no alcanza la región.
 pub fn load_region(
     paths: &[PathBuf],
     region: [f64; 4],
@@ -424,9 +433,10 @@ pub fn load_region(
     load_slab(paths, region, None, cap, like)
 }
 
-/// Like [`load_region`], keeping only the points inside `slab` (an oriented box inside `region`):
-/// a profile reads the strip around its box, not the rectangle that holds it, so far fewer
-/// points have to be thinned to fit `cap`. The files are read by all cores.
+/// Como [`load_region`], conservando solo los puntos dentro de `slab` (una caja orientada dentro de
+/// `region`): un perfil lee la franja alrededor de su caja, no el rectángulo que la contiene, de
+/// modo que hay que adelgazar muchos menos puntos para ajustarse a `cap`. Los archivos se leen con
+/// todos los núcleos.
 pub fn load_slab(
     paths: &[PathBuf],
     region: [f64; 4],
@@ -454,7 +464,7 @@ pub fn load_slab(
         let area = ((b[3] - b[0]) * (b[4] - b[1])).max(1e-9);
         (w * h / area).min(1.0)
     };
-    // the points expected inside, if each file were even: sets how much to thin
+    // los puntos que se esperan dentro, si cada archivo fuera uniforme: fija cuánto adelgazar
     let slab_share = slab.map_or(1.0, |b| {
         let area = (region[2] - region[0]).max(1e-9) * (region[3] - region[1]).max(1e-9);
         (b.length() * b.width / area).min(1.0)
@@ -463,8 +473,8 @@ pub fn load_slab(
         .iter()
         .map(|r| r.header.count as f64 * overlap(&r.header.bounds) * slab_share)
         .sum();
-    // a strip is read whole and thinned only if it outgrows `cap` (the estimate by area is for
-    // regions, and a cloud is never even)
+    // una franja se lee entera y se adelgaza solo si supera `cap` (la estimación por área es para
+    // regiones, y una nube nunca es uniforme)
     let mut stride = if slab.is_some() {
         1
     } else {
@@ -503,7 +513,7 @@ pub fn load_slab(
         let file_id = fi.min(255) as u8;
         let tree_field = r.extra_field("treeID");
         let mut body = |bytes: &[u8]| -> Result<()> {
-            // decoding is the slow part: every core takes a share of the records
+            // decodificar es lo lento: cada núcleo toma una parte de los registros
             let rows: Vec<Vec<(crate::las::Point, usize)>> = bytes
                 .par_chunks(rec_len * 16_384)
                 .enumerate()
@@ -569,7 +579,7 @@ pub fn load_slab(
         };
         match crate::copc::Copc::open(r.path())? {
             Some(c) => {
-                // every level of the nodes that touch the region: all its points
+                // cada nivel de los nodos que tocan la región: todos sus puntos
                 let nodes = c.nodes(Some(region), None)?;
                 c.read_raw(&nodes, &mut body)?;
             }
@@ -597,15 +607,15 @@ pub enum ColorBy {
     Source,
     File,
     Rgb,
-    /// The crown number of each point (the `treeID` attribute).
+    /// El número de copa de cada punto (el atributo `treeID`).
     Tree,
 }
 
-/// The colour of selected points.
+/// El color de los puntos seleccionados.
 pub const HIGHLIGHT: [u8; 3] = [0, 255, 255];
 
-/// Which return filter bit a return byte (number low, count high) falls in: 1 first,
-/// 2 intermediate, 4 last, 8 single.
+/// En qué bit del filtro de retornos cae un byte de retorno (número abajo, cuenta arriba): 1
+/// primero, 2 intermedio, 4 último, 8 único.
 pub fn return_bit(ret: u8) -> u8 {
     let (n, t) = (ret & 15, ret >> 4);
     if t <= 1 && n <= 1 {
@@ -642,42 +652,45 @@ fn ramp(t: f32, earth: bool) -> [u8; 3] {
     [c(0), c(1), c(2)]
 }
 
-/// How points are coloured and which are drawn.
+/// Cómo se colorean los puntos y cuáles se dibujan.
 #[derive(Clone, Debug)]
 pub struct Style {
     pub color_by: ColorBy,
-    /// Elevation range of the colour ramp.
+    /// Rango de elevaciones de la rampa de color.
     pub zmin: f64,
     pub zmax: f64,
     pub intensity_max: u16,
     pub point_size: usize,
-    /// Size in pixels of the dots of the profile, apart from `point_size` of the plan and 3D.
+    /// Tamaño en píxeles de los puntos del perfil, aparte de `point_size` de la planta y el 3D.
     pub profile_size: usize,
-    /// The classes that are drawn.
+    /// Las clases que se dibujan.
     pub classes: ClassSet,
     pub class_colors: [[u8; 3]; 256],
-    /// Bits: 1 first, 2 intermediate, 4 last, 8 single returns are drawn.
+    /// Bits: se dibujan los retornos 1 primero, 2 intermedio, 4 último, 8 único.
     pub returns: u8,
-    /// Bit k set: the points of file k are drawn (files from the 65th on always are).
+    /// Bit k activado: se dibujan los puntos del archivo k (los archivos del 65.º en adelante
+    /// siempre).
     pub files: u64,
     pub background: [u8; 3],
-    /// Draw only every `thin`-th point (fast, while the view moves).
+    /// Dibuja solo uno de cada `thin` puntos (rápido, mientras la vista se mueve).
     pub thin: usize,
-    /// Leave the background transparent (to paint the cloud over reference layers).
+    /// Deja el fondo transparente (para pintar la nube sobre capas de referencia).
     pub transparent: bool,
-    /// Typical distance between displayed points, in map units: points are drawn as big as
-    /// this when zoomed in, so the surface never turns into scattered specks.
+    /// Distancia típica entre los puntos mostrados, en unidades del mapa: los puntos se dibujan tan
+    /// grandes como esto al acercar, de modo que la superficie nunca se convierte en motas sueltas.
     pub spacing: f64,
-    /// Plan view: fill the gaps between points (a few pixels wide, as many as the spacing of the
-    /// points says) with the nearest point, so scan lines and sparse ground read as a surface.
+    /// Vista en planta: rellena los huecos entre puntos (de unos pocos píxeles de ancho, tantos
+    /// como diga el espaciado de los puntos) con el punto más cercano, para que las líneas de
+    /// barrido y el suelo disperso se lean como una superficie.
     pub fill: bool,
-    /// Eye-dome lighting: darkens the pixels that lie behind their neighbours, which gives depth
-    /// and edges to a flat colouring. 0 is off; 1 is a usual strength.
+    /// Iluminación de cúpula de ojo (eye-dome lighting): oscurece los píxeles que quedan detrás de
+    /// sus vecinos, lo que da profundidad y bordes a un coloreado plano. 0 es apagado; 1 es una
+    /// intensidad habitual.
     pub edl: f32,
-    /// Draw only points inside this rectangle `[xmin, ymin, xmax, ymax]` (3D view).
+    /// Dibuja solo los puntos dentro de este rectángulo `[xmin, ymin, xmax, ymax]` (vista 3D).
     pub window: Option<[f64; 4]>,
-    /// Skip points inside this rectangle `[xmin, ymin, xmax, ymax]` (3D view: what a denser
-    /// store drawn over it replaces).
+    /// Omite los puntos dentro de este rectángulo `[xmin, ymin, xmax, ymax]` (vista 3D: lo que
+    /// sustituye un almacén más denso dibujado encima).
     pub hole: Option<[f64; 4]>,
 }
 
@@ -707,10 +720,10 @@ impl Default for Style {
 }
 
 impl Style {
-    /// A style whose ramps span the store.
+    /// Un estilo cuyas rampas abarcan el almacén.
     pub fn fit(s: &PointStore) -> Self {
         let extent = ((s.bounds[3] - s.bounds[0]) * (s.bounds[4] - s.bounds[1])).max(1.0);
-        // the area the files cover, never more than the box around them
+        // el área que cubren los archivos, nunca más que la caja que los rodea
         let covered = if s.area > 0.0 {
             s.area.min(extent)
         } else {
@@ -801,7 +814,7 @@ fn hsv(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
     ((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
 }
 
-/// A rendered image, RGBA8, row 0 at the top.
+/// Una imagen renderizada, RGBA8, fila 0 arriba.
 #[derive(Clone, Debug)]
 pub struct Image {
     pub w: usize,
@@ -838,7 +851,7 @@ impl Image {
     }
 }
 
-/// The plan view: map centre and pixels per map unit.
+/// La vista en planta: centro del mapa y píxeles por unidad del mapa.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Plan {
     pub cx: f64,
@@ -847,7 +860,8 @@ pub struct Plan {
 }
 
 impl Plan {
-    /// The view that shows `b` (min x, min y, ..., max x, max y) in a `w` x `h` window.
+    /// La vista que muestra `b` (x mínima, y mínima, ..., x máxima, y máxima) en una ventana de `w`
+    /// x `h`.
     pub fn fit(b: [f64; 6], w: usize, h: usize) -> Self {
         let (dx, dy) = ((b[3] - b[0]).max(1e-6), (b[4] - b[1]).max(1e-6));
         Self {
@@ -871,7 +885,7 @@ impl Plan {
         )
     }
 
-    /// Zooms by `k` keeping the map point under pixel `(px, py)` fixed.
+    /// Hace zoom de `k` manteniendo fijo el punto del mapa que hay bajo el píxel `(px, py)`.
     pub fn zoom_at(&mut self, k: f64, px: f64, py: f64, w: usize, h: usize) {
         let (mx, my) = self.to_map(px, py, w, h);
         self.scale *= k;
@@ -881,9 +895,10 @@ impl Plan {
     }
 }
 
-/// The nearest point per pixel and its colour, shared by all the threads of a render: each pixel
-/// is one atomic word holding the depth (in an order-preserving form) above the colour, so the
-/// nearest point wins with a single `fetch_min` and no thread keeps a canvas of its own.
+/// El punto más cercano por píxel y su color, compartido por todos los hilos de un renderizado:
+/// cada píxel es una palabra atómica que guarda la profundidad (en una forma que conserva el orden)
+/// sobre el color, de modo que el punto más cercano gana con un solo `fetch_min` y ningún hilo
+/// guarda un lienzo propio.
 struct Layer {
     w: usize,
     h: usize,
@@ -903,7 +918,7 @@ impl Layer {
         }
     }
 
-    /// Depth as a number that sorts like the float does.
+    /// Profundidad como un número que ordena igual que el decimal.
     #[inline]
     fn depth_key(d: f32) -> u64 {
         let b = d.to_bits();
@@ -914,7 +929,7 @@ impl Layer {
         })
     }
 
-    /// A flat-coloured triangle of screen positions and depths.
+    /// Un triángulo de color plano de posiciones de pantalla y profundidades.
     fn tri(&self, v: [(f64, f64, f64); 3], c: [u8; 3]) {
         use std::sync::atomic::Ordering::Relaxed;
         let area = (v[1].0 - v[0].0) * (v[2].1 - v[0].1) - (v[2].0 - v[0].0) * (v[1].1 - v[0].1);
@@ -956,7 +971,7 @@ impl Layer {
             | u64::from(c[1]) << 8
             | u64::from(c[2]);
         let r0 = (size - 1) / 2;
-        // dots from 3 pixels up are round, not square
+        // los puntos a partir de 3 píxeles son redondos, no cuadrados
         let (mid, rad2) = ((size as f64 - 1.0) / 2.0, (size as f64 / 2.0).powi(2));
         for yy in (y - r0).max(0)..(y - r0 + size).min(self.h as i64) {
             for xx in (x - r0).max(0)..(x - r0 + size).min(self.w as i64) {
@@ -974,11 +989,12 @@ impl Layer {
         }
     }
 
-    /// Closes the gaps between reached cells: an empty cell takes the nearer of the reached cells
-    /// on both sides of it within `r` pixels along its row, then along its column, but only when
-    /// the two are at about the same depth (within 4 % of the depth range of the image). So the
-    /// gap between two scan lines closes, while the space between a trunk and the canopy behind
-    /// it, or the edge of a cloud, is left as it is. Linear in the pixels.
+    /// Cierra los huecos entre celdas alcanzadas: una celda vacía toma la más cercana de las celdas
+    /// alcanzadas a ambos lados dentro de `r` píxeles a lo largo de su fila y luego de su columna,
+    /// pero solo cuando las dos están a casi la misma profundidad (dentro del 4 % del rango de
+    /// profundidad de la imagen). Así se cierra el hueco entre dos líneas de barrido, mientras que
+    /// el espacio entre un tronco y el dosel que hay detrás, o el borde de una nube, se deja como
+    /// está. Lineal en los píxeles.
     fn fill_gaps(&mut self, r: usize, any_depth: bool) {
         use rayon::prelude::*;
         use std::sync::atomic::Ordering::Relaxed;
@@ -1029,9 +1045,9 @@ impl Layer {
         if !(hi > lo) {
             return;
         }
-        // `any_depth`: the points are sparser than the pixels (a sample, or a zoom beyond the
-        // detail), so the holes come from the sampling, not from the scene: close them whatever
-        // the depth, taking the higher side
+        // `any_depth`: los puntos son más escasos que los píxeles (una muestra, o un zoom más allá
+        // del detalle), así que los huecos vienen del muestreo, no de la escena: se cierran sea
+        // cual sea la profundidad, tomando el lado más alto
         let tol = if any_depth { f32::INFINITY } else { (hi - lo) * 0.04 };
         rows(&mut buf, w, r, tol);
         let mut t = vec![EMPTY; w * h];
@@ -1048,8 +1064,8 @@ impl Layer {
         }
     }
 
-    /// Eye-dome lighting: each pixel is darkened by how much its neighbours (one and two pixels
-    /// away) lie in front of it, as a share of the depth range of the image.
+    /// Iluminación de cúpula de ojo: cada píxel se oscurece según cuánto quedan delante de él sus
+    /// vecinos (a uno y dos píxeles), como proporción del rango de profundidad de la imagen.
     fn shade_edl(&mut self, strength: f32) {
         use rayon::prelude::*;
         use std::sync::atomic::Ordering::Relaxed;
@@ -1099,7 +1115,7 @@ impl Layer {
                     }
                     let n = src[ny as usize * w + nx as usize];
                     if n != EMPTY {
-                        // a nearer neighbour (smaller depth) shades this one
+                        // un vecino más cercano (menor profundidad) sombrea a este
                         obscure += ((d - depth(n)) / range).max(0.0);
                     }
                 }
@@ -1113,7 +1129,7 @@ impl Layer {
         }
     }
 
-    /// Paints the pixels that were reached over `img`.
+    /// Pinta los píxeles alcanzados sobre `img`.
     fn paint_into(&self, img: &mut Image) {
         use rayon::prelude::*;
         img.rgba
@@ -1131,8 +1147,8 @@ impl Layer {
     }
 }
 
-/// Runs `f(layer, point index)` over every `step`-th point on all cores and paints the nearest
-/// points over `img`.
+/// Ejecuta `f(capa, índice de punto)` sobre cada `step`-ésimo punto en todos los núcleos y pinta
+/// los puntos más cercanos sobre `img`.
 fn par_points(
     img: &mut Image,
     n: usize,
@@ -1170,31 +1186,33 @@ fn canvas(w: usize, h: usize, st: &Style) -> Image {
     }
 }
 
-/// The eye-dome strength of a style, off while the view moves (thinned).
+/// La intensidad de cúpula de ojo de un estilo, apagada mientras la vista se mueve (adelgazada).
 fn edl_of(st: &Style) -> f32 {
     if st.thin <= 1 { st.edl.max(0.0) } else { 0.0 }
 }
 
-/// Dot size in pixels: at least the chosen one, and as big as the spacing between points
-/// looks on screen (`px_per_unit` pixels per map unit).
+/// Tamaño del punto en píxeles: al menos el elegido, y tan grande como parece el espaciado entre
+/// puntos en pantalla (`px_per_unit` píxeles por unidad del mapa).
 fn dot(st: &Style, px_per_unit: f64) -> i64 {
     ((st.spacing * px_per_unit * 0.9).ceil() as i64).clamp(st.point_size.max(1) as i64, 24)
 }
 
-/// Average spacing, in pixels, from which the plan view takes the holes for sampling gaps.
+/// Espaciado medio, en píxeles, a partir del cual la vista en planta toma los huecos por huecos de
+/// muestreo.
 const SPARSE_PX: f64 = 0.5;
 
-/// The plan view, highest point on top.
+/// La vista en planta, con el punto más alto encima.
 pub fn render_plan(s: &PointStore, v: &Plan, w: usize, h: usize, st: &Style) -> Image {
     let mut img = canvas(w, h, st);
     let size = dot(st, v.scale);
-    // the gaps are closed up to twice the spacing of the points on screen (at least 2 pixels: the
-    // average spacing hides scan lines and overlaps, where the points are far apart in one
-    // direction), unless the points are far denser than the pixels
+    // los huecos se cierran hasta el doble del espaciado de los puntos en pantalla (al menos 2
+    // píxeles: el espaciado medio oculta las líneas de barrido y los solapes, donde los puntos
+    // están lejos en una dirección), salvo que los puntos sean mucho más densos que los píxeles
     let gap_px = st.spacing * v.scale;
     let fill = if st.fill && st.thin <= 1 && gap_px >= 0.3 && s.airborne() {
-        // the average spacing hides the thin parts (overlaps of strips, shadows): when the points are
-        // sparser than the pixels the reach is wider, as the holes are not all of the average size
+        // el espaciado medio oculta las partes finas (solapes de franjas, sombras): cuando los
+        // puntos son más escasos que los píxeles el alcance es mayor, pues los huecos no son todos
+        // del tamaño medio
         let k = if gap_px >= SPARSE_PX { 4.0 } else { 2.0 };
         (gap_px * k).ceil().clamp(2.0, 8.0) as usize
     } else {
@@ -1229,18 +1247,18 @@ pub fn render_plan(s: &PointStore, v: &Plan, w: usize, h: usize, st: &Style) -> 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Orbit {
     pub target: [f64; 3],
-    /// Rotation about the vertical axis, radians (0: looking north).
+    /// Rotación alrededor del eje vertical, en radianes (0: mirando al norte).
     pub yaw: f64,
-    /// Elevation above the horizon, radians.
+    /// Elevación sobre el horizonte, en radianes.
     pub pitch: f64,
     pub dist: f64,
     pub exaggeration: f64,
 }
 
 impl Orbit {
-    /// The view that shows what was loaded. When the files lie far apart (a cloud in Albacete and
-    /// another in Galicia) the box around all of them would show none of them, so it frames the
-    /// first file instead: the others are a click away (zoom to a layer).
+    /// La vista que muestra lo que se cargó. Cuando los archivos están muy separados (una nube en
+    /// Albacete y otra en Galicia) la caja que rodea a todos no mostraría ninguno, así que encuadra
+    /// el primer archivo: los demás están a un clic (zoom a una capa).
     pub fn fit_scene(s: &PointStore) -> Self {
         let diag = |b: &[f64; 6]| ((b[3] - b[0]).hypot(b[4] - b[1])).max(1.0);
         let biggest = s.file_bounds.iter().map(diag).fold(0.0, f64::max);
@@ -1252,8 +1270,8 @@ impl Orbit {
         }
     }
 
-    /// The view that frames a map area (min x, min y, max x, max y): the heights are those of the
-    /// files that touch it, and the direction and exaggeration are kept.
+    /// La vista que encuadra un área del mapa (x mínima, y mínima, x máxima, y máxima): las alturas
+    /// son las de los archivos que la tocan, y se conservan la dirección y la exageración.
     pub fn fit_area(&self, s: &PointStore, b: [f64; 4]) -> Self {
         let (mut zmin, mut zmax) = (f64::INFINITY, f64::NEG_INFINITY);
         for f in &s.file_bounds {
@@ -1291,7 +1309,7 @@ impl Orbit {
     }
 }
 
-/// An [`Orbit`] ready to project points on a view: see [`Orbit::projector`].
+/// Un [`Orbit`] listo para proyectar puntos en una vista: véase [`Orbit::projector`].
 #[derive(Clone, Copy, Debug)]
 pub struct Projector {
     target: [f64; 3],
@@ -1307,7 +1325,8 @@ pub struct Projector {
 }
 
 impl Projector {
-    /// Pixel position and distance from the camera plane of a map point, or `None` behind it.
+    /// Posición en píxeles y distancia al plano de la cámara de un punto del mapa, o `None` si está
+    /// detrás.
     #[inline]
     pub fn apply(&self, p: [f64; 3]) -> Option<(f64, f64, f64)> {
         let (dx, dy, dz) = (
@@ -1329,17 +1348,17 @@ impl Projector {
 }
 
 impl Orbit {
-    /// Focal length in pixels of a view `w`×`h`.
+    /// Distancia focal en píxeles de una vista `w`×`h`.
     pub fn focal(w: usize, h: usize) -> f64 {
         h.min(w) as f64 * 1.1
     }
 
-    /// Where a map point lands on a view `w`×`h`, or `None` behind the camera.
+    /// Dónde cae un punto del mapa en una vista `w`×`h`, o `None` si está detrás de la cámara.
     pub fn project(&self, p: [f64; 3], w: usize, h: usize) -> Option<(f64, f64)> {
         self.projector(w, h).apply(p).map(|(x, y, _)| (x, y))
     }
 
-    /// The camera with its trigonometry done once, to project many points.
+    /// La cámara con su trigonometría ya hecha, para proyectar muchos puntos.
     pub fn projector(&self, w: usize, h: usize) -> Projector {
         let (sy, cy) = self.yaw.sin_cos();
         let (sp, cp) = self.pitch.sin_cos();
@@ -1357,8 +1376,8 @@ impl Orbit {
         }
     }
 
-    /// Drags the scene by `(dx, dy)` pixels in the plane of the screen: what lies at the
-    /// distance of the target follows the cursor exactly.
+    /// Arrastra la escena `(dx, dy)` píxeles en el plano de la pantalla: lo que está a la distancia
+    /// del objetivo sigue al cursor exactamente.
     pub fn pan_px(&mut self, dx: f64, dy: f64, w: usize, h: usize) {
         let k = self.dist / Self::focal(w, h);
         let (sy, cy) = self.yaw.sin_cos();
@@ -1375,8 +1394,8 @@ pub fn render_3d(s: &PointStore, o: &Orbit, w: usize, h: usize, st: &Style) -> I
     render_3d_with(s, st, None, o, w, h)
 }
 
-/// The 3D view of `s`, and of `over` (a denser store of a part of the same cloud, with its own
-/// style) in the same depth buffer.
+/// La vista 3D de `s` y de `over` (un almacén más denso de una parte de la misma nube, con su
+/// propio estilo) en el mismo búfer de profundidad.
 pub fn render_3d_with(
     s: &PointStore,
     st: &Style,
@@ -1388,20 +1407,21 @@ pub fn render_3d_with(
     render_3d_surface(s, st, over, None, o, w, h)
 }
 
-/// A raster seen as a surface in 3D: heights from `grid`, colours from `color` (one pixel per
-/// cell, alpha 0 where the cell is empty).
+/// Un ráster visto como superficie en 3D: alturas de `grid`, colores de `color` (un píxel por
+/// celda, alfa 0 donde la celda está vacía).
 #[derive(Clone, Copy)]
 pub struct Surface<'a> {
     pub grid: &'a Grid,
     pub color: &'a Image,
-    /// Most quads drawn: the grid is thinned (every n-th cell) to stay under it.
+    /// Máximo de cuadriláteros dibujados: la rejilla se adelgaza (una celda de cada n) para quedar
+    /// por debajo.
     pub max_quads: usize,
-    /// Light the relief (the colours do not carry it already).
+    /// Ilumina el relieve (los colores no lo llevan ya).
     pub shade: bool,
 }
 
 impl Surface<'_> {
-    /// Extent as min x, min y, min z, max x, max y, max z.
+    /// Extensión como x mínima, y mínima, z mínima, x máxima, y máxima, z máxima.
     pub fn bounds(&self) -> [f64; 6] {
         let g = self.grid;
         let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
@@ -1422,7 +1442,7 @@ impl Surface<'_> {
         ]
     }
 
-    /// Every `step`-th cell is a vertex.
+    /// Cada `step`-ésima celda es un vértice.
     fn step(&self) -> usize {
         let n = (self.grid.cols * self.grid.rows) as f64;
         (n / self.max_quads.max(1) as f64).sqrt().ceil().max(1.0) as usize
@@ -1441,7 +1461,7 @@ impl Surface<'_> {
         let (wf, hf) = (layer.w as f64, layer.h as f64);
         let span = step as f64 * g.cell;
         let ex = o.exaggeration;
-        // light from the north-west, 45 degrees up
+        // luz desde el noroeste, a 45 grados de altura
         let l = [-0.5f64, 0.5, std::f64::consts::FRAC_1_SQRT_2];
         (0..nr).into_par_iter().for_each(|qr| {
             let (r0, r1) = (qr * step, qr * step + step);
@@ -1502,7 +1522,7 @@ impl Surface<'_> {
     }
 }
 
-/// [`render_3d_with`] with a raster surface under the points.
+/// [`render_3d_with`] con una superficie ráster bajo los puntos.
 pub fn render_3d_surface(
     s: &PointStore,
     st: &Style,
@@ -1554,7 +1574,8 @@ pub fn render_3d_surface(
                     p[1] - o.target[1],
                     (p[2] - o.target[2]) * o.exaggeration,
                 );
-                // yaw about z, then pitch about x; the camera sits o.dist away behind +y rotated
+                // giro alrededor de z y luego inclinación alrededor de x; la cámara se sitúa a
+                // o.dist detrás de +y girado
                 let (x1, y1) = (dx * cy - dy * sy, dx * sy + dy * cy);
                 let depth_axis = y1 * cp - dz * sp + o.dist;
                 let up = y1 * sp + dz * cp;
@@ -1566,7 +1587,7 @@ pub fn render_3d_surface(
                 if px < 0.0 || py < 0.0 || px >= w as f64 || py >= h as f64 {
                     return;
                 }
-                // nearer points look bigger: the size follows the perspective
+                // los puntos más cercanos parecen mayores: el tamaño sigue la perspectiva
                 layer.splat(
                     px as i64,
                     py as i64,
@@ -1576,7 +1597,8 @@ pub fn render_3d_surface(
                 );
             });
     }
-    // as in the plan view: the gaps between points close up to twice their spacing on screen
+    // como en la vista en planta: los huecos entre puntos se cierran hasta el doble de su espaciado
+    // en pantalla
     if st.fill && thin <= 1 && gap_px >= 0.3 && airborne {
         layer.fill_gaps((gap_px * 2.0).ceil().clamp(2.0, 8.0) as usize, false);
     }
@@ -1587,7 +1609,7 @@ pub fn render_3d_surface(
     img
 }
 
-/// A profile slice: the strip of `width` map units along a→b.
+/// Una rebanada de perfil: la franja de `width` unidades del mapa a lo largo de a→b.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ProfileBox {
     pub a: [f64; 2],
@@ -1600,7 +1622,7 @@ impl ProfileBox {
         ((self.b[0] - self.a[0]).powi(2) + (self.b[1] - self.a[1]).powi(2)).sqrt()
     }
 
-    /// (distance along, distance across) of a map point.
+    /// (distancia a lo largo, distancia a lo ancho) de un punto del mapa.
     pub fn local(&self, x: f64, y: f64) -> (f64, f64) {
         let l = self.length().max(1e-9);
         let (ux, uy) = ((self.b[0] - self.a[0]) / l, (self.b[1] - self.a[1]) / l);
@@ -1608,7 +1630,7 @@ impl ProfileBox {
         (dx * ux + dy * uy, -dx * uy + dy * ux)
     }
 
-    /// Moves the box across itself (positive: to the left of a→b).
+    /// Mueve la caja a lo ancho de sí misma (positivo: a la izquierda de a→b).
     pub fn shifted(&self, d: f64) -> Self {
         let l = self.length().max(1e-9);
         let (nx, ny) = (
@@ -1623,9 +1645,9 @@ impl ProfileBox {
     }
 }
 
-/// The profile: distance along on the horizontal axis, elevation on the vertical one. Returns
-/// the image and the elevation range shown. `extra` is an elevation range (e.g. of a terrain
-/// model drawn over the profile) that the vertical axis must also cover.
+/// El perfil: distancia a lo largo en el eje horizontal, elevación en el vertical. Devuelve la
+/// imagen y el rango de elevación mostrado. `extra` es un rango de elevación (p. ej. el de un
+/// modelo del terreno dibujado sobre el perfil) que el eje vertical también debe cubrir.
 pub fn render_profile(
     s: &PointStore,
     bx: &ProfileBox,
@@ -1667,7 +1689,7 @@ pub fn render_profile(
     let (zlo, zhi) = extra.map_or((zlo, zhi), |e| (zlo.min(e.0), zhi.max(e.1)));
     let pad = (zhi - zlo).max(1.0) * 0.05;
     let (zlo, zhi) = (zlo - pad, zhi + pad);
-    // equal scale on both axes, centred
+    // escala igual en ambos ejes, centrado
     let k = (w as f64 / len).min(h as f64 / (zhi - zlo));
     let (ox, oy) = (
         (w as f64 - len * k) / 2.0,
@@ -1684,7 +1706,8 @@ pub fn render_profile(
     (img, zlo, zhi)
 }
 
-/// Index of the point nearest to `(x, y)` in plan, within `tol` map units, highest first.
+/// Índice del punto más cercano a `(x, y)` en planta, a menos de `tol` unidades del mapa, el más
+/// alto primero.
 pub fn nearest_point(s: &PointStore, st: &Style, x: f64, y: f64, tol: f64) -> Option<usize> {
     let mut best: Option<(usize, f64, f32)> = None;
     for i in 0..s.len() {
@@ -1700,8 +1723,8 @@ pub fn nearest_point(s: &PointStore, st: &Style, x: f64, y: f64, tol: f64) -> Op
     best.map(|b| b.0)
 }
 
-/// Points per square map unit inside the rectangle `[x0, y0, x1, y1]`: (points, area, density)
-/// as the store counts them, scaled back by the decimation.
+/// Puntos por unidad del mapa cuadrada dentro del rectángulo `[x0, y0, x1, y1]`: (puntos, área,
+/// densidad) como los cuenta el almacén, reescalados por el diezmado.
 pub fn density(s: &PointStore, st: &Style, r: [f64; 4]) -> (u64, f64, f64) {
     let n = (0..s.len())
         .filter(|&i| {
@@ -1714,8 +1737,8 @@ pub fn density(s: &PointStore, st: &Style, r: [f64; 4]) -> (u64, f64, f64) {
     (n, area, if area > 0.0 { n as f64 / area } else { 0.0 })
 }
 
-/// A surface grid from the points whose class is in `classes`: the TIN of those
-/// points, rasterised at about `cells` cells across the longer side.
+/// Una rejilla de superficie a partir de los puntos cuya clase está en `classes`: el TIN de esos
+/// puntos, rasterizado a unas `cells` celdas a lo largo del lado más largo.
 pub fn surface(s: &PointStore, classes: ClassSet, cells: usize) -> Result<Grid> {
     let b = s.bounds;
     let cell = ((b[3] - b[0]).max(b[4] - b[1]) / cells.max(16) as f64).max(1e-6);
@@ -1728,8 +1751,8 @@ pub fn surface(s: &PointStore, classes: ClassSet, cells: usize) -> Result<Grid> 
     Ok(g)
 }
 
-/// The surface shaded from one direction and coloured by elevation, grey or intensity-free
-/// grey: RGBA pixels at the grid's resolution plus a flag per colour mode.
+/// La superficie sombreada desde una dirección y coloreada por elevación, gris o gris sin
+/// intensidad: píxeles RGBA a la resolución de la rejilla más un indicador por modo de color.
 pub fn shade(g: &Grid, st: &Style, azimuth_deg: f64, altitude_deg: f64, tint: bool) -> Image {
     let mut img = Image {
         w: g.cols,
@@ -1780,13 +1803,14 @@ pub fn shade(g: &Grid, st: &Style, azimuth_deg: f64, altitude_deg: f64, tint: bo
     img
 }
 
-/// Contour segments `(x1, y1, x2, y2, level)` of the grid every `interval`.
+/// Segmentos de curvas de nivel `(x1, y1, x2, y2, nivel)` de la rejilla cada `interval`.
 pub fn contours(g: &Grid, interval: f64) -> Vec<[f64; 5]> {
     let mut out = Vec::new();
     if !(interval > 0.0) || g.cols < 2 || g.rows < 2 {
         return out;
     }
-    // A tiny interval over a tall surface would produce millions of segments: coarsen it.
+    // Un intervalo diminuto sobre una superficie alta produciría millones de segmentos: se
+    // engruesa.
     let (zlo, zhi) = g
         .data
         .iter()
@@ -1821,7 +1845,7 @@ pub fn contours(g: &Grid, interval: f64) -> Vec<[f64; 5]> {
             for k in first..=last {
                 let level = k as f64 * interval;
                 let (x0, y0) = g.center(c, r);
-                // corners: 0 (x0,y0) 1 (x0+cell,y0) 2 (x0+cell,y0-cell) 3 (x0,y0-cell)
+                // esquinas: 0 (x0,y0) 1 (x0+celda,y0) 2 (x0+celda,y0-celda) 3 (x0,y0-celda)
                 let pos = [
                     (x0, y0),
                     (x0 + g.cell, y0),
@@ -1852,7 +1876,8 @@ pub fn contours(g: &Grid, interval: f64) -> Vec<[f64; 5]> {
     out
 }
 
-/// Draws a grid (a DTM, CHM or any raster) as an image with the elevation ramp.
+/// Dibuja una rejilla (un MDT, un CHM o cualquier ráster) como una imagen con la rampa de
+/// elevación.
 pub fn raster_image(g: &Grid, st: &Style) -> Image {
     let mut img = Image {
         w: g.cols,
@@ -1875,7 +1900,7 @@ pub fn raster_image(g: &Grid, st: &Style) -> Image {
     img
 }
 
-/// What a vector layer holds.
+/// Lo que guarda una capa vectorial.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum GeomKind {
     #[default]
@@ -1884,23 +1909,23 @@ pub enum GeomKind {
     Polygon,
 }
 
-/// One feature of a vector layer: its parts (lines, rings of polygons, or a single point).
+/// Un elemento de una capa vectorial: sus partes (líneas, anillos de polígonos o un solo punto).
 #[derive(Clone, Debug, Default)]
 pub struct Feature {
     pub parts: Vec<Vec<[f64; 2]>>,
 }
 
-/// A shapefile read for display: geometry plus the attribute table.
+/// Un shapefile leído para mostrarlo: geometría más tabla de atributos.
 #[derive(Clone, Debug, Default)]
 pub struct VectorData {
     pub features: Vec<Feature>,
     pub polygons: bool,
     pub points: bool,
     pub fields: Vec<String>,
-    /// The type each field was given (same order as `fields`); a field past the end has none
-    /// declared and is typed by its values (see [`VectorData::field_type`]).
+    /// El tipo que se dio a cada campo (mismo orden que `fields`); un campo más allá del final no
+    /// tiene ninguno declarado y se tipifica por sus valores (véase [`VectorData::field_type`]).
     pub types: Vec<crate::fieldtype::FieldType>,
-    /// Per feature, per field: the value as text and as a number (NaN when it is not one).
+    /// Por elemento, por campo: el valor como texto y como número (NaN cuando no lo es).
     pub text: Vec<Vec<String>>,
     pub num: Vec<Vec<f64>>,
     /// min x, min y, max x, max y.
@@ -1908,7 +1933,7 @@ pub struct VectorData {
 }
 
 impl VectorData {
-    /// The type of field `c`: the one declared, else what its values say.
+    /// El tipo del campo `c`: el declarado o, si no, lo que digan sus valores.
     pub fn field_type(&self, c: usize) -> crate::fieldtype::FieldType {
         self.types.get(c).copied().unwrap_or_else(|| {
             crate::fieldtype::FieldType::infer(
@@ -1917,13 +1942,13 @@ impl VectorData {
         })
     }
 
-    /// Declares the type of every field (those inferred so far included), so that it is kept
-    /// when a field is added or removed.
+    /// Declara el tipo de cada campo (incluidos los inferidos hasta ahora), de modo que se conserve
+    /// al añadir o quitar un campo.
     pub fn fix_types(&mut self) {
         self.types = (0..self.fields.len()).map(|c| self.field_type(c)).collect();
     }
 
-    /// Adds an empty field of a type; every feature gets an empty value. Returns its index.
+    /// Añade un campo vacío de un tipo; cada elemento recibe un valor vacío. Devuelve su índice.
     pub fn add_field(&mut self, name: &str, ty: crate::fieldtype::FieldType) -> usize {
         self.fix_types();
         self.fields.push(name.to_string());
@@ -1937,12 +1962,13 @@ impl VectorData {
         self.fields.len() - 1
     }
 
-    /// Sets a value checking it against the type of its field: the canonical text and the
-    /// number are stored. On error nothing changes and the message says what was expected.
+    /// Fija un valor comprobándolo contra el tipo de su campo: se guardan el texto canónico y el
+    /// número. Si hay un error no cambia nada y el mensaje dice qué se esperaba.
     pub fn set_value(&mut self, row: usize, col: usize, raw: &str) -> std::result::Result<(), String> {
         let ty = self.field_type(col);
         let (t, n) = ty.parse(raw)?;
-        // text and links keep a number when they look like one (graduated symbols, sorting)
+        // el texto y los enlaces conservan un número cuando lo parecen (símbolos graduados,
+        // ordenación)
         let n = if n.is_nan() && !ty.is_numeric() && ty == crate::fieldtype::FieldType::Text {
             t.trim().parse().unwrap_or(f64::NAN)
         } else {
@@ -1962,13 +1988,13 @@ impl VectorData {
     }
 }
 
-/// The file next to a shapefile that says which of its text fields are hyperlinks.
+/// El archivo junto a un shapefile que dice cuáles de sus campos de texto son hipervínculos.
 pub fn types_sidecar(path: &Path) -> std::path::PathBuf {
     let stem = path.file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
     path.with_file_name(format!("{stem}_tipos.txt"))
 }
 
-/// Reads a shapefile with its attributes.
+/// Lee un shapefile con sus atributos.
 pub fn read_vector(path: &Path) -> Result<VectorData> {
     crate::check_vector_format(path)?;
     if path
@@ -2043,7 +2069,7 @@ pub fn read_vector(path: &Path) -> Result<VectorData> {
             _ => Vec::new(),
         };
         v.points |= parts.len() == 1 && parts[0].len() == 1;
-        // by the type of the shape: a line that closes on itself is not a polygon
+        // por el tipo de la forma: una línea que se cierra sobre sí misma no es un polígono
         v.polygons |= is_polygon;
         for q in parts.iter().flatten() {
             v.bounds = [
@@ -2055,7 +2081,7 @@ pub fn read_vector(path: &Path) -> Result<VectorData> {
         }
         v.features.push(Feature { parts });
     }
-    // the attribute table, when there is one
+    // la tabla de atributos, cuando la hay
     if let Ok(mut dbf) = shapefile::dbase::Reader::from_path(path.with_extension("dbf")) {
         v.fields = dbf.fields().iter().map(|f| f.name().to_string()).collect();
         {
@@ -2066,7 +2092,7 @@ pub fn read_vector(path: &Path) -> Result<VectorData> {
                 .iter()
                 .map(|f| match f.field_type() {
                     Dbf::Character | Dbf::Memo => FieldType::Text,
-                    // whole or decimal: decided by the values, below
+                    // entero o decimal: lo deciden los valores, abajo
                     Dbf::Numeric | Dbf::Float | Dbf::Double | Dbf::Currency => FieldType::Real,
                     Dbf::Integer => FieldType::Integer,
                     Dbf::Logical => FieldType::Bool,
@@ -2132,8 +2158,8 @@ pub fn read_vector(path: &Path) -> Result<VectorData> {
     Ok(v)
 }
 
-/// Vertices of the shapes of a shapefile (lines, polygon rings and points), for drawing over
-/// the cloud.
+/// Vértices de las formas de un shapefile (líneas, anillos de polígonos y puntos), para dibujarlos
+/// sobre la nube.
 pub fn read_overlay(path: &Path) -> Result<Vec<Vec<[f64; 2]>>> {
     use shapefile::Shape;
     let mut rd =
@@ -2181,8 +2207,8 @@ pub fn read_overlay(path: &Path) -> Result<Vec<Vec<[f64; 2]>>> {
     Ok(out)
 }
 
-/// Paints a shaded surface (from [`shade`]) into a plan view window, under whatever is drawn
-/// next; pixels outside the surface keep `img`.
+/// Pinta una superficie sombreada (de [`shade`]) en una ventana de la vista en planta, bajo lo que
+/// se dibuje a continuación; los píxeles fuera de la superficie conservan `img`.
 pub fn paint_surface(img: &mut Image, g: &Grid, shaded: &Image, v: &Plan) {
     let (w, h) = (img.w, img.h);
     for py in 0..h {
@@ -2201,7 +2227,8 @@ pub fn paint_surface(img: &mut Image, g: &Grid, shaded: &Image, v: &Plan) {
     }
 }
 
-/// Draws contour segments from [`contours`] over a plan view; every `index`-th level thicker.
+/// Dibuja segmentos de curvas de nivel de [`contours`] sobre una vista en planta; cada nivel
+/// `index`-ésimo más grueso.
 pub fn paint_contours(img: &mut Image, segs: &[[f64; 5]], v: &Plan, color: [u8; 3]) {
     let (w, h) = (img.w, img.h);
     for s in segs {
@@ -2211,7 +2238,7 @@ pub fn paint_contours(img: &mut Image, segs: &[[f64; 5]], v: &Plan, color: [u8; 
     }
 }
 
-/// Bresenham line into an image.
+/// Línea de Bresenham sobre una imagen.
 pub fn draw_line(img: &mut Image, a: (f64, f64), b: (f64, f64), c: [u8; 3]) {
     let (mut x0, mut y0, x1, y1) = (
         a.0.round() as i64,
@@ -2272,7 +2299,7 @@ mod tests {
         s
     }
 
-    /// A LAS 1.2 file of format 1 with the given (x, y, z) points on a 0.01 grid.
+    /// Un archivo LAS 1.2 de formato 1 con los puntos (x, y, z) dados en una rejilla de 0,01.
     fn write_las(path: &Path, pts: &[[f64; 3]]) -> Result<()> {
         let mut h = vec![0u8; 227];
         h[..4].copy_from_slice(b"LASF");
@@ -2340,14 +2367,14 @@ mod tests {
                 .count()
         };
         let full = load_region(&files, region, 100_000, &thinned)?;
-        // every point of the region, 10 x 10, against about a tenth of them in the view
+        // todos los puntos de la región, 10 x 10, frente a una décima parte de ellos en la vista
         assert_eq!(full.len(), 100);
         assert_eq!(inside(&full), 100);
         assert!(inside(&thinned) < 30, "{}", inside(&thinned));
-        // a cap thins what comes
+        // un tope adelgaza lo que llega
         let capped = load_region(&files, region, 50, &thinned)?;
         assert!(capped.len() <= 60 && capped.len() >= 25, "{}", capped.len());
-        // a strip comes whole, and is thinned by halves only when it outgrows the cap
+        // una franja llega entera y se adelgaza por mitades solo cuando supera el tope
         let strip = ProfileBox {
             a: [10.0, 15.0],
             b: [19.0, 15.0],
@@ -2363,7 +2390,7 @@ mod tests {
             halved.stride
         );
         assert_eq!(halved.x.len(), halved.rgb.len().max(halved.x.len()));
-        // a region off the cloud is empty, not an error
+        // una región fuera de la nube está vacía, no es un error
         let none = load_region(&files, [500.0, 500.0, 600.0, 600.0], 100, &thinned)?;
         assert!(none.is_empty());
         let _ = std::fs::remove_file(&path);
@@ -2372,8 +2399,8 @@ mod tests {
 
     #[test]
     fn sparse_points_leave_no_holes_whatever_their_height() {
-        // a regular sample, canopy and ground alternating 30 m apart in height: the dots (2 px)
-        // are 6 px apart, and the holes must close although the heights are far
+        // una muestra regular, con dosel y suelo alternando a 30 m de altura: los puntos (2 px)
+        // están a 6 px, y los huecos deben cerrarse aunque las alturas estén lejos
         let mut s = PointStore {
             origin: [0.0; 3],
             area: 60.0 * 60.0,
@@ -2414,7 +2441,7 @@ mod tests {
             scale: 8.0,
         };
         let img = render_plan(&s, &v, 100, 100, &Style::fit(&s));
-        // (100, 200) is the bottom-left corner of the 100x100 view centred on (105, 205)
+        // (100, 200) es la esquina inferior izquierda de la vista de 100x100 centrada en (105, 205)
         let at = |x: usize, y: usize| img.rgba[(y * 100 + x) * 4..(y * 100 + x) * 4 + 3].to_vec();
         assert_ne!(at(10, 90), vec![18, 21, 26]);
         assert_eq!(at(50, 50), vec![18, 21, 26]);
@@ -2437,7 +2464,7 @@ mod tests {
         };
         let (_, lo, hi) = render_profile(&s, &bx, 80, 40, &Style::fit(&s), None);
         assert!(lo < 1.0 && hi > 5.0 && hi < 9.0, "{lo} {hi}");
-        // a terrain range outside the points widens the vertical axis
+        // un rango de terreno fuera de los puntos ensancha el eje vertical
         let (_, lo, hi) = render_profile(&s, &bx, 80, 40, &Style::fit(&s), Some((-50.0, 500.0)));
         assert!(lo < -50.0 && hi > 500.0, "{lo} {hi}");
     }
@@ -2456,8 +2483,8 @@ mod tests {
 
     #[test]
     fn pan_moves_the_scene_with_the_cursor() {
-        // looking down, tilted, turned and with exaggeration: a point at the target's depth
-        // must move exactly as far as the cursor
+        // mirando hacia abajo, inclinado, girado y con exageración: un punto a la profundidad del
+        // objetivo debe moverse exactamente lo mismo que el cursor
         for (yaw, pitch, ex) in [(0.0, 0.6, 1.0), (2.1, 0.2, 3.0), (-1.0, -0.8, 1.5)] {
             let mut o = Orbit {
                 target: [10.0, 20.0, 5.0],
@@ -2480,9 +2507,9 @@ mod tests {
         let path =
             std::env::temp_dir().join(format!("rl_view_copc_{}.copc.laz", std::process::id()));
         crate::copc::tests::build(&path)?;
-        // room for everything: all 400 points
+        // sitio para todo: los 400 puntos
         assert_eq!(load(std::slice::from_ref(&path), 1000)?.len(), 400);
-        // room for 100: the root level alone (100 points) instead of one in four of all of them
+        // sitio para 100: solo el nivel raíz (100 puntos) en lugar de uno de cada cuatro de todos
         let thin = load(std::slice::from_ref(&path), 100)?;
         let _ = std::fs::remove_file(&path);
         assert_eq!(thin.len(), 100);
@@ -2495,7 +2522,7 @@ mod tests {
 mod scattered_tests {
     use super::*;
 
-    /// Two clouds of 1 km, 600 km apart, 100 000 points each.
+    /// Dos nubes de 1 km, a 600 km una de otra, de 100 000 puntos cada una.
     fn two_far_clouds() -> PointStore {
         PointStore {
             bounds: [0.0, 0.0, 100.0, 601_000.0, 400_000.0, 900.0],
@@ -2513,7 +2540,7 @@ mod scattered_tests {
     fn dots_follow_the_land_the_clouds_cover_not_the_gap_between_them() {
         let s = two_far_clouds();
         let st = Style::fit(&s);
-        // 2 km² over 200 000 points: a few metres between points, not hundreds
+        // 2 km² sobre 200 000 puntos: unos pocos metros entre puntos, no cientos
         assert!(st.spacing < 5.0, "{}", st.spacing);
         assert!(dot(&st, 0.5) <= 3, "{}", dot(&st, 0.5));
     }
@@ -2528,10 +2555,10 @@ mod scattered_tests {
             o.target,
             o.dist
         );
-        // going to the other cloud takes its heights too
+        // ir a la otra nube toma también sus alturas
         let o2 = o.fit_area(&s, [600_000.0, 399_000.0, 601_000.0, 400_000.0]);
         assert!((o2.target[2] - 850.0).abs() < 1.0 && o2.target[0] > 599_000.0);
-        // one cloud, or clouds that touch: the whole box
+        // una nube, o nubes que se tocan: la caja entera
         let mut near = two_far_clouds();
         near.file_bounds[1] = [1000.0, 0.0, 100.0, 2000.0, 1000.0, 130.0];
         near.bounds = [0.0, 0.0, 100.0, 2000.0, 1000.0, 130.0];

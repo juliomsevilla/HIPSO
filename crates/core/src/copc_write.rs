@@ -1,16 +1,17 @@
-//! Writes a cloud as a Cloud Optimized Point Cloud (COPC 1.0): a LAZ 1.4 file whose compressed
-//! chunks are the nodes of an octree, so that a viewer or a server reads only the part and the
-//! detail it needs. It stays a valid LAZ for every program that reads LAZ.
+//! Escribe una nube como Cloud Optimized Point Cloud (COPC 1.0): un archivo LAZ 1.4 cuyos
+//! fragmentos comprimidos son los nodos de un octree, de modo que un visor o un servidor lee solo
+//! la parte y el detalle que necesita. Sigue siendo un LAZ válido para todo programa que lea LAZ.
 //!
-//! The octree: a cube around the cloud; each node keeps one point per cell of a 128 x 128 x 128
-//! grid over its cube (the first that falls in the cell), and passes the rest to its eight
-//! children, until a node holds few enough points to keep them all. Coarse levels are then an
-//! even sample of the whole cloud, finer levels add detail.
+//! El octree: un cubo alrededor de la nube; cada nodo guarda un punto por celda de una rejilla de
+//! 128 x 128 x 128 sobre su cubo (el primero que cae en la celda) y pasa el resto a sus ocho hijos,
+//! hasta que un nodo contiene tan pocos puntos que los guarda todos. Los niveles gruesos son
+//! entonces una muestra uniforme de toda la nube, y los más finos añaden detalle.
 //!
-//! The layout follows the specification: the `copc` record first among the headers, then
-//! `laszip` (variable chunks: one per node), the coordinate system as WKT, the other records of
-//! the input; the chunks; and the hierarchy (one page with every node) as an extended record at
-//! the end. The cloud is held in memory while the tree is built (about 40 bytes per point).
+//! La disposición sigue la especificación: primero el registro `copc` entre las cabeceras, luego
+//! `laszip` (fragmentos variables: uno por nodo), el sistema de coordenadas como WKT, los demás
+//! registros de la entrada; los fragmentos; y la jerarquía (una página con cada nodo) como un
+//! registro extendido al final. La nube se guarda en memoria mientras se construye el árbol (unos
+//! 40 bytes por punto).
 
 use std::io::{BufWriter, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -20,28 +21,29 @@ use rayon::prelude::*;
 use crate::las::{self, Reader};
 use crate::{Error, Result};
 
-/// Cells per side of a node's sampling grid.
+/// Celdas por lado de la rejilla de muestreo de un nodo.
 pub(crate) const GRID: u32 = 128;
-/// A node with at most this many points keeps them all.
+/// Un nodo con como mucho tantos puntos los guarda todos.
 const LEAF: usize = 100_000;
-/// Deepest level of the tree.
+/// Nivel más profundo del árbol.
 const MAX_LEVEL: i32 = 20;
-/// Fewest points of the nodes read together when the records are read again for each batch.
+/// Menor número de puntos de los nodos leídos juntos cuando los registros se vuelven a leer para
+/// cada lote.
 const STREAM_BATCH: usize = 12_000_000;
-/// Points of the nodes compressed together.
+/// Puntos de los nodos comprimidos juntos.
 const BATCH_POINTS: usize = 4_000_000;
-/// Clouds up to this many points are held whole in memory while they are written.
+/// Las nubes de hasta tantos puntos se guardan enteras en memoria mientras se escriben.
 const HOLD_MAX: u64 = 30_000_000;
-/// Clouds with more points than this are written by cells (`copc_tiled`).
+/// Las nubes con más puntos que esto se escriben por celdas (`copc_tiled`).
 const TILED_FROM: u64 = 100_000_000;
 
-/// A node of the tree and the points it keeps (indices into the cloud).
+/// Un nodo del árbol y los puntos que guarda (índices en la nube).
 pub(crate) struct Node {
     pub key: [i32; 4],
     pub points: Vec<u32>,
 }
 
-/// What a writing did.
+/// Lo que hizo una escritura.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CopcReport {
     pub points: u64,
@@ -55,7 +57,7 @@ pub(crate) fn bad(what: impl std::fmt::Display) -> Error {
     Error::Format(format!("COPC: {what}"))
 }
 
-/// The point format a cloud is written in: COPC admits only 6, 7 and 8.
+/// El formato de punto en que se escribe una nube: COPC admite solo 6, 7 y 8.
 pub(crate) fn copc_format(format: u8) -> Result<u8> {
     match format {
         6..=8 => Ok(format),
@@ -67,8 +69,8 @@ pub(crate) fn copc_format(format: u8) -> Result<u8> {
     }
 }
 
-/// Splits `idx` (points inside the cube of `key`) into the points the node keeps and the
-/// nodes below it. Positions are relative to the corner of the root cube, of side `size`.
+/// Divide `idx` (puntos dentro del cubo de `key`) en los puntos que guarda el nodo y los nodos de
+/// debajo. Las posiciones son relativas a la esquina del cubo raíz, de lado `size`.
 pub(crate) fn build(key: [i32; 4], idx: Vec<u32>, pos: &[[f32; 3]], size: f64) -> Vec<Node> {
     let [level, kx, ky, kz] = key;
     if idx.len() <= LEAF || level >= MAX_LEVEL {
@@ -134,12 +136,12 @@ fn vlr_header(user: &str, record: u16, len: usize, description: &str) -> Result<
     Ok(h)
 }
 
-/// Writes `input` as a COPC file at `output`.
+/// Escribe `input` como archivo COPC en `output`.
 pub fn write(input: &Path, output: &Path) -> Result<CopcReport> {
     write_with(input, output, HOLD_MAX)
 }
 
-/// [`write`] holding the records in memory only for clouds of up to `hold_max` points.
+/// [`write`] guardando los registros en memoria solo para nubes de hasta `hold_max` puntos.
 pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcReport> {
     let r = Reader::open(input)?;
     let h = r.header.clone();
@@ -147,7 +149,8 @@ pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcRepo
         return Err(bad("la nube no tiene puntos"));
     }
     if h.count > TILED_FROM {
-        // too big to hold the positions: by cells, with a cell as big as a tenth of the memory
+        // demasiado grande para guardar las posiciones: por celdas, con una celda tan grande como
+        // una décima parte de la memoria
         let mem = crate::copc_cache::total_memory().unwrap_or(8 << 30);
         return crate::copc_tiled::write(input, output, (mem / 20 / 54) as usize);
     }
@@ -156,11 +159,11 @@ pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcRepo
     let old_core = las::core_len(old).unwrap_or(0);
     let extra = h.record_len.saturating_sub(old_core);
     let new_len = usize::from(las::core_len(new).unwrap_or(30) + extra);
-    // the records in the new format, and positions relative to the corner of the cloud
+    // los registros en el formato nuevo y las posiciones relativas a la esquina de la nube
     let n = usize::try_from(h.count).map_err(|_| bad("demasiados puntos"))?;
-    // A cloud that fits is held whole as records; a big one is read once for the positions that
-    // build the tree and again, a batch of nodes at a time, for the records of each chunk: about
-    // 20 bytes a point in memory instead of 70.
+    // Una nube que cabe se guarda entera como registros; una grande se lee una vez para las
+    // posiciones que construyen el árbol y otra vez, un lote de nodos cada vez, para los registros
+    // de cada fragmento: unos 20 bytes por punto en memoria en lugar de 70.
     let hold = h.count <= hold_max;
     let mut skipped = false;
     let mut recs: Vec<u8> = Vec::with_capacity(if hold { n * new_len } else { 0 });
@@ -170,7 +173,7 @@ pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcRepo
     let mut returns = [0u64; 15];
     let rec_len = usize::from(h.record_len);
     let mut buf = Vec::with_capacity(new_len);
-    // a first look at the extent, so positions can be relative and small
+    // una primera mirada a la extensión, para que las posiciones puedan ser relativas y pequeñas
     let b = h.bounds;
     let origin = [b[0], b[1], b[2]];
     r.scan_raw(|bytes| {
@@ -219,7 +222,7 @@ pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcRepo
             "la nube tiene registros que no se pueden leer y es demasiado grande para convertirla así",
         ));
     }
-    // the cube: centred on the cloud, as wide as its widest side
+    // el cubo: centrado en la nube, tan ancho como su lado más ancho
     let center = [
         (lo[0] + hi[0]) / 2.0,
         (lo[1] + hi[1]) / 2.0,
@@ -229,7 +232,7 @@ pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcRepo
     let cube_lo = [center[0] - half, center[1] - half, center[2] - half];
     let size = 2.0 * half;
     let spacing = size / f64::from(GRID);
-    // positions relative to the cube's corner, which the tree works with
+    // posiciones relativas a la esquina del cubo, con las que trabaja el árbol
     let shift = [
         (origin[0] - cube_lo[0]) as f32,
         (origin[1] - cube_lo[1]) as f32,
@@ -244,10 +247,10 @@ pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcRepo
     let all: Vec<u32> = (0..count as u32).collect();
     let mut nodes = build([0, 0, 0, 0], all, &pos, size);
     drop(pos);
-    // level by level, the root first
+    // nivel a nivel, la raíz primero
     nodes.sort_by_key(|n| n.key);
     let counts: Vec<usize> = nodes.iter().map(|n| n.points.len()).collect();
-    // a big cloud keeps, for each point, the node it goes to; the lists of points are let go
+    // una nube grande guarda, para cada punto, el nodo al que va; las listas de puntos se sueltan
     let mut owner: Vec<u32> = Vec::new();
     if !hold {
         owner = vec![u32::MAX; count];
@@ -264,9 +267,10 @@ pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcRepo
     let (head, vlrs, vlr) = (&prep.head, &prep.vlrs, &prep.vlr);
     let point_offset = prep.point_offset;
 
-    // the chunks, one per node, compressed in parallel
+    // los fragmentos, uno por nodo, comprimidos en paralelo
     crate::paths::ensure_parent(output)?;
-    // read back as well: the chunk table the compressor writes says where each node went
+    // también se lee de vuelta: la tabla de fragmentos que escribe el compresor dice adónde fue
+    // cada nodo
     let out_file = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -277,8 +281,8 @@ pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcRepo
     f.write_all(head)?;
     f.write_all(vlrs)?;
     let mut comp = laz::ParLasZipCompressor::new(f, vlr.clone()).map_err(bad)?;
-    // in batches, so that the chunks never exist all at once next to the records
-    // (the records of a batch are held while it is read: a tenth of the memory of the machine)
+    // por lotes, de modo que los fragmentos nunca existen todos a la vez junto a los registros (los
+    // registros de un lote se guardan mientras se lee: una décima parte de la memoria del equipo)
     let batch = if hold {
         BATCH_POINTS
     } else {
@@ -306,8 +310,8 @@ pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcRepo
                 })
                 .collect()
         } else {
-            // the records of this batch of nodes, in the order of the points of the file (which
-            // is the order of the points of each node)
+            // los registros de este lote de nodos, en el orden de los puntos del archivo (que es el
+            // orden de los puntos de cada nodo)
             let mut bufs: Vec<Vec<u8>> = (from..to)
                 .map(|ni| Vec::with_capacity(counts[ni] * new_len))
                 .collect();
@@ -343,7 +347,7 @@ pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcRepo
     let mut f = comp.into_inner();
     f.flush()?;
     let mut file = f.into_inner().map_err(|e| bad(e.error()))?;
-    // where each chunk went, from the table the compressor wrote
+    // adónde fue cada fragmento, a partir de la tabla que escribió el compresor
     file.seek(SeekFrom::Start(point_offset as u64))?;
     let table = laz::laszip::ChunkTable::read_from(&mut file, vlr).map_err(bad)?;
     if table.len() != nodes.len() {
@@ -372,20 +376,21 @@ pub fn write_with(input: &Path, output: &Path, hold_max: u64) -> Result<CopcRepo
     })
 }
 
-/// What comes before the points of a COPC file: the header, the records, and where they end.
+/// Lo que viene antes de los puntos de un archivo COPC: la cabecera, los registros y dónde
+/// terminan.
 pub(crate) struct Prep {
     pub head: Vec<u8>,
     pub vlrs: Vec<u8>,
-    /// Where the 160 bytes of the `copc` record start.
+    /// Dónde empiezan los 160 bytes del registro `copc`.
     pub info_at: usize,
-    /// Where the points start.
+    /// Dónde empiezan los puntos.
     pub point_offset: usize,
     pub vlr: laz::LazVlr,
     pub has_wkt: bool,
 }
 
-/// The header and records of the COPC file of `r`, for `count` points of format `new` (`extra`
-/// bytes more per record, `new_len` in all) between `lo` and `hi`.
+/// La cabecera y los registros del archivo COPC de `r`, para `count` puntos de formato `new`
+/// (`extra` bytes más por registro, `new_len` en total) entre `lo` y `hi`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare(
     r: &Reader,
@@ -439,7 +444,8 @@ pub(crate) fn prepare(
     let src = r.raw_header();
     let mut head = vec![0u8; 375];
     head[..4].copy_from_slice(b"LASF");
-    // file source id, global encoding, GUID; system identifier; creation day and year
+    // identificador de fuente del archivo, codificación global, GUID; identificador del sistema;
+    // día y año de creación
     head[4..24].copy_from_slice(src.get(4..24).unwrap_or(&[0; 20]));
     head[26..58].copy_from_slice(src.get(26..58).unwrap_or(&[0; 32]));
     head[90..94].copy_from_slice(src.get(90..94).unwrap_or(&[0; 4]));
@@ -482,7 +488,7 @@ pub(crate) fn prepare(
     })
 }
 
-/// The cube of the tree and the GPS times of the cloud, for the `copc` record.
+/// El cubo del árbol y los tiempos GPS de la nube, para el registro `copc`.
 pub(crate) struct CubeInfo {
     pub center: [f64; 3],
     pub half: f64,
@@ -491,9 +497,9 @@ pub(crate) struct CubeInfo {
     pub t1: f64,
 }
 
-/// Ends a COPC file whose points and chunk table are written: the hierarchy (one page, the root
-/// first; `entries` are each chunk's key, bytes and points, in the order of the file), the `copc`
-/// record and the pointer to the extended record.
+/// Termina un archivo COPC cuyos puntos y tabla de fragmentos están escritos: la jerarquía (una
+/// página, la raíz primero; `entries` son la clave, los bytes y los puntos de cada fragmento, en el
+/// orden del archivo), el registro `copc` y el puntero al registro extendido.
 pub(crate) fn finish(
     file: &mut std::fs::File,
     prep: &Prep,
@@ -501,7 +507,7 @@ pub(crate) fn finish(
     cube: &CubeInfo,
 ) -> Result<()> {
     let evlr_at = file.seek(SeekFrom::End(0))?;
-    // the offset of each chunk follows from the sizes, in the order of the file
+    // el desplazamiento de cada fragmento sale de los tamaños, en el orden del archivo
     let mut at = prep.point_offset as u64 + 8;
     let mut rows: Vec<([i32; 4], u64, u32, i32)> = Vec::with_capacity(entries.len());
     for (key, bytes, count) in entries {
@@ -527,7 +533,7 @@ pub(crate) fn finish(
     file.seek(SeekFrom::Start(evlr_at))?;
     file.write_all(&evlr)?;
     file.write_all(&page)?;
-    // the COPC record and the pointer to the extended record
+    // el registro COPC y el puntero al registro extendido
     let mut info = vec![0u8; 160];
     for (k, v) in [
         cube.center[0],
@@ -559,7 +565,7 @@ pub(crate) fn finish(
     Ok(())
 }
 
-/// A short text for the report of a writing.
+/// Un texto corto para el informe de una escritura.
 pub fn describe(r: &CopcReport, input_format: u8, output: &Path) -> String {
     let mut s = format!(
         "{} puntos en {} nodos y {} niveles (COPC, formato {})",
@@ -586,7 +592,7 @@ mod tests {
     fn a_cloud_written_as_copc_reads_back_by_area_and_whole() -> Result<()> {
         let dir = std::env::temp_dir().join(format!("el_copcw_{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
-        // 300 000 points on a 100 x 100 m square of format 1, with a class each
+        // 300 000 puntos en un cuadrado de 100 x 100 m de formato 1, con una clase cada uno
         let tpl = crate::ply::template(&dir, 0, 0.001, [0.0, 0.0, 0.0], Some(25830))?;
         let cloud = dir.join("n.las");
         let mut w = Writer::create(&cloud, &tpl)?;
@@ -614,14 +620,14 @@ mod tests {
         assert_eq!(rep.points, 300_000);
         assert!(rep.nodes > 1 && rep.levels >= 2, "{rep:?}");
         assert!(rep.wkt);
-        // the program's own COPC reader sees the tree
+        // el propio lector COPC del programa ve el árbol
         let copc = crate::copc::Copc::open(&out)?.ok_or_else(|| bad("no es COPC"))?;
         let all = copc.nodes(None, None)?;
         assert_eq!(
             all.iter().map(|n| u64::from(n.points)).sum::<u64>(),
             300_000
         );
-        // and, read as a plain LAZ, every point is there with its class
+        // y, leído como un LAZ normal, está cada punto con su clase
         let r = Reader::open(&out)?;
         assert_eq!(r.header.format, 6);
         let (mut n, mut left) = (0u64, 0u64);
@@ -631,12 +637,12 @@ mod tests {
         })?;
         assert_eq!(n, 300_000);
         assert!(left > 140_000 && left < 160_000, "{left}");
-        // a query by area reads less than the whole
+        // una consulta por área lee menos que el total
         let part = copc.nodes(Some([0.0, 0.0, 20.0, 20.0]), None)?;
         let read: u64 = part.iter().map(|n| u64::from(n.points)).sum();
         assert!(read < 300_000, "{read}");
-        // a cloud too big to hold (here: any) is written by reading the records again, and the
-        // file is the same as the one made from the records in memory
+        // una nube demasiado grande para guardarla (aquí: cualquiera) se escribe volviendo a leer
+        // los registros, y el archivo es el mismo que el hecho con los registros en memoria
         let streamed = dir.join("s.copc.laz");
         let rep2 = write_with(&cloud, &streamed, 0)?;
         assert_eq!((rep2.points, rep2.nodes), (rep.points, rep.nodes));

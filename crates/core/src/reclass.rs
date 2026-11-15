@@ -1,7 +1,7 @@
-//! Reclassify a raster: each value (or range of values) becomes another value, as a table of
-//! rules says. The first rule that matches a cell decides; what no rule matches is kept, made
-//! empty or given a fixed value. Written to the strips of the raster, so memory follows a block
-//! of rows whatever the size.
+//! Reclasifica un ráster: cada valor (o rango de valores) pasa a ser otro valor, según dice una
+//! tabla de reglas. Decide la primera regla que coincide con una celda; lo que no coincide con
+//! ninguna regla se conserva, se vacía o recibe un valor fijo. Escrito sobre las franjas del
+//! ráster, de modo que la memoria sigue a un bloque de filas sea cual sea el tamaño.
 
 use std::path::{Path, PathBuf};
 
@@ -11,27 +11,27 @@ use crate::pyramid::Pyramid;
 use crate::rastertools::Dtype;
 use crate::{Error, Result};
 
-/// What a rule looks at.
+/// Qué mira una regla.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Cond {
-    /// This value.
+    /// Este valor.
     Eq(f64),
-    /// From `lo` to `hi`, both included.
+    /// De `lo` a `hi`, ambos incluidos.
     Range(f64, f64),
     Lt(f64),
     Le(f64),
     Gt(f64),
     Ge(f64),
-    /// The empty cells.
+    /// Las celdas vacías.
     NoData,
 }
 
-/// What a matching cell becomes.
+/// En qué se convierte una celda que coincide.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Out {
     Value(f32),
     NoData,
-    /// The value it has (for the cells no rule matches).
+    /// El valor que tiene (para las celdas a las que no se aplica ninguna regla).
     Keep,
 }
 
@@ -41,12 +41,12 @@ pub struct Rule {
     pub to: Out,
 }
 
-/// The rules and what happens to the cells no rule matches.
+/// Las reglas y lo que pasa con las celdas a las que no se aplica ninguna regla.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Table {
     pub rules: Vec<Rule>,
     pub otherwise: Out,
-    /// The text said what to do with the other cells (`else = …`).
+    /// El texto decía qué hacer con las demás celdas (`else = …`).
     pub explicit_else: bool,
 }
 
@@ -79,7 +79,8 @@ fn parse_cond(s: &str) -> Option<Cond> {
     if let Some(v) = number(&t) {
         return Some(Cond::Eq(v));
     }
-    // "a - b", or "a-b" where neither side is empty (a minus sign inside a number is not a cut)
+    // «a - b», o «a-b» donde ningún lado está vacío (un signo menos dentro de un número no es un
+    // corte)
     let cuts = t
         .char_indices()
         .filter(|(i, c)| *c == '-' && *i > 0 && !t[..*i].trim_end().ends_with(['e', '-']))
@@ -104,9 +105,9 @@ fn parse_out(s: &str) -> Option<Out> {
 }
 
 impl Table {
-    /// The rules from text, one per line or separated by `;`: `10 = 1`, `0..5 = 2`,
-    /// `5 - 9 = 3`, `< 0 = nodata`, `>= 100 = 4`, `nodata = 0` and `else = nodata` (or a value, or
-    /// `keep`). A decimal comma is read as a point.
+    /// Las reglas a partir de texto, una por línea o separadas por `;`: `10 = 1`, `0..5 = 2`, `5 -
+    /// 9 = 3`, `< 0 = nodata`, `>= 100 = 4`, `nodata = 0` y `else = nodata` (o un valor, o `keep`).
+    /// Una coma decimal se lee como punto.
     pub fn parse(text: &str) -> Result<Table> {
         let mut t = Table {
             rules: Vec::new(),
@@ -147,7 +148,8 @@ impl Table {
         Ok(t)
     }
 
-    /// The value a cell becomes (`NaN` for empty). `v` is `NaN` for an empty cell.
+    /// El valor en que se convierte una celda (`NaN` para vacío). `v` es `NaN` para una celda
+    /// vacía.
     #[inline]
     pub fn apply(&self, v: f32) -> f32 {
         let x = f64::from(v);
@@ -176,7 +178,8 @@ impl Table {
         }
     }
 
-    /// The values the table can write, when they are all fixed (`None` if it keeps values).
+    /// Los valores que puede escribir la tabla, cuando son todos fijos (`None` si conserva
+    /// valores).
     fn written(&self) -> Option<Vec<f32>> {
         if self.otherwise == Out::Keep {
             return None;
@@ -204,14 +207,15 @@ impl Table {
 pub struct ReclassJob {
     pub input: PathBuf,
     pub output: PathBuf,
-    /// Band to reclassify, from 1.
+    /// Banda que reclasificar, desde 1.
     pub band: usize,
     pub table: Table,
-    /// A value of the input that means "no data" (besides what its file declares).
+    /// Un valor de la entrada que significa «sin datos» (además de lo que declare su archivo).
     pub src_nodata: Option<f32>,
-    /// Sample type of the output; chosen from the values the table writes when `None`.
+    /// Tipo de muestra de la salida; elegido a partir de los valores que escribe la tabla cuando
+    /// `None`.
     pub dtype: Option<Dtype>,
-    /// What empty cells hold; chosen with the type when `None`.
+    /// Lo que contienen las celdas vacías; elegido con el tipo cuando `None`.
     pub nodata: Option<f32>,
     pub compression: Option<crate::tiled::Compression>,
 }
@@ -231,7 +235,7 @@ impl ReclassJob {
     }
 }
 
-/// The type and the "no data" value that hold what the table writes.
+/// El tipo y el valor de «sin datos» que contienen lo que escribe la tabla.
 fn pick_type(job: &ReclassJob, source_bits: u8) -> (Dtype, f32) {
     let whole = |v: &f32| v.fract() == 0.0 && *v >= 0.0;
     let (dtype, nd) = match (job.dtype, job.table.written()) {
@@ -249,7 +253,7 @@ fn pick_type(job: &ReclassJob, source_bits: u8) -> (Dtype, f32) {
             }
         }
         (None, Some(_)) => (Dtype::F32, None),
-        // values kept: the type of the input
+        // valores conservados: el tipo de la entrada
         (None, None) => (
             match source_bits {
                 0..=8 => Dtype::U8,
@@ -267,8 +271,8 @@ fn pick_type(job: &ReclassJob, source_bits: u8) -> (Dtype, f32) {
     (dtype, job.nodata.unwrap_or(default))
 }
 
-/// Writes the reclassified band as a GeoTIFF with tiles and overviews. Returns a line for the
-/// report.
+/// Escribe la banda reclasificada como GeoTIFF con teselas y vistas reducidas. Devuelve una línea
+/// para el informe.
 pub fn run(job: &ReclassJob) -> Result<String> {
     let pyr = Pyramid::open(&job.input)?;
     if job.band == 0 || job.band > pyr.bands {
@@ -306,7 +310,7 @@ pub fn run(job: &ReclassJob) -> Result<String> {
         compression: job
             .compression
             .unwrap_or_else(|| crate::tiled::auto_compression(dtype, 1)),
-        // classes are not averaged in the overviews
+        // las clases no se promedian en las vistas reducidas
         nearest: dtype != Dtype::F32,
         bigtiff: false,
     };
@@ -361,8 +365,9 @@ pub fn run(job: &ReclassJob) -> Result<String> {
     ))
 }
 
-/// The classes found in a raster and how many cells each has (the first `limit` distinct values
-/// found while scanning an overview of at most 4 million cells): helps to write the rules.
+/// Las clases halladas en un ráster y cuántas celdas tiene cada una (los primeros `limit` valores
+/// distintos hallados al recorrer una vista reducida de como mucho 4 millones de celdas): ayuda a
+/// escribir las reglas.
 pub fn values_of(path: &Path, band: usize, limit: usize) -> Result<Vec<(f32, u64)>> {
     let pyr = Pyramid::open(path)?;
     let (img, _) = pyr.overview(4_000_000)?;
@@ -433,11 +438,11 @@ mod tests {
         assert_eq!(out.bands[0][0], 1.0);
         assert_eq!(out.bands[0][10], 2.0);
         assert_eq!(out.bands[0][39], 3.0);
-        // the empty cell goes to the "else" class, as no rule names it
+        // la celda vacía va a la clase «else», pues ninguna regla la nombra
         assert_eq!(out.bands[0][3], 3.0, "{line}");
         let p = Pyramid::open(&d.join("cls.tif"))?;
         assert_eq!(p.bits, 8);
-        // a table that names the empty cells keeps them empty
+        // una tabla que nombra las celdas vacías las mantiene vacías
         let table = Table::parse("nodata = nodata\n<25 = 1\nelse = 2")?;
         run(&ReclassJob::new(d.join("dem.tif"), d.join("c2.tif"), table))?;
         let g2 = Grid::read(&d.join("c2.tif"))?;

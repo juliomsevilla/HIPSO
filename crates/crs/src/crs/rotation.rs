@@ -1,31 +1,32 @@
-//! Rotated-pole grids: PROJ's `+proj=ob_tran +o_proj=longlat` with `+o_lat_p`, `+o_lon_p` and
-//! `+lon_0`, the form CF's `rotated_latitude_longitude` and GRIB's rotated grids take.
+//! Rejillas de polo girado: `+proj=ob_tran +o_proj=longlat` de PROJ con `+o_lat_p`, `+o_lon_p` y
+//! `+lon_0`, la forma que toman `rotated_latitude_longitude` de CF y las rejillas giradas de GRIB.
 //!
-//! As in PROJ, the rotation applies to the longitude and latitude as they are, with no datum or
-//! geodetic-to-spherical conversion: on a sphere and on WGS 84, a grid's coordinates are the same.
+//! Como en PROJ, la rotación se aplica a la longitud y la latitud tal como están, sin ninguna
+//! conversión de datum ni de geodésica a esférica: sobre una esfera y sobre WGS 84, las coordenadas
+//! de una rejilla son las mismas.
 
 use super::math::*;
 use super::params::Params;
 use crate::{Error, Result};
 
-/// The rotation of a rotated-pole grid. Longitudes are relative to `+lon_0`, which the caller
-/// applies, as for a projection's central meridian.
+/// La rotación de una rejilla de polo girado. Las longitudes son relativas a `+lon_0`, que aplica
+/// quien llama, como el meridiano central de una proyección.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Rotation {
-    /// The sine and cosine of the grid's pole latitude (`+o_lat_p`).
+    /// El seno y el coseno de la latitud del polo de la rejilla (`+o_lat_p`).
     sphip: f64,
     cphip: f64,
-    /// The grid longitude of the geographic pole (`+o_lon_p`), in radians.
+    /// La longitud de rejilla del polo geográfico (`+o_lon_p`), en radianes.
     lamp: f64,
 }
 
-/// The `ob_tran` parameters terrio applies: `o_proj` and the new pole. The others (`o_lon_c`,
-/// `o_lat_c`, `o_alpha`, `o_lon_1`...) define the pole in other ways.
+/// Los parámetros `ob_tran` que aplica terrio: `o_proj` y el polo nuevo. Los demás (`o_lon_c`,
+/// `o_lat_c`, `o_alpha`, `o_lon_1`...) definen el polo de otras maneras.
 const KNOWN: [&str; 3] = ["o_proj", "o_lat_p", "o_lon_p"];
 
 impl Rotation {
-    /// The rotation of an `ob_tran` PROJ string. Fails on the forms terrio does not apply: an
-    /// `o_proj` other than `longlat`, or a pole not given by `o_lat_p` and `o_lon_p`.
+    /// La rotación de una cadena PROJ `ob_tran`. Falla con las formas que terrio no aplica: un
+    /// `o_proj` distinto de `longlat` o un polo no dado por `o_lat_p` y `o_lon_p`.
     pub fn from_params(p: &Params) -> Result<Self> {
         let o_proj = p
             .str("o_proj")
@@ -51,14 +52,14 @@ impl Rotation {
         })
     }
 
-    /// The grid's pole latitude (`+o_lat_p`) and the grid longitude of the geographic pole
-    /// (`+o_lon_p`), in radians.
+    /// La latitud del polo de la rejilla (`+o_lat_p`) y la longitud de rejilla del polo geográfico
+    /// (`+o_lon_p`), en radianes.
     pub fn pole(&self) -> (f64, f64) {
         (self.sphip.atan2(self.cphip), self.lamp)
     }
 
-    /// The grid coordinates (radians) of a longitude, relative to `+lon_0`, and a latitude
-    /// (PROJ's `o_forward`: Snyder's formulas 5-7 and 5-8b).
+    /// Las coordenadas de rejilla (radianes) de una longitud, relativa a `+lon_0`, y una latitud
+    /// (`o_forward` de PROJ: las fórmulas 5-7 y 5-8b de Snyder).
     pub fn fwd(&self, lam: f64, phi: f64) -> (f64, f64) {
         let (sinphi, cosphi) = phi.sin_cos();
         let (sinlam, coslam) = lam.sin_cos();
@@ -71,8 +72,8 @@ impl Rotation {
         )
     }
 
-    /// The longitude, relative to `+lon_0`, and latitude (radians) of grid coordinates (PROJ's
-    /// `o_inverse`).
+    /// La longitud, relativa a `+lon_0`, y la latitud (radianes) de unas coordenadas de rejilla
+    /// (`o_inverse` de PROJ).
     pub fn inv(&self, lam: f64, phi: f64) -> (f64, f64) {
         let (sinphi, cosphi) = phi.sin_cos();
         let (sinlam, coslam) = (lam - self.lamp).sin_cos();

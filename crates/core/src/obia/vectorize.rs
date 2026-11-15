@@ -1,11 +1,12 @@
-//! Objects as polygons: the exact outline of each object's cells, holes included.
+//! Objetos como polígonos: el contorno exacto de las celdas de cada objeto, huecos incluidos.
 //!
-//! Every cell side that has a different label across it becomes a directed edge between two
-//! corners of the lattice, always with the object on its right-hand side. The edges are sorted
-//! into one list per object by counting (so the cost is linear in the cells whatever the number
-//! of objects), and following them gives closed rings: outer rings run clockwise and holes
-//! counter-clockwise. At a corner where two cells of one object only touch, the ring turns away
-//! from the touching cell, so the object's rings never cross.
+//! Cada lado de celda que tiene una etiqueta distinta al otro lado se convierte en una arista
+//! dirigida entre dos esquinas del retículo, siempre con el objeto a su derecha. Las aristas se
+//! ordenan en una lista por objeto por conteo (de modo que el coste es lineal en las celdas sea
+//! cual sea el número de objetos), y seguirlas da anillos cerrados: los anillos exteriores van en
+//! el sentido de las agujas del reloj y los huecos en sentido contrario. En una esquina donde dos
+//! celdas de un objeto solo se tocan, el anillo se aparta de la celda que toca, de modo que los
+//! anillos del objeto nunca se cruzan.
 
 use rayon::prelude::*;
 
@@ -15,18 +16,18 @@ use super::{Labels, Lattice};
 use crate::vector::{PolyTable, prj_for_epsg};
 use crate::{Error, Result, check_cancel};
 
-/// The rings of one object, as map coordinates; each ring is open (the first vertex is not
-/// repeated at the end).
+/// Los anillos de un objeto, como coordenadas del mapa; cada anillo está abierto (el primer vértice
+/// no se repite al final).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Outline {
     pub outers: Vec<Vec<[f64; 2]>>,
     pub holes: Vec<Vec<[f64; 2]>>,
 }
 
-/// The boundaries of all the objects of a label grid.
+/// Los límites de todos los objetos de una rejilla de etiquetas.
 pub struct Tracer<'a> {
     labels: &'a Labels,
-    /// `edges[start[i]..start[i + 1]]` are the edges of object `i + 1`.
+    /// `edges[start[i]..start[i + 1]]` son las aristas del objeto `i + 1`.
     start: Vec<usize>,
     edges: Vec<(u32, u32)>,
 }
@@ -40,7 +41,7 @@ impl<'a> Tracer<'a> {
         let ids = &labels.ids;
         let n = labels.count as usize;
         let w = cols + 1;
-        // where each side of cell (x, y) has another label across it
+        // dónde cada lado de la celda (x, y) tiene otra etiqueta al otro lado
         let sides = |x: usize, y: usize, l: u32| {
             let i = y * cols + x;
             [
@@ -62,15 +63,15 @@ impl<'a> Tracer<'a> {
                 }
             }
         }
-        // start[l] holds the count of object l; turn them into offsets
+        // start[l] guarda el recuento del objeto l; se convierten en desplazamientos
         let mut total = 0usize;
         for s in start.iter_mut().take(n + 1) {
             let c = *s;
             *s = total;
             total += c;
         }
-        // start[0] is 0 and unused (label 0); object i's edges begin at start[i + 1 - 1 + ...]
-        // shift so that object `o` (0-based) starts at start[o]
+        // start[0] es 0 y no se usa (etiqueta 0); las aristas del objeto i empiezan en start[i + 1
+        // - 1 + ...] de modo que el objeto `o` (desde 0) empieza en start[o]
         let mut offsets: Vec<usize> = start[1..].to_vec();
         offsets.push(total);
         let mut fill = offsets.clone();
@@ -112,8 +113,9 @@ impl<'a> Tracer<'a> {
         })
     }
 
-    /// The outline of object `id` (1-based), its rings simplified by `simplify` map units when
-    /// that is positive (Douglas–Peucker; neighbouring objects may then leave thin gaps).
+    /// El contorno del objeto `id` (desde 1), sus anillos simplificados en `simplify` unidades del
+    /// mapa cuando es positivo (Douglas–Peucker; los objetos vecinos pueden dejar entonces huecos
+    /// finos).
     pub fn outline(&self, id: u32, simplify: f64) -> Outline {
         let o = (id - 1) as usize;
         let mut edges = self.edges[self.start[o]..self.start[o + 1]].to_vec();
@@ -132,7 +134,7 @@ impl<'a> Tracer<'a> {
                 used[at] = true;
                 let (from, to) = edges[at];
                 ring.push(from);
-                // the edges leaving `to`, and the one that turns most to the right
+                // las aristas que salen de `to` y la que gira más a la derecha
                 let lo = edges.partition_point(|e| e.0 < to);
                 let (fx, fy) = xy(from);
                 let (tx, ty) = xy(to);
@@ -160,7 +162,7 @@ impl<'a> Tracer<'a> {
                     _ => break,
                 }
             }
-            // keep the corners only
+            // se conservan solo las esquinas
             let m = ring.len();
             let mut pts: Vec<[f64; 2]> = Vec::new();
             for k in 0..m {
@@ -180,7 +182,7 @@ impl<'a> Tracer<'a> {
                     pts = s;
                 }
             }
-            // shoelace: negative is clockwise on the map
+            // cordón de zapatos: negativo es el sentido de las agujas del reloj en el mapa
             if signed_area(&pts) < 0.0 {
                 out.outers.push(pts);
             } else {
@@ -199,7 +201,7 @@ fn signed_area(r: &[[f64; 2]]) -> f64 {
         / 2.0
 }
 
-/// Douglas–Peucker on a closed ring, split at the vertex farthest from the first.
+/// Douglas–Peucker sobre un anillo cerrado, dividido en el vértice más alejado del primero.
 fn simplify_ring(ring: &[[f64; 2]], tol: f64) -> Vec<[f64; 2]> {
     let n = ring.len();
     let dist2 = |a: [f64; 2], b: [f64; 2]| (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2);
@@ -246,10 +248,10 @@ fn simplify_ring(ring: &[[f64; 2]], tol: f64) -> Vec<[f64; 2]> {
         .collect()
 }
 
-/// DBF field names for the columns, and the list of those that were changed with their full names.
-/// The statistics of a layer (`<layer>_media`, `_desv`, `_min`, `_max`, `_p50`, `_p95`) become
-/// `L<n>_med`, `_dsv`, `_min`, `_max`, `_p50`, `_p95`, `n` being the layer's order; names that
-/// already fit are kept.
+/// Nombres de campo DBF para las columnas y la lista de los que se cambiaron con sus nombres
+/// completos. Los estadísticos de una capa (`<capa>_media`, `_desv`, `_min`, `_max`, `_p50`,
+/// `_p95`) pasan a ser `L<n>_med`, `_dsv`, `_min`, `_max`, `_p50`, `_p95`, siendo `n` el orden de
+/// la capa; los nombres que ya caben se conservan.
 fn short_columns(columns: &[String]) -> (Vec<String>, Vec<(String, String)>) {
     const SUFFIX: [(&str, &str); 6] = [
         ("_media", "med"),
@@ -278,7 +280,7 @@ fn short_columns(columns: &[String]) -> (Vec<String>, Vec<(String, String)>) {
                 name = format!("L{}_{code}", k + 1);
             }
         }
-        // names must stay unique whatever they were
+        // los nombres deben seguir siendo únicos fueran lo que fueran
         let base = name.clone();
         let mut n = 2;
         while !used.insert(name.to_ascii_uppercase()) {
@@ -293,8 +295,8 @@ fn short_columns(columns: &[String]) -> (Vec<String>, Vec<(String, String)>) {
     (short, legend)
 }
 
-/// Writes the objects as a polygon shapefile (holes included) with their attributes, and the
-/// class and its confidence when objects were classified. Returns how many objects were written.
+/// Escribe los objetos como shapefile de polígonos (huecos incluidos) con sus atributos, y la clase
+/// y su confianza cuando los objetos se clasificaron. Devuelve cuántos objetos se escribieron.
 pub fn write_polygons(
     path: &std::path::Path,
     labels: &Labels,
@@ -305,7 +307,7 @@ pub fn write_polygons(
 ) -> Result<usize> {
     let tracer = Tracer::new(labels)?;
     let mut columns: Vec<String> = vec!["id".into()];
-    // a template row so that decimals are not taken for whole numbers
+    // una fila de plantilla para que los decimales no se tomen por números enteros
     let mut template: Vec<String> = vec!["1".into()];
     if classes.is_some() {
         columns.push("clase".into());
@@ -322,8 +324,8 @@ pub fn write_polygons(
         template.push("0.5".into());
     }
     let prj = epsg.and_then(prj_for_epsg);
-    // names that fit a DBF field: the statistics of a layer become `L<n>_med`… (the layer's name
-    // is usually long), and `<name>_campos.txt` says what each one is
+    // nombres que caben en un campo DBF: los estadísticos de una capa pasan a ser `L<n>_med`… (el
+    // nombre de la capa suele ser largo), y `<nombre>_campos.txt` dice qué es cada uno
     let (short, legend) = short_columns(&columns);
     let mut out = PolyTable::create(path, &short, &template, prj.as_deref())?;
     if !legend.is_empty() {
@@ -407,7 +409,7 @@ mod tests {
                 "chm_media"
             ]
         );
-        // only what changed is in the legend, with the full name
+        // solo lo que cambió está en la leyenda, con el nombre completo
         assert!(legend.contains(&("L1_dsv".to_string(), "nmds_655500_4370500_desv".to_string())));
         assert_eq!(legend.len(), 4);
     }
@@ -441,7 +443,7 @@ mod tests {
 
     #[test]
     fn an_island_makes_a_hole_and_its_own_polygon() -> Result<()> {
-        // object 1 is a 5 x 5 block with the centre cell given to object 2
+        // el objeto 1 es un bloque de 5 x 5 con la celda central dada al objeto 2
         let mut ids = vec![1u32; 25];
         ids[12] = 2;
         let l = labels(5, 5, ids);
@@ -466,7 +468,7 @@ mod tests {
 
     #[test]
     fn areas_add_up_for_every_object() -> Result<()> {
-        // a few irregular objects: the polygon area equals the cell count
+        // unos pocos objetos irregulares: el área del polígono es igual al número de celdas
         let cols = 12;
         let rows = 9;
         let ids: Vec<u32> = (0..cols * rows)
@@ -501,7 +503,7 @@ mod tests {
 
     #[test]
     fn simplifying_drops_small_steps() -> Result<()> {
-        // a diagonal staircase of one-cell steps
+        // una escalera diagonal de escalones de una celda
         let n = 12;
         let ids: Vec<u32> = (0..n * n).map(|i| u32::from(i % n <= i / n)).collect();
         let l = labels(n, n, ids);

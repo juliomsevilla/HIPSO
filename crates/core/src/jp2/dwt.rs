@@ -1,12 +1,12 @@
-//! Inverse discrete wavelet transform of JPEG 2000 (T.800 Annex F): the reversible 5/3 filter on
-//! integers and the irreversible 9/7 filter on floats, one level at a time.
+//! Transformada inversa discreta de ondículas de JPEG 2000 (T.800 anexo F): el filtro 5/3
+//! reversible sobre enteros y el filtro 9/7 irreversible sobre decimales, un nivel cada vez.
 //!
-//! A level takes the low-pass image of the resolution below and the three detail bands, and gives
-//! the image of the resolution: rows and columns are interleaved (low-pass samples at even
-//! coordinates of the reference grid, high-pass at odd ones) and the lifting steps undone, with
-//! the signal mirrored at the borders.
+//! Un nivel toma la imagen de paso bajo de la resolución inferior y las tres bandas de detalle, y
+//! da la imagen de la resolución: las filas y las columnas se entrelazan (muestras de paso bajo en
+//! las coordenadas pares de la rejilla de referencia, de paso alto en las impares) y se deshacen
+//! los pasos de elevación, con la señal reflejada en los bordes.
 
-/// Dimensions and origin of a region on the grid of its resolution.
+/// Dimensiones y origen de una región en la rejilla de su resolución.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rect {
     pub x0: i64,
@@ -24,7 +24,7 @@ impl Rect {
     }
 }
 
-/// Mirrors an index into `0..n` (whole-sample symmetric extension).
+/// Refleja un índice en `0..n` (extensión simétrica de muestra entera).
 #[inline]
 fn mirror(i: isize, n: isize) -> usize {
     if n == 1 {
@@ -38,8 +38,8 @@ fn mirror(i: isize, n: isize) -> usize {
     k as usize
 }
 
-/// Undoes the reversible lifting on an interleaved line whose first sample sits at an index of
-/// parity `p0` (0: low-pass first).
+/// Deshace la elevación reversible sobre una línea entrelazada cuya primera muestra está en un
+/// índice de paridad `p0` (0: paso bajo primero).
 fn synth_53(line: &mut [i32], p0: usize) {
     let n = line.len() as isize;
     if n == 1 {
@@ -48,7 +48,7 @@ fn synth_53(line: &mut [i32], p0: usize) {
         }
         return;
     }
-    // even coordinates: low-pass
+    // coordenadas pares: paso bajo
     for k in (p0..line.len()).step_by(2) {
         let (a, b) = (mirror(k as isize - 1, n), mirror(k as isize + 1, n));
         line[k] -= (line[a] + line[b] + 2) >> 2;
@@ -93,21 +93,22 @@ fn synth_97(line: &mut [f32], p0: usize) {
 
 macro_rules! level {
     ($name:ident, $t:ty, $synth:ident, $zero:expr) => {
-        /// One level of the inverse transform: `ll` is the image of the resolution below
-        /// (`ll_rect`), `hl`, `lh`, `hh` the details; returns the image of `rect`.
+        /// Un nivel de la transformada inversa: `ll` es la imagen de la resolución inferior
+        /// (`ll_rect`), `hl`, `lh`, `hh` los detalles; devuelve la imagen de `rect`.
         pub fn $name(rect: Rect, ll: &[$t], hl: &[$t], lh: &[$t], hh: &[$t]) -> Vec<$t> {
             let (w, h) = (rect.w(), rect.h());
             let mut out: Vec<$t> = vec![$zero; w * h];
             if w == 0 || h == 0 {
                 return out;
             }
-            // counts of low-pass and high-pass samples along each axis
+            // recuentos de muestras de paso bajo y de paso alto a lo largo de cada eje
             let lw = ((rect.x1 + 1) / 2 - (rect.x0 + 1) / 2) as usize;
             let hw = (rect.x1 / 2 - rect.x0 / 2) as usize;
             let lh_n = ((rect.y1 + 1) / 2 - (rect.y0 + 1) / 2) as usize;
             let hh_n = (rect.y1 / 2 - rect.y0 / 2) as usize;
             let (px, py) = ((rect.x0 & 1) as usize, (rect.y0 & 1) as usize);
-            // interleave: rows of the low-pass half come from LL and HL, the others from LH and HH
+            // entrelazar: las filas de la mitad de paso bajo vienen de LL y HL, las demás de LH y
+            // HH
             for y in 0..h {
                 let gy = rect.y0 + y as i64;
                 let (low_rows, row_idx) = if gy & 1 == 0 {
@@ -160,7 +161,8 @@ level!(inverse_97, f32, synth_97, 0.0);
 mod tests {
     use super::*;
 
-    /// The forward 5/3 transform of a line, to check that the inverse undoes it exactly.
+    /// La transformada 5/3 directa de una línea, para comprobar que la inversa la deshace
+    /// exactamente.
     fn forward_53(x: &mut [i32], p0: usize) {
         let n = x.len() as isize;
         if n == 1 {
@@ -196,7 +198,8 @@ mod tests {
 
     #[test]
     fn a_level_of_a_flat_image_stays_flat() {
-        // an 8 x 6 image of 100s: low-pass bands hold the value, detail bands are zero
+        // una imagen de 8 x 6 de 100: las bandas de paso bajo contienen el valor, las de detalle
+        // son cero
         let rect = Rect {
             x0: 0,
             y0: 0,

@@ -1,5 +1,5 @@
-//! Tiled processing: noise, ground and buildings classified tile by tile, in parallel, and
-//! written out as a classified cloud or rasterised into a DTM.
+//! Procesamiento por teselas: ruido, suelo y edificios clasificados tesela a tesela, en paralelo, y
+//! escritos como una nube clasificada o rasterizados en un MDT.
 
 use crate::axelsson::{self, AxelssonParams};
 use crate::buildings::{self, BuildingParams};
@@ -23,7 +23,7 @@ pub const NOISE: u8 = 7;
 pub const GROUND: u8 = 2;
 pub const UNCLASSIFIED: u8 = 1;
 
-/// How ground points are found.
+/// Cómo se encuentran los puntos de suelo.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Ground {
     /// Kraus & Pfeifer iterative filter.
@@ -38,42 +38,43 @@ pub enum Ground {
     Smrf(SmrfParams),
     /// Progressive TIN densification (Axelsson).
     Axelsson(AxelssonParams),
-    /// The points already classified as ground (class 2).
+    /// Los puntos ya clasificados como suelo (clase 2).
     Classes,
 }
 
-/// How noise is found.
+/// Cómo se encuentra el ruido.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Noise {
-    /// Isolated points in a 3 x 3 x 3 block of cells .
+    /// Puntos aislados en un bloque de celdas de 3 x 3 x 3.
     Isolated(NoiseParams),
-    /// Statistical outlier removal on the mean distance to the k nearest neighbours.
+    /// Eliminación estadística de valores atípicos sobre la distancia media a los k vecinos más
+    /// próximos.
     Sor { k: usize, m: f64 },
-    /// Low noise: points far below the heights of their cell (extended local minimum).
+    /// Ruido bajo: puntos muy por debajo de las alturas de su celda (mínimo local extendido).
     Elm { cell: f64, threshold: f64 },
 }
 
-/// What to classify.
+/// Qué clasificar.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Steps {
-    /// Set aside the points of the flight lines that overlap another's (class 12), with cells of
-    /// this many metres, before anything else.
+    /// Aparta antes que nada los puntos de las pasadas que solapan con otra (clase 12), con celdas
+    /// de tantos metros.
     pub overlap: Option<f64>,
     pub noise: Option<Noise>,
     pub ground: Ground,
     pub buildings: Option<BuildingParams>,
-    /// Vegetation strata, wires and poles.
+    /// Estratos de vegetación, cables y postes.
     pub extras: Extras,
-    /// Rules on the echo and the scan angle, applied last and in order.
+    /// Reglas sobre el eco y el ángulo de barrido, aplicadas al final y en orden.
     pub rules: Vec<ClassRule>,
 }
 
-/// Tiling of the work.
+/// División del trabajo en teselas.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tiling {
     pub size: f64,
     pub buffer: f64,
-    /// 0: one thread per core.
+    /// 0: un hilo por núcleo.
     pub threads: usize,
 }
 
@@ -87,7 +88,7 @@ impl Default for Tiling {
     }
 }
 
-/// How many points each step classified, over the tiles' own points.
+/// Cuántos puntos clasificó cada paso, sobre los puntos propios de las teselas.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Report {
     pub tiles: usize,
@@ -98,26 +99,27 @@ pub struct Report {
     pub vegetation: u64,
     pub wires: u64,
     pub poles: u64,
-    /// Points whose class a rule on the echo or the scan angle changed.
+    /// Puntos cuya clase cambió una regla sobre el eco o el ángulo de barrido.
     pub rules: u64,
 }
 
-/// What the steps decided for the points of a tile.
+/// Lo que decidieron los pasos para los puntos de una tesela.
 struct TileClasses {
-    /// The class of every point (None: it keeps its own).
+    /// La clase de cada punto (None: conserva la suya).
     class: Vec<Option<u8>>,
-    /// Which points are ground, for the DTM.
+    /// Qué puntos son suelo, para el MDT.
     ground: Vec<bool>,
-    /// Which points a rule on the echo or the scan angle changed.
+    /// Qué puntos cambió una regla sobre el eco o el ángulo de barrido.
     ruled: Vec<bool>,
 }
 
-/// The class of every point of a tile after the steps (None: keep its class), and which are
-/// ground for the DTM.
+/// La clase de cada punto de una tesela tras los pasos (None: conserva su clase) y cuáles son suelo
+/// para el MDT.
 fn classify_tile(work: &mut Points, s: &Steps) -> Result<TileClasses> {
     let n = work.pts.len();
     let mut class: Vec<Option<u8>> = vec![None; n];
-    // Overlap points are set aside first and left out of every step that follows, as noise is.
+    // Los puntos de solape se apartan primero y se dejan fuera de todo paso posterior, como el
+    // ruido.
     if let Some(cell) = s.overlap {
         for (k, over) in overlap::find(&work.pts, cell).into_iter().enumerate() {
             if over {
@@ -128,7 +130,8 @@ fn classify_tile(work: &mut Points, s: &Steps) -> Result<TileClasses> {
             }
         }
     }
-    // Points found to be noise are marked in place, so the later steps skip them.
+    // Los puntos que resultan ser ruido se marcan en su sitio, de modo que los pasos posteriores
+    // los saltan.
     if let Some(method) = &s.noise {
         let flags = match method {
             Noise::Isolated(np) => noise::isolated(&work.pts, np),
@@ -193,9 +196,9 @@ fn classify_tile(work: &mut Points, s: &Steps) -> Result<TileClasses> {
     })
 }
 
-/// The class of every point after the steps, for points held in memory (one tile's worth): the
-/// class a step decided, or the point's own when none did. Noise found by the steps is marked in
-/// `work` too.
+/// La clase de cada punto tras los pasos, para puntos en memoria (los de una tesela): la clase que
+/// decidió un paso o, si ninguno, la propia del punto. El ruido que hallan los pasos se marca
+/// también en `work`.
 pub fn classify_points(work: &mut Points, s: &Steps) -> Result<Vec<u8>> {
     let TileClasses { class, .. } = classify_tile(work, s)?;
     Ok(work
@@ -230,8 +233,8 @@ fn union(readers: &[Reader]) -> [f64; 4] {
     )
 }
 
-/// Classifies `inputs` and writes their points, with their new classes, to `output` (LAZ when
-/// it ends in `.laz`).
+/// Clasifica `inputs` y escribe sus puntos, con sus clases nuevas, en `output` (LAZ cuando termina
+/// en `.laz`).
 pub fn classify(
     inputs: &[std::path::PathBuf],
     output: &std::path::Path,
@@ -241,8 +244,8 @@ pub fn classify(
     classify_with_context(inputs, &[], output, s, t)
 }
 
-/// [`classify`] with `context`: files (the neighbouring sheets of a block) whose points are seen
-/// by the filters near the edges of `inputs` but are neither classified nor written.
+/// [`classify`] con `context`: archivos (las hojas vecinas de un bloque) cuyos puntos ven los
+/// filtros cerca de los bordes de `inputs` pero que no se clasifican ni se escriben.
 pub fn classify_with_context(
     inputs: &[std::path::PathBuf],
     context: &[std::path::PathBuf],
@@ -265,7 +268,7 @@ pub fn classify_with_context(
         t.threads,
         |mut tile: Tile| {
             let TileClasses { class, ruled, .. } = classify_tile(&mut tile.points, s)?;
-            // The tile's own records, reclassified.
+            // Los registros propios de la tesela, reclasificados.
             let mut out = Vec::new();
             let mut r = Report {
                 tiles: 1,
@@ -320,18 +323,18 @@ pub fn classify_with_context(
     Ok(report)
 }
 
-/// How the DTM is made from the ground points.
+/// Cómo se hace el MDT a partir de los puntos de suelo.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Surface {
-    /// Mean elevation of the ground points in each cell (mean surface).
+    /// Elevación media de los puntos de suelo en cada celda (superficie media).
     Mean,
-    /// Interpolated on a Delaunay triangulation of the ground points.
+    /// Interpolado sobre una triangulación de Delaunay de los puntos de suelo.
     Tin,
-    /// Inverse-distance weighting of the nearest ground points.
+    /// Ponderación por el inverso de la distancia de los puntos de suelo más próximos.
     Idw,
 }
 
-/// A DTM of `inputs`, classified and rasterised tile by tile; holes are filled at the end.
+/// Un MDT de `inputs`, clasificado y rasterizado tesela a tesela; los huecos se rellenan al final.
 pub fn dtm(
     inputs: &[std::path::PathBuf],
     cell: f64,
@@ -343,8 +346,8 @@ pub fn dtm(
     dtm_in(inputs, &[], cell, s, surface, t, breaklines)
 }
 
-/// [`dtm`] with `context`: files (the neighbouring sheets of a block) whose points the filters and
-/// triangulations see near the edges of `inputs`, but that give no cell of their own.
+/// [`dtm`] con `context`: archivos (las hojas vecinas de un bloque) cuyos puntos ven los filtros y
+/// las triangulaciones cerca de los bordes de `inputs`, pero que no dan ninguna celda propia.
 pub fn dtm_in(
     inputs: &[std::path::PathBuf],
     context: &[std::path::PathBuf],
@@ -422,7 +425,7 @@ pub fn dtm_in(
             Ok((g, r))
         },
         |(g, r)| {
-            // Paste the tile into the mosaic.
+            // Pega la tesela en el mosaico.
             for row in 0..g.rows {
                 for col in 0..g.cols {
                     let (x, y) = g.center(col, row);
@@ -454,9 +457,9 @@ pub fn dtm_in(
     Ok((out, report, epsg))
 }
 
-/// Pit-free canopy height model (Khosravipour et al. 2014): a TIN of the points above each
-/// height threshold, the first with no edge limit and the others dropping triangles with longer
-/// edges than `max_edge`, stacked by taking the highest.
+/// Modelo de altura de copas sin picos (Khosravipour et al. 2014): un TIN de los puntos por encima
+/// de cada umbral de altura, el primero sin límite de arista y los demás descartando los triángulos
+/// con aristas más largas que `max_edge`, apilados tomando el más alto.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PitFree {
     pub thresholds: Vec<f64>,
@@ -472,7 +475,7 @@ impl Default for PitFree {
     }
 }
 
-/// A pit-free CHM of `inputs` over `dtm`, tile by tile.
+/// Un CHM sin picos de `inputs` sobre `dtm`, tesela a tesela.
 pub fn chm_pitfree(
     inputs: &[std::path::PathBuf],
     dtm: &Grid,
@@ -483,8 +486,9 @@ pub fn chm_pitfree(
     chm_pitfree_in(inputs, &[], dtm, cell, p, t)
 }
 
-/// [`chm_pitfree`] with `context`: files (the neighbouring sheets of a block) whose points the filters and
-/// triangulations see near the edges of `inputs`, but that give no cell of their own.
+/// [`chm_pitfree`] con `context`: archivos (las hojas vecinas de un bloque) cuyos puntos ven los
+/// filtros y las triangulaciones cerca de los bordes de `inputs`, pero que no dan ninguna celda
+/// propia.
 pub fn chm_pitfree_in(
     inputs: &[std::path::PathBuf],
     context: &[std::path::PathBuf],
@@ -556,8 +560,9 @@ pub fn chm_pitfree_in(
     Ok((out, epsg))
 }
 
-/// A digital surface model (highest returns) on cells of `cell`, tile by tile: through a TIN of
-/// the highest point of each cell, or by inverse-distance weighting of them.
+/// Un modelo digital de superficie (retornos más altos) en celdas de `cell`, tesela a tesela: por
+/// un TIN del punto más alto de cada celda o por ponderación por el inverso de la distancia de
+/// ellos.
 pub fn dsm(
     inputs: &[std::path::PathBuf],
     cell: f64,
@@ -567,8 +572,8 @@ pub fn dsm(
     dsm_in(inputs, &[], cell, interpolation, t)
 }
 
-/// [`dsm`] with `context`: files (the neighbouring sheets of a block) whose points the filters and
-/// triangulations see near the edges of `inputs`, but that give no cell of their own.
+/// [`dsm`] con `context`: archivos (las hojas vecinas de un bloque) cuyos puntos ven los filtros y
+/// las triangulaciones cerca de los bordes de `inputs`, pero que no dan ninguna celda propia.
 pub fn dsm_in(
     inputs: &[std::path::PathBuf],
     context: &[std::path::PathBuf],

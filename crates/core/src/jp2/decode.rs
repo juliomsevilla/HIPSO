@@ -1,5 +1,5 @@
-//! Decoding of one tile: packets, code-blocks, dequantisation, inverse wavelet transform,
-//! component transform and level shift.
+//! Decodificación de una tesela: paquetes, bloques de código, descuantificación, transformada
+//! inversa de ondículas, transformada de componentes y desplazamiento de nivel.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -17,9 +17,9 @@ fn bad(what: &str) -> Error {
     Error::Format(format!("JPEG 2000: {what}"))
 }
 
-/// A decoded tile at some reduction: the samples of the components asked for.
+/// Una tesela decodificada a cierta reducción: las muestras de los componentes pedidos.
 pub struct TileOut {
-    /// On the grid of the reduced image (not yet shifted by the image origin).
+    /// En la rejilla de la imagen reducida (todavía sin desplazar por el origen de la imagen).
     pub rect: Rect,
     pub planes: Vec<Vec<f32>>,
 }
@@ -29,7 +29,7 @@ enum Plane {
     Float(Vec<f32>),
 }
 
-/// Copies a decoded code-block into the buffer of its subband.
+/// Copia un bloque de código decodificado en el búfer de su subbanda.
 fn place<T: Copy>(buf: &mut [T], band: Rect, blk: Rect, vals: &[i32], conv: impl Fn(i32) -> T) {
     let bw = band.w();
     let w = blk.w();
@@ -105,7 +105,7 @@ pub fn decode_tile(
         let qq = eff.quant(c).ok_or_else(|| bad("falta la cuantización"))?;
         tcs.push(build_comp(siz, c, tile, cc, qq, eff.roi_shift(c))?);
     }
-    // the packets
+    // los paquetes
     let data = gather_tile(path, cs, t)?;
     let order = packet_order(tile, &tcs, cod.prog, usize::from(cod.layers))?;
     let mut pos = 0usize;
@@ -117,7 +117,7 @@ pub fn decode_tile(
     }
     drop(data);
 
-    // components to decode: the ones asked for, and the first three when they are transformed
+    // componentes que decodificar: los pedidos y los tres primeros cuando se transforman
     let mct = cod.mct == 1 && ncomp >= 3;
     let mut need: Vec<usize> = want.to_vec();
     if mct {
@@ -140,7 +140,7 @@ pub fn decode_tile(
         }
         let target = nl - reduce as usize;
         let rev = tc.cod.reversible;
-        // tier-1 on every code-block up to the target resolution
+        // nivel 1 en cada bloque de código hasta la resolución objetivo
         let mut jobs = Vec::new();
         for r in 0..=target {
             for (b, band) in tc.res[r].bands.iter().enumerate() {
@@ -169,7 +169,7 @@ pub fn decode_tile(
                 )
             })
             .collect();
-        // subband buffers, then the inverse transform level by level
+        // búferes de subbanda y luego la transformada inversa nivel a nivel
         let mut cur_i: Vec<i32> = Vec::new();
         let mut cur_f: Vec<f32> = Vec::new();
         let mut at = 0;
@@ -257,7 +257,7 @@ pub fn decode_tile(
         }
     }
 
-    // level shift and clamping, into f32 samples
+    // desplazamiento de nivel y limitación, a muestras f32
     let mut result = Vec::with_capacity(want.len());
     for &c in want {
         let comp = &siz.comps[c];

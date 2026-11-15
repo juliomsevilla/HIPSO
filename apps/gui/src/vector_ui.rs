@@ -1,5 +1,6 @@
-//! Vector (Capas vectoriales): statistics of a raster inside polygons, as a polygon layer with
-//! new fields, and operations on polygon layers (check, repair, buffer, dissolve, union, intersect).
+//! Vector (Capas vectoriales): estadísticas de un ráster dentro de polígonos, como capa de
+//! polígonos con campos nuevos, y operaciones sobre capas de polígonos (comprobar, reparar, búfer,
+//! disolver, unión, intersección).
 
 use super::*;
 use hipso_core::{geomops, grid::Grid, paths, vecops, vector, zonal};
@@ -38,7 +39,7 @@ impl Op {
         Op::Voronoi,
     ];
 
-    /// The short name of the button.
+    /// El nombre corto del botón.
     pub fn label(self) -> &'static str {
         match self {
             Op::Zonal => "Estadística zonal",
@@ -75,7 +76,7 @@ impl Op {
         }
     }
 
-    /// Corrections of the geometry, as opposed to the geoprocesses that make new layers.
+    /// Correcciones de la geometría, frente a los geoprocesos que hacen capas nuevas.
     pub fn is_geometry(self) -> bool {
         matches!(self, Op::Validate | Op::Repair)
     }
@@ -130,12 +131,13 @@ pub struct VectorTool {
     pub rel: vecops::Relation,
     pub join_mode: vecops::JoinMode,
     pub report: String,
-    /// Voronoi: 0 no clip, 1 a box a little bigger than the points, 2 a polygon layer (`second`).
+    /// Voronoi: 0 sin recorte, 1 una caja algo mayor que los puntos, 2 una capa de polígonos
+    /// (`second`).
     pub clip_mode: u8,
     pub delaunay: bool,
 }
 
-/// One tool (and window) per operation, in the order of [`Op::ALL`].
+/// Una herramienta (y ventana) por operación, en el orden de [`Op::ALL`].
 pub fn tools() -> Vec<VectorTool> {
     Op::ALL.iter().map(|op| VectorTool::new(*op)).collect()
 }
@@ -187,7 +189,7 @@ fn pick_vector(slot: &mut Option<PathBuf>, ui: &mut egui::Ui, label: &str, loade
 }
 
 impl App {
-    /// The windows of the geoprocesses: each one opens its own.
+    /// Las ventanas de los geoprocesos: cada una abre la suya.
     pub fn vector_windows(&mut self, ctx: &egui::Context) {
         for i in 0..self.vt.len() {
             self.vector_window(ctx, i);
@@ -340,7 +342,7 @@ impl App {
                 return;
             };
             if op == Op::Validate {
-                // quick: no new file
+                // rápido: ningún archivo nuevo
                 t.report = match geomops::read_polygons(&layer).map(|l| (geomops::invalid(&l), l.features.len())) {
                     Ok((bad, n)) if bad.is_empty() => format!("{n} polígonos, todos válidos."),
                     Ok((bad, n)) => format!(
@@ -396,7 +398,7 @@ impl App {
                         vector::write_layer(&target, &result, kind, prj.as_deref())?;
                         return Ok(format!("{note} -> {}", target.display()));
                     }
-                    // the buffer of points is the circle of the distance around each one
+                    // el búfer de puntos es el círculo de la distancia alrededor de cada uno
                     let points = op == Op::Buffer
                         && vecops::read_layer(&layer)
                             .is_ok_and(|(_, k, _)| k == hipso_core::view::GeomKind::Point);

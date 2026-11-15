@@ -1,5 +1,5 @@
-//! Density by Voronoi cells: exact on a lattice, right on a random cloud, gaps counted apart,
-//! and the same whether the cloud is one tile or many.
+//! Densidad por celdas de Voronoi: exacta sobre un retículo, correcta sobre una nube aleatoria, con
+//! los huecos contados aparte y lo mismo sea la nube una tesela o muchas.
 
 mod common;
 
@@ -47,7 +47,7 @@ fn job(name: &str, pts: &[[f64; 3]], cell: f64) -> Result<VDensityJob> {
     Ok(j)
 }
 
-/// The cells at least `margin` cells away from the edge of the grid.
+/// Las celdas al menos a `margin` celdas del borde de la rejilla.
 fn interior(g: &Grid, margin: usize) -> Vec<f32> {
     let mut v = Vec::new();
     for r in margin..g.rows.saturating_sub(margin) {
@@ -73,7 +73,7 @@ fn a_lattice_of_half_a_metre_is_four_points_per_square_metre() -> Result<()> {
 
 #[test]
 fn a_random_cloud_has_the_density_it_was_made_with() -> Result<()> {
-    // 10 points per square metre over 60 x 60 m
+    // 10 puntos por metro cuadrado sobre 60 x 60 m
     let j = job("vd_poisson", &random(36_000, 60.0, 5), 10.0)?;
     let (dens, _, _, _) = density(&j)?;
     let inner = interior(&dens, 1);
@@ -84,7 +84,7 @@ fn a_random_cloud_has_the_density_it_was_made_with() -> Result<()> {
 
 #[test]
 fn a_gap_is_void_area_and_its_cells_have_no_density() -> Result<()> {
-    // a lattice with a 20 x 20 m hole in the middle
+    // un retículo con un hueco de 20 x 20 m en el medio
     let pts: Vec<[f64; 3]> = lattice(120, 0.5)
         .into_iter()
         .filter(|p| {
@@ -119,7 +119,7 @@ fn many_tiles_give_what_one_tile_does() -> Result<()> {
     let (a, ..) = density(&many)?;
     let (b, ..) = density(&one)?;
     assert_eq!((a.cols, a.rows), (b.cols, b.rows));
-    // away from the border of the cloud, where the margin is what matters
+    // lejos del borde de la nube, donde importa el margen
     for (x, y) in a
         .data
         .iter()

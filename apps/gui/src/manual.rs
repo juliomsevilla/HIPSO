@@ -1,6 +1,6 @@
-//! The user manual, shown inside the app (Archivo view → Manual, or F1). The text is `docs/MANUAL.md`,
-//! drawn by a small renderer of the Markdown it uses: headings, lists, tables, code blocks,
-//! bold and inline code.
+//! El manual de usuario, mostrado dentro de la aplicación (vista Archivo → Manual, o F1). El texto
+//! es `docs/MANUAL.md`, dibujado por un pequeño visualizador del Markdown que usa: encabezados,
+//! listas, tablas, bloques de código, negrita y código en línea.
 
 use eframe::egui::{self, Align, Color32, FontId, RichText, text::LayoutJob};
 
@@ -20,8 +20,8 @@ enum Style {
     Code,
 }
 
-/// The pieces of a line: `**bold**`, `*italic*` and `` `code` `` apart from plain text. A `*` that
-/// does not open and close an emphasis (a product sign, `* 100`) stays as it is.
+/// Las piezas de una línea: `**negrita**`, `*cursiva*` y `` `código` `` aparte del texto normal. Un
+/// `*` que no abre ni cierra un énfasis (un signo de producto, `* 100`) se queda como está.
 fn spans(text: &str) -> Vec<(Style, &str)> {
     let mut out = Vec::new();
     let mut plain_from = 0;
@@ -36,7 +36,7 @@ fn spans(text: &str) -> Vec<(Style, &str)> {
         } else if let Some(inner) = rest.strip_prefix('`') {
             inner.find('`').map(|e| (Style::Code, 1, e))
         } else if let Some(inner) = rest.strip_prefix('*') {
-            // the opening star touches a word, the closing one too
+            // la estrella de apertura toca una palabra, la de cierre también
             let opens = inner
                 .chars()
                 .next()
@@ -66,7 +66,7 @@ fn spans(text: &str) -> Vec<(Style, &str)> {
     out
 }
 
-/// Inline text with bold, italic and code as one galley.
+/// Texto en línea con negrita, cursiva y código como un solo bloque.
 fn inline(ui: &egui::Ui, text: &str, size: f32) -> LayoutJob {
     let visuals = ui.visuals();
     let (body, strong, code_bg) = (
@@ -113,10 +113,10 @@ fn cells(line: &str) -> Vec<&str> {
         .collect()
 }
 
-/// The width of each column of a table so that the whole fits `ui.available_width()`: a column
-/// keeps the width of its longest cell when there is room for all of them; otherwise the columns
-/// that need less than an even share keep what they need and the rest split what is left in
-/// proportion to what they need (their text wraps).
+/// El ancho de cada columna de una tabla para que el conjunto quepa en `ui.available_width()`: una
+/// columna conserva el ancho de su celda más larga cuando hay sitio para todas; si no, las columnas
+/// que necesitan menos que una parte igual conservan lo que necesitan y el resto se reparte lo que
+/// queda en proporción a lo que necesitan (su texto se ajusta).
 fn column_widths(ui: &egui::Ui, rows: &[Vec<&str>], size: f32, gap: f32) -> Vec<f32> {
     let cols = rows.iter().map(Vec::len).max().unwrap_or(0);
     if cols == 0 {
@@ -129,7 +129,7 @@ fn column_widths(ui: &egui::Ui, rows: &[Vec<&str>], size: f32, gap: f32) -> Vec<
             need[ci] = need[ci].max(galley.size().x + 4.0);
         }
     }
-    // the grid's stripes and the scroll bar take a little more than the gaps
+    // las franjas de la cuadrícula y la barra de desplazamiento ocupan algo más que los huecos
     let room = (ui.available_width() - gap * (cols as f32 - 1.0) - 16.0).max(80.0 * cols as f32);
     if need.iter().sum::<f32>() <= room {
         return need;
@@ -198,7 +198,8 @@ impl Manual {
                             continue;
                         }
                         if in_code {
-                            // a long command wraps at the edge of the window instead of running past it
+                            // una orden larga se ajusta en el borde de la ventana en lugar de
+                            // salirse
                             ui.add(egui::Label::new(RichText::new(l).monospace().size(12.0)).wrap());
                             k += 1;
                             continue;
@@ -213,8 +214,8 @@ impl Manual {
                                 .filter(|r| !r.contains("---"))
                                 .map(|r| cells(r))
                                 .collect();
-                            // the columns share the width of the window: a cell wraps at its
-                            // column and a table never runs past the edge
+                            // las columnas comparten el ancho de la ventana: una celda se ajusta en
+                            // su columna y una tabla nunca se sale del borde
                             let gap = 14.0;
                             let widths = column_widths(ui, &rows, 13.0, gap);
                             egui::Grid::new(("manual_table", start))

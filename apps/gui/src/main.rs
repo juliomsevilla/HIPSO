@@ -1,6 +1,7 @@
-//! HIPSO's desktop app: a point-cloud viewer (plan, 3D and profile windows, shaded TIN,
-//! contours, reference layers, POI/AOI, query, measure, density) with the processing tools of the
-//! command line one click away, with a ribbon interface.
+//! La aplicación de escritorio de HIPSO: un visor de nubes de puntos (ventanas de planta, 3D y
+//! perfil, TIN sombreado, curvas de nivel, capas de referencia, POI/AOI, consulta, medición,
+//! densidad) con las herramientas de proceso de la línea de comandos a un clic, con una interfaz de
+//! cinta.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod aba_plots;
@@ -10,6 +11,9 @@ mod rasterops_ui;
 mod reproject_ui;
 mod vector_ui;
 mod backstage;
+mod cli_tool_ui;
+mod editmore;
+mod flow_ui;
 mod basemap;
 mod brand;
 mod change_ui;
@@ -68,8 +72,8 @@ use copcdetail::contains;
 use theme::Tokens;
 use tools::{Launch, ToolId, Tools};
 
-/// The graphics adapters wgpu sees. A "Cpu" one is the software adapter (Windows' Basic Render
-/// Driver, llvmpipe): it draws, but with the processor, and slowly.
+/// Los adaptadores gráficos que ve wgpu. Uno «Cpu» es el adaptador por software (Basic Render
+/// Driver de Windows, llvmpipe): dibuja, pero con el procesador y despacio.
 fn gpu_adapters() -> Vec<eframe::egui_wgpu::wgpu::AdapterInfo> {
     use eframe::egui_wgpu::wgpu;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -79,11 +83,12 @@ fn gpu_adapters() -> Vec<eframe::egui_wgpu::wgpu::AdapterInfo> {
         .collect()
 }
 
-/// Which renderer draws the interface: wgpu (the default) when a graphics card can be used
-/// through DirectX 12, Vulkan or Metal; otherwise OpenGL (glow). Old drivers (an Intel HD of
-/// 2015) have no DirectX 12 or Vulkan, so wgpu offers only the software adapter there, which is
-/// slow, and its OpenGL backend does not start on them; the OpenGL of glow does.
-/// `HIPSO_RENDERER=glow` or `wgpu` forces one, and a `WGPU_BACKEND` is left to wgpu.
+/// Qué renderizador dibuja la interfaz: wgpu (el de por defecto) cuando se puede usar una tarjeta
+/// gráfica mediante DirectX 12, Vulkan o Metal; si no, OpenGL (glow). Los controladores antiguos
+/// (un Intel HD de
+/// 2015) no tienen DirectX 12 ni Vulkan, así que wgpu ofrece allí solo el adaptador por software,
+///       que es lento, y su motor OpenGL no arranca en ellos; el OpenGL de glow sí.
+///       `HIPSO_RENDERER=glow` o `wgpu` fuerza uno, y un `WGPU_BACKEND` se deja a wgpu.
 fn choose_renderer() -> eframe::Renderer {
     match std::env::var("HIPSO_RENDERER").as_deref() {
         Ok("glow") => return eframe::Renderer::Glow,
@@ -111,10 +116,10 @@ fn renderer_name(r: eframe::Renderer) -> &'static str {
     }
 }
 
-/// The renderer in use, for the diagnostics.
+/// El renderizador en uso, para los diagnósticos.
 static RENDERER: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 
-/// The compass of the 3D view: its centre in the corner of the view, and its radius.
+/// La brújula de la vista 3D: su centro en la esquina de la vista y su radio.
 const COMPASS_RADIUS: f32 = 20.0;
 
 fn compass_centre(rect: Rect) -> Pos2 {
@@ -132,7 +137,7 @@ fn main() -> eframe::Result {
         eprintln!("se usaría: {}", renderer_name(choose_renderer()));
         return Ok(());
     }
-    // Without a console (windows_subsystem) a panic at start-up would close the app in silence.
+    // Sin consola (windows_subsystem), un pánico al arrancar cerraría la aplicación en silencio.
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         default_hook(info);
@@ -153,7 +158,7 @@ Si es de gráficos, prueba                      a definir la variable de entorno
     }));
     let first = choose_renderer();
     match run(first) {
-        // the one chosen did not start: the other
+        // el elegido no arrancó: el otro
         Err(_) => run(match first {
             eframe::Renderer::Glow => eframe::Renderer::Wgpu,
             eframe::Renderer::Wgpu => eframe::Renderer::Glow,
@@ -241,9 +246,12 @@ enum Layout {
     All,
 }
 
-/// The ribbon tabs before the ones that depend on the selected layer: Archivo, Vista, LiDAR,
-/// Vectorial and Raster. Editing points lives in the side panel, so it stays within reach of the others.
-const FIRST_EXTRA: usize = 5;
+/// Las pestañas de la cinta anteriores a las que dependen de la capa seleccionada: Archivo, Vista,
+/// LiDAR, Vectorial y Raster. La edición de puntos vive en el panel lateral, de modo que queda al
+/// alcance de las demás.
+const FIRST_EXTRA: usize = 6;
+/// La pestaña del constructor de flujos.
+const FLOWS_TAB: usize = 5;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Side {
@@ -253,34 +261,36 @@ enum Side {
     Symbology,
 }
 
-/// The background read of a window: what it will send, and the window.
+/// La lectura de una ventana en segundo plano: lo que enviará y la ventana.
 type DetailJob = (
     Receiver<Result<Option<(PointStore, f64)>, String>>,
     [f64; 4],
     f64,
 );
 
-/// A window of COPC clouds read at full detail, and the dot spacing that goes with it.
+/// Una ventana de nubes COPC leída con todo el detalle, y el espaciado de puntos que le
+/// corresponde.
 struct Detail {
     window: [f64; 4],
-    /// Map units per pixel it was read for.
+    /// Unidades del mapa por píxel para las que se leyó.
     px: f64,
     store: Arc<PointStore>,
     spacing: f64,
-    /// Spacing of the octree level that was read: the dots of the 3D view follow it.
+    /// Espaciado del nivel del octree que se leyó: los puntos de la vista 3D lo siguen.
     level_spacing: f64,
     id: u64,
 }
 
-/// A cloud load that finished: the points, the files they came from (converted copies replace
-/// the clouds that were in another coordinate system) and what the log should say.
+/// Una carga de nubes terminada: los puntos, los archivos de los que vinieron (las copias
+/// convertidas sustituyen a las nubes que estaban en otro sistema de coordenadas) y lo que debe
+/// decir el registro.
 struct CloudLoad {
     store: PointStore,
     files: Vec<PathBuf>,
     notes: Vec<String>,
 }
 
-/// A raster prepared for the 3D view.
+/// Un ráster preparado para la vista 3D.
 struct Surf3 {
     key: u64,
     grid: Grid,
@@ -340,6 +350,23 @@ enum Action {
     Nav(Nav),
     Tool(ToolId),
     Shortcuts,
+    Settings,
+    Flows,
+    /// Una herramienta de la ventana genérica (índice de `cli_tool_ui::TOOLS`).
+    CliTool(u8),
+    FlowNew,
+    FlowExample(u8),
+    FlowOpen,
+    FlowSave,
+    FlowSaveAs,
+    FlowRun,
+    FlowCancel,
+    FlowUndo,
+    FlowRedo,
+    FlowDelete,
+    FlowDuplicate,
+    FlowArrange,
+    FlowFit,
     Info,
     Color(ColorBy),
     PointSize(i32),
@@ -356,19 +383,19 @@ enum Action {
     ImageTool(u8),
     RasterTool(u8),
     Terrain,
-    /// Opens the terrain analysis on the product `Product::ALL[k]`.
+    /// Abre el análisis de terreno sobre el producto `Product::ALL[k]`.
     TerrainProduct(u8),
-    /// Opens the ponding tool (Hidrología).
+    /// Abre la herramienta de encharcamiento (Hidrología).
     Ponds,
-    /// Opens the stockpile volumes tool.
+    /// Abre la herramienta de volúmenes de acopios.
     Piles,
-    /// Opens the flood simulation.
+    /// Abre la simulación de inundación.
     Flood,
-    /// Opens ridge and drainage lines.
+    /// Abre las líneas de cresta y de drenaje.
     Lines,
-    /// Opens the least-cost route.
+    /// Abre la ruta de menor coste.
     Route,
-    /// Opens cut and fill.
+    /// Abre el desmonte y terraplén.
     CutFill,
     Obia,
     Align,
@@ -394,24 +421,25 @@ struct App {
     snap_plan: Option<(f64, f64, f64)>,
     snap_orbit: Option<(f64, f64, f64)>,
     dark: bool,
-    /// The system's theme was not known at start-up: take it from the first frame.
+    /// No se conocía el tema del sistema al arrancar: se toma del primer fotograma.
     theme_pending: bool,
-    /// `--bench`: frames drawn, for measuring the renderer (see `ui`).
+    /// `--bench`: fotogramas dibujados, para medir el renderizador (véase `ui`).
     bench: Option<(Instant, u64)>,
     tab: usize,
     nav: Nav,
     layout: Layout,
-    /// Where the dividers between the views are, as fractions of the space: the height of the
-    /// plan over the profile, the width of the plan beside the other two and the height of the
-    /// profile over the 3D view.
+    /// Dónde están las divisiones entre las vistas, como fracciones del espacio: la altura de la
+    /// planta sobre el perfil, la anchura de la planta junto a las otras dos y la altura del perfil
+    /// sobre la vista 3D.
     split: [f32; 3],
     side: Side,
     show_log: bool,
-    /// A field to colour the next vector layer by, once (for screenshots).
+    /// Un campo por el que colorear la siguiente capa vectorial, una vez (para capturas de
+    /// pantalla).
     auto_categorize: Option<String>,
-    /// The log stays closed (for screenshots).
+    /// El registro queda cerrado (para capturas de pantalla).
     hide_log: bool,
-    /// A message that stays on screen until the user closes it.
+    /// Un mensaje que se queda en pantalla hasta que el usuario lo cierra.
     notice: Option<String>,
     clouds: Vec<PathBuf>,
     store: Option<Arc<PointStore>>,
@@ -432,20 +460,20 @@ struct App {
     profile_width: f64,
     tex_plan: Option<(egui::TextureHandle, u64)>,
     tex_prof: Option<(egui::TextureHandle, u64, f64, f64)>,
-    /// The profile reads the points of its region from the files, at full density.
+    /// El perfil lee los puntos de su región de los archivos, con toda la densidad.
     prof_full: bool,
     prof_grid: bool,
     prof_data: Option<profile_data::ProfData>,
     prof_job: Option<profile_data::ProfJob>,
     prof_failed: Option<u64>,
-    /// Where the profile was drawn in the last frame.
+    /// Dónde se dibujó el perfil en el último fotograma.
     profile_rect: Option<Rect>,
     tex_3d: Option<(egui::TextureHandle, u64)>,
-    /// The raster shown as a surface in the 3D view: key, heights, colours.
+    /// El ráster mostrado como superficie en la vista 3D: clave, alturas, colores.
     surf3: Option<Surf3>,
     moving_until: Instant,
     refs: Vec<RefLayer>,
-    /// How many of the layers are drawn under the point clouds (the first ones in `refs`).
+    /// Cuántas de las capas se dibujan bajo las nubes de puntos (las primeras de `refs`).
     cloud_slot: usize,
     show_points: bool,
     tin_on: bool,
@@ -453,42 +481,46 @@ struct App {
     tin: Option<Tin>,
     contours_on: bool,
     contour_iv: f64,
-    /// The vector layer new features are drawn into.
+    /// La capa vectorial en la que se dibujan los elementos nuevos.
     active: Option<usize>,
     sel_layer: Option<usize>,
-    /// The layers selected together in the contents pane (Ctrl or Shift + click); it only counts
-    /// while it holds `sel_layer`.
+    /// Las capas seleccionadas a la vez en el panel de contenido (Ctrl o Mayús + clic); solo cuenta
+    /// mientras contiene `sel_layer`.
     sel_layers: std::collections::BTreeSet<usize>,
     img_jobs: Vec<rs::ImageJob>,
     dig_draft: Vec<[f64; 2]>,
-    /// The layer whose editing session just ended with changes, and the tool that was on.
+    /// La capa cuya sesión de edición acaba de terminar con cambios, y la herramienta que estaba
+    /// activa.
     edit_confirm: Option<(usize, Nav)>,
-    /// The ribbon was on the vector editing tab the last time it was drawn.
+    /// La cinta estaba en la pestaña de edición vectorial la última vez que se dibujó.
     new_layer: Option<layers::NewLayerDlg>,
-    /// A GeoPackage with several tables: which of them to open.
+    /// Un GeoPackage con varias tablas: cuál de ellas abrir.
     gpkg_pick: Option<(PathBuf, Vec<(String, bool)>)>,
     table_layer: Option<usize>,
     vedit: vecedit::VecEditState,
-    /// Dialogs of the vector tools: field calculator, selection by location, GeoPackage rewrite.
+    /// Diálogos de las herramientas vectoriales: calculadora de campos, selección por localización,
+    /// reescritura de GeoPackage.
     vm: vecmore::State,
-    /// Command line `--vsel-all`: select every feature of the active layer on start.
+    /// Línea de comandos `--vsel-all`: selecciona todos los elementos de la capa activa al
+    /// arrancar.
     select_all_pending: bool,
-    /// Command line `--view x,y,scale`: the view to take once everything has loaded.
+    /// Línea de comandos `--view x,y,escala`: la vista que se toma una vez que todo se ha cargado.
     forced_view: Option<Plan>,
     rs: rs::RsState,
     table_new_field: String,
     line_weight: f32,
     measure: Vec<[f64; 3]>,
     query: Option<usize>,
-    /// What the query tool found at the point it was last used: the point and the card of text
-    /// it shows, which stays until it is closed or a click finds nothing.
+    /// Lo que encontró la herramienta de consulta en el punto en que se usó por última vez: el
+    /// punto y la ficha de texto que muestra, que permanece hasta que se cierra o un clic no
+    /// encuentra nada.
     query_card: Option<([f64; 3], Vec<String>)>,
     density: Option<String>,
     drag_start: Option<Pos2>,
     cursor_map: Option<(f64, f64)>,
     info_text: String,
     info_run: Option<Receiver<Result<String, String>>>,
-    /// The job running extracts the selection: its result replaces the loaded clouds.
+    /// El trabajo en marcha extrae la selección: su resultado sustituye a las nubes cargadas.
     pub isolate: bool,
     tools: Tools,
     running: Option<Running>,
@@ -512,37 +544,45 @@ struct App {
     ct: change_ui::ChangeTool,
     mo: aba_ui::ModelTool,
     co: corridor_ui::CorridorTool,
-    /// The coordinate system each file declares, read once.
+    /// El sistema de coordenadas que declara cada archivo, leído una vez.
     crs_cache: std::collections::HashMap<PathBuf, Option<u16>>,
-    /// The map of web tiles under the layers (made when it is first turned on).
+    /// El mapa de teselas web bajo las capas (se hace la primera vez que se activa).
     basemap: Option<basemap::Basemap>,
-    /// Layers opened before any cloud: they are moved to the cloud's system once there is one.
+    /// Capas abiertas antes que ninguna nube: se llevan al sistema de la nube cuando hay una.
     pending_conform: Vec<PathBuf>,
-    /// The system of the work while there is no cloud: that of the first layer opened.
+    /// El sistema del trabajo mientras no hay nube: el de la primera capa abierta.
     work_crs: Option<u16>,
-    /// The COPC file to read a window from for each cloud (the cloud itself, or its copy in the
-    /// cache); empty until every cloud has one, and then a window can be read at full detail.
+    /// El archivo COPC del que leer una ventana de cada nube (la propia nube o su copia en la
+    /// caché); vacío hasta que cada nube tiene uno, y entonces se puede leer una ventana con todo
+    /// el detalle.
     detail_src: Vec<PathBuf>,
-    /// The background making of the COPC copies.
+    /// La creación de las copias COPC en segundo plano.
     cache_job: Option<Receiver<Result<Vec<PathBuf>, String>>>,
-    /// The points of the window being looked at, read from the COPC files.
+    /// Los puntos de la ventana que se mira, leídos de los archivos COPC.
     detail: Option<Detail>,
     detail_job: Option<DetailJob>,
-    /// The same for the 3D view.
+    /// Lo mismo para la vista 3D.
     detail3: Option<Detail>,
     detail3_job: Option<DetailJob>,
     detail_id: u64,
-    /// The "Archivo" view is open over the work area.
+    /// La vista «Archivo» está abierta sobre el área de trabajo.
     backstage: bool,
-    /// What the "Inicio" view shows on its right.
+    /// Lo que muestra la vista «Inicio» a su derecha.
     backstage_page: backstage::Page,
-    /// When the log last said how far the running job is.
+    /// El estado de la página «Ajustes».
+    settings: backstage::Settings,
+    /// El constructor de flujos.
+    flow: flow_ui::Flow,
+    /// La ventana genérica de las herramientas de la línea de comandos.
+    cli: cli_tool_ui::CliTool,
+    /// Cuándo dijo el registro por última vez cuánto lleva el trabajo en marcha.
     last_progress_log: Instant,
     manual: manual::Manual,
 }
 
 impl Default for App {
     fn default() -> Self {
+        prefs::init();
         Self {
             ed: editing::Editing::default(),
             ident: Vec::new(),
@@ -673,14 +713,18 @@ impl Default for App {
             detail_id: 0,
             backstage: false,
             backstage_page: backstage::Page::Home,
+            settings: backstage::Settings::default(),
+            flow: flow_ui::Flow::new(),
+            cli: cli_tool_ui::CliTool::default(),
             last_progress_log: Instant::now(),
             manual: manual::Manual::default(),
         }
     }
 }
 
-/// Area and perimeter of the measured points taken as a closed polygon (three points or more).
-/// A small × at the top right corner of a card drawn on the map; true when it is clicked.
+/// Área y perímetro de los puntos medidos tomados como un polígono cerrado (tres puntos o más). Una
+/// pequeña × en la esquina superior derecha de una ficha dibujada en el mapa; verdadero cuando se
+/// pulsa.
 fn close_button(ui: &mut egui::Ui, painter: &egui::Painter, card: Rect, id: &str) -> bool {
     let r = Rect::from_center_size(card.right_top() + Vec2::new(-11.0, 11.0), Vec2::splat(16.0));
     let resp = ui.interact(r, egui::Id::new(id), Sense::click());
@@ -747,7 +791,7 @@ fn is_cloud(p: &Path) -> bool {
 }
 
 impl App {
-    /// Dark or light: the interface and the background of the views.
+    /// Oscuro o claro: la interfaz y el fondo de las vistas.
     fn set_theme(&mut self, ctx: &egui::Context, dark: bool) {
         self.dark = dark;
         theme::apply(ctx, &self.tokens());
@@ -759,7 +803,8 @@ impl App {
         if self.dark { theme::DARK } else { theme::LIGHT }
     }
 
-    /// The EPSG code a file declares (read once; `None` when it declares none or is not a file).
+    /// El código EPSG que declara un archivo (leído una vez; `None` cuando no declara ninguno o no
+    /// es un archivo).
     fn crs_of(&mut self, path: &Path) -> Option<u16> {
         if path.as_os_str().is_empty() {
             return None;
@@ -770,7 +815,7 @@ impl App {
             .or_insert_with(|| hipso_core::crs::epsg_of(path))
     }
 
-    /// The system of the work: that of the first cloud.
+    /// El sistema del trabajo: el de la primera nube.
     fn project_crs(&mut self) -> Option<u16> {
         match self.clouds.first().cloned() {
             Some(first) => self.crs_of(&first),
@@ -782,10 +827,11 @@ impl App {
         self.log.push(m.into());
     }
 
-    /// Command-line arguments: files to open, and a few switches for screenshots.
+    /// Argumentos de la línea de comandos: archivos que abrir y unos pocos conmutadores para
+    /// capturas de pantalla.
     fn startup(&mut self, ctx: &egui::Context, args: Vec<String>) {
         self.ctable.paint(&mut self.style.class_colors);
-        // the theme the system uses; when it is not known yet, the first frame sets it
+        // el tema que usa el sistema; cuando todavía no se conoce, lo fija el primer fotograma
         if let Some(theme) = ctx.system_theme() {
             self.dark = theme != egui::Theme::Light;
             self.theme_pending = false;
@@ -831,7 +877,7 @@ impl App {
                     }
                 }
                 "--orbit" => {
-                    // yaw and pitch of the 3D view, in degrees
+                    // guiñada y cabeceo de la vista 3D, en grados
                     let v: Vec<f64> = it
                         .next()
                         .unwrap_or_default()
@@ -951,10 +997,15 @@ impl App {
                     Some("about") => Action::About,
                     Some("manual") => Action::Manual,
                     Some("shortcuts") => Action::Shortcuts,
+                    Some("settings") => Action::Settings,
+                    Some("flows") => Action::Flows,
+                    Some("flowrun") => Action::FlowRun,
+                    Some("clitool") => Action::CliTool(0),
+                    Some("clitool-near") => Action::CliTool(5),
                     _ => continue,
                 }),
                 "--obia" => {
-                    // the CHM to segment: runs at once
+                    // el CHM que segmentar: se ejecuta de inmediato
                     self.ot.open = true;
                     self.ot.chm = it.next().map(PathBuf::from);
                     self.ot.autorun = true;
@@ -966,7 +1017,7 @@ impl App {
                     }
                 }
                 "--model" => {
-                    // plots table, field table and variable, separated by commas
+                    // tabla de parcelas, tabla de campo y variable, separadas por comas
                     let v = it.next().unwrap_or_default();
                     let v: Vec<&str> = v.split(',').collect();
                     if let [plots, field, response] = v[..] {
@@ -1033,7 +1084,7 @@ impl App {
                 if self.running.is_some() {
                     self.log("Hay otro proceso en marcha: espera a que termine para abrir el E57.");
                 } else {
-                    // an E57 is converted to LAZ (in the results folder) and that file is opened
+                    // un E57 se convierte a LAZ (en la carpeta de resultados) y se abre ese archivo
                     let out =
                         hipso_core::paths::unique(&hipso_core::paths::product(&p, "e57", "laz"));
                     let (src, dst) = (p.clone(), out.clone());
@@ -1057,7 +1108,7 @@ impl App {
                 if self.running.is_some() {
                     self.log("Hay otro proceso en marcha: espera a que termine para abrir el PLY.");
                 } else {
-                    // a PLY is converted to LAZ (in the results folder) and that file is opened
+                    // un PLY se convierte a LAZ (en la carpeta de resultados) y se abre ese archivo
                     let out =
                         hipso_core::paths::unique(&hipso_core::paths::product(&p, "ply", "laz"));
                     let (src, dst) = (p.clone(), out.clone());
@@ -1079,7 +1130,7 @@ impl App {
             }
             _ if is_cloud(&p) => {
                 if replace && self.loading.is_none() && !self.clouds.contains(&p) {
-                    // the first file of a batch replaces what was open
+                    // el primer archivo de un lote sustituye a lo que estaba abierto
                 }
                 if !self.clouds.contains(&p) {
                     self.clouds.push(p);
@@ -1090,8 +1141,8 @@ impl App {
         }
     }
 
-    /// The groups of the LiDAR tab: what each button shows, whether its window is open and
-    /// what it does. Large buttons first, then columns of up to three small ones.
+    /// Los grupos de la pestaña LiDAR: lo que muestra cada botón, si su ventana está abierta y lo
+    /// que hace. Primero los botones grandes y luego columnas de hasta tres pequeños.
     fn lidar_groups(&self) -> Vec<ribbon::Group<Action>> {
         use ribbon::{Group, Item};
         let tool = |icon: &'static str, label: &'static str, id: ToolId| Item {
@@ -1206,8 +1257,8 @@ impl App {
         ]
     }
 
-    /// The groups of the Vectorial tab: the layer, the corrections of the geometry and the
-    /// geoprocesses, each of which opens its own window.
+    /// Los grupos de la pestaña Vectorial: la capa, las correcciones de la geometría y los
+    /// geoprocesos, cada uno de los cuales abre su propia ventana.
     fn vector_groups(&self) -> Vec<ribbon::Group<Action>> {
         use ribbon::{Group, Item};
         let ops = |geometry: bool| -> Vec<Item<Action>> {
@@ -1232,6 +1283,18 @@ impl App {
                 }
             }
             cols
+        };
+        // las herramientas de la ventana genérica, en columnas de hasta tres botones pequeños
+        let cli_columns = |r: std::ops::Range<usize>| -> Vec<Vec<Item<Action>>> {
+            let items: Vec<Item<Action>> = r
+                .map(|k| Item {
+                    icon: cli_tool_ui::TOOLS[k].1,
+                    label: cli_tool_ui::TOOLS[k].3,
+                    on: self.cli_tool_open(k),
+                    action: Action::CliTool(k as u8),
+                })
+                .collect();
+            items.chunks(3).map(|c| c.iter().map(|i| Item { icon: i.icon, label: i.label, on: i.on, action: i.action }).collect()).collect()
         };
         vec![
             Group {
@@ -1268,79 +1331,127 @@ impl App {
                 menus: vec![],
                 columns: columns(ops(false)),
             },
+            Group {
+                caption: "Capas y tablas",
+                icon: "@jointable",
+                big: vec![],
+                menus: vec![],
+                columns: cli_columns(0..7),
+            },
         ]
     }
 
-    /// The groups of the Ráster tab: the operations on images and the geoprocesses on rasters.
-    fn raster_groups(&self) -> Vec<ribbon::Group<Action>> {
+    /// Los grupos de la pestaña Ráster: las operaciones sobre imágenes y los geoprocesos sobre
+    /// rásteres.
+    fn flow_groups(&self) -> Vec<ribbon::Group<Action>> {
         use ribbon::{Group, Item};
+        let running = self.flow_running();
+        let (can_undo, can_redo) = self.flow_can_undo();
+        let _ = (can_undo, can_redo);
         vec![
             Group {
-                caption: "Operaciones",
-                icon: "@rs",
+                caption: "Flujo",
+                icon: "@flow",
                 big: vec![
-                    Item {
-                        icon: "@rs",
-                        label: "Composición\nde bandas",
-                        on: false,
-                        action: Action::ImageTool(0),
-                    },
-                    Item {
-                        icon: "@bands",
-                        label: "Índices\nespectrales",
-                        on: self.rs.open,
-                        action: Action::ImageTool(1),
-                    },
-                    Item {
-                        icon: "@stack",
-                        label: "Crear\nmultibanda",
-                        on: self.rt.open == Some(0),
-                        action: Action::RasterTool(0),
-                    },
-                    Item {
-                        icon: "@mosaic",
-                        label: "Mosaico",
-                        on: self.rt.open == Some(1),
-                        action: Action::RasterTool(1),
-                    },
+                    Item { icon: "@add", label: "Nuevo\nflujo", on: false, action: Action::FlowNew },
+                    Item { icon: "@open", label: "Abrir\nflujo", on: false, action: Action::FlowOpen },
+                    Item { icon: "@save", label: "Guardar\nflujo", on: false, action: Action::FlowSave },
+                ],
+                menus: vec![ribbon::Menu {
+                    icon: "@flow",
+                    label: "Ejemplos",
+                    items: flow_ui::EXAMPLES
+                        .iter()
+                        .enumerate()
+                        .map(|(k, (name, _))| Item { icon: "@flow", label: name, on: false, action: Action::FlowExample(k as u8) })
+                        .collect(),
+                }],
+                columns: vec![vec![Item {
+                    icon: "@export",
+                    label: "Guardar como…",
+                    on: false,
+                    action: Action::FlowSaveAs,
+                }]],
+            },
+            Group {
+                caption: "Ejecución",
+                icon: "@run",
+                big: vec![
+                    Item { icon: "@run", label: "Ejecutar", on: running, action: Action::FlowRun },
+                    Item { icon: "@stop", label: "Cancelar", on: false, action: Action::FlowCancel },
                 ],
                 menus: vec![],
                 columns: vec![],
             },
             Group {
+                caption: "Edición",
+                icon: "@copy",
+                big: vec![],
+                menus: vec![],
+                columns: vec![vec![
+                    Item { icon: "@undo", label: "Deshacer", on: false, action: Action::FlowUndo },
+                    Item { icon: "@redo", label: "Rehacer", on: false, action: Action::FlowRedo },
+                    Item { icon: "@copy", label: "Duplicar", on: false, action: Action::FlowDuplicate },
+                ], vec![Item { icon: "@trash", label: "Quitar", on: false, action: Action::FlowDelete }]],
+            },
+            Group {
+                caption: "Vista",
+                icon: "@arrange",
+                big: vec![
+                    Item { icon: "@arrange", label: "Ordenar", on: false, action: Action::FlowArrange },
+                    Item { icon: "@full", label: "Encuadrar", on: false, action: Action::FlowFit },
+                ],
+                menus: vec![],
+                columns: vec![],
+            },
+        ]
+    }
+
+    fn raster_groups(&self) -> Vec<ribbon::Group<Action>> {
+        use ribbon::{Group, Item};
+        vec![
+            Group {
+                caption: "Imagen",
+                icon: "@rs",
+                big: vec![
+                    Item { icon: "@rs", label: "Composición\nde bandas", on: false, action: Action::ImageTool(0) },
+                    Item { icon: "@bands", label: "Índices\nespectrales", on: self.rs.open, action: Action::ImageTool(1) },
+                    Item { icon: "@mosaic", label: "Mosaico", on: self.rt.open == Some(1), action: Action::RasterTool(1) },
+                ],
+                menus: vec![],
+                columns: vec![vec![
+                    Item { icon: "@stack", label: "Crear multibanda", on: self.rt.open == Some(0), action: Action::RasterTool(0) },
+                    Item { icon: "@alignrs", label: "Igualar rásteres", on: self.at.open, action: Action::Align },
+                ]],
+            },
+            Group {
                 caption: "Geoprocesos",
                 icon: "@reproject",
                 big: vec![
-                    Item {
-                        icon: "@alignrs",
-                        label: "Igualar\nrásteres",
-                        on: self.at.open,
-                        action: Action::Align,
-                    },
-                    Item {
-                        icon: "@reproject",
-                        label: "Reproyectar",
-                        on: self.rp.open,
-                        action: Action::Reproject,
-                    },
+                    Item { icon: "@reproject", label: "Reproyectar", on: self.rp.open, action: Action::Reproject },
+                    Item { icon: rasterops_ui::Op::Calc.icon(), label: "Calculadora", on: self.ro.get(4).is_some_and(|t| t.open), action: Action::RasterOp(4) },
+                    Item { icon: rasterops_ui::Op::Clip.icon(), label: "Cortar por\nmáscara", on: self.ro.get(6).is_some_and(|t| t.open), action: Action::RasterOp(6) },
                 ],
                 menus: vec![],
-                // columns of up to three small buttons
-                columns: rasterops_ui::Op::ALL
-                    .chunks(3)
-                    .enumerate()
-                    .map(|(n, ops)| {
-                        ops.iter()
-                            .enumerate()
-                            .map(|(j, op)| Item {
-                                icon: op.icon(),
-                                label: op.label(),
-                                on: self.ro.get(n * 3 + j).is_some_and(|t| t.open),
-                                action: Action::RasterOp((n * 3 + j) as u8),
-                            })
-                            .collect()
-                    })
-                    .collect(),
+                // columnas de tres botones pequeños: edición de clases, conversión y análisis
+                columns: {
+                    let op = |k: usize| {
+                        let o = rasterops_ui::Op::ALL[k];
+                        Item { icon: o.icon(), label: o.label(), on: self.ro.get(k).is_some_and(|t| t.open), action: Action::RasterOp(k as u8) }
+                    };
+                    // el botón pequeño es de una sola línea: se usa el nombre completo
+                    let cli = |k: usize| Item {
+                        icon: cli_tool_ui::TOOLS[k].1,
+                        label: cli_tool_ui::TOOLS[k].3,
+                        on: self.cli_tool_open(k),
+                        action: Action::CliTool(k as u8),
+                    };
+                    vec![
+                        vec![op(5), op(0), op(1)],
+                        vec![op(2), op(3), cli(7)],
+                        vec![cli(8), cli(9), cli(10)],
+                    ]
+                },
             },
             Group {
                 caption: "Análisis del terreno",
@@ -1429,8 +1540,8 @@ impl App {
         ]
     }
 
-    /// Opens what was picked or dropped: the clouds are added together (one load), the rest one by
-    /// one as layers.
+    /// Abre lo que se eligió o se soltó: las nubes se añaden juntas (una carga), el resto una a una
+    /// como capas.
     fn open_files(&mut self, ctx: &egui::Context, files: Vec<PathBuf>) {
         prefs::opened(&files);
         let mut clouds = false;
@@ -1456,7 +1567,7 @@ impl App {
         hipso_core::progress::reset();
         self.last_progress_log = Instant::now();
         let max = (self.max_points_m * 1e6) as usize;
-        // clouds in another system than the first one are converted while they load
+        // las nubes en otro sistema que la primera se convierten mientras se cargan
         let (target, other) = hipso_core::reproject::clouds_in_other_system(&files);
         let (tx, rx) = channel();
         let c = ctx.clone();
@@ -1466,8 +1577,8 @@ impl App {
                 if moved.files.is_empty() {
                     return Err(hipso_core::Error::Param(moved.notes.join("\n")));
                 }
-                // a cloud that has its COPC copy in the cache is read from it: the sample comes from
-                // the first levels of the octree, without decompressing the whole file
+                // una nube que tiene su copia COPC en la caché se lee de ella: la muestra sale de
+                // los primeros niveles del octree, sin descomprimir todo el archivo
                 let read: Vec<PathBuf> = moved
                     .files
                     .iter()
@@ -1495,7 +1606,7 @@ impl App {
         self.run_info(ctx);
     }
 
-    /// The report of the Información tab: the clouds, then the other layers.
+    /// El informe de la pestaña Información: las nubes y luego las demás capas.
     fn info_full(&mut self) -> String {
         let layers = self.layers_report();
         match (self.info_text.is_empty(), layers.is_empty()) {
@@ -1531,7 +1642,7 @@ impl App {
         self.info_text = "Analizando los datos…".into();
     }
 
-    /// A grid as a raster layer, coloured between its 2nd and 98th percentile.
+    /// Una rejilla como capa ráster, coloreada entre sus percentiles 2 y 98.
     fn add_grid(&mut self, ctx: &egui::Context, name: String, path: PathBuf, g: Grid) {
         let step = (g.cols.max(g.rows) / 4096).max(1);
         let shown = if step > 1 {
@@ -1578,7 +1689,7 @@ impl App {
 
     fn poll(&mut self, ctx: &egui::Context) {
         self.poll_images(ctx);
-        // every half minute the log says how far the job is and how long it has left
+        // cada medio minuto el registro dice cuánto lleva el trabajo y cuánto le queda
         if self.last_progress_log.elapsed() >= Duration::from_secs(30) {
             let started = self
                 .running
@@ -1618,8 +1729,8 @@ impl App {
                     self.detail_job = None;
                     self.detail3 = None;
                     self.detail3_job = None;
-                    // layers opened before it follow the system of the first layer: if the cloud is in
-                    // another, they are loaded again in the cloud's
+                    // las capas abiertas antes siguen el sistema de la primera capa: si la nube
+                    // está en otro, se vuelven a cargar en el de la nube
                     if let Some(w) = self.work_crs.take()
                         && let Some(c) = self.project_crs()
                         && hipso_core::crs::relation(c, w) == hipso_core::crs::Relation::Different
@@ -1634,7 +1745,7 @@ impl App {
                         }
                     }
                     self.conform_to_undeclared_cloud(s.bounds);
-                    // layers that were opened before the cloud are moved to its system now
+                    // las capas que se abrieron antes que la nube se llevan ahora a su sistema
                     for q in std::mem::take(&mut self.pending_conform) {
                         if self.crs_move(&q).is_some() {
                             self.log(format!(
@@ -1684,7 +1795,8 @@ impl App {
                         class: old.class,
                         ..editing::Editing::default()
                     };
-                    // the marks belong to the cloud they were made on; the window stays open
+                    // las marcas pertenecen a la nube en la que se hicieron; la ventana sigue
+                    // abierta
                     self.ed.hist.open = hist_open;
                     self.ed.session = Some(hipso_core::edit::Session::new(&s));
                     self.store = Some(Arc::new(s));
@@ -1742,10 +1854,10 @@ impl App {
         }
     }
 
-    /// Loads what a job made, so a result is never left on disk unseen: the files the tool asked
-    /// to show and every raster, vector layer or cloud among its outputs. The first result ends
-    /// up first in the layer list (drawn on top and selected); a result cloud goes first in the
-    /// cloud list.
+    /// Carga lo que hizo un trabajo, de modo que un resultado nunca queda en el disco sin verse:
+    /// los archivos que la herramienta pidió mostrar y todo ráster, capa vectorial o nube entre sus
+    /// salidas. El primer resultado queda el primero en la lista de capas (dibujado encima y
+    /// seleccionado); una nube resultado va la primera en la lista de nubes.
     fn load_results(
         &mut self,
         ctx: &egui::Context,
@@ -1765,7 +1877,8 @@ impl App {
             .chain(outputs.iter().filter(|o| !pre.contains(*o)))
         {
             let e = ext(f);
-            // the stems and branches cloud of the TLS tool is big and made to be opened on demand
+            // la nube de troncos y ramas de la herramienta TLS es grande y está hecha para abrirse
+            // a demanda
             let on_demand = f
                 .file_stem()
                 .is_some_and(|n| n.to_string_lossy().ends_with("_troncos"));
@@ -1778,7 +1891,7 @@ impl App {
         }
         let (clouds, layers): (Vec<PathBuf>, Vec<PathBuf>) =
             list.into_iter().partition(|f| is_cloud(f));
-        // last loaded is on top: the first result goes last
+        // lo último que se carga queda encima: el primer resultado va el último
         for f in layers.into_iter().rev() {
             self.open_path(ctx, f, false);
         }
@@ -1798,14 +1911,14 @@ impl App {
                 continue;
             }
             self.clouds.insert(0, f);
-            // the visibility bits follow the list: the new first cloud is on
+            // los bits de visibilidad siguen la lista: la nueva primera nube está activada
             self.style.files = self.style.files << 1 | 1;
         }
         self.reload(ctx);
     }
 
-    /// Takes cloud `k` out of the loaded points without reading the others again. False when the
-    /// points do not map one to one to the clouds (then the caller reloads).
+    /// Saca la nube `k` de los puntos cargados sin volver a leer las demás. Falso cuando los puntos
+    /// no se corresponden uno a uno con las nubes (entonces quien llama recarga).
     fn drop_cloud_in_memory(&mut self, ctx: &egui::Context, k: usize) -> bool {
         if self.loading.is_some() {
             return false;
@@ -1837,7 +1950,8 @@ impl App {
         true
     }
 
-    /// Removes the cloud at `k` from the list, keeping the visibility bits of the others.
+    /// Quita la nube de la posición `k` de la lista, conservando los bits de visibilidad de las
+    /// demás.
     fn drop_cloud(&mut self, k: usize) {
         self.clouds.remove(k);
         if k < 64 {
@@ -1882,7 +1996,7 @@ impl App {
         self.moving_until = Instant::now() + Duration::from_millis(160);
     }
 
-    /// Back to the previous view of the plan; the one left can be reached again with
+    /// Vuelve a la vista anterior de la planta; a la que se dejó se puede volver con
     /// [`Action::ZoomNext`].
     fn zoom_back(&mut self) {
         if let Some(p) = self.prev_plans.pop() {
@@ -1924,8 +2038,8 @@ impl App {
     fn act(&mut self, ctx: &egui::Context, a: Action) {
         match a {
             Action::Open => {
-                // one door for everything: point clouds, rasters, images and vector layers; what
-                // is opened is added to what is there (Cerrar todo starts again)
+                // una sola puerta para todo: nubes de puntos, rásteres, imágenes y capas
+                // vectoriales; lo que se abre se añade a lo que hay (Cerrar todo empieza de nuevo)
                 let mut every = vec![
                     "las",
                     "laz",
@@ -1952,7 +2066,7 @@ impl App {
                 self.clouds.clear();
                 self.work_crs = None;
                 self.crs_cache.clear();
-                // a load still running would bring the cloud back when it finishes
+                // una carga que sigue en marcha traería la nube de vuelta al terminar
                 self.loading = None;
                 self.info_run = None;
                 self.store = None;
@@ -2097,7 +2211,7 @@ impl App {
                 }
             }
             Action::ImageTool(0) => {
-                // the colour composition is in the contextual tab of the image
+                // la composición de color está en la pestaña contextual de la imagen
                 let k = self.sel_layer.filter(|k| {
                     matches!(self.refs.get(*k).map(|r| &r.kind), Some(RefKind::Image(_)))
                 });
@@ -2167,6 +2281,25 @@ impl App {
             Action::Classes => self.show_classes = !self.show_classes,
             Action::About => self.show_backstage(backstage::Page::About),
             Action::Shortcuts => self.show_backstage(backstage::Page::Shortcuts),
+            Action::Settings => self.show_backstage(backstage::Page::Settings),
+            Action::CliTool(k) => self.open_cli_tool(usize::from(k)),
+            Action::Flows => {
+                self.backstage = false;
+                self.tab = FLOWS_TAB;
+            }
+            Action::FlowNew
+            | Action::FlowOpen
+            | Action::FlowExample(_)
+            | Action::FlowSave
+            | Action::FlowSaveAs
+            | Action::FlowRun
+            | Action::FlowCancel
+            | Action::FlowUndo
+            | Action::FlowRedo
+            | Action::FlowDelete
+            | Action::FlowDuplicate
+            | Action::FlowArrange
+            | Action::FlowFit => self.flow_action(ctx, a),
             Action::Manual => self.show_backstage(backstage::Page::Manual),
         }
     }
@@ -2308,6 +2441,8 @@ impl App {
             ("Cambiar tema claro / oscuro", Action::ToggleTheme),
             ("Clases visibles y colores", Action::Classes),
             ("Mostrar u ocultar el registro", Action::ToggleLog),
+            ("Ajustes (caché)", Action::Settings),
+            ("Constructor de flujos", Action::Flows),
             ("Atajos de teclado", Action::Shortcuts),
             ("Acerca del programa", Action::About),
             ("Manual de uso (F1)", Action::Manual),
@@ -2374,7 +2509,7 @@ impl App {
                 if self.tab >= FIRST_EXTRA {
                     self.tab = 0;
                 }
-                let names = vec!["Archivo", "Vista", "LiDAR", "Vectorial", "Raster"];
+                let names = vec!["Archivo", "Vista", "LiDAR", "Vectorial", "Raster", "Flujos"];
                 let mut tab = self.tab;
                 if ribbon::tab_strip(ui, &t, "Inicio", &names, FIRST_EXTRA, &mut tab) {
                     self.backstage = !self.backstage;
@@ -2500,10 +2635,14 @@ impl App {
                                     ui.spinner();
                                 }
                             }
+                            FLOWS_TAB => {
+                                let groups = self.flow_groups();
+                                ribbon::adaptive_groups(ui, &t, &groups, |a| self.act(ctx, a));
+                            }
                             1 => {
                                 ribbon::fold_group(ui, &t, "Visualización", "@intensity", 4, |ui| {
                                     ribbon::compact(ui);
-                                    // the windows shown: planta, perfil and 3D
+                                    // las ventanas que se muestran: planta, perfil y 3D
                                     let layouts = [
                                         ("@lay2d", "2D", Layout::Plan),
                                         ("@lay2dprof", "2D + perfil", Layout::PlanProfile),
@@ -2516,7 +2655,8 @@ impl App {
                                         .unwrap_or(&layouts[0]);
                                     let mut chosen = None;
                                     if ribbon::in_folded_popup(ctx) {
-                                        // inside the popup of a folded group a menu has to be a submenu
+                                        // dentro del menú emergente de un grupo plegado un menú
+                                        // tiene que ser un submenú
                                         ui.menu_button(format!("Ventanas: {}  ▾", now.1), |ui| {
                                             for (k, (icon, name, l)) in layouts.iter().enumerate() {
                                                 if ribbon::small_button(ui, &t, icon, name, self.layout == *l)
@@ -2566,10 +2706,12 @@ impl App {
                                             .find(|n| n.1 == self.style.color_by)
                                             .map_or("Colorear por…", |n| n.0);
                                         ui.horizontal(|ui| {
-                                        // a menu, not a combo box: when the group is folded into a
-                                        // button its controls live in a popup, which closes when a
-                                        // click lands outside it (as a combo's list does) before the
-                                        // choice is made; submenus are handled by the popup
+                                        // un menú, no un cuadro combinado: cuando el grupo se
+                                        // pliega en un botón sus controles viven en un menú
+                                        // emergente, que se cierra cuando un clic cae fuera de él
+                                        // (como la lista de un cuadro combinado) antes de que se
+                                        // haga la elección; los submenús los maneja el menú
+                                        // emergente
                                         ui.menu_button(format!("Color: {cur}  ▾"), |ui| {
                                             for (name, c) in names {
                                                 if ui
@@ -2669,7 +2811,7 @@ impl App {
                                                 },
                                             );
                                             ui.label("Máx.");
-                                            // up to 200 million points: five characters
+                                            // hasta 200 millones de puntos: cinco caracteres
                                             let r = ui
                                                 .add(
                                                     crate::numfield::NumField::new(&mut self.max_points_m)
@@ -2957,7 +3099,7 @@ ui.menu_button("⚙", |ui| {
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         let t = self.tokens();
-        // the system of the view: that of the first cloud (the others are brought to it)
+        // el sistema de la vista: el de la primera nube (las demás se llevan a él)
         let system = (!self.clouds.is_empty()).then(|| match self.project_crs() {
             Some(code) => hipso_core::crs::name(code),
             None => "sin declarar".to_string(),
@@ -3058,7 +3200,8 @@ ui.menu_button("⚙", |ui| {
                         .stroke(Stroke::new(1.0, t.border)),
                 )
                 .show(ui, |ui| {
-                    // one text box, read only: the text can be selected across lines and copied
+                    // un cuadro de texto de solo lectura: el texto se puede seleccionar a través de
+                    // varias líneas y copiar
                     let mut text = self.log.join("\n");
                     egui::ScrollArea::vertical()
                         .id_salt("log_scroll")
@@ -3078,7 +3221,7 @@ ui.menu_button("⚙", |ui| {
         }
     }
 
-    /// What "Acerca de" says: in its window and in the "Archivo" view.
+    /// Lo que dice «Acerca de»: en su ventana y en la vista «Archivo».
     fn about_body(&self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             brand::paint(ui, brand::Art::Logo, self.dark, 84.0);
@@ -3175,7 +3318,8 @@ ui.menu_button("⚙", |ui| {
             });
     }
 
-    /// The bars between the views, to drag to resize them when two or more are showing.
+    /// Las barras entre las vistas, que se arrastran para cambiar su tamaño cuando se muestran dos
+    /// o más.
     fn dividers(&mut self, ui: &mut egui::Ui, full: Rect) {
         let t = self.tokens();
         let bar = |ui: &mut egui::Ui, id: &str, r: Rect, vertical: bool| -> Option<Pos2> {
@@ -3263,7 +3407,7 @@ ui.menu_button("⚙", |ui| {
                 self.plan = Plan::fit(s.bounds, w, h);
                 self.plan_fit = false;
             } else if let Some(b) = self.refs_bounds() {
-                // a lone point has no extent: it gets a window of 40 m
+                // un punto solo no tiene extensión: recibe una ventana de 40 m
                 let pad = if (b[2] - b[0]).max(b[3] - b[1]) < 1e-6 {
                     20.0
                 } else {
@@ -3311,7 +3455,7 @@ ui.menu_button("⚙", |ui| {
                 self.touch();
             }
         }
-        // pan: middle or right drag, or the Pan tool
+        // desplazar: arrastre con el botón central o el derecho, o la herramienta Desplazar
         let pan_drag = resp.dragged_by(egui::PointerButton::Middle)
             || resp.dragged_by(egui::PointerButton::Secondary)
             || (self.nav == Nav::Pan && resp.dragged_by(egui::PointerButton::Primary));
@@ -3499,7 +3643,7 @@ ui.menu_button("⚙", |ui| {
                 self.vector_tool(&resp, rect, w, h)
             }
         }
-        // render points (thinned while the view moves)
+        // dibuja los puntos (adelgazados mientras la vista se mueve)
         let interactive = Instant::now() < self.moving_until;
         let (lo, hi) = (
             self.plan.to_map(0.0, h as f64, w, h),
@@ -3507,7 +3651,7 @@ ui.menu_button("⚙", |ui| {
         );
         self.update_detail(ctx, [lo.0, lo.1, hi.0, hi.1], interactive);
         if let Some(store) = &store {
-            // zoomed into COPC clouds the window is drawn from its own, denser points
+            // con zoom sobre nubes COPC la ventana se dibuja con sus propios puntos, más densos
             let detail = self
                 .detail
                 .as_ref()
@@ -3557,12 +3701,12 @@ ui.menu_button("⚙", |ui| {
         if interactive {
             ctx.request_repaint_after(Duration::from_millis(170));
         }
-        // paint: images and grids, TIN, points, vectors, marks
+        // pintar: imágenes y rejillas, TIN, puntos, vectores, marcas
         let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
         self.update_images(ctx, w, h);
-        // the layers under the point clouds, then the clouds, then the layers over them
+        // las capas bajo las nubes de puntos, luego las nubes y luego las capas encima
         let slot = self.cloud_slot.min(self.refs.len());
-        // the base map goes under everything
+        // el mapa base va bajo todo
         let project = if self.basemap.as_ref().is_some_and(|b| b.on) {
             self.project_crs()
         } else {
@@ -3585,7 +3729,7 @@ ui.menu_button("⚙", |ui| {
             if self.tin_on || self.contours_on {
                 self.paint_tin(ctx, &painter, store, rect, w, h);
             }
-            // the TIN and the contours stand where the points would
+            // el TIN y las curvas de nivel quedan donde estarían los puntos
             if self.show_points
                 && !(self.tin_on || self.contours_on)
                 && let Some((tex, _)) = &self.tex_plan
@@ -3599,7 +3743,7 @@ ui.menu_button("⚙", |ui| {
         };
         self.paint_layers(&painter, rect, w, h, slot..self.refs.len());
         self.paint_draft(&painter, pointer, rect, w, h);
-        // the box marks what the profile window shows: with no such window it is not drawn
+        // la caja marca lo que muestra la ventana del perfil: sin esa ventana no se dibuja
         let profile_shown = matches!(self.layout, Layout::PlanProfile | Layout::All);
         if let Some(bx) = self.profile.as_ref().filter(|_| profile_shown) {
             let l = bx.length().max(1e-9);
@@ -3697,7 +3841,7 @@ ui.menu_button("⚙", |ui| {
                         + 16.0,
                     lines.len() as f32 * 17.0 + 10.0,
                 );
-                // beside the last point, kept inside the view
+                // junto al último punto, dentro de la vista
                 let mut at = pos - Vec2::new(0.0, size.y);
                 at.x = at.x.min(rect.right() - size.x - 6.0).max(rect.left() + 6.0);
                 at.y = at.y.max(rect.top() + 6.0).min(rect.bottom() - size.y - 6.0);
@@ -3806,7 +3950,7 @@ ui.menu_button("⚙", |ui| {
                 }
             ),
         );
-        // legend for classes
+        // leyenda de las clases
         if self.style.color_by == ColorBy::Class {
             let mut y = rect.top() + 26.0;
             for c in 0..256usize {
@@ -3913,10 +4057,10 @@ ui.menu_button("⚙", |ui| {
         }
     }
 
-    /// Each visible raster layer sampled along the profile axis: `(name, [[along, z], ..])`,
-    /// with a NaN z where the raster has no data.
-    // ponytail: samples the displayed grid, which `add_grid` decimates above 4096 px a side;
-    // sample the source file if that loses too much detail.
+    /// Cada capa ráster visible muestreada a lo largo del eje del perfil: `(nombre, [[a lo largo,
+    /// z], ..])`, con una z NaN donde el ráster no tiene datos.
+    // ponytail: muestrea la rejilla mostrada, que `add_grid` diezma por encima de 4096 px de lado;
+    // muestrear el archivo de origen si eso pierde demasiado detalle.
     fn terrain_profile(&self, bx: &view::ProfileBox) -> Vec<(String, Vec<[f64; 2]>)> {
         let len = bx.length();
         if len <= 0.0 {
@@ -4049,7 +4193,8 @@ ui.menu_button("⚙", |ui| {
                 );
             }
             if let Some((_, _, lo, hi)) = &self.tex_prof {
-                // same transform as `render_profile`, from image pixels to the screen rect
+                // la misma transformación que `render_profile`, de píxeles de la imagen al
+                // rectángulo de pantalla
                 let (lo, hi, len) = (*lo, *hi, bx.length().max(1e-9));
                 let k = (w as f64 / len).min(h as f64 / (hi - lo));
                 let (ox, oy) = (
@@ -4134,7 +4279,7 @@ ui.menu_button("⚙", |ui| {
         let (mods, hovered) = (ui.input(|i| i.modifiers), resp.hovered());
         let d = resp.drag_delta();
         let o = &mut self.orbit;
-        // with a selection tool the left button draws; the middle one turns the scene
+        // con una herramienta de selección el botón izquierdo dibuja; el central gira la escena
         let selecting = editing::is_select_3d(self.nav);
         let left = resp.dragged_by(egui::PointerButton::Primary) && !selecting;
         let turn = selecting && resp.dragged_by(egui::PointerButton::Middle);
@@ -4176,7 +4321,8 @@ ui.menu_button("⚙", |ui| {
                 moved = true;
                 ui.ctx().request_repaint();
             }
-            // a double click on the compass turns the north up; anywhere else it frames the scene
+            // un doble clic en la brújula pone el norte arriba; en cualquier otro sitio encuadra la
+            // escena
             let on_compass = resp.double_clicked()
                 && resp
                     .interact_pointer_pos()
@@ -4189,7 +4335,7 @@ ui.menu_button("⚙", |ui| {
                 *o = match &store {
                     Some(s) => Orbit::fit_scene(s),
                     None => {
-                        // a raster alone: closer, it is a flat sheet
+                        // un ráster solo: más cerca, es una lámina plana
                         let mut f = Orbit::fit(b);
                         f.dist *= 0.75;
                         f
@@ -4204,8 +4350,9 @@ ui.menu_button("⚙", |ui| {
         }
     }
 
-    /// The raster the 3D view shows as a surface: the selected one, else the first visible
-    /// (a one-band raster, or a one-band image whose reduced copy gives the heights).
+    /// El ráster que la vista 3D muestra como superficie: el seleccionado o, si no, el primero
+    /// visible (un ráster de una banda, o una imagen de una banda cuya copia reducida da las
+    /// alturas).
     fn surface_layer(&self) -> Option<usize> {
         let ok = |r: &RefLayer| {
             r.visible
@@ -4220,7 +4367,7 @@ ui.menu_button("⚙", |ui| {
             .or_else(|| self.refs.iter().position(ok))
     }
 
-    /// Heights and colours of layer `k` for the 3D view, made again only when it changes.
+    /// Alturas y colores de la capa `k` para la vista 3D, rehechos solo cuando cambia.
     fn prepare_surface(&mut self, k: usize) {
         let r = &self.refs[k];
         let key = match &r.kind {
@@ -4260,7 +4407,7 @@ ui.menu_button("⚙", |ui| {
             RefKind::Vector(_) => return,
         };
         let shade = style.mode != rs::GridMode::Hillshade;
-        // empty cells stay transparent: the surface skips them
+        // las celdas vacías quedan transparentes: la superficie las salta
         let color = rs::render_grid(&grid, &style);
         let bounds = view::Surface {
             grid: &grid,
@@ -4300,7 +4447,7 @@ ui.menu_button("⚙", |ui| {
             rect.width().max(8.0) as usize,
             rect.height().max(8.0) as usize,
         );
-        // with the cloud hidden and a raster shown, only the surface is drawn
+        // con la nube oculta y un ráster mostrado, solo se dibuja la superficie
         let has_cloud = self.store.is_some() && (self.show_points || self.surf3.is_none());
         let store = if has_cloud {
             self.store.clone()
@@ -4324,7 +4471,8 @@ ui.menu_button("⚙", |ui| {
             if !self.follow_plan {
                 st.window = None;
             }
-            // close to the cloud the ground the camera takes in is read again at full detail
+            // cerca de la nube, el terreno que abarca la cámara se vuelve a leer con todo el
+            // detalle
             let f = Orbit::focal(w, h);
             let px3 = self.orbit.dist / f;
             let half = w.max(h) as f64 * px3 * 0.6;
@@ -4372,7 +4520,8 @@ ui.menu_button("⚙", |ui| {
                 ),
             ));
             if self.tex_3d.as_ref().is_none_or(|t| t.1 != key) {
-                // a moving view draws fewer quads: the surface stays smooth to drag
+                // una vista en movimiento dibuja menos cuadriláteros: la superficie sigue siendo
+                // suave al arrastrar
                 let quads = if interactive { 1_000_000 } else { 6_000_000 };
                 let surface = self.surf3.as_ref().map(|s| view::Surface {
                     grid: &s.grid,
@@ -4458,7 +4607,7 @@ ui.menu_button("⚙", |ui| {
             if has_cloud && editing::is_select_3d(self.nav) {
                 self.view3d_select(ctx, &painter, &resp, rect, w, h);
             }
-            // north arrow: a double click on it puts the north up
+            // flecha del norte: un doble clic en ella pone el norte arriba
             let c = compass_centre(rect);
             let (s, co) = self.orbit.yaw.sin_cos();
             let tip = c + Vec2::new(-(s as f32), -(co as f32)) * 18.0;
@@ -4652,8 +4801,13 @@ ui.menu_button("⚙", |ui| {
         if ctx.egui_wants_keyboard_input() {
             return;
         }
-        self.edit_keys(ctx);
-        self.vector_keys(ctx);
+        // el constructor de flujos tiene sus propias teclas; las del mapa no deben actuar debajo de
+        // él
+        let flows = self.tab == FLOWS_TAB && !self.backstage;
+        if !flows {
+            self.edit_keys(ctx);
+            self.vector_keys(ctx);
+        }
         let (ctrl, pressed): (bool, Vec<Key>) = ctx.input(|i| {
             (
                 i.modifiers.command,
@@ -4679,12 +4833,16 @@ ui.menu_button("⚙", |ui| {
                 .collect(),
             )
         });
-        // + and − size the dots of the profile when the cursor is over it, else those of 2D and 3D
+        // + y − dimensionan los puntos del perfil cuando el cursor está sobre él y, si no, los de
+        //   2D y 3D
         let over_profile = self.profile_rect.take().is_some_and(|r| {
             ctx.input(|i| i.pointer.hover_pos())
                 .is_some_and(|p| r.contains(p))
         });
         for k in pressed {
+            if flows && !ctrl && k != Key::F1 && k != Key::Escape {
+                continue;
+            }
             match (k, ctrl) {
                 (Key::O, true) => self.act(ctx, Action::Open),
                 (Key::K, true) => self.palette = Some(String::new()),
@@ -4725,12 +4883,12 @@ ui.menu_button("⚙", |ui| {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        // the drawing of the measure tool goes away with the tool
+        // el dibujo de la herramienta de medir desaparece con la herramienta
         if self.nav != Nav::Measure && !self.measure.is_empty() {
             self.measure.clear();
         }
-        // `--bench`: draws as fast as it can; after 6 s (the cloud is loaded) it counts the frames of
-        // 8 s, prints them with the renderer and exits
+        // `--bench`: dibuja lo más rápido que puede; a los 6 s (la nube está cargada) cuenta los
+        // fotogramas de 8 s, los imprime con el renderizador y sale
         if let Some((start, frames)) = &mut self.bench {
             ctx.request_repaint();
             let t = start.elapsed().as_secs_f64();
@@ -4781,7 +4939,7 @@ impl eframe::App for App {
         {
             ctx.request_repaint_after(Duration::from_millis(250));
         }
-        // files dropped on the window
+        // archivos soltados sobre la ventana
         let dropped: Vec<PathBuf> = ctx.input(|i| {
             i.raw
                 .dropped_files
@@ -4799,6 +4957,8 @@ impl eframe::App for App {
                 self.backstage = false;
             }
             self.backstage_view(ui, &ctx);
+        } else if self.tab == FLOWS_TAB {
+            self.flow_view(ui, &ctx);
         } else {
             self.side_panel(ui, &ctx);
             self.views(ui, &ctx);
@@ -4895,6 +5055,7 @@ impl eframe::App for App {
         self.cutfill_window(&ctx);
         self.obia_window(&ctx);
         self.align_window(&ctx);
+        self.cli_tool_window(&ctx);
         self.reproject_window(&ctx);
         self.rasterops_windows(&ctx);
         self.vector_windows(&ctx);
@@ -4908,11 +5069,11 @@ impl eframe::App for App {
     }
 }
 
-/// "42 % · quedan ~ 3 min 20 s" for a job started at `started`, when it says how far it is.
+/// «42 % · quedan ~ 3 min 20 s» para un trabajo empezado en `started`, cuando dice cuánto lleva.
 fn progress_text(started: Instant) -> Option<String> {
     let f = hipso_core::progress::fraction()?;
     let elapsed = started.elapsed().as_secs_f64();
-    // too early for a steady rate: show the share only
+    // demasiado pronto para un ritmo estable: se muestra solo la proporción
     if f < 0.02 || elapsed < 5.0 {
         return Some(format!("{:.0} %", f * 100.0));
     }
@@ -4926,7 +5087,7 @@ fn progress_text(started: Instant) -> Option<String> {
     Some(format!("{:.0} % · quedan ~ {when}", f * 100.0))
 }
 
-/// Extensions of everything the Layers dialog opens.
+/// Extensiones de todo lo que abre el diálogo de Capas.
 fn layer_extensions() -> Vec<&'static str> {
     let mut v = hipso_core::raster::EXTENSIONS.to_vec();
     v.extend(["shp", "geojson", "json", "gpkg", "kml", "kmz"]);

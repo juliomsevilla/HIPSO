@@ -1,9 +1,10 @@
-//! JPEG 2000 reader (ITU-T T.800, Part 1) in pure Rust: the JP2 file format and the bare
-//! codestream (`.jp2`, `.j2k`, `.j2c`), the 5/3 and 9/7 wavelets, any progression order, tiles,
-//! precincts and the coding options of the block coder. It reads windows at full resolution or
-//! with the wavelet's reductions (each one halves the image), decoding only the tiles it needs.
+//! Lector de JPEG 2000 (ITU-T T.800, parte 1) en Rust puro: el formato de archivo JP2 y el flujo de
+//! código desnudo (`.jp2`, `.j2k`, `.j2c`), las ondículas 5/3 y 9/7, cualquier orden de progresión,
+//! teselas, recintos y las opciones de codificación del codificador de bloques. Lee ventanas a
+//! resolución completa o con las reducciones de la ondícula (cada una reduce la imagen a la mitad),
+//! decodificando solo las teselas que necesita.
 //!
-//! Georeferencing comes from GMLJP2 (Sentinel-2) or GeoJP2.
+//! La georreferenciación viene de GMLJP2 (Sentinel-2) o GeoJP2.
 
 mod codestream;
 mod decode;
@@ -26,7 +27,7 @@ fn bad(what: &str) -> Error {
     Error::Format(format!("JPEG 2000: {what}"))
 }
 
-/// Where the image lies on the ground.
+/// Dónde está la imagen sobre el terreno.
 #[derive(Clone, Copy, Debug)]
 pub struct Geo {
     pub x0: f64,
@@ -35,7 +36,7 @@ pub struct Geo {
     pub epsg: Option<u16>,
 }
 
-/// An opened JPEG 2000 image. Cheap to clone.
+/// Una imagen JPEG 2000 abierta. Barata de clonar.
 #[derive(Clone, Debug)]
 pub struct Jp2 {
     path: PathBuf,
@@ -44,12 +45,12 @@ pub struct Jp2 {
     pub height: u32,
     pub bands: usize,
     pub depth: u8,
-    /// How many times the image can be halved by the wavelet.
+    /// Cuántas veces se puede reducir a la mitad la imagen con la ondícula.
     pub levels: u32,
     pub geo: Option<Geo>,
 }
 
-/// Whether the first bytes of a file are those of a JPEG 2000 file or codestream.
+/// Si los primeros bytes de un archivo son los de un archivo o flujo de código JPEG 2000.
 pub fn is_jp2(head: &[u8]) -> bool {
     head.starts_with(&[0, 0, 0, 12, b'j', b'P', b' ', b' '])
         || head.starts_with(&[0xFF, 0x4F, 0xFF, 0x51])
@@ -91,8 +92,8 @@ fn read_box(f: &mut File, at: u64, limit: u64) -> Result<Option<BoxHead>> {
     }))
 }
 
-/// Georeferencing from the text of a GMLJP2 document: the centre of the first pixel and the two
-/// offset vectors of the grid.
+/// Georreferenciación a partir del texto de un documento GMLJP2: el centro del primer píxel y los
+/// dos vectores de desplazamiento de la rejilla.
 fn parse_gml(text: &str) -> Option<Geo> {
     let tag_text = |open: &str, close: &str, from: usize| -> Option<(String, usize)> {
         let s = text[from..].find(open)? + from;
@@ -131,7 +132,8 @@ fn parse_gml(text: &str) -> Option<Geo> {
     })
 }
 
-/// Georeferencing from the little GeoTIFF that a GeoJP2 box holds (its tags only).
+/// Georreferenciación a partir del pequeño GeoTIFF que contiene una caja GeoJP2 (solo sus
+/// etiquetas).
 fn parse_geotiff(b: &[u8]) -> Option<Geo> {
     let le = match b.get(..2)? {
         b"II" => true,
@@ -184,7 +186,7 @@ fn parse_geotiff(b: &[u8]) -> Option<Geo> {
             .map(|k| k[3])
     };
     let (sx, tx, ty) = (*scale.first()?, *tie.get(3)?, *tie.get(4)?);
-    // a "point" raster type puts the tie point at the pixel centre
+    // un tipo de ráster «punto» pone el punto de enlace en el centro del píxel
     let half = if key(1025) == Some(2) { sx / 2.0 } else { 0.0 };
     Some(Geo {
         x0: tx - half,
@@ -284,7 +286,7 @@ impl Jp2 {
         })
     }
 
-    /// Size of the image after `reduce` halvings.
+    /// Tamaño de la imagen tras `reduce` reducciones a la mitad.
     pub fn size_at(&self, reduce: u32) -> (usize, usize) {
         let s = &self.cs.siz;
         (
@@ -293,8 +295,8 @@ impl Jp2 {
         )
     }
 
-    /// Decodes the pixels `[x0, x1) x [y0, y1)` of the image reduced `reduce` times, keeping one
-    /// pixel in every `step`, as one vector per band (rows north to south).
+    /// Decodifica los píxeles `[x0, x1) x [y0, y1)` de la imagen reducida `reduce` veces,
+    /// conservando un píxel de cada `step`, como un vector por banda (filas de norte a sur).
     pub fn read(
         &self,
         reduce: u32,
@@ -391,8 +393,8 @@ struct Piece {
 mod tests {
     use super::*;
 
-    /// A 100 x 70 RGB image, lossless, in 64 x 64 tiles, three resolutions, RPCL order; the
-    /// values were checked against OpenJPEG.
+    /// Una imagen RGB de 100 x 70, sin pérdidas, en teselas de 64 x 64, tres resoluciones, orden
+    /// RPCL; los valores se comprobaron contra OpenJPEG.
     fn sample() -> Result<Jp2> {
         Jp2::open(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/small_lossless.jp2"))
     }
@@ -434,7 +436,7 @@ mod tests {
                 }
             }
         }
-        // thinned: one pixel in three
+        // adelgazada: un píxel de cada tres
         let thin = j.read(0, (0, 0, 100, 70), 3)?;
         assert_eq!(thin[0].len(), 34 * 24);
         assert_eq!(thin[0][5 * 34 + 7], full[0][15 * 100 + 21]);
@@ -463,7 +465,8 @@ mod tests {
 
     #[test]
     fn geojp2_reads_the_tags_of_its_little_geotiff() {
-        // little-endian TIFF with one IFD of three entries: scale, tie point, geo keys
+        // TIFF little-endian con un IFD de tres entradas: escala, punto de enlace, claves
+        // geográficas
         let mut t: Vec<u8> = b"II*\0\x08\0\0\0".to_vec();
         t.extend(3u16.to_le_bytes());
         let data_at = 8 + 2 + 3 * 12 + 4;
@@ -495,7 +498,7 @@ mod tests {
         let _ = std::fs::remove_file(p);
     }
 
-    /// Damaged files must give an error or garbage, never a panic or a hang.
+    /// Los archivos dañados deben dar un error o basura, nunca un pánico ni un bloqueo.
     #[test]
     fn damaged_files_do_not_panic() {
         let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/small_lossless.jp2");

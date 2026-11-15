@@ -1,6 +1,7 @@
-//! Streaming utilities, written from the standard definitions and built for the same
-//! premise as the rest: one pass, memory that follows the output and not the cloud. Point statistics on a grid (density, count, elevation, intensity),
-//! contour lines and hillshade from a surface, and the tile layout for splitting a cloud.
+//! Utilidades en flujo, escritas a partir de las definiciones estándar y construidas con la misma
+//! premisa que el resto: una pasada, memoria que sigue a la salida y no a la nube. Estadísticos de
+//! puntos en una rejilla (densidad, recuento, elevación, intensidad), curvas de nivel y sombreado
+//! de una superficie, y la disposición de teselas para dividir una nube.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -15,7 +16,7 @@ use crate::{Error, Result};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stat {
-    /// Points per square map unit.
+    /// Puntos por unidad cuadrada del mapa.
     Density,
     Count,
     MeanZ,
@@ -26,7 +27,7 @@ pub enum Stat {
     MaxIntensity,
 }
 
-/// A grid of a statistic of the points in each cell, in one pass.
+/// Una rejilla de un estadístico de los puntos de cada celda, en una pasada.
 pub fn raster_stat(
     inputs: &[PathBuf],
     cell: f64,
@@ -36,8 +37,8 @@ pub fn raster_stat(
     raster_stat_weighted(inputs, cell, stat, filter, None)
 }
 
-/// As [`raster_stat`], with the value of each point multiplied by `weight` of the point when
-/// given (used for the intensity).
+/// Como [`raster_stat`], con el valor de cada punto multiplicado por el `weight` del punto cuando
+/// se da (usado para la intensidad).
 fn raster_stat_weighted(
     inputs: &[PathBuf],
     cell: f64,
@@ -112,7 +113,7 @@ fn raster_stat_weighted(
             Stat::RangeZ => hi[i] - lo[i],
         } as f32;
     }
-    // density of empty cells is zero, not unknown
+    // la densidad de las celdas vacías es cero, no desconocida
     if matches!(stat, Stat::Density | Stat::Count) {
         for (i, v) in g.data.iter_mut().enumerate() {
             if count[i] == 0 {
@@ -123,29 +124,29 @@ fn raster_stat_weighted(
     Ok((g, epsg))
 }
 
-/// The mean spacing between the points of a cloud, from its header: the square root of the
-/// area of its box over its number of points. It is an estimate (an oblique strip fills only
-/// part of its box, and the spacing of the first returns alone is larger).
+/// El espaciado medio entre los puntos de una nube, a partir de su cabecera: la raíz cuadrada del
+/// área de su caja entre su número de puntos. Es una estimación (una franja oblicua llena solo
+/// parte de su caja, y el espaciado de los primeros retornos solos es mayor).
 pub fn mean_spacing(input: &Path) -> Option<f64> {
     let h = Reader::open(input).ok()?.header;
     let area = (h.bounds[3] - h.bounds[0]) * (h.bounds[4] - h.bounds[1]);
     (h.count > 0 && area > 0.0).then(|| (area / h.count as f64).sqrt())
 }
 
-/// The factor that brings the intensity of a point to what it would be at the nadir of its
-/// flight line. The energy that returns falls with the square of the range, and the range grows
-/// as 1 / cos(scan angle) over flat ground, so the factor is 1 / cos²: the flying height cancels,
-/// and no trajectory is needed. Angles over 45° are not corrected further.
+/// El factor que lleva la intensidad de un punto a lo que sería en el nadir de su pasada. La
+/// energía que vuelve cae con el cuadrado de la distancia, y la distancia crece como 1 / cos(ángulo
+/// de barrido) sobre terreno llano, así que el factor es 1 / cos²: la altura de vuelo se anula y no
+/// hace falta trayectoria. Los ángulos de más de 45° no se corrigen más.
 fn angle_factor(p: &crate::las::Point) -> f64 {
     let c = f64::from(p.scan_angle.abs().min(45.0)).to_radians().cos();
     1.0 / (c * c)
 }
 
-/// Mean intensity per cell as an image of the data: holes of up to `fill` cells across are filled
-/// from their neighbours (larger gaps, such as water, stay empty), and the grid is cut to the
-/// cells that have points, not to the header's box, which for oblique flight strips or a wrong
-/// header holds a lot of nothing. With `angle` the intensity is first corrected for the scan
-/// angle ([`angle_factor`]). Empty cells are no data.
+/// Intensidad media por celda como imagen de los datos: los huecos de hasta `fill` celdas de ancho
+/// se rellenan a partir de sus vecinas (los mayores, como el agua, quedan vacíos), y la rejilla se
+/// recorta a las celdas que tienen puntos, no a la caja de la cabecera, que para franjas de vuelo
+/// oblicuas o una cabecera errónea contiene mucho vacío. Con `angle`, la intensidad se corrige
+/// primero por el ángulo de barrido ([`angle_factor`]). Las celdas vacías son sin datos.
 pub fn intensity_image(
     inputs: &[PathBuf],
     cell: f64,
@@ -169,10 +170,11 @@ pub fn intensity_image(
     Ok((g, epsg))
 }
 
-/// The tone range of a set of intensity grids: the 2nd and 98th percentile of all their cells
-/// together, so every sheet is stretched alike. Two histogram passes: the first, over the whole
-/// range, finds where the bulk of the values lies (a few huge values would otherwise make every
-/// bin too wide), the second measures the percentiles inside that.
+/// El rango de tonos de un conjunto de rejillas de intensidad: los percentiles 2 y 98 de todas sus
+/// celdas juntas, de modo que cada hoja se estire igual. Dos pasadas de histograma: la primera,
+/// sobre todo el rango, halla dónde está el grueso de los valores (unos pocos valores enormes
+/// harían si no demasiado anchos todos los intervalos), la segunda mide los percentiles dentro de
+/// eso.
 pub fn tone_range(grids: &[&Grid]) -> Option<(f32, f32)> {
     let vals = || {
         grids
@@ -189,8 +191,8 @@ pub fn tone_range(grids: &[&Grid]) -> Option<(f32, f32)> {
         return Some((lo, lo + 1.0));
     }
     const BINS: usize = 4096;
-    // value at a share of the cells, from a histogram over [from, to]; cells outside count at
-    // the ends
+    // valor en una proporción de las celdas, a partir de un histograma sobre [from, to]; las celdas
+    // fuera cuentan en los extremos
     let quantiles = |from: f32, to: f32, shares: [f64; 2]| -> [f32; 2] {
         let mut hist = vec![0u64; BINS];
         let k = (BINS - 1) as f32 / (to - from);
@@ -217,7 +219,7 @@ pub fn tone_range(grids: &[&Grid]) -> Option<(f32, f32)> {
     Some(if b > a { (a, b) } else { (a0, b0) })
 }
 
-/// Contour lines of a surface as chained polylines `(level, vertices)`.
+/// Curvas de nivel de una superficie como polilíneas encadenadas `(nivel, vértices)`.
 pub fn contour_lines(g: &Grid, interval: f64) -> Vec<(f64, Vec<[f64; 2]>)> {
     let q = |v: f64| (v / (g.cell * 1e-3)).round() as i64;
     let mut by_level: HashMap<i64, Vec<[f64; 4]>> = HashMap::new();
@@ -249,7 +251,7 @@ pub fn contour_lines(g: &Grid, interval: f64) -> Vec<(f64, Vec<[f64; 2]>)> {
             used[start] = true;
             let s = segs[start];
             let mut line = vec![[s[0], s[1]], [s[2], s[3]]];
-            // grow at the tail, then at the head
+            // se crece por la cola y luego por la cabeza
             for head in [false, true] {
                 loop {
                     let tip = if head { line[0] } else { line[line.len() - 1] };
@@ -276,7 +278,7 @@ pub fn contour_lines(g: &Grid, interval: f64) -> Vec<(f64, Vec<[f64; 2]>)> {
     out
 }
 
-/// Writes contour lines of a surface as a polyline shapefile with a `LEVEL` field.
+/// Escribe curvas de nivel de una superficie como shapefile de polilíneas con un campo `LEVEL`.
 pub fn write_contours(g: &Grid, interval: f64, path: &Path, epsg: Option<u16>) -> Result<usize> {
     use crate::vector::{ColKind, Table, Val, prj_for_epsg, write_polylines};
     let lines = contour_lines(g, interval);
@@ -299,7 +301,7 @@ pub fn write_contours(g: &Grid, interval: f64, path: &Path, epsg: Option<u16>) -
     Ok(geom.len())
 }
 
-/// Hillshade of a surface as an image (white light, no colour).
+/// Sombreado de una superficie como imagen (luz blanca, sin color).
 pub fn hillshade(g: &Grid, azimuth: f64, altitude: f64) -> Image {
     let mut img = view::shade(g, &Style::default(), azimuth, altitude, false);
     for px in img.rgba.as_chunks_mut::<4>().0 {
@@ -310,8 +312,8 @@ pub fn hillshade(g: &Grid, azimuth: f64, altitude: f64) -> Image {
     img
 }
 
-/// Square tiles over `bounds` (min x, min y, max x, max y), each grown by `buffer`, as clip
-/// regions named `<prefix>_<col>_<row>`.
+/// Teselas cuadradas sobre `bounds` (x mínima, y mínima, x máxima, y máxima), cada una ampliada
+/// `buffer`, como regiones de recorte llamadas `<prefijo>_<col>_<fila>`.
 pub fn tile_regions(bounds: [f64; 4], size: f64, buffer: f64, prefix: &str) -> Result<Vec<Region>> {
     if !(size > 0.0) || !(buffer >= 0.0) {
         return Err(Error::Param(
@@ -335,7 +337,8 @@ pub fn tile_regions(bounds: [f64; 4], size: f64, buffer: f64, prefix: &str) -> R
             let (xa, ya) = (x0 + c as f64 * size, y0 + r as f64 * size);
             out.push(Region {
                 name: format!("{prefix}_{}_{}", xa.round() as i64, ya.round() as i64),
-                // the upper edges stop just short, so a point on a shared edge belongs to one tile
+                // los bordes superiores se quedan justo cortos, de modo que un punto en un borde
+                // compartido pertenece a una sola tesela
                 shape: Shape2::Rect([
                     xa - buffer,
                     ya - buffer,
@@ -349,8 +352,8 @@ pub fn tile_regions(bounds: [f64; 4], size: f64, buffer: f64, prefix: &str) -> R
     Ok(out)
 }
 
-/// A clip job over the whole extent of the clouds: joins them, filters them, converts between
-/// LAS and LAZ and normalises (`dtm`), all through the clip engine.
+/// Un trabajo de recorte sobre toda la extensión de las nubes: las une, las filtra, convierte entre
+/// LAS y LAZ y normaliza (`dtm`), todo con el motor de recorte.
 pub fn whole_cloud_job(inputs: Vec<PathBuf>, output: PathBuf) -> Result<ClipJob> {
     let mut b = [
         f64::INFINITY,
@@ -377,7 +380,8 @@ pub fn whole_cloud_job(inputs: Vec<PathBuf>, output: PathBuf) -> Result<ClipJob>
     Ok(job)
 }
 
-/// Polygons of a regions file as plan selection regions for the editing engine.
+/// Polígonos de un archivo de regiones como regiones de selección en planta para el motor de
+/// edición.
 pub fn polygons_of(regions: &[Region]) -> Vec<crate::edit::Region> {
     regions
         .iter()
@@ -409,7 +413,7 @@ mod tests {
         }
         g.data[0] = f32::NAN;
         for v in &mut g.data[995..] {
-            *v = 1.0e6; // outliers, half a percent of the cells
+            *v = 1.0e6; // valores atípicos, medio por ciento de las celdas
         }
         let (lo, hi) = tone_range(&[&g]).ok_or(Error::Param("sin rango".into()))?;
         assert!((10.0..40.0).contains(&lo), "lo {lo}");
@@ -437,7 +441,7 @@ mod tests {
                 g.data[r * 10 + c] = c as f32;
             }
         }
-        // a plane rising to the east: each level crosses the six rows in one straight line
+        // un plano que sube hacia el este: cada nivel cruza las seis filas en una sola línea recta
         let lines = contour_lines(&g, 2.5);
         assert_eq!(lines.len(), 3);
         assert!(lines.iter().all(|l| l.1.len() == 6));
@@ -454,17 +458,17 @@ mod tests {
     }
 }
 
-/// Where the projection to give a cloud comes from.
+/// De dónde viene la proyección que se da a una nube.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CrsSource {
-    /// Another cloud that has one.
+    /// Otra nube que tiene una.
     Cloud(PathBuf),
-    /// An EPSG code.
+    /// Un código EPSG.
     Epsg(u16),
 }
 
-/// Copies `input` to `output` with a coordinate system added (or replaced, with `replace`). The
-/// points are not touched, only the header records; one streaming pass.
+/// Copia `input` en `output` con un sistema de coordenadas añadido (o sustituido, con `replace`).
+/// Los puntos no se tocan, solo los registros de cabecera; una pasada en flujo.
 pub fn assign_projection(
     input: &Path,
     source: &CrsSource,

@@ -1,15 +1,17 @@
-//! Flood simulation on a terrain model.
+//! Simulación de inundación sobre un modelo del terreno.
 //!
-//! Instead of flooding level by level, the lowest water level at which each cell can be reached
-//! from the seeds is worked out once (a priority flood that spreads from the seeds over the
-//! lowest cells first: the cell takes the larger of the level that arrived and its own height).
-//! Then, for any level `L`, a cell is flooded when its reach is at most `L`, and the water over
-//! it is `L - z`; a series of levels costs almost nothing more than one.
+//! En lugar de inundar nivel a nivel, el menor nivel de agua al que se puede llegar a cada celda
+//! desde las semillas se calcula una vez (una inundación por prioridad que se extiende desde las
+//! semillas por las celdas más bajas primero: la celda toma el mayor entre el nivel que llegó y su
+//! propia altura). Después, para cualquier nivel `L`, una celda está inundada cuando su alcance es
+//! como mucho `L`, y el agua sobre ella es `L - z`; una serie de niveles cuesta casi nada más que
+//! uno.
 //!
-//! With connectivity, water only fills what can be reached from the seeds over cells that are
-//! not higher than the level: a pit behind a ridge stays dry. The bathtub model (`Seeds::All`)
-//! has no connectivity: every cell at or under the level is flooded, whether water could get
-//! there or not. It shows the depressions of a model but overstates a real flood.
+//! Con conectividad, el agua solo llena lo que se puede alcanzar desde las semillas por celdas que
+//! no son más altas que el nivel: un hoyo detrás de una cresta queda seco. El modelo de bañera
+//! (`Seeds::All`) no tiene conectividad: toda celda a la altura del nivel o por debajo se inunda,
+//! pueda llegar allí el agua o no. Muestra las depresiones de un modelo pero exagera una inundación
+//! real.
 
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
@@ -20,28 +22,28 @@ use crate::hydro::{key, neighbour};
 use crate::obia::segment::label_components;
 use crate::{Error, Result};
 
-/// Memory a cell takes while flooding (the model, the reach, the visited mark and the queue).
+/// Memoria que ocupa una celda al inundar (el modelo, el alcance, la marca de visitada y la cola).
 const BYTES_PER_CELL: f64 = 20.0;
 
-/// Where the water comes from.
+/// De dónde viene el agua.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Seeds {
-    /// Points on the map (a river, a breach, the sea): each must fall on a cell with value.
+    /// Puntos del mapa (un río, una brecha, el mar): cada uno debe caer en una celda con valor.
     Points(Vec<[f64; 2]>),
-    /// Every cell on the edge of the raster, or next to an empty cell.
+    /// Cada celda del borde del ráster, o junto a una celda vacía.
     Border,
-    /// No connectivity: the bathtub model.
+    /// Sin conectividad: el modelo de bañera.
     All,
 }
 
-/// What the levels are measured from.
+/// Desde qué se miden los niveles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Relative {
-    /// The level is an elevation.
+    /// El nivel es una elevación.
     Absolute,
-    /// The level is added to the lowest elevation of the model.
+    /// El nivel se suma a la elevación más baja del modelo.
     MinZ,
-    /// The level is added to the elevation of the first seed.
+    /// El nivel se suma a la elevación de la primera semilla.
     Seed,
 }
 
@@ -50,13 +52,13 @@ pub struct FloodJob {
     pub seeds: Seeds,
     pub levels: Vec<f64>,
     pub relative: Relative,
-    /// Cells let water through their 4 sides (4) or also their corners (8).
+    /// Las celdas dejan pasar el agua por sus 4 lados (4) o también por sus esquinas (8).
     pub connectivity: u8,
-    /// Base path of the results: `<output>.csv`, `<output>_alcance.tif`, `<output>_<nivel>.tif`…
+    /// Ruta base de los resultados: `<salida>.csv`, `<salida>_alcance.tif`, `<salida>_<nivel>.tif`…
     pub output: PathBuf,
-    /// A raster of the water depth for each level.
+    /// Un ráster de la profundidad del agua para cada nivel.
     pub depth: bool,
-    /// A polygon layer with the flooded area of each level.
+    /// Una capa de polígonos con la superficie inundada de cada nivel.
     pub extent: bool,
     pub csv: bool,
 }
@@ -77,8 +79,8 @@ impl FloodJob {
     }
 }
 
-/// The lowest water level that reaches each cell from `seeds` (cell indices), or empty where
-/// it cannot be reached (cells with no value, and what the empty cells cut off).
+/// El menor nivel de agua que alcanza cada celda desde `seeds` (índices de celda), o vacío donde no
+/// se puede alcanzar (celdas sin valor y lo que cortan las celdas vacías).
 pub fn reach_level(g: &Grid, seeds: &[usize], conn: u8) -> Result<Grid> {
     let n = g.data.len();
     let mut reach = g.like();
@@ -97,7 +99,7 @@ pub fn reach_level(g: &Grid, seeds: &[usize], conn: u8) -> Result<Grid> {
             heap.push(Reverse((key(z), index(s)?)));
         }
     }
-    // the four sides are the even directions (E, S, W, N)
+    // los cuatro lados son las direcciones pares (E, S, O, N)
     let step = if conn == 4 { 2 } else { 1 };
     let mut popped = 0usize;
     while let Some(Reverse((_, i))) = heap.pop() {
@@ -124,7 +126,7 @@ pub fn reach_level(g: &Grid, seeds: &[usize], conn: u8) -> Result<Grid> {
     Ok(reach)
 }
 
-/// The cell indices the seeds stand for.
+/// Los índices de celda que representan las semillas.
 pub fn seed_cells(g: &Grid, seeds: &Seeds) -> Result<Vec<usize>> {
     match seeds {
         Seeds::Points(pts) => {
@@ -162,20 +164,20 @@ pub fn seed_cells(g: &Grid, seeds: &Seeds) -> Result<Vec<usize>> {
     }
 }
 
-/// The water of one level.
+/// El agua de un nivel.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LevelStats {
     pub level: f64,
-    /// Flooded area (m²) and volume (m³).
+    /// Superficie inundada (m²) y volumen (m³).
     pub area: f64,
     pub volume: f64,
     pub mean_depth: f64,
     pub max_depth: f64,
-    /// Separate bodies of water.
+    /// Masas de agua separadas.
     pub basins: u32,
 }
 
-/// The depth of the water at `level` (empty where it is dry) and what it adds up to.
+/// La profundidad del agua en `level` (vacía donde está seco) y a cuánto asciende.
 pub fn at_level(g: &Grid, reach: &Grid, level: f64, conn: u8) -> Result<(Grid, LevelStats)> {
     let mut depth = g.like();
     let cell_area = g.cell * g.cell;
@@ -221,7 +223,7 @@ fn level_name(level: f64) -> String {
         .replace('-', "m")
 }
 
-/// Runs the simulation and writes what was asked; returns the summary.
+/// Ejecuta la simulación y escribe lo pedido; devuelve el resumen.
 pub fn run(job: &FloodJob) -> Result<String> {
     if job.levels.is_empty() || job.levels.iter().any(|l| !l.is_finite()) {
         return Err(Error::Param("falta al menos un nivel de agua".into()));
@@ -363,7 +365,7 @@ mod tests {
         Ok(g)
     }
 
-    /// Low ground on the left, a wall, and a pit lower than the water on the right.
+    /// Terreno bajo a la izquierda, un muro y un hoyo más bajo que el agua a la derecha.
     fn walled() -> Result<Grid> {
         grid(9, 9, |c, _| match c {
             0..=3 => 2.0,
@@ -378,14 +380,14 @@ mod tests {
         let seed = seed_cells(&g, &Seeds::Points(vec![[0.5, 0.5]]))?;
         let reach = reach_level(&g, &seed, 8)?;
         let (depth, st) = at_level(&g, &reach, 3.0, 8)?;
-        // the left half (4 x 9 cells) is under 1 m of water; the wall and the pit are dry
+        // la mitad izquierda (4 x 9 celdas) está bajo 1 m de agua; el muro y el hoyo están secos
         assert_eq!(st.area, 36.0);
         assert!(depth.data[8].is_nan() && depth.data[4].is_nan());
         assert_eq!(st.basins, 1);
         let all = seed_cells(&g, &Seeds::All)?;
         let tub = reach_level(&g, &all, 8)?;
         let (_, st) = at_level(&g, &tub, 3.0, 8)?;
-        // the pit is wet too: 4 x 9 and 4 x 9 cells, as two bodies of water
+        // el hoyo también está mojado: 4 x 9 y 4 x 9 celdas, como dos masas de agua
         assert_eq!(st.area, 72.0);
         assert_eq!(st.basins, 2);
         Ok(())
@@ -393,7 +395,7 @@ mod tests {
 
     #[test]
     fn the_volume_of_a_paraboloid_bowl_is_the_formula() -> Result<()> {
-        // z = r², cells of 0.1 m; at level 4 the water holds pi L² / 2 cubic metres
+        // z = r², celdas de 0,1 m; en el nivel 4 el agua contiene pi L² / 2 metros cúbicos
         let n = 80;
         let mut g = Grid::new(-4.0, -4.0, 0.1, n, n)?;
         for r in 0..n {
@@ -433,7 +435,7 @@ mod tests {
         Ok(())
     }
 
-    /// Water rising level by level, the slow way: the lowest level at which each cell is reached.
+    /// El agua subiendo nivel a nivel, a la lenta: el menor nivel al que se llega a cada celda.
     fn slow_reach(g: &Grid, seeds: &[usize], conn: u8) -> Vec<f32> {
         let mut levels: Vec<f32> = g.data.iter().copied().filter(|v| !v.is_nan()).collect();
         levels.sort_by(f32::total_cmp);
@@ -524,7 +526,7 @@ mod tests {
             vec![1.0, 2.0],
             dir.join("res.shp"),
         );
-        // relative to the seed (2 m): levels 3 and 4
+        // relativo a la semilla (2 m): niveles 3 y 4
         job.relative = Relative::Seed;
         job.extent = true;
         let msg = run(&job)?;

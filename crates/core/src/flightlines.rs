@@ -1,14 +1,14 @@
-//! Flight lines of an airborne cloud, found from the gaps in the GPS time.
+//! Pasadas de una nube aérea, halladas a partir de los saltos del tiempo GPS.
 //!
-//! An aircraft flies a line, turns for tens of seconds without recording, and flies the next one.
-//! Sorting the times of all the points and cutting where the gap is longer than a limit (30 s by
-//! default) leaves one stretch of time per line. Memory is one number per tenth of a second the
-//! aircraft recorded, not per point: the cloud is read twice, once to find the stretches and
-//! once to say which one each point belongs to.
+//! Un avión vuela una línea, gira durante decenas de segundos sin grabar y vuela la siguiente.
+//! Ordenar los tiempos de todos los puntos y cortar donde el salto es mayor que un límite (30 s por
+//! defecto) deja un tramo de tiempo por línea. La memoria es un número por cada décima de segundo
+//! que grabó el avión, no por punto: la nube se lee dos veces, una para hallar los tramos y otra
+//! para decir a cuál pertenece cada punto.
 //!
-//! Standard GPS time (the `global_encoding` bit 0 clear) is the time of the week and starts again
-//! on Sunday at midnight: a flight over that moment shows a jump back, which is reported and not
-//! mended. Formats 0 and 2 have no time at all.
+//! El tiempo GPS estándar (el bit 0 de `global_encoding` sin activar) es el tiempo de la semana y
+//! vuelve a empezar el domingo a medianoche: un vuelo por encima de ese momento muestra un salto
+//! atrás, que se comunica y no se arregla. Los formatos 0 y 2 no tienen tiempo alguno.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -16,16 +16,16 @@ use std::path::{Path, PathBuf};
 use crate::las::{self, Reader, Writer};
 use crate::{Error, Result};
 
-/// Where a flight line is cut and what is too small to be one.
+/// Dónde se corta una pasada y qué es demasiado pequeño para serlo.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlightParams {
-    /// A silence longer than this (s) separates two lines.
+    /// Un silencio mayor que esto (s) separa dos líneas.
     pub gap: f64,
-    /// Stretches with fewer points are not lines.
+    /// Los tramos con menos puntos no son líneas.
     pub min_points: u64,
-    /// Stretches shorter than this (s) are not lines.
+    /// Los tramos más cortos que esto (s) no son líneas.
     pub min_duration: f64,
-    /// The time is counted in bins of this size (s).
+    /// El tiempo se cuenta en intervalos de este tamaño (s).
     pub bin: f64,
 }
 
@@ -40,10 +40,10 @@ impl Default for FlightParams {
     }
 }
 
-/// One flight line.
+/// Una pasada.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Line {
-    /// From 1, in order of time.
+    /// Desde 1, en orden de tiempo.
     pub id: u32,
     pub t0: f64,
     pub t1: f64,
@@ -52,23 +52,23 @@ pub struct Line {
     pub bounds: [f64; 4],
     /// Mean scan angle (degrees, signed).
     pub mean_scan: f32,
-    /// The outline of the points of the line (their convex hull, from a sample of one point in
-    /// every 5 m square), closed by the first vertex not being repeated.
+    /// El contorno de los puntos de la línea (su envolvente convexa, a partir de una muestra de un
+    /// punto por cada cuadrado de 5 m), cerrado por no repetirse el primer vértice.
     pub hull: Vec<[f64; 2]>,
 }
 
-/// Which stretch of time each moment belongs to.
+/// A qué tramo de tiempo pertenece cada momento.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TimeIndex {
     bin: f64,
-    /// First bin of each stretch, ascending.
+    /// Primer intervalo de cada tramo, ascendente.
     starts: Vec<i64>,
-    /// Line of each stretch; 0 for the ones dropped.
+    /// Línea de cada tramo; 0 para los descartados.
     ids: Vec<u32>,
 }
 
 impl TimeIndex {
-    /// The line a point at time `t` belongs to (0: none).
+    /// La línea a la que pertenece un punto en el tiempo `t` (0: ninguna).
     pub fn line_at(&self, t: f64) -> u32 {
         if !t.is_finite() || t == 0.0 || self.starts.is_empty() {
             return 0;
@@ -84,12 +84,13 @@ impl TimeIndex {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FlightReport {
     pub lines: Vec<Line>,
-    /// Points in stretches that were too small to be a line.
+    /// Puntos en tramos demasiado pequeños para ser una línea.
     pub discarded: u64,
-    /// Points with a time of 0 (no GPS time), which belong to no line.
+    /// Puntos con un tiempo de 0 (sin tiempo GPS), que no pertenecen a ninguna línea.
     pub no_time: u64,
     pub points: u64,
-    /// The time jumps back by more than 100 000 s somewhere: the week time started again.
+    /// El tiempo salta hacia atrás más de 100 000 s en algún sitio: el tiempo de semana volvió a
+    /// empezar.
     pub week_reset: bool,
     pub index: TimeIndex,
     pub epsg: Option<u16>,
@@ -106,7 +107,7 @@ fn check_time(r: &Reader, path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Finds the flight lines of the clouds (their times count together).
+/// Halla las pasadas de las nubes (sus tiempos cuentan juntos).
 pub fn detect(inputs: &[PathBuf], p: &FlightParams) -> Result<FlightReport> {
     if !(p.gap > 0.0) || !(p.bin > 0.0) || p.bin > p.gap {
         return Err(Error::Param(
@@ -117,7 +118,7 @@ pub fn detect(inputs: &[PathBuf], p: &FlightParams) -> Result<FlightReport> {
     if inputs.is_empty() {
         return Err(Error::Param("no hay nubes de entrada".into()));
     }
-    // pass 1: the bins of time that have points
+    // pasada 1: los intervalos de tiempo que tienen puntos
     let mut bins: HashSet<i64> = HashSet::new();
     let mut rep = FlightReport::default();
     let readers: Vec<Reader> = inputs
@@ -147,16 +148,16 @@ pub fn detect(inputs: &[PathBuf], p: &FlightParams) -> Result<FlightReport> {
     }
     let mut sorted: Vec<i64> = bins.into_iter().collect();
     sorted.sort_unstable();
-    // the stretches: a silence longer than the gap cuts
+    // los tramos: un silencio mayor que el salto corta
     let mut starts: Vec<i64> = Vec::new();
     for (k, b) in sorted.iter().enumerate() {
         if k == 0 || (b - sorted[k - 1] - 1) as f64 * p.bin > p.gap {
             starts.push(*b);
         }
     }
-    // pass 2: what each stretch holds
+    // pasada 2: lo que contiene cada tramo
     struct Acc {
-        /// One point in each 5 m square, for the outline.
+        /// Un punto por cada cuadrado de 5 m, para el contorno.
         sample: std::collections::HashMap<(i64, i64), [f64; 2]>,
         points: u64,
         bounds: [f64; 4],
@@ -212,7 +213,7 @@ pub fn detect(inputs: &[PathBuf], p: &FlightParams) -> Result<FlightReport> {
             crate::check_cancel()
         })?;
     }
-    // keep what is big enough, numbered by time
+    // se conserva lo bastante grande, numerado por tiempo
     let mut ids = vec![0u32; starts.len()];
     for (k, a) in acc.iter().enumerate() {
         if a.points >= p.min_points && a.t1 - a.t0 >= p.min_duration {
@@ -240,7 +241,7 @@ pub fn detect(inputs: &[PathBuf], p: &FlightParams) -> Result<FlightReport> {
     Ok(rep)
 }
 
-/// The convex hull of some points, without the closing vertex.
+/// La envolvente convexa de unos puntos, sin el vértice de cierre.
 fn hull_of(pts: impl Iterator<Item = [f64; 2]>) -> Vec<[f64; 2]> {
     use geo::ConvexHull;
     let mp: geo::MultiPoint<f64> = pts.map(|p| geo::Point::new(p[0], p[1])).collect();
@@ -249,18 +250,18 @@ fn hull_of(pts: impl Iterator<Item = [f64; 2]>) -> Vec<[f64; 2]> {
     ring
 }
 
-/// Where the line number is written.
+/// Dónde se escribe el número de línea.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Write {
     None,
-    /// The point source ID (up to 65 535 lines).
+    /// El identificador de fuente del punto (hasta 65 535 líneas).
     SourceId,
-    /// The user data byte (up to 255 lines).
+    /// El byte de datos de usuario (hasta 255 líneas).
     UserData,
 }
 
-/// Writes copies of the clouds into `out_dir` (`<name>_lineas.las`/`.laz`) with the number of
-/// the flight line of each point (0 where it has none) in the field `into`.
+/// Escribe copias de las nubes en `out_dir` (`<nombre>_lineas.las`/`.laz`) con el número de la
+/// pasada de cada punto (0 donde no tiene) en el campo `into`.
 pub fn assign(
     inputs: &[PathBuf],
     out_dir: &Path,
@@ -318,7 +319,7 @@ pub fn assign(
     Ok(out)
 }
 
-/// The lines as a CSV table.
+/// Las líneas como tabla CSV.
 pub fn csv_text(rep: &FlightReport) -> String {
     let mut s = String::from(
         "Linea,T_inicio,T_fin,Duracion_s,Puntos,X_min,Y_min,X_max,Y_max,Angulo_medio\n",
@@ -341,7 +342,7 @@ pub fn csv_text(rep: &FlightReport) -> String {
     s
 }
 
-/// The lines as a layer of polygons: the outline of each one with its figures.
+/// Las líneas como capa de polígonos: el contorno de cada una con sus cifras.
 pub fn layer(rep: &FlightReport) -> crate::view::VectorData {
     use crate::view::{Feature, VectorData};
     let mut d = VectorData {
@@ -369,19 +370,19 @@ pub fn layer(rep: &FlightReport) -> crate::view::VectorData {
     d
 }
 
-/// What the user asked of the flight lines.
+/// Lo que pidió el usuario de las pasadas.
 pub struct FlightJob {
     pub inputs: Vec<PathBuf>,
     pub params: FlightParams,
     pub into: Write,
-    /// Where the table and the copies go.
+    /// Adónde van la tabla y las copias.
     pub output_dir: PathBuf,
     pub csv: bool,
-    /// A polygon layer with the outline of each line.
+    /// Una capa de polígonos con el contorno de cada línea.
     pub vector: bool,
 }
 
-/// Detects the lines, writes the table and the copies if asked, and reports in text.
+/// Detecta las líneas, escribe la tabla y las copias si se piden e informa en texto.
 pub fn run(job: &FlightJob) -> Result<String> {
     let rep = detect(&job.inputs, &job.params)?;
     let mut lines = vec![format!(

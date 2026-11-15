@@ -1,13 +1,15 @@
-//! The first sheet of an Excel workbook (`.xlsx`) as rows of text, enough to read a table of
-//! field data: a workbook is a zip of XML files, of which only the sheet and the shared strings
-//! are read. Formulas give their last stored value; dates come as the serial numbers Excel stores.
+//! La primera hoja de un libro de Excel (`.xlsx`) como filas de texto, suficiente para leer una
+//! tabla de datos de campo: un libro es un zip de archivos XML, de los cuales solo se leen la hoja
+//! y las cadenas compartidas. Las fórmulas dan su último valor guardado; las fechas vienen como los
+//! números de serie que guarda Excel.
 
 use std::io::Read;
 use std::path::Path;
 
 use crate::{Error, Result};
 
-/// Largest XML part accepted once inflated (the files are hostile until proven otherwise).
+/// La mayor parte XML que se acepta una vez descomprimida (los archivos son hostiles mientras no se
+/// demuestre lo contrario).
 const MAX_PART: u64 = 256 << 20;
 
 fn bad(msg: &str) -> Error {
@@ -24,9 +26,9 @@ fn le32(b: &[u8], at: usize) -> Option<usize> {
     usize::try_from(u32::from_le_bytes([s[0], s[1], s[2], s[3]])).ok()
 }
 
-/// The inflated parts of the zip whose name satisfies `want`, as (name, bytes).
+/// Las partes descomprimidas del zip cuyo nombre satisface `want`, como (nombre, bytes).
 pub(crate) fn zip_parts(zip: &[u8], want: impl Fn(&str) -> bool) -> Result<Vec<(String, Vec<u8>)>> {
-    // the end-of-central-directory record: the last 22+ bytes, signature 0x06054b50
+    // el registro de fin del directorio central: los últimos 22+ bytes, firma 0x06054b50
     let lo = zip.len().saturating_sub(22 + 65535);
     let eocd = (lo..zip.len().saturating_sub(21))
         .rev()
@@ -81,7 +83,7 @@ pub(crate) fn zip_parts(zip: &[u8], want: impl Fn(&str) -> bool) -> Result<Vec<(
     Ok(out)
 }
 
-/// The text with the XML entities decoded.
+/// El texto con las entidades XML decodificadas.
 pub(crate) fn unescape(s: &str) -> String {
     if !s.contains('&') {
         return s.to_string();
@@ -115,7 +117,7 @@ pub(crate) fn unescape(s: &str) -> String {
     out
 }
 
-/// The value of attribute `name` in the text of a start tag.
+/// El valor del atributo `name` en el texto de una etiqueta de apertura.
 fn attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
     let key = format!(" {name}=\"");
     let i = tag.find(&key)? + key.len();
@@ -123,13 +125,14 @@ fn attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
     Some(&tag[i..i + j])
 }
 
-/// The text of every `<t>` element in `xml`, joined (a shared string may be in several runs).
+/// El texto de cada elemento `<t>` de `xml`, unido (una cadena compartida puede estar en varias
+/// secuencias).
 fn texts(xml: &str) -> String {
     let mut out = String::new();
     let mut rest = xml;
     while let Some(i) = rest.find("<t") {
         let after = &rest[i + 2..];
-        // `<t>` or `<t xml:space="preserve">`, and not `<tr` or `<tab`
+        // `<t>` o `<t xml:space="preserve">`, y no `<tr` ni `<tab`
         if !(after.starts_with('>') || after.starts_with(' ')) {
             rest = after;
             continue;
@@ -151,7 +154,7 @@ fn texts(xml: &str) -> String {
     out
 }
 
-/// The zero-based column of a cell reference such as `AB12`.
+/// La columna (desde cero) de una referencia de celda como `AB12`.
 fn column_of(r: &str) -> usize {
     let mut c = 0usize;
     for ch in r.bytes().take_while(u8::is_ascii_alphabetic) {
@@ -160,7 +163,7 @@ fn column_of(r: &str) -> usize {
     c.saturating_sub(1)
 }
 
-/// Reads the first sheet of the workbook; short rows are padded to the widest one.
+/// Lee la primera hoja del libro; las filas cortas se rellenan hasta la más ancha.
 pub fn read(path: &Path) -> Result<Vec<Vec<String>>> {
     let zip = std::fs::read(path).map_err(|e| {
         Error::Io(std::io::Error::new(
@@ -187,7 +190,7 @@ pub fn read(path: &Path) -> Result<Vec<Vec<String>>> {
                 .collect()
         })
         .unwrap_or_default();
-    // sheet1 is the first in a workbook that was not reordered; take the lowest number
+    // sheet1 es la primera en un libro que no se reordenó; se toma el número más bajo
     let mut sheets: Vec<&(String, Vec<u8>)> = found
         .iter()
         .filter(|(n, _)| n.starts_with("xl/worksheets/"))

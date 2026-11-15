@@ -1,15 +1,15 @@
-//! A report on a LAS/LAZ file: what the header says, what the points are, and where the two
-//! disagree. One streaming pass, so it is quick on any size of cloud.
+//! Un informe de un archivo LAS/LAZ: lo que dice la cabecera, lo que son los puntos y dónde
+//! discrepan. Una pasada en flujo, de modo que es rápido con cualquier tamaño de nube.
 
 use std::path::{Path, PathBuf};
 
 use crate::Result;
 use crate::las::{self, Reader, VlrInfo};
 
-/// Histogram bins over the elevation range.
+/// Intervalos del histograma sobre el rango de elevación.
 const Z_BINS: usize = 8192;
 
-/// One file's report.
+/// El informe de un archivo.
 #[derive(Clone, Debug, Default)]
 pub struct FileReport {
     pub path: PathBuf,
@@ -18,41 +18,42 @@ pub struct FileReport {
     pub format: u8,
     pub compressed: bool,
     pub record_len: u16,
-    /// Bytes per record beyond the format's own.
+    /// Bytes por registro más allá de los propios del formato.
     pub extra_bytes: u16,
-    /// Points the header declares, and points read.
+    /// Puntos que declara la cabecera y puntos leídos.
     pub points: u64,
     pub points_read: u64,
     pub software: String,
     pub system_id: String,
-    /// Creation day of the year and year, when set.
+    /// Día del año y año de creación, cuando están fijados.
     pub creation: Option<(u16, u16)>,
     pub scale: [f64; 3],
     pub offset: [f64; 3],
-    /// min x, min y, min z, max x, max y, max z, as the header says and as the points are.
+    /// x mínima, y mínima, z mínima, x máxima, y máxima, z máxima, como dice la cabecera y como son
+    /// los puntos.
     pub header_bounds: [f64; 6],
     pub bounds: [f64; 6],
     pub epsg: Option<u16>,
     pub crs_name: Option<String>,
     pub wkt: Option<String>,
     pub vlrs: Vec<VlrInfo>,
-    /// Points by return number 1..=15 as the header says and as they are.
+    /// Puntos por número de retorno 1..=15 como dice la cabecera y como son.
     pub returns_header: Vec<u64>,
     pub returns: [u64; 16],
-    /// Points by number of returns of their pulse.
+    /// Puntos por número de retornos de su pulso.
     pub pulse_sizes: [u64; 16],
-    /// Points by class (0..=255).
+    /// Puntos por clase (0..=255).
     pub classes: Vec<(u8, u64)>,
     pub intensity: (u16, u16, f64),
-    /// Elevation at 1, 5, 25, 50, 75, 95 and 99 % of the points.
+    /// Elevación al 1, 5, 25, 50, 75, 95 y 99 % de los puntos.
     pub z_percentiles: [f64; 7],
-    /// Points far below and far above the bulk of the cloud.
+    /// Puntos muy por debajo y muy por encima del grueso de la nube.
     pub z_outliers: (u64, u64),
     pub gps_time: Option<(f64, f64)>,
-    /// Day of capture (`YYYY-MM-DD`) from the GPS time, or the file's creation date.
+    /// Día de captura (`AAAA-MM-DD`) a partir del tiempo GPS o de la fecha de creación del archivo.
     pub capture_date: Option<String>,
     pub scan_angle: (f32, f32),
-    /// Flight lines (point source IDs) and their points, most points first.
+    /// Pasadas (identificadores de fuente del punto) y sus puntos, los de más puntos primero.
     pub flight_lines: Vec<(u16, u64)>,
     pub has_rgb: bool,
     pub rgb_max: u16,
@@ -60,13 +61,13 @@ pub struct FileReport {
     pub overlap: u64,
     pub synthetic: u64,
     pub key_points: u64,
-    /// Area of the bounding box, and of the cells that hold points.
+    /// Área de la caja envolvente y de las celdas que contienen puntos.
     pub area_bbox: f64,
     pub area_covered: f64,
-    /// Points per square unit over the covered area, and first returns per square unit.
+    /// Puntos por unidad cuadrada sobre el área cubierta y primeros retornos por unidad cuadrada.
     pub density: f64,
     pub pulse_density: f64,
-    /// Mean distance between points, from the density.
+    /// Distancia media entre puntos, a partir de la densidad.
     pub spacing: f64,
     pub index_files: Vec<String>,
     pub warnings: Vec<String>,
@@ -77,7 +78,7 @@ pub fn class_name(class: u8) -> &'static str {
     crate::classes::name(class)
 }
 
-/// What a point format holds, in words.
+/// Lo que guarda un formato de punto, en palabras.
 pub fn format_description(format: u8) -> &'static str {
     match format {
         0 => "XYZ, intensidad, retornos, clase, ángulo y línea de vuelo",
@@ -95,7 +96,7 @@ pub fn format_description(format: u8) -> &'static str {
     }
 }
 
-/// Reads a file once and reports on it.
+/// Lee un archivo una vez e informa sobre él.
 pub fn inspect(path: &Path) -> Result<FileReport> {
     let reader = Reader::open(path)?;
     let h = &reader.header;
@@ -127,7 +128,8 @@ pub fn inspect(path: &Path) -> Result<FileReport> {
         .unwrap_or(h.record_len);
     r.extra_bytes = h.record_len.saturating_sub(base);
 
-    // Occupancy grid: cells holding about 8 points on average, from the header's own figures.
+    // Rejilla de ocupación: celdas que contienen unos 8 puntos de media, a partir de las propias
+    // cifras de la cabecera.
     let (w, hh) = (
         (h.bounds[3] - h.bounds[0]).max(0.0),
         (h.bounds[4] - h.bounds[1]).max(0.0),
@@ -244,7 +246,7 @@ pub fn inspect(path: &Path) -> Result<FileReport> {
     fl.truncate(256);
     r.flight_lines = fl;
 
-    // Percentiles from the histogram, at the middle of the bin where they fall.
+    // Percentiles a partir del histograma, en el medio del intervalo donde caen.
     let at = |q: f64| {
         let target = (q * n).max(1.0);
         let mut acc = 0.0;
@@ -265,7 +267,8 @@ pub fn inspect(path: &Path) -> Result<FileReport> {
         at(0.95),
         at(0.99),
     ];
-    // Outliers: beyond three times the span of the central 98 % from either end of it.
+    // Valores atípicos: más allá de tres veces la amplitud del 98 % central desde cualquiera de sus
+    // extremos.
     let spread = (r.z_percentiles[6] - r.z_percentiles[0]).max(1.0);
     let (low, high) = (
         r.z_percentiles[0] - 3.0 * spread,
@@ -305,7 +308,7 @@ pub fn inspect(path: &Path) -> Result<FileReport> {
     Ok(r)
 }
 
-/// What looks wrong, or worth knowing, in plain words.
+/// Lo que parece mal, o merece saberse, en palabras sencillas.
 fn warnings(r: &FileReport) -> Vec<String> {
     let mut w = Vec::new();
     if r.points_read != r.points {
@@ -371,7 +374,7 @@ fn warnings(r: &FileReport) -> Vec<String> {
     w
 }
 
-/// A report in text, for the command line and logs.
+/// Un informe en texto, para la línea de comandos y los registros.
 pub fn render(r: &FileReport) -> String {
     use std::fmt::Write;
     let mut s = String::new();
@@ -478,14 +481,14 @@ pub fn render(r: &FileReport) -> String {
     s
 }
 
-/// Reports on several files and their sum.
+/// Informa sobre varios archivos y su suma.
 pub struct Summary {
     pub files: Vec<FileReport>,
     pub points: u64,
     pub bounds: [f64; 6],
     pub density: f64,
-    /// Files that could not be read, with the reason (a truncated file, say): the others are
-    /// reported all the same.
+    /// Archivos que no se pudieron leer, con el motivo (un archivo truncado, por ejemplo): de los
+    /// demás se informa igualmente.
     pub failed: Vec<(PathBuf, String)>,
 }
 
@@ -495,7 +498,8 @@ pub fn inspect_many(paths: &[PathBuf]) -> Result<Summary> {
     for p in paths {
         match inspect(p) {
             Ok(f) => files.push(f),
-            // one file alone: its own error; among many, the bad ones are listed and the rest go on
+            // un archivo solo: su propio error; entre muchos, se listan los malos y los demás
+            // siguen
             Err(e) if paths.len() == 1 || matches!(e, crate::Error::Cancelled) => return Err(e),
             Err(e) => failed.push((p.clone(), e.to_string())),
         }

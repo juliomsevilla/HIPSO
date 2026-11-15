@@ -1,14 +1,15 @@
-//! More classes for the classification pipeline, from the geometry of the points around each
-//! one: vegetation in three height strata (low 3, medium 4, high 5), wires (14) and poles or
-//! towers (15). They run after ground and buildings on the same tiles, so they know which
-//! points are ground.
+//! Más clases para la tubería de clasificación, a partir de la geometría de los puntos que rodean a
+//! cada uno: vegetación en tres estratos de altura (baja 3, media 4, alta 5), cables (14) y postes
+//! o torres (15). Se ejecutan después del suelo y los edificios sobre las mismas teselas, así que
+//! saben qué puntos son suelo.
 //!
-//! Wires and poles look at the points above the ground only. In the neighbourhood of a point
-//! the three eigenvalues l1 ≥ l2 ≥ l3 of the covariance say how the points lie: a line has
-//! linearity (l1 − l2)/l1 near 1. A wire is a nearly horizontal line high above the ground, in
-//! the air and long: the scan lines of a survey make pieces of crown straight for a metre or
-//! two, so short chains and crowded neighbourhoods are not wires. A pole or tower is a narrow
-//! structure, isolated from the crowns, that rises from the ground.
+//! Los cables y los postes miran solo los puntos por encima del suelo. En el entorno de un punto,
+//! los tres autovalores l1 ≥ l2 ≥ l3 de la covarianza dicen cómo están dispuestos los puntos: una
+//! línea tiene linealidad (l1 − l2)/l1 cercana a 1. Un cable es una línea casi horizontal muy por
+//! encima del suelo, en el aire y larga: las líneas de barrido de un vuelo hacen rectos trozos de
+//! copa durante uno o dos metros, así que las cadenas cortas y los entornos concurridos no son
+//! cables. Un poste o torre es una estructura estrecha, aislada de las copas, que se eleva del
+//! suelo.
 
 use std::collections::HashMap;
 
@@ -25,49 +26,55 @@ pub const POLE: u8 = 15;
 pub const WATER: u8 = 9;
 pub const ROAD: u8 = 11;
 
-/// Spacing of the points (m) at which a tower has 12 points per metre of height or fewer.
+/// Espaciado de los puntos (m) a partir del cual una torre tiene 12 puntos por metro de altura o
+/// menos.
 const POLE_REFERENCE_SPACING: f64 = 0.33;
 
-/// Radius (m) in which a piece of conductor has no other points but its own.
+/// Radio (m) en el que un trozo de conductor no tiene más puntos que los suyos.
 const ALONE: f64 = 2.5;
 
-/// Vertical distances count this much in linking the points of a tower: its pieces are rows of
-/// points a few metres apart (a lattice scanned from above), and a vertical gap of 8 m links.
+/// Las distancias verticales cuentan tanto al enlazar los puntos de una torre: sus piezas son filas
+/// de puntos separadas unos metros (un entramado escaneado desde arriba), y un hueco vertical de 8
+/// m enlaza.
 const POLE_Z_SCALE: f64 = 0.19;
 
-/// How many times its own points a pole may have of crown around it (above a third of its height).
+/// Cuántas veces sus propios puntos puede tener un poste de copa a su alrededor (por encima de un
+/// tercio de su altura).
 const CROWD_TOLERANCE: f64 = 1.6;
 
-/// How many times its own points a thin pole may have around its top (a trunk has its crown).
+/// Cuántas veces sus propios puntos puede tener un poste fino a su alrededor en la punta (un tronco
+/// tiene su copa).
 const CAP_TOLERANCE: f64 = 3.0;
 
-/// Points per metre of height that a tower may have at 9 points/m² (a high-voltage tower with
-/// several crossarms has more than a pole).
+/// Puntos por metro de altura que puede tener una torre a 9 puntos/m² (una torre de alta tensión
+/// con varias crucetas tiene más que un poste).
 const TOWER_POINTS_PER_METRE: f64 = 40.0;
 
-/// A structure at least this tall is a tower, whose points grow with the density of the survey; a
-/// narrow tree of that height at 45 points/m² has as many, so lower ones keep the count of 9.
+/// Una estructura al menos así de alta es una torre, cuyos puntos crecen con la densidad del vuelo;
+/// un árbol estrecho de esa altura a 45 puntos/m² tiene tantos, así que las más bajas conservan el
+/// recuento de 9.
 const TOWER_HEIGHT: f64 = 15.0;
 
-/// Density factor (see `POLE_REFERENCE_SPACING`) above which tree trunks are resolved as lines.
+/// Factor de densidad (véase `POLE_REFERENCE_SPACING`) por encima del cual los troncos de los
+/// árboles se resuelven como líneas.
 const TRUNK_DENSITY: f64 = 20.0;
 
-/// Lowest pieces of conductor linked across gaps are above the ground (m): a survey sees them
-/// in pieces only when the line is high above everything.
+/// Los trozos de conductor más bajos enlazados a través de huecos están por encima del suelo (m):
+/// un vuelo los ve en trozos solo cuando la línea está muy por encima de todo.
 const LINKED_MIN_HEIGHT: f64 = 10.0;
 
-/// Spacing (m) from which wires are looked at in more than one radius.
+/// Espaciado (m) a partir del cual se miran los cables con más de un radio.
 const WIRE_SPARSE_SPACING: f64 = 0.25;
 
-/// Lowest a tower head is above the ground (m).
+/// Altura mínima de la cabeza de una torre sobre el suelo (m).
 const HEAD_MIN_HEIGHT: f64 = 8.0;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct VegParams {
-    /// Height above ground up to which vegetation is low, and up to which it is medium.
+    /// Altura sobre el suelo hasta la que la vegetación es baja y hasta la que es media.
     pub low: f64,
     pub medium: f64,
-    /// Cell of the ground surface the heights come from.
+    /// Celda de la superficie del suelo de la que salen las alturas.
     pub cell: f64,
 }
 
@@ -83,38 +90,38 @@ impl Default for VegParams {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WireParams {
-    /// Lowest height above ground of a wire.
+    /// Altura mínima de un cable sobre el suelo.
     pub min_height: f64,
-    /// Radius of the neighbourhood (m; 0: six times the spacing of the points, between 0.6 and 3 m,
-    /// and with a spacing of 0.25 m or more also 1.5 and 2 times that, up to 4.5 m: the same wire is
-    /// a line at 1 m with 45 points/m² and only at 2 to 4 m with 9, where a conductor has a point
-    /// every metre or two and crowns beside it make it a line at some radii and not at others).
+    /// Radio del entorno (m; 0: seis veces el espaciado de los puntos, entre 0,6 y 3 m, y con un
+    /// espaciado de 0,25 m o más también 1,5 y 2 veces eso, hasta 4,5 m: el mismo cable es una
+    /// línea a 1 m con 45 puntos/m² y solo a 2 a 4 m con 9, donde un conductor tiene un punto cada
+    /// uno o dos metros y las copas a su lado lo hacen una línea a unos radios y no a otros).
     pub radius: f64,
     /// Smallest linearity (0–1).
     pub linearity: f64,
-    /// Steepest slope of the line (|dz| of its direction, 0 horizontal – 1 vertical).
+    /// Mayor pendiente de la línea (|dz| de su dirección, 0 horizontal – 1 vertical).
     pub max_slope: f64,
-    /// A wire hangs in the air: at most this many points above `min_height` within
-    /// `2 × radius` of it. A branch in a crown has dozens.
+    /// Un cable cuelga en el aire: como mucho este número de puntos por encima de `min_height` a
+    /// menos de `2 × radius` de él. Una rama dentro de una copa tiene decenas.
     pub max_neighbours: usize,
-    /// Widest the neighbourhood may be across its main direction (standard deviation, m): a
-    /// conductor is a line, a branch in a crown has width. Unlike a count of neighbours it does
-    /// not depend on the density of the points.
+    /// Mayor anchura que puede tener el entorno a través de su dirección principal (desviación
+    /// típica, m): un conductor es una línea, una rama en una copa tiene anchura. A diferencia de
+    /// un recuento de vecinos, no depende de la densidad de los puntos.
     pub max_width: f64,
-    /// A wire is continuous: the chain of wire points (each within `2 × radius` of the next)
-    /// must reach this far. The scan lines of a survey make pieces of crown look straight for
-    /// a metre or two, never for several.
+    /// Un cable es continuo: la cadena de puntos de cable (cada uno a menos de `2 × radius` del
+    /// siguiente) debe llegar tan lejos. Las líneas de barrido de un vuelo hacen parecer rectos
+    /// trozos de copa durante uno o dos metros, nunca durante varios.
     pub min_length: f64,
-    /// A chain of wire points is a line: its length over its width (the square roots of the
-    /// two largest eigenvalues of its points). A hedge or a piece of crown that the linearity
-    /// of its parts lets through is a blob at that scale.
+    /// Una cadena de puntos de cable es una línea: su longitud sobre su anchura (las raíces
+    /// cuadradas de los dos mayores autovalores de sus puntos). Un seto o un trozo de copa que la
+    /// linealidad de sus partes deja pasar es una mancha a esa escala.
     pub min_straightness: f64,
-    /// Side of the voxels the points are collapsed to before looking at their shape (m).
+    /// Lado de los vóxeles a los que se reducen los puntos antes de mirar su forma (m).
     pub voxel: f64,
-    /// A survey with a few passes over a line sees a conductor only where its scan lines cross
-    /// it: short straight pieces (a metre or two) with metres of nothing between them. Pieces
-    /// that point at each other, that far apart at most (m, 0 to turn off), make a wire when
-    /// three or more line up over at least twice `min_length`.
+    /// Un vuelo con pocas pasadas sobre una línea ve un conductor solo donde sus líneas de barrido
+    /// lo cruzan: trozos rectos cortos (uno o dos metros) con metros de nada entre ellos. Los
+    /// trozos que apuntan unos a otros, como mucho a esa distancia (m, 0 para desactivar), forman
+    /// un cable cuando tres o más se alinean a lo largo de al menos el doble de `min_length`.
     pub link_gap: f64,
 }
 
@@ -135,26 +142,26 @@ impl Default for WireParams {
     }
 }
 
-/// Poles and towers are found as isolated, narrow structures that rise from the ground: at the
-/// density of a survey a lattice tower is a loose column of points, not a clean line, so what
-/// marks it is its shape and that nothing touches it.
+/// Los postes y las torres se hallan como estructuras aisladas y estrechas que se elevan del suelo:
+/// a la densidad de un vuelo, una torre de celosía es una columna suelta de puntos, no una línea
+/// limpia, así que lo que la marca es su forma y que nada la toca.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PoleParams {
-    /// Points lower than this above the ground are not part of a structure.
+    /// Los puntos más bajos que esto sobre el suelo no forman parte de una estructura.
     pub min_height: f64,
-    /// Points closer than this belong to the same structure.
+    /// Los puntos más cercanos que esto pertenecen a la misma estructura.
     pub radius: f64,
-    /// Widest the structure may be (m, either side of the footprint).
+    /// Mayor anchura que puede tener la estructura (m, a cada lado de la huella).
     pub max_width: f64,
-    /// Least it must rise (m).
+    /// Lo mínimo que debe elevarse (m).
     pub min_extent: f64,
-    /// At the density of a survey only the head of a tower may come back: a crossarm a few
-    /// metres long, high up, with nothing under it. A short isolated chain of points that
-    /// high and that long (m, 0 to turn off) is taken for the head of a tower. A conductor
-    /// is longer, and a crown has crown under it.
+    /// A la densidad de un vuelo solo puede volver la cabeza de una torre: una cruceta de unos
+    /// metros de largo, en lo alto, sin nada debajo. Una cadena corta y aislada de puntos así de
+    /// alta y así de larga (m, 0 para desactivar) se toma por la cabeza de una torre. Un conductor
+    /// es más largo, y una copa tiene copa debajo.
     pub head_length: f64,
-    /// Thin poles (lamp posts, utility poles): a vertical line of points, narrow, that rises at
-    /// least this far (m; 0 to turn off).
+    /// Postes finos (farolas, postes de servicios): una línea vertical de puntos, estrecha, que se
+    /// eleva al menos tanto (m; 0 para desactivar).
     pub thin_extent: f64,
 }
 
@@ -171,22 +178,24 @@ impl Default for PoleParams {
     }
 }
 
-/// Roads are ground that is smooth, flat and dark to the laser: asphalt gives back less
-/// intensity than soil, and a road surface is a plane (small roughness and slope). What is
-/// measured is the shape of the ground points within `radius`.
+/// Las carreteras son suelo liso, llano y oscuro para el láser: el asfalto devuelve menos
+/// intensidad que la tierra, y la superficie de una carretera es un plano (rugosidad y pendiente
+/// pequeñas). Lo que se mide es la forma de los puntos de suelo dentro de `radius`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RoadParams {
-    /// Highest intensity of a road point, in the sensor's own scale (asphalt is dark); 0: a share
-    /// (`relative_intensity`) of the median intensity of the ground of the tile, which is the
-    /// same whatever the sensor, its scale (16 bits, 0 to 255) or the flight.
+    /// Mayor intensidad de un punto de carretera, en la escala propia del sensor (el asfalto es
+    /// oscuro); 0: una proporción (`relative_intensity`) de la mediana de intensidad del suelo de
+    /// la tesela, que es la misma sea cual sea el sensor, su escala (16 bits, 0 a 255) o el vuelo.
     pub max_intensity: f64,
-    /// With `max_intensity` 0, the share of the median ground intensity that a road may reach.
+    /// Con `max_intensity` 0, la proporción de la mediana de intensidad del suelo que puede
+    /// alcanzar una carretera.
     pub relative_intensity: f64,
-    /// Roughest the surface may be: standard deviation to the local plane (m).
+    /// Mayor rugosidad que puede tener la superficie: desviación típica respecto al plano local
+    /// (m).
     pub max_roughness: f64,
-    /// Steepest the local plane may be (degrees).
+    /// Mayor pendiente que puede tener el plano local (grados).
     pub max_slope: f64,
-    /// Radius of the neighbourhood (m).
+    /// Radio del entorno (m).
     pub radius: f64,
 }
 
@@ -202,24 +211,25 @@ impl Default for RoadParams {
     }
 }
 
-/// Water is a flat sheet that gives back almost nothing to the laser: ground points of a single
-/// return, of low intensity, level, that make an extended region whose heights hardly vary.
-/// Cells of `cell` metres that hold such points are joined; a region is water when it is at
-/// least `min_area` square metres and its heights deviate less than `max_deviation`.
+/// El agua es una lámina plana que devuelve casi nada al láser: puntos de suelo de un solo retorno,
+/// de baja intensidad, nivelados, que forman una región extensa cuyas alturas apenas varían. Se
+/// unen las celdas de `cell` metros que contienen esos puntos; una región es agua cuando tiene al
+/// menos `min_area` metros cuadrados y sus alturas se desvían menos de `max_deviation`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WaterParams {
-    /// Highest intensity of a water point, in the sensor's own scale; 0: a share
-    /// (`relative_intensity`) of the median intensity of the ground of the tile.
+    /// Mayor intensidad de un punto de agua, en la escala propia del sensor; 0: una proporción
+    /// (`relative_intensity`) de la mediana de intensidad del suelo de la tesela.
     pub max_intensity: f64,
-    /// With `max_intensity` 0, the share of the median ground intensity that water may reach.
+    /// Con `max_intensity` 0, la proporción de la mediana de intensidad del suelo que puede
+    /// alcanzar el agua.
     pub relative_intensity: f64,
-    /// Steepest the local plane may be (degrees).
+    /// Mayor pendiente que puede tener el plano local (grados).
     pub max_slope: f64,
-    /// Side of the cells that are joined (m).
+    /// Lado de las celdas que se unen (m).
     pub cell: f64,
     /// Smallest region (m²).
     pub min_area: f64,
-    /// Largest standard deviation of the heights of a region (m).
+    /// Mayor desviación típica de las alturas de una región (m).
     pub max_deviation: f64,
 }
 
@@ -254,7 +264,7 @@ impl Extras {
             || self.water.is_some()
     }
 
-    /// A tag for file names.
+    /// Una etiqueta para nombres de archivo.
     pub fn tag(&self) -> String {
         let mut t = String::new();
         if self.vegetation.is_some() {
@@ -276,13 +286,13 @@ impl Extras {
     }
 }
 
-/// The same, for the examples that look at heights.
+/// Lo mismo, para los ejemplos que miran alturas.
 #[doc(hidden)]
 pub fn ground_surface_pub(pts: &[Point], ground: &[bool], cell: f64) -> Option<Grid> {
     ground_surface(pts, ground, cell)
 }
 
-/// Surface through the ground points, for heights above ground.
+/// Superficie por los puntos de suelo, para alturas sobre el suelo.
 pub(crate) fn ground_surface(pts: &[Point], ground: &[bool], cell: f64) -> Option<Grid> {
     let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     for q in pts.iter().filter(|q| !q.is_noise()) {
@@ -316,8 +326,8 @@ pub(crate) fn ground_surface(pts: &[Point], ground: &[bool], cell: f64) -> Optio
 
 type Cell = (i32, i32, i32);
 
-/// For each point of `set`, (linearity, |dz| of the main direction, width across it) of its
-/// neighbours of `set` within `radius`; `None` with fewer than four.
+/// Para cada punto de `set`, (linealidad, |dz| de la dirección principal, anchura a través de ella)
+/// de sus vecinos de `set` a menos de `radius`; `None` con menos de cuatro.
 fn line_features(pts: &[Point], set: &[usize], radius: f64) -> Vec<Option<(f64, f64, f64)>> {
     let key = |q: &Point| -> Cell {
         (
@@ -370,7 +380,7 @@ fn line_features(pts: &[Point], set: &[usize], radius: f64) -> Vec<Option<(f64, 
         .collect()
 }
 
-/// For each point of `set`, how many other points of `set` lie within `radius`.
+/// Para cada punto de `set`, cuántos otros puntos de `set` hay a menos de `radius`.
 fn neighbour_counts(pts: &[Point], set: &[usize], radius: f64) -> Vec<usize> {
     let key = |q: &Point| -> Cell {
         (
@@ -412,19 +422,19 @@ fn neighbour_counts(pts: &[Point], set: &[usize], radius: f64) -> Vec<usize> {
         .collect()
 }
 
-/// Each chain's bounding box `[x0, y0, z0, x1, y1, z1]` and size, by chain.
+/// La caja envolvente de cada cadena `[x0, y0, z0, x1, y1, z1]` y su tamaño, por cadena.
 type ChainBoxes = HashMap<usize, ([f64; 6], usize)>;
 
-/// Groups the points `cand` (indices into `pts`) into chains: two points within `link` of each
-/// other are in the same one. Returns each point's group and each group's bounding box
-/// `[x0, y0, z0, x1, y1, z1]` and size.
+/// Agrupa los puntos `cand` (índices en `pts`) en cadenas: dos puntos a menos de `link` uno del
+/// otro están en la misma. Devuelve el grupo de cada punto y la caja envolvente `[x0, y0, z0, x1,
+/// y1, z1]` y el tamaño de cada grupo.
 fn chains(pts: &[Point], cand: &[usize], link: f64) -> (Vec<usize>, ChainBoxes) {
     chains_z(pts, cand, link, 1.0)
 }
 
-/// [`chains`] where heights count `zscale` times as much as distances on the plan (below 1, two
-/// points that far apart vertically are still linked: the pieces of a lattice tower are rows of
-/// points with metres between them).
+/// [`chains`] donde las alturas cuentan `zscale` veces lo que las distancias en planta (por debajo
+/// de 1, dos puntos tan separados en vertical siguen enlazados: las piezas de una torre de celosía
+/// son filas de puntos con metros entre ellas).
 fn chains_z(
     pts: &[Point],
     cand: &[usize],
@@ -456,13 +466,13 @@ fn chains_z(
     (group, boxes)
 }
 
-/// Ground the step may still name: not taken by another class.
+/// Suelo que el paso aún puede nombrar: no tomado por otra clase.
 fn plain_ground(pts: &[Point], ground: &[bool], class: &[Option<u8>], k: usize) -> bool {
     ground[k] && !pts[k].is_noise() && class[k].is_none_or(|c| c == 2)
 }
 
-/// The points with those that are not plain ground set aside (withheld), so that the shape of
-/// a neighbourhood is the shape of the ground.
+/// Los puntos con los que no son suelo normal apartados (retenidos), para que la forma de un
+/// entorno sea la forma del suelo.
 fn ground_only(pts: &[Point], ground: &[bool], class: &[Option<u8>]) -> Vec<Point> {
     pts.iter()
         .enumerate()
@@ -476,7 +486,7 @@ fn ground_only(pts: &[Point], ground: &[bool], class: &[Option<u8>]) -> Vec<Poin
         .collect()
 }
 
-/// Road points: ground that is smooth, flat and dark.
+/// Puntos de carretera: suelo liso, llano y oscuro.
 fn roads(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], p: &RoadParams) {
     let limit = intensity_limit(pts, ground, class, p.max_intensity, p.relative_intensity);
     let wanted: Vec<bool> = (0..pts.len())
@@ -494,8 +504,8 @@ fn roads(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], p: &RoadParam
     }
 }
 
-/// The highest intensity that counts as dark: `absolute` when it is set, else `relative` times the
-/// median intensity of the plain ground of the tile (0 when there is none).
+/// La mayor intensidad que cuenta como oscura: `absolute` cuando está fijada o, si no, `relative`
+/// veces la mediana de intensidad del suelo normal de la tesela (0 cuando no hay).
 fn intensity_limit(
     pts: &[Point],
     ground: &[bool],
@@ -516,7 +526,7 @@ fn intensity_limit(
     relative * crate::cluster::median(&mut v)
 }
 
-/// Water points: extended level regions of dark single-return ground.
+/// Puntos de agua: regiones extensas y niveladas de suelo oscuro de retorno único.
 fn water(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], p: &WaterParams) {
     let limit = intensity_limit(pts, ground, class, p.max_intensity, p.relative_intensity);
     let wanted: Vec<bool> = (0..pts.len())
@@ -545,7 +555,7 @@ fn water(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], p: &WaterPara
                 .push(k);
         }
     }
-    // regions of 8-connected cells
+    // regiones de celdas conectadas en 8 direcciones
     let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
     let keys: Vec<(i32, i32)> = cells.keys().copied().collect();
     for start in keys {
@@ -585,8 +595,8 @@ fn water(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], p: &WaterPara
     }
 }
 
-/// Mean distance between the points of a tile (square root of the area per point, the bounding
-/// box over the points that are not noise); `None` with fewer than 100 points.
+/// Distancia media entre los puntos de una tesela (raíz cuadrada del área por punto, la caja
+/// envolvente entre los puntos que no son ruido); `None` con menos de 100 puntos.
 fn spacing(pts: &[Point]) -> Option<f64> {
     let (mut x0, mut y0, mut x1, mut y1, mut n) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN, 0u64);
     for q in pts.iter().filter(|q| !q.is_noise()) {
@@ -596,10 +606,10 @@ fn spacing(pts: &[Point]) -> Option<f64> {
     (n >= 100 && area > 0.0).then(|| (area / n as f64).sqrt())
 }
 
-/// The radii at which a point is looked at to see if it is part of a wire: the one of the tile
-/// (or the one the parameters give) and, in a sparse survey (0.25 m between points or more), 1.5 and
-/// 2 times it. A wire is a line at the radius that reaches its next point and has no crown beside it,
-/// and that radius is not the same along the line.
+/// Los radios con los que se mira un punto para ver si es parte de un cable: el de la tesela (o el
+/// que dan los parámetros) y, en un vuelo disperso (0,25 m entre puntos o más), 1,5 y 2 veces ese.
+/// Un cable es una línea al radio que alcanza su siguiente punto y no tiene copa a su lado, y ese
+/// radio no es el mismo a lo largo de la línea.
 fn wire_radii(pts: &[Point], w: &WireParams) -> Vec<f64> {
     let (base, _) = wire_scale(pts, w);
     let sparse = w.radius <= 0.0 && spacing(pts).is_some_and(|s| s >= WIRE_SPARSE_SPACING);
@@ -610,8 +620,8 @@ fn wire_radii(pts: &[Point], w: &WireParams) -> Vec<f64> {
     }
 }
 
-/// Radius of the neighbourhood and widest it may be across, for the wires of a tile: the
-/// parameters, or (when 0) from the spacing of its points.
+/// Radio del entorno y mayor anchura que puede tener a través, para los cables de una tesela: los
+/// parámetros o (cuando 0) a partir del espaciado de sus puntos.
 fn wire_scale(pts: &[Point], w: &WireParams) -> (f64, f64) {
     let radius = if w.radius > 0.0 {
         w.radius
@@ -626,9 +636,9 @@ fn wire_scale(pts: &[Point], w: &WireParams) -> (f64, f64) {
     (radius, width)
 }
 
-/// Which of the points `cand` belong to a chain that is long (bounding box diagonal at least
-/// `min_len`) and straight (the square root of its first eigenvalue is at least `straightness`
-/// times that of its second).
+/// Cuáles de los puntos `cand` pertenecen a una cadena larga (diagonal de la caja envolvente de al
+/// menos `min_len`) y recta (la raíz cuadrada de su primer autovalor es al menos `straightness`
+/// veces la del segundo).
 fn straight_chains(
     pts: &[Point],
     cand: &[usize],
@@ -663,14 +673,14 @@ fn straight_chains(
         .collect()
 }
 
-/// Which of the points `set` are pieces of a conductor linked across gaps: short compact pieces
-/// (0.4 to 4 m, points within `link` of each other, collapsed to voxels; thin, and level) that
-/// stand in a row: three of them, each at most `link_gap` from the next, with the turn at the
-/// middle one under 8° and the steepness of both steps within `max_slope`, make a chain; chains
-/// that span at least twice `min_length` are wire. The pieces are what a survey with few passes
-/// sees of a conductor: the scan lines cross it here and there, and between them there are
-/// metres without a point. Three pieces in a row by chance, that far apart, hardly happens in
-/// a crown.
+/// Cuáles de los puntos `set` son trozos de un conductor enlazados a través de huecos: trozos
+/// cortos y compactos (0,4 a 4 m, puntos a menos de `link` unos de otros, reducidos a vóxeles;
+/// finos y nivelados) que están en fila: tres de ellos, cada uno como mucho a `link_gap` del
+/// siguiente, con el giro en el del medio por debajo de 8° y la pendiente de ambos tramos dentro de
+/// `max_slope`, forman una cadena; las cadenas que abarcan al menos el doble de `min_length` son
+/// cable. Los trozos son lo que ve un vuelo con pocas pasadas de un conductor: las líneas de
+/// barrido lo cruzan aquí y allá, y entre ellas hay metros sin un punto. Tres trozos en fila por
+/// casualidad, tan separados, apenas ocurre en una copa.
 fn linked_wires(pts: &[Point], set: &[usize], w: &WireParams, link: f64) -> Vec<bool> {
     let vs = w.voxel.max(0.05);
     let mut voxel_of: HashMap<(i32, i32, i32), usize> = HashMap::new();
@@ -708,7 +718,8 @@ fn linked_wires(pts: &[Point], set: &[usize], w: &WireParams, link: f64) -> Vec<
                 .push([centres[i].x, centres[i].y, centres[i].z]);
         }
     }
-    // what stands around a piece: a conductor hangs alone, a piece of crown has crown around it
+    // lo que hay alrededor de un trozo: un conductor cuelga solo, un trozo de copa tiene copa a su
+    // alrededor
     let mut around: HashMap<Cell, Vec<usize>> = HashMap::new();
     for (i, c) in centres.iter().enumerate() {
         around
@@ -744,7 +755,7 @@ fn linked_wires(pts: &[Point], set: &[usize], w: &WireParams, link: f64) -> Vec<
         }
         others <= 2
     };
-    // (group, centre) of the pieces that are thin and alone
+    // (grupo, centro) de los trozos que son finos y están solos
     let mut pieces: Vec<(usize, [f64; 3])> = Vec::new();
     for (g, m) in &members {
         let (c, cov, _) = crate::tls::covariance(m.iter().copied());
@@ -796,8 +807,8 @@ fn linked_wires(pts: &[Point], set: &[usize], w: &WireParams, link: f64) -> Vec<
     out
 }
 
-/// Gives the extra classes to the points of a tile. `class` holds the class each step decided
-/// (`None`: the point's own); `ground` says which points are ground.
+/// Da las clases adicionales a los puntos de una tesela. `class` guarda la clase que decidió cada
+/// paso (`None`: la propia del punto); `ground` dice qué puntos son suelo.
 pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extras) {
     if let Some(w) = &e.water {
         water(pts, ground, class, w);
@@ -843,10 +854,10 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
             .copied()
             .filter(|&k| height(k) >= w.min_height)
             .collect();
-        // the points of a conductor come in clumps with gaps between them (the scan lines of a
-        // survey): in a neighbourhood of points a clump is a blob, not a line. The points are
-        // collapsed to the centres of the voxels they fill, so that the shape seen is the one of
-        // the structure, whatever the density
+        // los puntos de un conductor vienen en grupos con huecos entre ellos (las líneas de barrido
+        // de un vuelo): en un entorno de puntos un grupo es una mancha, no una línea. Los puntos se
+        // reducen a los centros de los vóxeles que llenan, de modo que la forma que se ve es la de
+        // la estructura, sea cual sea la densidad
         let (radius, _) = wire_scale(pts, w);
         let vs = w.voxel.max(0.05);
         let mut voxel_of: HashMap<(i32, i32, i32), usize> = HashMap::new();
@@ -872,7 +883,7 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
             })
             .collect();
         let all: Vec<usize> = (0..centres.len()).collect();
-        // a voxel is a candidate if it looks like a wire at some radius
+        // un vóxel es candidato si parece un cable a algún radio
         let mut is_cand = vec![false; centres.len()];
         let mut reach = radius;
         for r in wire_radii(pts, w) {
@@ -926,10 +937,11 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
             .copied()
             .filter(|&k| height(k) >= p.min_height && now(class, k) != WIRE)
             .collect();
-        // what stands around a structure: points more than 3 m above the ground, by 3 m cell
+        // lo que hay alrededor de una estructura: puntos a más de 3 m sobre el suelo, por celda de
+        // 3 m
         let mut under: HashMap<(i32, i32), Vec<[f64; 4]>> = HashMap::new();
         for &k in &above {
-            // conductors reach the tower: they are not crown around it
+            // los conductores llegan a la torre: no son copa a su alrededor
             if height(k) >= 3.0 && class[k] != Some(WIRE) {
                 under
                     .entry((
@@ -940,8 +952,8 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
                     .push([pts[k].x, pts[k].y, pts[k].z, height(k)]);
             }
         }
-        // how many points a structure may have, and how many strays a tower tolerates, grow with
-        // the density of the survey: 12 per metre of height is the count of a tower at 9 points/m²
+        // cuántos puntos puede tener una estructura y cuántos sueltos tolera una torre crecen con
+        // la densidad del vuelo: 12 por metro de altura es el recuento de una torre a 9 puntos/m²
         let density = spacing(pts).map_or(1.0, |s| (POLE_REFERENCE_SPACING / s).powi(2).max(1.0));
         let (group, boxes) = chains_z(pts, &set, p.radius, POLE_Z_SCALE);
         let mut members: HashMap<usize, Vec<f64>> = HashMap::new();
@@ -950,10 +962,10 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
                 members.entry(*g).or_default().push(height(k));
             }
         }
-        // points high above the ground within 3 m of the chain on the plan, those of the chain
-        // apart: a tower in a corridor has none, a tree at the edge of a stand has. "High" is 3 m
-        // or a third of the height of the structure, whichever is more: a crop of low trees at the
-        // foot of a tower is not crown around it
+        // puntos muy por encima del suelo a menos de 3 m de la cadena en planta, los de la cadena
+        // aparte: una torre en un corredor no tiene ninguno, un árbol en el borde de un rodal sí.
+        // «Alto» es 3 m o un tercio de la altura de la estructura, lo que sea más: un cultivo de
+        // árboles bajos al pie de una torre no es copa a su alrededor
         let crowd = |b: &[f64; 6], own: &[f64], tolerance: f64| -> bool {
             let high = (0.3 * (b[5] - b[2])).max(3.0);
             let (cx0, cx1) = (
@@ -979,8 +991,8 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
             let own = own.iter().filter(|h| **h >= high).count() as f64;
             near as f64 > own * tolerance + 2.0 * density
         };
-        // a trunk goes up into its crown: around its top, from 2 m under it, there are many more
-        // points than its own. A lamp post, a pole, has a lamp and little else up there.
+        // un tronco sube hasta su copa: alrededor de su punta, desde 2 m por debajo, hay muchos más
+        // puntos que los suyos. Una farola, un poste, tiene una lámpara y poco más allí arriba.
         let capped = |b: &[f64; 6], own: usize| -> bool {
             let (cx0, cx1) = (
                 ((b[0] - 2.0) / 3.0).floor() as i32,
@@ -1008,10 +1020,10 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
             let (b, _) = boxes[g];
             crowd(&b, members.get(g).map_or(&[][..], |v| v.as_slice()), CROWD_TOLERANCE)
         };
-        // a structure stands on the ground, is narrow for its height and is sparse; a crown is
-        // wide and dense, a forest is one chain far wider than any tower
-        // the plan of each chain, to measure its width without what is attached to it: the
-        // conductors that reach a tower, or a branch that touches a pole, stretch its box
+        // una estructura se apoya en el suelo, es estrecha para su altura y es dispersa; una copa
+        // es ancha y densa, un bosque es una cadena mucho más ancha que cualquier torre; la planta
+        // de cada cadena, para medir su anchura sin lo que tiene unido: los conductores que llegan
+        // a una torre, o una rama que toca un poste, estiran su caja
         let mut plan: HashMap<usize, (Vec<f64>, Vec<f64>)> = HashMap::new();
         for (&k, g) in set.iter().zip(&group) {
             let e = plan.entry(*g).or_default();
@@ -1023,7 +1035,8 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
                 crate::cluster::core_spread(x).max(crate::cluster::core_spread(y))
             })
         };
-        // the points of a chain inside its core: those of a tower, without the conductors attached
+        // los puntos de una cadena dentro de su núcleo: los de una torre, sin los conductores
+        // unidos
         let core_points = |g: &usize, width: f64| -> usize {
             let Some((x, y)) = plan.get(g) else { return 0 };
             let mid = |v: &[f64]| {
@@ -1055,7 +1068,7 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
                     }
         };
         let low = |g: &usize| -> bool {
-            // reaches the ground: some point of the chain is within 3 m of it
+            // llega al suelo: algún punto de la cadena está a menos de 3 m de él
             let (b, _) = boxes[g];
             let (x, y) = ((b[0] + b[3]) / 2.0, (b[1] + b[4]) / 2.0);
             surface
@@ -1079,8 +1092,8 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
                 .filter(|&k| height(k) >= HEAD_MIN_HEIGHT && class[k] != Some(POLE))
                 .collect();
             let (group, boxes) = chains(pts, &high, p.radius);
-            // a crossarm is a straight bar: the spread of its points on the plan is long
-            // one way and thin the other (a piece of crown is a blob)
+            // una cruceta es una barra recta: la dispersión de sus puntos en planta es larga en un
+            // sentido y fina en el otro (un trozo de copa es una mancha)
             let mut plan: HashMap<usize, Vec<[f64; 2]>> = HashMap::new();
             for (&k, g) in high.iter().zip(&group) {
                 plan.entry(*g).or_default().push([pts[k].x, pts[k].y]);
@@ -1114,7 +1127,7 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
                 if n < 8 || diag < 3.0 || diag > p.head_length {
                     return false;
                 }
-                // nothing within 3 m of the chain on the plan and under it, down to the ground
+                // nada a menos de 3 m de la cadena en planta y por debajo, hasta el suelo
                 let (cx0, cx1) = (
                     (b[0] / 3.0).floor() as i32 - 1,
                     (b[3] / 3.0).floor() as i32 + 1,
@@ -1146,7 +1159,7 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
             }
         }
         if p.thin_extent > 0.0 {
-            // a thin pole is a vertical line: the same look as a wire, turned upright
+            // un poste fino es una línea vertical: el mismo aspecto que un cable, puesto de pie
             let set: Vec<usize> = above
                 .iter()
                 .copied()
@@ -1186,11 +1199,12 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
                         .map(|_| v)
                 })
                 .collect();
-            // trunks show as vertical lines only when the survey is dense (above ~180 points/m²)
+            // los troncos se ven como líneas verticales solo cuando el vuelo es denso (por encima
+            // de unos 180 puntos/m²)
             let trunks_resolved = density >= TRUNK_DENSITY;
             let (group, boxes) = chains(&centres, &cand, radius);
-            // the heights of the points of each chain, to tell a pole from a trunk: a trunk
-            // has its crown around it
+            // las alturas de los puntos de cada cadena, para distinguir un poste de un tronco: un
+            // tronco tiene su copa alrededor
             let group_of: HashMap<usize, usize> =
                 cand.iter().copied().zip(group.iter().copied()).collect();
             let mut own: HashMap<usize, Vec<f64>> = HashMap::new();
@@ -1242,7 +1256,7 @@ mod tests {
     #[test]
     fn strata_wire_and_pole() {
         let mut pts = Vec::new();
-        // flat ground
+        // suelo llano
         for i in 0..30 {
             for j in 0..30 {
                 pts.push(pt(f64::from(i), f64::from(j), 0.0));
@@ -1250,18 +1264,18 @@ mod tests {
         }
         let ground = vec![true; pts.len()];
         let n_ground = pts.len();
-        // vegetation at 0.2, 1.0 and 6.0 m
+        // vegetación a 0,2, 1,0 y 6,0 m
         for (k, z) in [0.2, 1.0, 6.0].into_iter().enumerate() {
             pts.push(pt(5.0 + k as f64 * 0.3, 5.0, z));
         }
-        // a wire at 8 m along x, a pole along z at x = 20
+        // un cable a 8 m a lo largo de x, un poste a lo largo de z en x = 20
         for i in 0..40 {
             pts.push(pt(2.0 + f64::from(i) * 0.5, 25.0, 8.0));
         }
         for i in 0..30 {
             pts.push(pt(20.0, 10.0, 0.5 + f64::from(i) * 0.3));
         }
-        // a lattice tower far from the rest: a loose column 2 m wide, 18 m tall
+        // una torre de celosía lejos del resto: una columna suelta de 2 m de ancho y 18 m de alto
         let tower_from = pts.len();
         for i in 0..24 {
             let z = 1.0 + f64::from(i) * 0.75;
@@ -1270,7 +1284,7 @@ mod tests {
             pts.push(pt(10.0 + w, 3.0 + w, z + 0.3));
         }
         let tower_to = pts.len();
-        // a lone crown, wide for its height, must not count
+        // una copa sola, ancha para su altura, no debe contar
         let crown_from = pts.len();
         for i in 0..8 {
             for j in 0..8 {
@@ -1281,7 +1295,7 @@ mod tests {
                 ));
             }
         }
-        // the head of a tower far from anything: a 6 m crossarm 12 m up with nothing under it
+        // la cabeza de una torre lejos de todo: una cruceta de 6 m a 12 m de altura sin nada debajo
         let head_from = pts.len();
         for i in 0..24 {
             pts.push(pt(27.0, 12.0 + f64::from(i) * 0.25, 12.0));
@@ -1331,10 +1345,10 @@ mod tests {
         pts
     }
 
-    /// A survey with few passes sees a conductor in pieces a metre long with metres of nothing
-    /// between: three or more in a row, far from anything else, are a wire; two are not, and
-    /// pieces with crown around them are not.
-    /// A sparse survey looks at a wire from three radii, a dense one from one.
+    /// Un vuelo con pocas pasadas ve un conductor en trozos de un metro con metros de nada entre
+    /// ellos: tres o más en fila, lejos de todo lo demás, son un cable; dos no lo son, y los trozos
+    /// con copa a su alrededor tampoco. Un vuelo disperso mira un cable con tres radios, uno denso
+    /// con uno.
     #[test]
     fn wires_are_looked_at_from_more_radii_in_a_sparse_survey() {
         let w = WireParams::default();
@@ -1360,7 +1374,7 @@ mod tests {
                 pts.push(pt(x + f64::from(i) * 0.05, y, z));
             }
         };
-        // six pieces 10 m apart at 14 m, and another two apart from them
+        // seis trozos a 10 m uno de otro a 14 m, y otros dos aparte de ellos
         let wire_from = pts.len();
         for k in 0..6 {
             piece(&mut pts, 5.0 + 10.0 * f64::from(k), 25.0, 14.0);
@@ -1369,7 +1383,7 @@ mod tests {
         piece(&mut pts, 5.0, 5.0, 14.0);
         piece(&mut pts, 15.0, 5.0, 14.0);
         let pair_to = pts.len();
-        // three pieces in a row, each in the middle of a blob of crown points
+        // tres trozos en fila, cada uno en medio de una mancha de puntos de copa
         for k in 0..3 {
             let x = 70.0 + 10.0 * f64::from(k);
             piece(&mut pts, x, 25.0, 14.0);
@@ -1399,8 +1413,8 @@ mod tests {
         assert_eq!(wires(pair_to, pts.len()), 0, "pieces inside crown are not wire");
     }
 
-    /// At the density of a survey a lattice tower has thousands of points, a loose column with
-    /// metres between its rows; low crops at its foot are not crown around it.
+    /// A la densidad de un vuelo, una torre de celosía tiene miles de puntos, una columna suelta
+    /// con metros entre sus filas; los cultivos bajos a su pie no son copa a su alrededor.
     #[test]
     fn a_dense_survey_tower_among_low_crops_is_a_pole() {
         let mut pts = flat_ground(40, 40, 0.1);
@@ -1415,7 +1429,7 @@ mod tests {
             }
         }
         let tower_to = pts.len();
-        // crops 3.5 m high in a ring 4 to 6 m from the tower
+        // cultivos de 3,5 m de alto en un anillo a 4 a 6 m de la torre
         for i in 0..400 {
             let a = f64::from(i) * 0.37;
             let r = 4.0 + f64::from(i % 20) * 0.1;
@@ -1437,7 +1451,8 @@ mod tests {
         assert!(class[tower_to..].iter().all(|c| *c != Some(POLE)));
     }
 
-    /// A flat dark strip of ground is a road; bright ground beside it and rough ground are not.
+    /// Una franja plana y oscura de suelo es una carretera; el suelo brillante a su lado y el suelo
+    /// rugoso no lo son.
     #[test]
     fn dark_smooth_ground_is_road() {
         let mut pts = Vec::new();
@@ -1452,7 +1467,7 @@ mod tests {
                     // bright soil, flat
                     q.intensity = 30000;
                 } else {
-                    // dark but rough ground
+                    // suelo oscuro pero rugoso
                     q.intensity = 5000;
                     rough_seed = rough_seed
                         .wrapping_mul(6364136223846793005)
@@ -1478,8 +1493,8 @@ mod tests {
         assert!(!road(30, 30), "rough ground is not");
     }
 
-    /// Without a set limit, dark is relative to the ground of the tile: the same scene is found
-    /// with intensities of 16 bits and with intensities of 0 to 255.
+    /// Sin un límite fijado, oscuro es relativo al suelo de la tesela: la misma escena se encuentra
+    /// con intensidades de 16 bits y con intensidades de 0 a 255.
     #[test]
     fn the_road_limit_follows_the_scale_of_the_sensor() {
         for scale in [1.0, 65535.0 / 255.0] {
@@ -1487,7 +1502,7 @@ mod tests {
             for i in 0..40 {
                 for j in 0..40 {
                     let mut q = pt(f64::from(i) * 0.5, f64::from(j) * 0.5, 0.0);
-                    // a dark strip of a fifth of the ground, bright soil elsewhere
+                    // una franja oscura de una quinta parte del suelo, tierra brillante en el resto
                     q.intensity = if i < 8 { 20.0 * scale } else { 120.0 * scale } as u16;
                     pts.push(q);
                 }
@@ -1504,7 +1519,7 @@ mod tests {
         }
     }
 
-    /// A big level sheet of dark single returns is water; a small one is not.
+    /// Una lámina grande y nivelada de retornos únicos oscuros es agua; una pequeña no lo es.
     #[test]
     fn a_dark_level_sheet_is_water() {
         let mut pts = Vec::new();
@@ -1515,7 +1530,7 @@ mod tests {
                 pts.push(q);
             }
         }
-        // a small dark patch far away
+        // una pequeña mancha oscura lejos
         let lake = pts.len();
         for i in 0..6 {
             for j in 0..6 {

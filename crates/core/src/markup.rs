@@ -1,5 +1,5 @@
-//! Points of interest and areas of interest drawn over a cloud, saved as shapefiles with their
-//! name, colour and comment (the viewer's POI and AOI tools).
+//! Puntos de interés y áreas de interés dibujados sobre una nube, guardados como shapefiles con su
+//! nombre, color y comentario (las herramientas POI y AOI del visor).
 
 use std::path::Path;
 
@@ -74,7 +74,7 @@ fn parse_color(s: &str) -> [u8; 3] {
     [v(0), v(2), v(4)]
 }
 
-/// Writes the `.prj` beside a shapefile.
+/// Escribe el `.prj` junto a un shapefile.
 fn write_prj(path: &Path, prj: Option<&str>) -> Result<()> {
     if let Some(text) = prj {
         std::fs::write(path.with_extension("prj"), text)?;
@@ -82,7 +82,8 @@ fn write_prj(path: &Path, prj: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// Saves the points of interest; `prj` is the coordinate system of the cloud they were placed on.
+/// Guarda los puntos de interés; `prj` es el sistema de coordenadas de la nube en la que se
+/// colocaron.
 pub fn save_poi(path: &Path, list: &[Poi], prj: Option<&str>) -> Result<()> {
     let mut w = shapefile::Writer::from_path(path, table()?).map_err(fmt_err)?;
     for p in list {
@@ -119,13 +120,15 @@ pub fn load_poi(path: &Path) -> Result<Vec<Poi>> {
     Ok(out)
 }
 
-/// Saves the areas of interest; `prj` is the coordinate system of the cloud they were drawn on.
+/// Guarda las áreas de interés; `prj` es el sistema de coordenadas de la nube en la que se
+/// dibujaron.
 pub fn save_aoi(path: &Path, list: &[Aoi], prj: Option<&str>) -> Result<()> {
     use shapefile::{Point, Polygon, PolygonRing};
     let mut w = shapefile::Writer::from_path(path, table()?).map_err(fmt_err)?;
     for a in list.iter().filter(|a| a.points.len() >= 3) {
         let mut pts: Vec<Point> = a.points.iter().map(|p| Point::new(p[0], p[1])).collect();
-        // shapefile outer rings run clockwise and close on their first vertex
+        // los anillos exteriores de un shapefile van en el sentido de las agujas del reloj y se
+        // cierran en su primer vértice
         let area: f64 = a
             .points
             .iter()
@@ -208,8 +211,8 @@ mod tests {
         Ok(())
     }
 
-    /// Writes sample files to the folder named by `HIPSO_MARKUP_OUT`, for opening them in
-    /// other software (`cargo test -- --ignored`).
+    /// Escribe archivos de muestra en la carpeta que nombra `HIPSO_MARKUP_OUT`, para abrirlos en
+    /// otro programa (`cargo test -- --ignored`).
     #[test]
     #[ignore]
     fn write_samples() -> Result<()> {

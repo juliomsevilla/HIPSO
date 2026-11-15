@@ -1,9 +1,10 @@
-//! Grid metrics, with the table layout of the FUSION-compatible `*_all_returns_elevation_stats.csv`: descriptive
-//! statistics of the point heights in each cell.
+//! Métricas de rejilla, con la disposición de tabla del `*_all_returns_elevation_stats.csv`
+//! compatible con FUSION: estadísticos descriptivos de las alturas de los puntos en cada celda.
 //!
-//! Memory stays under a budget whatever the cloud's size: a first pass counts the points of
-//! each cell, then the rows are processed in bands that fit the budget, each band reading the
-//! cloud once and placing its heights straight into per-cell slices (a counting sort).
+//! La memoria se mantiene por debajo de un presupuesto sea cual sea el tamaño de la nube: una
+//! primera pasada cuenta los puntos de cada celda, luego las filas se procesan en bandas que caben
+//! en el presupuesto, leyendo cada banda la nube una vez y colocando sus alturas directamente en
+//! porciones por celda (una ordenación por conteo).
 
 use std::io::Write;
 
@@ -13,7 +14,7 @@ use crate::grid::Grid;
 use crate::las::Reader;
 use crate::{Error, Result};
 
-/// The output columns, in the order of that layout; `{hb}` is the height break.
+/// Las columnas de salida, en el orden de esa disposición; `{hb}` es la altura de corte.
 const COLUMNS: [&str; 71] = [
     "row",
     "col",
@@ -92,35 +93,37 @@ const PERCENTILES: [f64; 15] = [
     0.01, 0.05, 0.10, 0.20, 0.25, 0.30, 0.40, 0.50, 0.60, 0.70, 0.75, 0.80, 0.90, 0.95, 0.99,
 ];
 
-/// Bytes held per point while its band is processed: its height, its return number, and its
-/// intensity when intensity or strata metrics are asked for.
+/// Bytes retenidos por punto mientras se procesa su banda: su altura, su número de retorno y su
+/// intensidad cuando se piden métricas de intensidad o de estratos.
 const BYTES_PER_POINT: u64 = 5;
 const BYTES_PER_POINT_INT: u64 = 7;
 
-/// Where the metrics go: the elevation metrics always, the others when given.
+/// Adónde van las métricas: las de elevación siempre, las demás cuando se piden.
 pub struct Outputs<'a> {
     pub elevation: &'a mut dyn Write,
     pub intensity: Option<&'a mut dyn Write>,
     pub strata: Option<&'a mut dyn Write>,
-    /// The structure metrics ([`StructureParams`]), when given.
+    /// Las métricas de estructura ([`StructureParams`]), cuando se piden.
     pub structure: Option<&'a mut dyn Write>,
 }
 
-/// Structure metrics of a cell, from the heights of its returns above the ground: how much light
-/// gets through, how the returns spread over the height, and where the crown begins.
+/// Métricas de estructura de una celda, a partir de las alturas de sus retornos sobre el suelo:
+/// cuánta luz pasa, cómo se reparten los retornos en altura y dónde empieza la copa.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StructureParams {
-    /// Thickness of the layers of the vertical profile, in the units of height.
+    /// Grosor de las capas del perfil vertical, en las unidades de altura.
     pub layer: f64,
-    /// Height of the profile: returns above it fall in its last layer.
+    /// Altura del perfil: los retornos por encima caen en su última capa.
     pub top: f64,
-    /// Returns under this height count as light that reached the ground.
+    /// Los retornos por debajo de esta altura cuentan como luz que llegó al suelo.
     pub gap_height: f64,
-    /// Extinction coefficient of the leaf area index (0.5 for a spherical leaf distribution).
+    /// Coeficiente de extinción del índice de área foliar (0,5 para una distribución esférica de
+    /// las hojas).
     pub k: f64,
-    /// The crown base is searched above this height (shrubs and surface fuels lie below).
+    /// La base de la copa se busca por encima de esta altura (los arbustos y los combustibles de
+    /// superficie quedan por debajo).
     pub cbh_floor: f64,
-    /// A layer belongs to the crown when it holds at least this share of the fullest layer.
+    /// Una capa pertenece a la copa cuando contiene al menos esta proporción de la capa más llena.
     pub cbh_share: f64,
 }
 
@@ -157,20 +160,21 @@ impl StructureParams {
     }
 }
 
-/// Most layers of the vertical profile.
+/// Máximo de capas del perfil vertical.
 const MAX_LAYERS: usize = 256;
 
-/// The gap fraction, leaf area index, foliage height diversity, vertical complexity index and crown
-/// base height of a cell, from the heights above ground of its returns (NaN where they cannot be
-/// told).
+/// La fracción de huecos, el índice de área foliar, la diversidad de la altura del follaje, el
+/// índice de complejidad vertical y la altura de la base de la copa de una celda, a partir de las
+/// alturas sobre el suelo de sus retornos (NaN donde no se pueden saber).
 ///
-/// - Gap fraction: the share of the returns under `gap_height`.
-/// - LAI: `-ln(gap fraction) / k` (Beer–Lambert), the fraction held at one return so that a
-///   cell with no light through does not give infinity.
-/// - FHD: the Shannon entropy of the share of returns in each layer (MacArthur and MacArthur, 1961).
-/// - VCI: that entropy over its maximum, `ln(layers)` (van Ewijk et al., 2011).
-/// - CBH: the lower edge of the first layer above `cbh_floor` with at least `cbh_share` of the
-///   returns of the fullest layer above it.
+/// - Fracción de huecos: la proporción de retornos por debajo de `gap_height`.
+/// - LAI: `-ln(fracción de huecos) / k` (Beer–Lambert), con la fracción mantenida en un retorno
+///   para que una celda sin luz que pase no dé infinito.
+/// - FHD: la entropía de Shannon de la proporción de retornos en cada capa (MacArthur y MacArthur,
+///   1961).
+/// - VCI: esa entropía entre su máximo, `ln(capas)` (van Ewijk et al., 2011).
+/// - CBH: el borde inferior de la primera capa por encima de `cbh_floor` con al menos `cbh_share`
+///   de los retornos de la capa más llena por encima de ella.
 fn structure_metrics(h: &[f32], sp: &StructureParams) -> [f64; 5] {
     let n = h.len();
     if n == 0 {
@@ -215,7 +219,8 @@ fn structure_metrics(h: &[f32], sp: &StructureParams) -> [f64; 5] {
             .find(|&l| f64::from(counts[l]) >= need)
             .map_or(f64::NAN, |l| l as f64 * sp.layer)
     };
-    // `+ 0.0` turns a negative zero (a cell with no returns above the ground) into a plain zero
+    // `+ 0.0` convierte un cero negativo (una celda sin retornos por encima del suelo) en un cero
+    // normal
     [gap + 0.0, lai + 0.0, entropy + 0.0, vci + 0.0, cbh]
 }
 
@@ -228,7 +233,7 @@ const STRUCTURE_COLUMNS: [&str; 6] = [
     "Crown base height",
 ];
 
-/// The text of the metrics of one row of cells, ready to be written in order.
+/// El texto de las métricas de una fila de celdas, listo para escribirse en orden.
 #[derive(Default)]
 struct RowText {
     elevation: Vec<u8>,
@@ -238,8 +243,8 @@ struct RowText {
     with_metrics: usize,
 }
 
-/// Intensity metrics: the distribution statistics of the elevation file (its
-/// columns 5 to 38), of the intensities.
+/// Métricas de intensidad: los estadísticos de distribución del archivo de elevación (sus columnas
+/// 5 a 38), de las intensidades.
 const INT_STATS: usize = 34;
 
 fn int_header() -> String {
@@ -250,7 +255,7 @@ fn int_header() -> String {
         .join(",")
 }
 
-/// The strata of `limits`: (name, lower, upper).
+/// Los estratos de `limits`: (nombre, inferior, superior).
 fn strata_names(limits: &[f64]) -> Vec<(String, f64, f64)> {
     let mut out = Vec::new();
     let mut low = f64::NEG_INFINITY;
@@ -297,7 +302,7 @@ fn strata_header(p: &MetricParams) -> String {
     cols.join(",")
 }
 
-/// One stratum's statistics, formatted for that layout.
+/// Los estadísticos de un estrato, con el formato de esa disposición.
 fn stratum(out: &mut dyn Write, v: &mut [f32], total: usize) -> std::io::Result<()> {
     let n = v.len();
     if n == 0 {
@@ -309,7 +314,7 @@ fn stratum(out: &mut dyn Write, v: &mut [f32], total: usize) -> std::io::Result<
     }
     let nf = n as f64;
     if n < 3 {
-        // Strata of fewer than 3 points get their mean only.
+        // Los estratos de menos de 3 puntos reciben solo su media.
         let mean = v.iter().map(|&x| f64::from(x)).sum::<f64>() / nf;
         write!(
             out,
@@ -362,17 +367,17 @@ fn stratum(out: &mut dyn Write, v: &mut [f32], total: usize) -> std::io::Result<
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetricParams {
     pub cell: f64,
-    /// Height break for the cover metrics.
+    /// Altura de corte para las métricas de cobertura.
     pub heightbreak: f64,
-    /// Cells with fewer points get no metrics.
+    /// Las celdas con menos puntos no reciben métricas.
     pub min_points: u32,
-    /// Most bytes of point heights held at once.
+    /// Máximo de bytes de alturas de puntos retenidos a la vez.
     pub memory: u64,
-    /// Upper limits of the height strata (height strata) and of the intensity strata
-    /// (intensity strata).
+    /// Límites superiores de los estratos de altura (estratos de altura) y de los estratos de
+    /// intensidad (estratos de intensidad).
     pub strata: Vec<f64>,
     pub int_strata: Vec<f64>,
-    /// Also compute the structure metrics (written beside the others).
+    /// Calcula también las métricas de estructura (escritas junto a las demás).
     pub structure: Option<StructureParams>,
 }
 
@@ -390,11 +395,11 @@ impl Default for MetricParams {
     }
 }
 
-/// The percentile (Resampling Stats "method 5"): linear between order statistics, at rank
-/// `p (n - 1)`. `v` is sorted and not empty.
+/// El percentil («método 5» de Resampling Stats): lineal entre estadísticos de orden, en el rango
+/// `p (n - 1)`. `v` está ordenado y no vacío.
 fn percentile(v: &[f32], p: f64) -> f64 {
-    // The rank is computed in single precision, which picks the same order
-    // statistics and fraction, which matters where neighbouring values are far apart.
+    // El rango se calcula en precisión simple, lo que elige los mismos estadísticos de orden y la
+    // misma fracción, algo que importa donde valores vecinos están lejos unos de otros.
     let idx32 = p as f32 * (v.len() - 1) as f32;
     let i = idx32.floor() as usize;
     let idx = i as f64 + f64::from(idx32 - idx32.floor());
@@ -407,8 +412,8 @@ fn percentile(v: &[f32], p: f64) -> f64 {
     lo + (idx - i as f64) * (hi - lo)
 }
 
-/// The mode: 64 bins `(max - min) / 63` wide (the maximum alone opens
-/// the last), and the lower edge of the fullest, the lowest on a tie.
+/// La moda: 64 intervalos de anchura `(max - min) / 63` (solo el máximo abre el último) y el borde
+/// inferior del más lleno, el más bajo en caso de empate.
 fn mode(v: &[f32], min: f64, max: f64) -> f64 {
     const BINS: usize = 64;
     let width = (max - min) / (BINS - 1) as f64;
@@ -417,7 +422,8 @@ fn mode(v: &[f32], min: f64, max: f64) -> f64 {
     }
     let mut hist = [0u32; BINS];
     for &x in v {
-        // Multiplying first keeps whole-number data (intensities) on exact bin edges.
+        // Multiplicar primero mantiene los datos de números enteros (intensidades) en bordes de
+        // intervalo exactos.
         let b = (((f64::from(x) - min) * (BINS - 1) as f64 / (max - min)) as usize).min(BINS - 1);
         if let Some(h) = hist.get_mut(b) {
             *h += 1;
@@ -432,7 +438,7 @@ fn mode(v: &[f32], min: f64, max: f64) -> f64 {
     min + best as f64 * width
 }
 
-/// The metrics of one cell: `h` its heights (sorted here), `ret` their return numbers.
+/// Las métricas de una celda: `h` sus alturas (ordenadas aquí), `ret` sus números de retorno.
 fn cell_metrics(h: &mut [f32], ret: &[u8], hb: f64) -> Vec<f64> {
     let n = h.len() as f64;
     let (mut sum, mut sum2, mut sum3) = (0.0, 0.0, 0.0);
@@ -441,7 +447,7 @@ fn cell_metrics(h: &mut [f32], ret: &[u8], hb: f64) -> Vec<f64> {
         let x = f64::from(x);
         sum += x;
         sum2 += x * x;
-        // The cubic mean is of absolute values.
+        // La media cúbica es de valores absolutos.
         sum3 += x.abs().powi(3);
         min = min.min(x);
         max = max.max(x);
@@ -469,7 +475,7 @@ fn cell_metrics(h: &mut [f32], ret: &[u8], hb: f64) -> Vec<f64> {
     };
     let mode_v = mode(h, min, max);
 
-    // Counts that pair a height with its return number, before the heights are sorted.
+    // Recuentos que emparejan una altura con su número de retorno, antes de ordenar las alturas.
     let mut by_ret = [0u32; 10];
     let (
         mut first,
@@ -507,7 +513,7 @@ fn cell_metrics(h: &mut [f32], ret: &[u8], hb: f64) -> Vec<f64> {
     let p = |q: f64| percentile(h, q);
     let median = p(0.5);
 
-    // L-moments from probability-weighted moments (unbiased, Wang 1996).
+    // Momentos L a partir de momentos ponderados por probabilidad (insesgados, Wang 1996).
     let (mut b0, mut b1, mut b2, mut b3) = (0.0, 0.0, 0.0, 0.0);
     for (i, &x) in h.iter().enumerate() {
         let (x, i) = (f64::from(x), i as f64);
@@ -529,7 +535,7 @@ fn cell_metrics(h: &mut [f32], ret: &[u8], hb: f64) -> Vec<f64> {
     let l4 = 20.0 * b3 - 30.0 * b2 + 12.0 * b1 - b0;
     let ratio = |a: f64, b: f64| if b != 0.0 { a / b } else { 0.0 };
 
-    // Median absolute deviations, from the median and from the mode.
+    // Desviaciones absolutas medianas, respecto a la mediana y a la moda.
     let mut dev: Vec<f32> = h
         .iter()
         .map(|&x| (f64::from(x) - median).abs() as f32)
@@ -542,8 +548,8 @@ fn cell_metrics(h: &mut [f32], ret: &[u8], hb: f64) -> Vec<f64> {
     dev.sort_unstable_by(f32::total_cmp);
     let mad_mode = percentile(&dev, 0.5);
 
-    // Profile area: the area under the 1-99 percentile curve of the heights (at least 0),
-    // normalised by the 99th percentile.
+    // Área del perfil: el área bajo la curva de percentiles 1-99 de las alturas (como mínimo 0),
+    // normalizada por el percentil 99.
     let mut clamped: Vec<f32> = h.iter().map(|&x| x.max(0.0)).collect();
     clamped.sort_unstable_by(f32::total_cmp);
     let p99 = percentile(&clamped, 0.99);
@@ -615,16 +621,17 @@ fn cell_metrics(h: &mut [f32], ret: &[u8], hb: f64) -> Vec<f64> {
     out
 }
 
-/// Column indexes (in the 67 values after row, col and centre) written as whole numbers.
+/// Índices de columna (en los 67 valores tras fila, columna y centro) escritos como números
+/// enteros.
 fn is_count(k: usize) -> bool {
-    // Total, the 10 return counts, and the 4 + 4 + 2 cover counts.
+    // Total, los 10 recuentos de retorno y los 4 + 4 + 2 recuentos de cobertura.
     k == 0 || (34..44).contains(&k) || (47..49).contains(&k) || (55..61).contains(&k)
 }
 
-/// The header of a per-sample metrics row (per-sample table): the elevation metrics, then
-/// the intensity ones.
+/// La cabecera de una fila de métricas por muestra (tabla por muestra): las métricas de elevación y
+/// luego las de intensidad.
 pub fn sample_header(heightbreak: f64) -> Vec<String> {
-    // (the capture date column is added by the caller, which knows the files)
+    // (la columna de la fecha de captura la añade quien llama, que conoce los archivos)
     let mut cols: Vec<String> = COLUMNS[4..]
         .iter()
         .map(|c| c.replace("{hb}", &format!("{heightbreak:.2}")))
@@ -637,8 +644,8 @@ pub fn sample_header(heightbreak: f64) -> Vec<String> {
     cols
 }
 
-/// One sample's metrics: `heights` and `intensity` of its points, `ret` their return numbers.
-/// Empty samples give -9999 throughout, as the compatible layout requires.
+/// Las métricas de una muestra: `heights` e `intensity` de sus puntos, `ret` sus números de
+/// retorno. Las muestras vacías dan -9999 en todo, como exige la disposición compatible.
 pub fn sample_row(
     heights: &mut [f32],
     ret: &[u8],
@@ -679,7 +686,7 @@ pub fn sample_row(
     row
 }
 
-/// What the run did.
+/// Lo que hizo la ejecución.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MetricReport {
     pub cells: usize,
@@ -688,18 +695,18 @@ pub struct MetricReport {
     pub points: u64,
 }
 
-/// What a sheet of a block needs besides its own points to give the cells at its edge what they
-/// would have if the block were one file.
+/// Lo que necesita una hoja de un bloque además de sus propios puntos para dar a las celdas de su
+/// borde lo que tendrían si el bloque fuera un solo archivo.
 #[derive(Default)]
 pub struct Context<'a> {
-    /// Points of the neighbouring sheets near this one: they count in the cells they fall in.
+    /// Puntos de las hojas vecinas cercanas a esta: cuentan en las celdas en que caen.
     pub halo: &'a [crate::las::Point],
-    /// Whether this sheet writes the cell centred on `(x, y)`; each cell of a block is written by
-    /// one sheet only. `None`: all of them.
+    /// Si esta hoja escribe la celda centrada en `(x, y)`; cada celda de un bloque la escribe una
+    /// sola hoja. `None`: todas.
     pub owns: Option<&'a (dyn Fn(f64, f64) -> bool + Sync)>,
 }
 
-/// The sheet's own points and then the halo of its neighbours.
+/// Los puntos propios de la hoja y luego el halo de sus vecinas.
 fn scan_with_halo(
     reader: &Reader,
     halo: &[crate::las::Point],
@@ -710,7 +717,7 @@ fn scan_with_halo(
     Ok(())
 }
 
-/// Writes the metrics of every cell as CSV, northernmost row first.
+/// Escribe las métricas de cada celda como CSV, empezando por la fila más al norte.
 pub fn grid_metrics(
     reader: &Reader,
     dtm: &Grid,
@@ -720,8 +727,8 @@ pub fn grid_metrics(
     grid_metrics_in(reader, dtm, p, outs, &Context::default())
 }
 
-/// [`grid_metrics`] on a sheet of a block: with the points of its neighbours near its edges,
-/// and writing only the cells it owns.
+/// [`grid_metrics`] sobre una hoja de un bloque: con los puntos de sus vecinas cerca de sus bordes
+/// y escribiendo solo las celdas que le pertenecen.
 pub fn grid_metrics_in(
     reader: &Reader,
     dtm: &Grid,
@@ -755,7 +762,7 @@ pub fn grid_metrics_in(
         ));
     }
     let h = &reader.header;
-    // Alignment: cell centres on multiples of the cell size.
+    // Alineación: centros de celda en múltiplos del tamaño de celda.
     let (c0, r0) = (
         (h.bounds[0] / p.cell).floor(),
         (h.bounds[1] / p.cell).floor(),
@@ -770,7 +777,7 @@ pub fn grid_metrics_in(
         rows,
     )?;
 
-    // the cells this run writes
+    // las celdas que escribe esta ejecución
     let owned: Option<Vec<bool>> = ctx.owns.map(|owns| {
         (0..grid.len())
             .map(|i| {
@@ -791,7 +798,7 @@ pub fn grid_metrics_in(
         Some((i, pt.z as f32 - dtm.sample(pt.x, pt.y)?))
     };
 
-    // Pass 1: points per cell.
+    // Pasada 1: puntos por celda.
     let mut count = vec![0u32; grid.len()];
     let mut report = MetricReport {
         cells: (0..grid.len()).filter(|&i| is_owned(i)).count(),
@@ -806,7 +813,7 @@ pub fn grid_metrics_in(
         }
     })?;
 
-    // The day the data were captured is one more metric of every cell.
+    // El día en que se capturaron los datos es una métrica más de cada celda.
     let date = reader.capture_date().unwrap_or_else(|| "NA".into());
     let header: Vec<String> = COLUMNS
         .iter()
@@ -831,7 +838,7 @@ pub fn grid_metrics_in(
     let budget = (p.memory / per_point).max(1);
     let mut row = 0usize;
     while row < rows {
-        // The band: as many whole rows as fit the budget (at least one).
+        // La banda: tantas filas enteras como quepan en el presupuesto (al menos una).
         let mut end = row;
         let mut pts = 0u64;
         while end < rows {
@@ -878,8 +885,8 @@ pub fn grid_metrics_in(
         }
         report.bands += 1;
         crate::check_cancel()?;
-        // Each row of cells is formatted on its own thread and written in order afterwards: the
-        // ordering of a cell's heights (the costly part) is what runs in parallel.
+        // Cada fila de celdas se formatea en su propio hilo y se escribe en orden después: lo que
+        // corre en paralelo es la ordenación de las alturas de una celda (la parte costosa).
         let (want_int, want_strata) = (intensity.is_some(), strata.is_some());
         let mut h_rows: Vec<&mut [f32]> = Vec::with_capacity(end - row);
         {
@@ -900,7 +907,7 @@ pub fn grid_metrics_in(
                 let mut t = RowText::default();
                 for c in 0..cols {
                     let k = ri * cols + c;
-                    // a cell another sheet of the block writes
+                    // una celda que escribe otra hoja del bloque
                     if !is_owned(row * cols + k) {
                         continue;
                     }
@@ -912,7 +919,8 @@ pub fn grid_metrics_in(
                     let n = e - s;
                     let enough = n >= p.min_points as usize && n > 0;
                     let rs = &rets[abs_s..abs_e];
-                    // Intensity and strata read the heights unsorted, so they come first.
+                    // La intensidad y los estratos leen las alturas sin ordenar, así que van
+                    // primero.
                     if want_int {
                         let o = &mut t.intensity;
                         o.extend_from_slice(prefix.as_bytes());
@@ -1031,11 +1039,11 @@ mod tests {
     #[test]
     fn structure_of_bare_ground_a_uniform_profile_and_a_crown() {
         let sp = StructureParams::default();
-        // all the light reaches the ground
+        // toda la luz llega al suelo
         let bare = structure_metrics(&[0.0, 0.2, 0.1, 0.4], &sp);
         assert_eq!((bare[0], bare[1], bare[2]), (1.0, 0.0, 0.0));
         assert!(bare[4].is_nan());
-        // ten layers of 1 m with the same number of returns each: entropy ln(10)
+        // diez capas de 1 m con el mismo número de retornos cada una: entropía ln(10)
         let heights: Vec<f32> = (0..100).map(|i| (i % 10) as f32 + 0.5).collect();
         let uniform = structure_metrics(&heights, &sp);
         assert!((uniform[0] - 0.1).abs() < 1e-12);
@@ -1043,15 +1051,15 @@ mod tests {
         assert!((uniform[2] - 10f64.ln()).abs() < 1e-9);
         assert!((uniform[3] - 10f64.ln() / 30f64.ln()).abs() < 1e-9);
         assert_eq!(uniform[4], 2.0);
-        // ground returns and a crown between 8 and 12 m: the base is at 8
+        // retornos de suelo y una copa entre 8 y 12 m: la base está en 8
         let mut crown: Vec<f32> = vec![0.3; 40];
         crown.extend((0..60).map(|i| 8.0 + (i % 4) as f32 + 0.5));
         let c = structure_metrics(&crown, &sp);
         assert_eq!(c[4], 8.0);
         assert!((c[0] - 0.4).abs() < 1e-12);
-        // no returns, no answer
+        // sin retornos, sin respuesta
         assert!(structure_metrics(&[], &sp)[0].is_nan());
-        // a profile that would need too many layers is refused
+        // un perfil que necesitaría demasiadas capas se rechaza
         let bad = StructureParams { layer: 0.01, ..sp };
         assert!(bad.check().is_err());
     }
@@ -1071,7 +1079,7 @@ mod tests {
         let m = cell_metrics(&mut h, &ret, 2.0);
         assert_eq!(m.len(), 67);
         assert_eq!(m[0], 4.0);
-        // 3 first returns, 1 above 2 m; 2 of all 4 above.
+        // 3 primeros retornos, 1 por encima de 2 m; 2 de los 4 por encima.
         assert!((m[44] - 100.0 / 3.0).abs() < 1e-9);
         assert_eq!(m[45], 50.0);
         assert_eq!(m[59], 3.0);

@@ -1,22 +1,23 @@
-//! Zooming into COPC clouds: the points the viewer keeps are an even sample of the whole cloud,
-//! too few for a small window, so the window is read again from the files at full detail in the
-//! background, and drawn instead while it covers the view.
+//! Zoom sobre nubes COPC: los puntos que guarda el visor son una muestra uniforme de toda la nube,
+//! demasiado pocos para una ventana pequeña, así que la ventana se vuelve a leer de los archivos
+//! con todo el detalle en segundo plano y se dibuja en su lugar mientras cubre la vista.
 
 use super::*;
 
-/// Whether the window `a` holds the window `b`.
+/// Si la ventana `a` contiene la ventana `b`.
 pub fn contains(a: [f64; 4], b: [f64; 4]) -> bool {
     a[0] <= b[0] && a[1] <= b[1] && a[2] >= b[2] && a[3] >= b[3]
 }
 
-/// About how many points the detail of a window may hold.
+/// Aproximadamente cuántos puntos puede contener el detalle de una ventana.
 const BUDGET: usize = 3_000_000;
-/// The share of the cloud's area a window may have to be worth reading again.
+/// La parte del área de la nube que puede tener una ventana para que merezca la pena volver a
+/// leerla.
 const MAX_SHARE: f64 = 0.5;
 
 impl App {
-    /// Finds or makes the COPC of each cloud in the background, so that windows of it can be read
-    /// at full detail; only when the viewer holds a sample (`sampled`) and the clouds are LAS/LAZ.
+    /// Halla o hace el COPC de cada nube en segundo plano, para poder leer ventanas de él con todo
+    /// el detalle; solo cuando el visor guarda una muestra (`sampled`) y las nubes son LAS/LAZ.
     pub fn start_cache(&mut self, ctx: &egui::Context, sampled: bool) {
         let las = |p: &PathBuf| {
             p.extension()
@@ -35,7 +36,7 @@ impl App {
                     .map(|p| hipso_core::copc_cache::ensure(p))
                     .collect::<Result<Vec<_>, _>>();
                 if let Ok(c) = &copies {
-                    hipso_core::copc_cache::prune(hipso_core::copc_cache::MAX_BYTES, c);
+                    hipso_core::copc_cache::prune(hipso_core::copc_cache::limit(), c);
                 }
                 copies
             })
@@ -48,15 +49,16 @@ impl App {
         self.log("Preparando el detalle al acercar (copia COPC en la caché)…".to_string());
     }
 
-    /// Keeps the detail of the view `vw` (min x, min y, max x, max y): collects what the
-    /// background read has made, and starts another when the view has left what is held.
+    /// Mantiene el detalle de la vista `vw` (x mínima, y mínima, x máxima, y máxima): recoge lo que
+    /// ha hecho la lectura en segundo plano y empieza otra cuando la vista ha salido de lo que se
+    /// guarda.
     pub fn update_detail(&mut self, ctx: &egui::Context, vw: [f64; 4], interactive: bool) {
         let px = 1.0 / self.plan.scale.max(1e-9);
         self.step_detail(ctx, vw, px, interactive);
     }
 
-    /// The same for the 3D view: `vw` is the ground around the target that the camera takes in,
-    /// `px` the size of a pixel there.
+    /// Lo mismo para la vista 3D: `vw` es el terreno alrededor del objetivo que abarca la cámara,
+    /// `px` el tamaño de un píxel allí.
     pub fn update_detail3(
         &mut self,
         ctx: &egui::Context,
@@ -115,11 +117,11 @@ impl App {
             || self.loading.is_some()
             || share > MAX_SHARE
         {
-            // nothing to gain: the cloud is whole, or the view takes in most of it
+            // nada que ganar: la nube está entera, o la vista abarca la mayor parte de ella
             self.detail = None;
             return;
         }
-        // the window is read again when the view has come in much closer
+        // la ventana se vuelve a leer cuando la vista se ha acercado mucho
         let covered = self
             .detail
             .as_ref()
@@ -127,7 +129,7 @@ impl App {
         if covered || interactive || self.detail_job.is_some() {
             return;
         }
-        // a quarter more on each side, so that small moves stay inside
+        // una cuarta parte más por cada lado, para que los movimientos pequeños queden dentro
         let (mx, my) = ((vw[2] - vw[0]) * 0.25, (vw[3] - vw[1]) * 0.25);
         let window = [vw[0] - mx, vw[1] - my, vw[2] + mx, vw[3] + my];
         let (paths, origin, files) = (self.detail_src.clone(), base.origin, base.files.clone());

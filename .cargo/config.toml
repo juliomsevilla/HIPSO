@@ -1,4 +1,4 @@
-# Windows: link the C runtime statically so the program runs on a clean machine with no
-# Visual C++ redistributable installed.
+# Windows: se enlaza el runtime de C de forma estática para que el programa funcione en un
+# equipo limpio sin el redistribuible de Visual C++ instalado.
 [target.'cfg(target_env = "msvc")']
 rustflags = ["-C", "target-feature=+crt-static"]

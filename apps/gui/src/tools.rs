@@ -1,6 +1,6 @@
-//! The processing tools of the app: one window per tool with its parameters, output paths that
-//! are worked out from the input and the settings (never carried over from an earlier run),
-//! and the job each one starts.
+//! Las herramientas de proceso de la aplicación: una ventana por herramienta con sus parámetros,
+//! rutas de salida que se calculan a partir de la entrada y los ajustes (nunca heredadas de una
+//! ejecución anterior) y el trabajo que lanza cada una.
 
 use std::path::{Path, PathBuf};
 
@@ -35,13 +35,13 @@ pub use sheets_ui::related;
 
 pub type Task = Box<dyn FnOnce() -> hipso_core::Result<String> + Send>;
 
-/// A job ready to run, and what to show when it ends.
+/// Un trabajo listo para ejecutar y qué mostrar cuando termina.
 pub struct Launch {
     pub label: String,
     pub task: Task,
-    /// Files the job writes that the app should add as layers when it ends.
+    /// Archivos que escribe el trabajo y que la aplicación debe añadir como capas cuando termina.
     pub show: Vec<PathBuf>,
-    /// Everything the job creates: removed if the job is stopped.
+    /// Todo lo que crea el trabajo: se borra si el trabajo se detiene.
     pub outputs: Vec<PathBuf>,
 }
 
@@ -61,17 +61,17 @@ pub enum ToolId {
     Compare,
     Fit,
     Swath,
-    /// Flight lines from the gaps in the GPS time.
+    /// Pasadas a partir de los saltos del tiempo GPS.
     FlightLines,
-    /// Point density by Voronoi cells.
+    /// Densidad de puntos por celdas de Voronoi.
     VDensity,
-    /// Points per square metre as a GeoTIFF, one per cloud.
+    /// Puntos por metro cuadrado como GeoTIFF, uno por nube.
     IntensityImage,
     Volume,
     Hag,
     Colorize,
     Intensity,
-    /// Cut the clouds with a polygon layer.
+    /// Recorta las nubes con una capa de polígonos.
     ClipPoly,
 }
 
@@ -104,7 +104,8 @@ impl ToolId {
     }
 }
 
-/// An output path: worked out from the input and settings until the user edits it.
+/// Una ruta de salida: calculada a partir de la entrada y los ajustes hasta que el usuario la
+/// edita.
 #[derive(Default, Clone)]
 pub struct OutPath {
     pub text: String,
@@ -149,7 +150,8 @@ impl OutPath {
     }
 }
 
-/// An input that is found for the cloud (a DTM or CHM of that same cloud) until picked by hand.
+/// Una entrada que se encuentra para la nube (un MDT o un CHM de esa misma nube) hasta que se elige
+/// a mano.
 #[derive(Default, Clone)]
 pub struct FoundPath {
     pub text: String,
@@ -224,8 +226,9 @@ enum GroundChoice {
     Classes,
 }
 
-/// A condition on a value (height above the ground, intensity, a shape feature) as the window
-/// shows it: on or off, from and to, each end open if asked (no lower or no upper limit).
+/// Una condición sobre un valor (altura sobre el suelo, intensidad, una característica de forma)
+/// tal como la muestra la ventana: activada o no, desde y hasta, cada extremo abierto si se pide
+/// (sin límite inferior o sin límite superior).
 #[derive(Clone, Copy)]
 struct Cond {
     on: bool,
@@ -259,8 +262,9 @@ impl Cond {
     }
 }
 
-/// The shape conditions of a rule: slope (°), planarity, linearity, sphericity, roughness (m)
-/// and number of neighbours, with the range each can take and the unit it is shown in.
+/// Las condiciones de forma de una regla: pendiente (°), planaridad, linealidad, esfericidad,
+/// rugosidad (m) y número de vecinos, con el rango que puede tomar cada una y la unidad en que se
+/// muestra.
 const SHAPE: [(&str, f64, &str); 6] = [
     ("Pendiente", 90.0, "°"),
     ("Planaridad", 1.0, ""),
@@ -270,24 +274,24 @@ const SHAPE: [(&str, f64, &str); 6] = [
     ("Vecinos", 10_000.0, ""),
 ];
 
-/// A rule as the window shows it: class, echo, scan angle, height above the ground, intensity and
-/// the shape of the neighbourhood.
+/// Una regla tal como la muestra la ventana: clase, eco, ángulo de barrido, altura sobre el suelo,
+/// intensidad y forma del entorno.
 #[derive(Clone)]
 struct RuleRow {
     on: bool,
-    /// Classes it looks at; empty: all but noise.
+    /// Clases que mira; vacío: todas menos el ruido.
     from: String,
-    /// Single, first of several, intermediate, last of several.
+    /// Único, primero de varios, intermedio, último de varios.
     echo: [bool; 4],
     angle_on: bool,
-    /// Absolute scan angle from and to, degrees.
+    /// Ángulo de barrido absoluto desde y hasta, grados.
     angle: (f64, f64),
-    /// Height above the ground (m) and intensity.
+    /// Altura sobre el suelo (m) e intensidad.
     height: Cond,
     intensity: Cond,
-    /// Slope, planarity, linearity, sphericity, roughness and neighbours (see `SHAPE`).
+    /// Pendiente, planaridad, linealidad, esfericidad, rugosidad y vecinos (véase `SHAPE`).
     shape: [Cond; 6],
-    /// Radius of the neighbourhood the shape conditions look at (m).
+    /// Radio del entorno que miran las condiciones de forma (m).
     radius: f64,
     to: f64,
 }
@@ -308,8 +312,8 @@ impl RuleRow {
         }
     }
 
-    /// The row a rule reads as: the inverse of `rule`. Return numbers (1 to 9) have no place in a
-    /// row, only the kinds of echo.
+    /// La fila como la lee una regla: la inversa de `rule`. Los números de retorno (1 a 9) no
+    /// tienen sitio en una fila, solo los tipos de eco.
     fn from_rule(r: &ClassRule) -> Self {
         let mut default_from = ClassSet::all();
         default_from.set(7, false);
@@ -346,12 +350,13 @@ impl RuleRow {
         row
     }
 
-    /// The rules the window starts with, all off.
+    /// Las reglas con las que arranca la ventana, todas desactivadas.
     fn defaults() -> Vec<Self> {
         vec![
-            // steep scan angles: less accurate, kept out of the ground and the surfaces
+            // ángulos de barrido pronunciados: menos precisos, se dejan fuera del suelo y de las
+            // superficies
             Self::new([true; 4], true, "", 12.0),
-            // the first echoes of pulses that gave several, not yet classified: canopy
+            // los primeros ecos de pulsos que dieron varios, aún sin clasificar: copa
             Self::new([false, true, false, false], false, "1", 5.0),
             Self::new([true; 4], false, "", 1.0),
         ]
@@ -399,7 +404,7 @@ pub struct Tools {
     pub s2: sheets_ui::State,
     pub lx: lidar_ui::State,
     pub open: Option<ToolId>,
-    /// Run the open tool as soon as a cloud is loaded (command-line `--run`).
+    /// Ejecuta la herramienta abierta en cuanto se carga una nube (línea de comandos `--run`).
     pub autorun: bool,
     confirm: Option<ToolId>,
     // classification
@@ -411,7 +416,7 @@ pub struct Tools {
     smrf: SmrfParams,
     ax: AxelssonParams,
     rule_rows: Vec<RuleRow>,
-    /// Set aside the overlap between flight lines (class 12), with this cell (m).
+    /// Aparta el solape entre pasadas (clase 12), con esta celda (m).
     overlap: bool,
     overlap_cell: f64,
     noise: NoiseChoice,
@@ -433,9 +438,9 @@ pub struct Tools {
     wtp: WaterParams,
     bp: BuildingParams,
     tiling: Tiling,
-    /// What the last save or load of a recipe did.
+    /// Lo que hizo el último guardado o carga de una receta.
     recipe_note: String,
-    /// The tab of the classification window: steps, rules, tiles.
+    /// La pestaña de la ventana de clasificación: pasos, reglas, teselas.
     class_tab: usize,
     // rasters
     dtm_cell: f64,
@@ -447,10 +452,10 @@ pub struct Tools {
     mp: MetricParams,
     intensity: bool,
     strata: bool,
-    /// Result formats of the tables (metrics, trees, plot metrics).
+    /// Formatos de resultado de las tablas (métricas, árboles, métricas de parcelas).
     fmt_vector: bool,
     fmt_csv: bool,
-    // trees
+    // árboles
     tops: TopParams,
     crown: CrownParams,
     smooth: f64,
@@ -458,7 +463,7 @@ pub struct Tools {
     manual_tops: String,
     crowns_tif: bool,
     crowns_shp: bool,
-    /// Tops and crowns in one GeoPackage, and the cloud metrics on the crowns.
+    /// Cimas y copas en un solo GeoPackage, y las métricas de nube sobre las copas.
     trees_gpkg: bool,
     crown_metrics: bool,
     tops_shp: bool,
@@ -497,7 +502,7 @@ pub struct Tools {
     ex_norm: bool,
     ex_dtm: String,
     // paths
-    /// Folder the user picked for every result (empty: next to each input).
+    /// Carpeta que eligió el usuario para todo resultado (vacío: junto a cada entrada).
     pub out_dir: String,
     out_classify: OutPath,
     out_dtm: OutPath,
@@ -506,7 +511,8 @@ pub struct Tools {
     out_trees: OutPath,
     out_clip: OutPath,
     out_export: OutPath,
-    /// The vector layers that are loaded: name and file, for the tools that take polygons.
+    /// Las capas vectoriales que están cargadas: nombre y archivo, para las herramientas que toman
+    /// polígonos.
     pub vectors: Vec<(String, PathBuf)>,
     in_dtm_chm: FoundPath,
     in_dtm_metrics: FoundPath,
@@ -621,8 +627,8 @@ impl Default for Tools {
     }
 }
 
-/// The settings of the Simple Morphological Filter.
-/// A row of a rule: the checkbox, and from and to when it is on.
+/// Los ajustes del filtro morfológico simple. Una fila de una regla: la casilla y, cuando está
+/// activada, desde y hasta.
 fn cond_row(
     ui: &mut egui::Ui,
     label: &str,
@@ -678,7 +684,7 @@ fn smrf_fields(ui: &mut egui::Ui, p: &mut SmrfParams) {
     num(ui, "Factor por pendiente", &mut p.scalar, 0.0..=5.0, 0.05);
 }
 
-/// The parameters of the progressive TIN ground filter (Axelsson).
+/// Los parámetros del filtro de suelo por TIN progresivo (Axelsson).
 fn axelsson_fields(ui: &mut egui::Ui, p: &mut AxelssonParams) {
     num(
         ui,
@@ -747,7 +753,7 @@ fn parse_opt(text: &str) -> Option<f64> {
 }
 
 impl Tools {
-    /// The line that says the next job works on the selected points only.
+    /// La línea que dice que el próximo trabajo funciona solo sobre los puntos seleccionados.
     pub fn set_selection_note(&mut self, n: Option<String>) {
         self.s2.sel_note = n;
     }
@@ -760,7 +766,8 @@ impl Tools {
         .fixed()
     }
 
-    /// The choice between a vector layer and a text table (very large runs: table only).
+    /// La elección entre una capa vectorial y una tabla de texto (ejecuciones muy grandes: solo
+    /// tabla).
     fn formats_row(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label("Formato de salida");
@@ -773,7 +780,7 @@ impl Tools {
         });
     }
 
-    /// Puts a recipe's steps and tiling in the window.
+    /// Pone en la ventana los pasos y las teselas de una receta.
     fn apply_recipe(&mut self, r: &Recipe) {
         let st = &r.steps;
         self.overlap = st.overlap.is_some();
@@ -831,7 +838,7 @@ impl Tools {
         self.tiling = r.tiling.clone();
     }
 
-    /// The two buttons that save the window's classification as a recipe and load one.
+    /// Los dos botones que guardan como receta la clasificación de la ventana y cargan una.
     fn recipe_buttons(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             if ui
@@ -926,7 +933,7 @@ impl Tools {
         }
     }
 
-    /// The method in the DTM's file name.
+    /// El método en el nombre de archivo del MDT.
     fn surface_tag(&self) -> &'static str {
         match self.dtm_surface {
             Surface::Mean => "_media",
@@ -955,7 +962,8 @@ impl Tools {
         }
     }
 
-    /// Output paths and found inputs, worked out from the first cloud and the settings now.
+    /// Rutas de salida y entradas halladas, calculadas a partir de la primera nube y los ajustes de
+    /// ahora.
     fn sync(&mut self, input: &Path) {
         let ext = input
             .extension()
@@ -999,7 +1007,7 @@ impl Tools {
         self.in_dtm_clip.auto(dtm);
         self.in_chm.auto(paths::find_chm(input));
         let chm = self.in_chm.path();
-        // beside the CHM it comes from; without one, where this cloud's products go
+        // junto al CHM del que viene; sin uno, donde van los productos de esta nube
         let dir = if self.in_chm.text.trim().is_empty() || paths::output_dir().is_some() {
             paths::results_dir(input)
         } else {
@@ -1043,7 +1051,8 @@ impl Tools {
         }
     }
 
-    /// Draws the open tool's window; returns a job when the user runs it.
+    /// Dibuja la ventana de la herramienta abierta; devuelve un trabajo cuando el usuario la
+    /// ejecuta.
     pub fn window(
         &mut self,
         ctx: &egui::Context,
@@ -1063,7 +1072,7 @@ impl Tools {
         let mut open = true;
         let mut launch = None;
         let mut run = false;
-        // like a geoprocessing pane: on the right, under the ribbon, out of the way of the map
+        // como un panel de geoprocesos: a la derecha, bajo la cinta, fuera del camino del mapa
         let right = ctx.content_rect().right();
         egui::Window::new(tool.title())
             .open(&mut open)
@@ -1074,7 +1083,7 @@ impl Tools {
                     run = true;
                     self.autorun = false;
                 }
-                // the input, by its name: the whole path is in the tooltip
+                // la entrada, por su nombre: la ruta completa está en la ayuda emergente
                 match &first {
                     Some(f) => {
                         let name = f
@@ -1145,7 +1154,7 @@ impl Tools {
                             ToolId::Export => self.export_form(ui),
                         }
                     });
-                // the run button, alone at the foot, as the main action of the window
+                // el botón de ejecutar, solo al pie, como acción principal de la ventana
                 ui.separator();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let go = egui::Button::new(
@@ -1198,7 +1207,8 @@ impl Tools {
         if !open {
             self.open = None;
         } else if launch.is_some() {
-            // the window stays open so the user can adjust and run again with other settings
+            // la ventana se queda abierta para que el usuario pueda ajustar y ejecutar de nuevo con
+            // otros ajustes
         }
         launch
     }
@@ -1792,7 +1802,7 @@ impl Tools {
                 .enumerate()
             {
                 if ui.radio_value(&mut self.ex_fmt, k, *n).clicked() {
-                    // a new format needs a new extension on the automatic name
+                    // un formato nuevo necesita una extensión nueva en el nombre automático
                     self.out_export.manual = false;
                 }
             }
@@ -1872,8 +1882,8 @@ impl Tools {
         });
     }
 
-    /// Builds the job of `tool`; checks the outputs first (an automatic path that exists gets a
-    /// free name, a hand-made one asks before it is overwritten).
+    /// Construye el trabajo de `tool`; comprueba antes las salidas (una ruta automática que existe
+    /// recibe un nombre libre, una hecha a mano pregunta antes de sobrescribirse).
     fn build(
         &mut self,
         tool: ToolId,
@@ -1883,7 +1893,8 @@ impl Tools {
         confirmed: bool,
     ) -> Option<Launch> {
         let input = inputs.first()?.clone();
-        // the tools that work sheet by sheet, and the plots, build their own jobs
+        // las herramientas que trabajan hoja a hoja, y las parcelas, construyen sus propios
+        // trabajos
         match tool {
             ToolId::Classify | ToolId::Dtm | ToolId::Chm | ToolId::Metrics | ToolId::Crs => {
                 return self.build_sheets(tool, inputs, log);
@@ -1957,7 +1968,8 @@ impl Tools {
             | ToolId::Volume
             | ToolId::Clip => return None,
             ToolId::Trees => {
-                // each loaded cloud is a sheet with its own CHM; a CHM picked by hand is used alone
+                // cada nube cargada es una hoja con su propio CHM; un CHM elegido a mano se usa
+                // solo
                 let sheets: Vec<(PathBuf, PathBuf, PathBuf)> =
                     if self.in_chm.manual || inputs.len() == 1 {
                         vec![(self.in_chm.path(), output.clone(), input.clone())]
@@ -2054,7 +2066,7 @@ impl Tools {
                         crown_metrics: if self.crown_metrics { vec![input.clone()] } else { Vec::new() },
                     });
                 }
-                // each sheet looks at the models of the others, which tell which are its neighbours
+                // cada hoja mira los modelos de las demás, que dicen cuáles son sus vecinas
                 if self.across && trees_jobs.len() > 1 {
                     let all: Vec<PathBuf> = trees_jobs.iter().map(|j| j.chm.clone()).collect();
                     for j in &mut trees_jobs {
@@ -2200,8 +2212,9 @@ impl Tools {
     }
 }
 
-/// The "Guardar en" row of every tool window: the folder results go to (empty: beside each
-/// input). It is the same choice for all tools, applied at once.
+/// La fila «Guardar en» de cada ventana de herramienta: la carpeta adonde van los resultados
+/// (vacío: junto a cada entrada). Es la misma elección para todas las herramientas, aplicada de una
+/// vez.
 pub fn output_row(ui: &mut egui::Ui, out_dir: &mut String) {
     ui.horizontal(|ui| {
         ui.label("Guardar en");
@@ -2229,8 +2242,8 @@ pub fn output_row(ui: &mut egui::Ui, out_dir: &mut String) {
 mod recipe_tests {
     use super::*;
 
-    /// A rule loaded from a recipe into a row of the window gives back the same rule, and a recipe
-    /// applied to the window and written again is the same recipe.
+    /// Una regla cargada de una receta en una fila de la ventana devuelve la misma regla, y una
+    /// receta aplicada a la ventana y escrita de nuevo es la misma receta.
     #[test]
     fn a_recipe_goes_through_the_window_unchanged() -> hipso_core::Result<()> {
         for text in [
@@ -2256,8 +2269,7 @@ mod recipe_tests {
         Ok(())
     }
 
-    /// The example recipe of the manual loads in the window without losing anything and comes
-    /// back out the same.
+    /// La receta de ejemplo del manual se carga en la ventana sin perder nada y sale igual.
     #[test]
     fn the_example_recipe_loads_in_the_window() -> hipso_core::Result<()> {
         let text = include_str!("../../../docs/recetas/clasificacion_pnoa.txt");
@@ -2277,7 +2289,7 @@ mod recipe_tests {
         Ok(())
     }
 
-    /// The power-line recipe of the manual loads in the window without losing anything.
+    /// La receta de línea eléctrica del manual se carga en la ventana sin perder nada.
     #[test]
     fn the_power_line_recipe_loads_in_the_window() -> hipso_core::Result<()> {
         let text = include_str!("../../../docs/recetas/clasificacion_lineas_electricas.txt");

@@ -1,13 +1,14 @@
-//! Terrain analysis on a DTM (or any height grid): slope, aspect, hillshade, curvatures,
-//! roughness, ruggedness and position indices (3x3 windows), the drainage products of
-//! [`crate::hydro`] and the viewshed of [`crate::viewshed`]. Each product is one GeoTIFF the
-//! size of the input; the grid is read once and every window runs in parallel by rows.
+//! Análisis de terreno sobre un MDT (o cualquier rejilla de alturas): pendiente, orientación,
+//! sombreado, curvaturas, rugosidad, escabrosidad e índices de posición (ventanas 3x3), los
+//! productos de drenaje de [`crate::hydro`] y la cuenca visual de [`crate::viewshed`]. Cada
+//! producto es un GeoTIFF del tamaño de la entrada; la rejilla se lee una vez y cada ventana se
+//! ejecuta en paralelo por filas.
 //!
-//! The methods are the published ones: Horn (1981) for slope, aspect and hillshade, Zevenbergen
-//! and Thorne (1987) for curvatures, Wilson et al. (2007) for the ruggedness index, and the
-//! position index of Weiss (2001). Conventions: by default a cell whose 3x3 window reaches
-//! past the edge or an empty cell has no value (see [`Edges`] for the alternatives), and a cell
-//! that is empty stays empty. Written from the published methods.
+//! Los métodos son los publicados: Horn (1981) para pendiente, orientación y sombreado, Zevenbergen
+//! y Thorne (1987) para las curvaturas, Wilson et al. (2007) para el índice de escabrosidad y el
+//! índice de posición de Weiss (2001). Convenios: por defecto, una celda cuya ventana 3x3 llega más
+//! allá del borde o a una celda vacía no tiene valor (véase [`Edges`] para las alternativas), y una
+//! celda vacía sigue vacía. Escrito a partir de los métodos publicados.
 
 use std::path::PathBuf;
 
@@ -16,33 +17,33 @@ use rayon::prelude::*;
 use crate::grid::Grid;
 use crate::{Error, Result};
 
-/// What to compute.
+/// Qué calcular.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Product {
     Slope,
     Aspect,
     Hillshade,
-    /// Curvature across the slope (positive: convex, as on a spur).
+    /// Curvatura transversal a la pendiente (positiva: convexa, como en un espolón).
     PlanCurvature,
-    /// Curvature along the slope (positive: convex, as on a shoulder).
+    /// Curvatura a lo largo de la pendiente (positiva: convexa, como en un hombro).
     ProfileCurvature,
     /// Total curvature (positive: convex, ridges; negative: concave, valleys).
     Curvature,
-    /// Highest minus lowest height in the 3x3 window.
+    /// Altura más alta menos más baja en la ventana 3x3.
     Roughness,
-    /// Terrain ruggedness: mean absolute difference to the eight neighbours.
+    /// Escabrosidad del terreno: diferencia absoluta media con los ocho vecinos.
     Ruggedness,
-    /// Height minus the mean height within a radius.
+    /// Altura menos la altura media dentro de un radio.
     Position,
-    /// How deep the depressions are that filling them removes.
+    /// Cuán profundas son las depresiones que elimina rellenarlas.
     FillDepth,
-    /// Drained area, in m².
+    /// Superficie drenada, en m².
     FlowAccumulation,
     /// Topographic wetness index `ln(a / tan β)`.
     Wetness,
-    /// Cells whose drained area reaches the threshold.
+    /// Celdas cuya superficie drenada alcanza el umbral.
     Streams,
-    /// Catchments of the stream reaches, numbered.
+    /// Cuencas de los tramos de cauce, numeradas.
     Subbasins,
     Viewshed,
 }
@@ -107,17 +108,18 @@ impl Product {
     }
 }
 
-/// What a 3x3 window does where it reaches past the raster's edge or an empty cell.
+/// Qué hace una ventana 3x3 donde llega más allá del borde del ráster o a una celda vacía.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Edges {
-    /// The cell has no value: the result is never worked out from heights that are not there.
+    /// La celda no tiene valor: el resultado nunca se calcula con alturas que no están.
     #[default]
     NoData,
-    /// Missing neighbours (edge or empty) take the centre's height: every cell gets a value, near
-    /// edges and holes the surface is flattened.
+    /// Los vecinos que faltan (borde o vacíos) toman la altura del centro: cada celda recibe un
+    /// valor, cerca de los bordes y de los huecos la superficie se aplana.
     Center,
-    /// Past the edge the border cells are repeated (a window of the edge as if the surface went on
-    /// level); a window over an empty cell inside the raster still has no value.
+    /// Más allá del borde se repiten las celdas del borde (una ventana del borde como si la
+    /// superficie siguiera a nivel); una ventana sobre una celda vacía dentro del ráster sigue sin
+    /// valor.
     RepeatEdge,
 }
 
@@ -126,27 +128,27 @@ pub struct TerrainJob {
     pub input: PathBuf,
     pub output: PathBuf,
     pub product: Product,
-    /// Slope in percent instead of degrees.
+    /// Pendiente en porcentaje en lugar de grados.
     pub percent: bool,
-    /// Multiplies heights when they are not in the units of the cell (1 for metres).
+    /// Multiplica las alturas cuando no están en las unidades de la celda (1 para metros).
     pub z_factor: f64,
-    /// Hillshade: direction of the light, degrees clockwise from north.
+    /// Sombreado: dirección de la luz, grados en el sentido de las agujas del reloj desde el norte.
     pub azimuth: f64,
-    /// Hillshade: height of the light over the horizon, degrees.
+    /// Sombreado: altura de la luz sobre el horizonte, grados.
     pub altitude: f64,
-    /// Position index: radius of the neighbourhood, map units.
+    /// Índice de posición: radio del entorno, unidades del mapa.
     pub radius: f64,
-    /// Streams and subbasins: drained area that makes a stream, m².
+    /// Cauces y subcuencas: superficie drenada que forma un cauce, m².
     pub threshold: f64,
-    /// Viewshed: the observer (x, y).
+    /// Cuenca visual: el observador (x, y).
     pub observer: Option<[f64; 2]>,
-    /// Viewshed: eye height over the ground.
+    /// Cuenca visual: altura del ojo sobre el suelo.
     pub observer_height: f64,
-    /// Viewshed: height over the ground that must be seen.
+    /// Cuenca visual: altura sobre el suelo que debe verse.
     pub target_height: f64,
-    /// Viewshed: how far the observer looks, map units.
+    /// Cuenca visual: hasta dónde mira el observador, unidades del mapa.
     pub max_distance: f64,
-    /// 3x3 products: what windows over edges and empty cells do.
+    /// Productos 3x3: qué hacen las ventanas sobre bordes y celdas vacías.
     pub edges: Edges,
 }
 
@@ -171,7 +173,7 @@ impl TerrainJob {
     }
 }
 
-/// Computes the product on a grid in memory.
+/// Calcula el producto sobre una rejilla en memoria.
 pub fn compute(g: &Grid, job: &TerrainJob) -> Result<Grid> {
     if !(g.cell > 1e-3) {
         return Err(Error::Param(
@@ -215,12 +217,12 @@ pub fn compute(g: &Grid, job: &TerrainJob) -> Result<Grid> {
     })
 }
 
-/// Rasters with more cells than this are worked in strips (see [`run_streamed`]).
+/// Los rásteres con más celdas que esto se trabajan en franjas (véase [`run_streamed`]).
 const STREAM_CELLS: u64 = 32_000_000;
 
-/// Rows of margin a strip needs to give, cell by cell, what the whole raster would: the products
-/// that look only at the neighbourhood of a cell. `None` for those that need the whole raster
-/// (flow, depressions, basins, visibility).
+/// Filas de margen que necesita una franja para dar, celda a celda, lo que daría el ráster entero:
+/// los productos que miran solo el entorno de una celda. `None` para los que necesitan el ráster
+/// entero (flujo, depresiones, cuencas, visibilidad).
 fn halo(job: &TerrainJob, cell: f64) -> Option<usize> {
     match job.product {
         Product::Slope
@@ -236,10 +238,11 @@ fn halo(job: &TerrainJob, cell: f64) -> Option<usize> {
     }
 }
 
-/// The product of a raster of any size, in strips of rows with the margin the product needs: only
-/// a strip is in memory (its tiles decoded on all cores) and its result is written as soon as it
-/// is made, so a raster of billions of cells takes the memory of a few million. The result is the
-/// same as working the raster whole.
+/// El producto de un ráster de cualquier tamaño, en franjas de filas con el margen que necesita el
+/// producto: solo hay una franja en memoria (con sus teselas decodificadas en todos los núcleos) y
+/// su resultado se escribe en cuanto se hace, de modo que un ráster de miles de millones de celdas
+/// ocupa la memoria de unos pocos millones. El resultado es el mismo que trabajando el ráster
+/// entero.
 fn run_streamed(job: &TerrainJob, pyr: &crate::pyramid::Pyramid, margin: usize) -> Result<String> {
     use crate::tiled::{Compression, Spec};
     let e = pyr.extent();
@@ -252,8 +255,9 @@ fn run_streamed(job: &TerrainJob, pyr: &crate::pyramid::Pyramid, margin: usize) 
         return Err(Error::Param("el análisis del terreno necesita un ráster de una banda".into()));
     }
     let nodata = pyr.nodata();
-    // a strip (and its margin) takes a share of the memory of the machine: 33 million cells in
-    // one of 16 GB, 134 million in one of 64 GB, so that a big machine works in fewer, longer strips
+    // una franja (y su margen) ocupa una parte de la memoria del equipo: 33 millones de celdas en
+    // uno de 16 GB, 134 millones en uno de 64 GB, de modo que un equipo grande trabaja en menos
+    // franjas, más largas
     let budget = crate::copc_cache::total_memory().map_or(24_000_000, |m| (m / 512).clamp(16_000_000, 256_000_000));
     let step = (budget as usize / cols.max(1)).clamp(64, 16_384).max(margin * 8);
     crate::paths::ensure_parent(&job.output)?;
@@ -277,7 +281,7 @@ fn run_streamed(job: &TerrainJob, pyr: &crate::pyramid::Pyramid, margin: usize) 
     crate::tiled::write(&job.output, spec, step, |r0, r1| {
         crate::progress::advance((r1 - r0) as u64);
         let (w0, w1) = (r0.saturating_sub(margin), (r1 + margin).min(rows));
-        // a quarter of a cell inside the strip, so that the pixel boundaries are the right ones
+        // un cuarto de celda dentro de la franja, para que los límites de píxel sean los correctos
         let q = cell * 0.25;
         let win = [
             e[0] + q,
@@ -330,7 +334,7 @@ fn run_streamed(job: &TerrainJob, pyr: &crate::pyramid::Pyramid, margin: usize) 
     })
 }
 
-/// Reads the input, computes the product and writes it as a GeoTIFF beside the input's system.
+/// Lee la entrada, calcula el producto y lo escribe como GeoTIFF junto al sistema de la entrada.
 pub fn run(job: &TerrainJob) -> Result<String> {
     if let Ok(pyr) = crate::pyramid::Pyramid::open(&job.input)
         && pyr.bands == 1
@@ -338,7 +342,7 @@ pub fn run(job: &TerrainJob) -> Result<String> {
     {
         let e = pyr.extent();
         let cells = (((e[2] - e[0]) / pyr.cell) * ((e[3] - e[1]) / pyr.cell)) as u64;
-        // HIPSO_STREAM=1 forces the strips, =0 forbids them (to compare the two ways)
+        // HIPSO_STREAM=1 fuerza las franjas, =0 las prohíbe (para comparar las dos maneras)
         let forced = std::env::var("HIPSO_STREAM").ok();
         if match forced.as_deref() {
             Some("0") => false,
@@ -358,8 +362,8 @@ pub fn run(job: &TerrainJob) -> Result<String> {
     ) && let Ok(pyr) = crate::pyramid::Pyramid::open(&job.input)
         && let Some(mem) = crate::copc_cache::total_memory()
     {
-        // these follow the water across the whole raster: it is held in memory, with the
-        // directions, the order and the result (measured: 16 bytes a cell). Say it before reading
+        // estos siguen el agua por todo el ráster: se guarda en memoria, con las direcciones, el
+        // orden y el resultado (medido: 16 bytes por celda). Se dice antes de leer
         let e = pyr.extent();
         let cells = ((e[2] - e[0]) / pyr.cell) * ((e[3] - e[1]) / pyr.cell);
         let need = cells * 20.0;
@@ -394,8 +398,8 @@ pub fn run(job: &TerrainJob) -> Result<String> {
     })
 }
 
-/// The 3x3 window around `(c, r)`, row by row from the north: `[a b c / d e f / g h i]`.
-/// `None` if the centre is empty, or a neighbour is missing and `edges` does not fill it.
+/// La ventana 3x3 alrededor de `(c, r)`, fila a fila desde el norte: `[a b c / d e f / g h i]`.
+/// `None` si el centro está vacío o falta un vecino y `edges` no lo rellena.
 #[inline]
 fn window(g: &Grid, c: usize, r: usize, edges: Edges) -> Option<[f32; 9]> {
     let e = *g.data.get(r * g.cols + c)?;
@@ -429,7 +433,7 @@ fn window(g: &Grid, c: usize, r: usize, edges: Edges) -> Option<[f32; 9]> {
     Some(w)
 }
 
-/// Applies `f` to the window of every cell, rows in parallel.
+/// Aplica `f` a la ventana de cada celda, con las filas en paralelo.
 fn map3(g: &Grid, edges: Edges, f: impl Fn(&[f32; 9]) -> f32 + Sync) -> Grid {
     let mut out = g.like();
     out.data
@@ -445,7 +449,7 @@ fn map3(g: &Grid, edges: Edges, f: impl Fn(&[f32; 9]) -> f32 + Sync) -> Grid {
     out
 }
 
-/// Horn's gradient: (east, north) rise per unit of distance.
+/// Gradiente de Horn: (este, norte) de subida por unidad de distancia.
 #[inline]
 fn gradient(w: &[f32; 9], cell: f64, z: f64) -> (f64, f64) {
     let v = |k: usize| f64::from(w[k]);
@@ -469,7 +473,8 @@ pub fn slope(g: &Grid, z: f64, percent: bool, edges: Edges) -> Grid {
     })
 }
 
-/// Direction the slope faces, degrees clockwise from north; flat cells are empty.
+/// Dirección a la que mira la pendiente, grados en el sentido de las agujas del reloj desde el
+/// norte; las celdas llanas quedan vacías.
 pub fn aspect(g: &Grid, z: f64, edges: Edges) -> Grid {
     let cell = g.cell;
     map3(g, edges, |w| {
@@ -477,13 +482,13 @@ pub fn aspect(g: &Grid, z: f64, edges: Edges) -> Grid {
         if gx.hypot(gy) < 1e-9 {
             return f32::NAN;
         }
-        // downhill is (-gx, -gy) in (east, north)
+        // cuesta abajo es (-gx, -gy) en (este, norte)
         let a = (-gx).atan2(-gy).to_degrees();
         (if a < 0.0 { a + 360.0 } else { a + 0.0 }) as f32
     })
 }
 
-/// Illumination 0-255 from a light at `azimuth` and `altitude` (degrees).
+/// Iluminación 0-255 de una luz con `azimuth` y `altitude` (grados).
 pub fn hillshade(g: &Grid, z: f64, azimuth: f64, altitude: f64, edges: Edges) -> Grid {
     let cell = g.cell;
     let (az, alt) = (azimuth.to_radians(), altitude.to_radians());
@@ -502,7 +507,7 @@ enum Curv {
     Total,
 }
 
-/// Zevenbergen and Thorne's curvatures, in 1/m; positive is convex.
+/// Curvaturas de Zevenbergen y Thorne, en 1/m; positivo es convexo.
 fn curvature(g: &Grid, z: f64, kind: Curv, edges: Edges) -> Grid {
     let l = g.cell;
     map3(g, edges, |w| {
@@ -539,8 +544,9 @@ pub fn ruggedness(g: &Grid, z: f64, edges: Edges) -> Grid {
     })
 }
 
-/// Height minus the mean height of the cells within `radius` (the centre excluded). Each row of
-/// the disc is taken from running sums, so the cost grows with the radius, not its square.
+/// Altura menos la altura media de las celdas dentro de `radius` (excluido el centro). Cada fila
+/// del disco se toma de sumas acumuladas, de modo que el coste crece con el radio, no con su
+/// cuadrado.
 pub fn position(g: &Grid, z: f64, radius: f64) -> Result<Grid> {
     if !(radius >= g.cell) {
         return Err(Error::Param(
@@ -552,7 +558,7 @@ pub fn position(g: &Grid, z: f64, radius: f64) -> Result<Grid> {
         return Err(Error::Param("el radio es mayor que el ráster".into()));
     }
     let stride = g.cols + 1;
-    // running sums along each row, of the heights and of how many cells have one
+    // sumas acumuladas a lo largo de cada fila, de las alturas y de cuántas celdas tienen una
     let mut sum = vec![0f64; g.rows * stride];
     let mut cnt = vec![0u32; g.rows * stride];
     sum.par_chunks_mut(stride)
@@ -603,7 +609,7 @@ pub fn position(g: &Grid, z: f64, radius: f64) -> Result<Grid> {
 mod tests {
     use super::*;
 
-    /// A grid of 1 m cells whose height is `f(x, y)` at the cell centres.
+    /// Una rejilla de celdas de 1 m cuya altura es `f(x, y)` en los centros de celda.
     fn surface(cols: usize, rows: usize, f: impl Fn(f64, f64) -> f64) -> Result<Grid> {
         let mut g = Grid::new(0.0, 0.0, 1.0, cols, rows)?;
         for r in 0..rows {
@@ -621,7 +627,7 @@ mod tests {
 
     #[test]
     fn slope_of_a_plane_is_exact() -> Result<()> {
-        // rises 0.5 m per metre to the east
+        // sube 0,5 m por metro hacia el este
         let g = surface(9, 9, |x, _| 0.5 * x)?;
         assert!((mid(&slope(&g, 1.0, false, Edges::NoData)) - 0.5f32.atan().to_degrees()).abs() < 1e-4);
         assert!((mid(&slope(&g, 1.0, true, Edges::NoData)) - 50.0).abs() < 1e-3);
@@ -630,7 +636,7 @@ mod tests {
 
     #[test]
     fn aspect_is_the_compass_direction_downhill() -> Result<()> {
-        // rises to the west: faces east (90); rises to the south: faces north (0)
+        // sube hacia el oeste: mira al este (90); sube hacia el sur: mira al norte (0)
         let east = surface(9, 9, |x, _| -x)?;
         assert!((mid(&aspect(&east, 1.0, Edges::NoData)) - 90.0).abs() < 1e-3);
         let north = surface(9, 9, |_, y| -y)?;
@@ -645,12 +651,12 @@ mod tests {
 
     #[test]
     fn hillshade_is_bright_toward_the_light() -> Result<()> {
-        // slope facing north-west with the light at north-west (315), 45 deg
+        // pendiente orientada al noroeste con la luz al noroeste (315), 45 grados
         let nw = surface(9, 9, |x, y| 0.5 * (x - y))?;
         let toward = mid(&hillshade(&nw, 1.0, 315.0, 45.0, Edges::NoData));
         let away = mid(&hillshade(&nw, 1.0, 135.0, 45.0, Edges::NoData));
         assert!(toward > away + 100.0, "{toward} {away}");
-        // flat ground: 255 * sin(altitude)
+        // suelo llano: 255 * sin(altitud)
         let flat = surface(9, 9, |_, _| 3.0)?;
         assert!(
             (mid(&hillshade(&flat, 1.0, 315.0, 45.0, Edges::NoData)) - 255.0 * 45f32.to_radians().sin()).abs()
@@ -665,7 +671,7 @@ mod tests {
         let bowl = surface(9, 9, |x, y| 0.1 * ((x - 4.5).powi(2) + (y - 4.5).powi(2)))?;
         assert!((mid(&curvature(&dome, 1.0, Curv::Total, Edges::Center)) - 0.4).abs() < 1e-4);
         assert!((mid(&curvature(&bowl, 1.0, Curv::Total, Edges::Center)) + 0.4).abs() < 1e-4);
-        // off the summit, on a dome both curvatures are convex
+        // fuera de la cima, en una cúpula las dos curvaturas son convexas
         let at = |g: &Grid, k: Curv| curvature(g, 1.0, k, Edges::Center).data[4 * 9 + 6];
         assert!(at(&dome, Curv::Profile) > 0.0 && at(&dome, Curv::Plan) > 0.0);
         assert!(at(&bowl, Curv::Profile) < 0.0 && at(&bowl, Curv::Plan) < 0.0);
@@ -680,7 +686,7 @@ mod tests {
         assert_eq!(mid(&ruggedness(&g, 1.0, Edges::Center)), 8.0);
         let p = position(&g, 1.0, 2.0)?;
         assert!((mid(&p) - 8.0).abs() < 1e-4);
-        // a neighbour of the peak sees it in its mean
+        // un vecino de la cima la ve en su media
         assert!(p.data[3 * 7 + 4] < 0.0);
         Ok(())
     }
@@ -719,16 +725,17 @@ mod tests {
         let mut g = surface(5, 5, |x, _| x)?;
         g.data[2 * 5 + 2] = f32::NAN;
         assert!(mid(&slope(&g, 1.0, false, Edges::NoData)).is_nan());
-        // default: the eight cells around a hole have no value either, as do the edge cells
+        // por defecto: las ocho celdas alrededor de un hueco tampoco tienen valor, igual que las
+        // celdas del borde
         let s0 = slope(&g, 1.0, false, Edges::NoData);
         for (r, c) in [(1, 1), (1, 2), (1, 3), (2, 1), (2, 3), (3, 1), (3, 2), (3, 3)] {
             assert!(s0.data[r * 5 + c].is_nan(), "({c},{r})");
         }
         assert!(s0.data[0].is_nan() && s0.data[4].is_nan() && s0.data[24].is_nan());
-        // the centre fill gives them a value
+        // el relleno del centro les da un valor
         let sc = slope(&g, 1.0, false, Edges::Center);
         assert!(sc.data[2 * 5 + 1].is_finite() && sc.data[0].is_finite());
-        // repeating the edge fills the border but not the cells around a hole
+        // repetir el borde rellena el borde pero no las celdas alrededor de un hueco
         let sr = slope(&g, 1.0, false, Edges::RepeatEdge);
         assert!(sr.data[0].is_finite() && sr.data[2 * 5 + 1].is_nan());
         Ok(())
@@ -744,7 +751,7 @@ mod tests {
                 assert_eq!(a.data[r * 9 + c], b.data[r * 9 + c]);
             }
         }
-        // a plane keeps its slope at the edge only when the border is not repeated
+        // un plano conserva su pendiente en el borde solo cuando el borde no se repite
         assert!(a.data[0].is_nan());
         Ok(())
     }
@@ -757,12 +764,12 @@ mod tests {
         Ok(())
     }
 
-    /// A raster worked in strips gives, cell by cell, what the whole raster gives.
+    /// Un ráster trabajado en franjas da, celda a celda, lo que da el ráster entero.
     #[test]
     fn strips_give_the_same_cells_as_the_whole_raster() -> Result<()> {
         let dir = std::env::temp_dir().join(format!("hipso_strips_{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
-        // a hilly surface with a hole, 300 x 200 cells: several strips of 64 rows
+        // una superficie con colinas y un hueco, de 300 x 200 celdas: varias franjas de 64 filas
         let mut g = Grid::new(1000.0, 5000.0, 2.0, 300, 200)?;
         for r in 0..g.rows {
             for c in 0..g.cols {

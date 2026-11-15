@@ -1,10 +1,10 @@
-//! Cut and fill: how much earth has to be removed and added to take an existing terrain to a
-//! design.
+//! Desmonte y terraplén: cuánta tierra hay que quitar y añadir para llevar un terreno existente a
+//! un diseño.
 //!
-//! The difference is `dz = design - existing`. Where `dz` is positive the design is higher: earth
-//! has to be added (**fill**, terraplén). Where it is negative the design is lower: earth has to
-//! be removed (**cut**, desmonte). Differences no larger than the tolerance count as unchanged.
-//! The volume of a cell is `|dz| * cell²`.
+//! La diferencia es `dz = diseño - existente`. Donde `dz` es positivo el diseño es más alto: hay
+//! que añadir tierra (**terraplén**). Donde es negativo el diseño es más bajo: hay que quitar
+//! tierra (**desmonte**). Las diferencias no mayores que la tolerancia cuentan como sin cambio. El
+//! volumen de una celda es `|dz| * celda²`.
 
 use std::path::PathBuf;
 
@@ -13,16 +13,17 @@ use crate::grid::Grid;
 use crate::vector::{self, Region};
 use crate::{Error, Result};
 
-/// The surface the ground should have.
+/// La superficie que debería tener el terreno.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Design {
-    /// Another terrain model or a design surface; it is put on the cells of the existing one
-    /// when they differ.
+    /// Otro modelo del terreno o una superficie de diseño; se pone sobre las celdas del existente
+    /// cuando difieren.
     Surface(PathBuf),
-    /// A horizontal plane at this elevation.
+    /// Un plano horizontal a esta elevación.
     Level(f64),
-    /// A sloping plane: elevation `z0` at `origin`, going down `slope_pct` per cent towards the
-    /// compass direction `aspect_deg` (from north, clockwise), the way water would run.
+    /// Un plano inclinado: elevación `z0` en `origin`, bajando `slope_pct` por ciento hacia la
+    /// dirección de brújula `aspect_deg` (desde el norte, en el sentido de las agujas del reloj),
+    /// la dirección por donde correría el agua.
     Plane {
         z0: f64,
         slope_pct: f64,
@@ -34,14 +35,14 @@ pub enum Design {
 pub struct CutFillJob {
     pub existing: PathBuf,
     pub design: Design,
-    /// Polygons to measure one by one (the whole raster is always measured too).
+    /// Polígonos que medir uno a uno (el ráster entero se mide siempre también).
     pub regions: Option<PathBuf>,
-    /// Differences up to this size count as unchanged (m).
+    /// Las diferencias de hasta este tamaño cuentan como sin cambio (m).
     pub tolerance: f64,
-    /// Base path of the results; the difference raster is `<output>.tif`.
+    /// Ruta base de los resultados; el ráster de diferencia es `<salida>.tif`.
     pub output: PathBuf,
     pub csv: bool,
-    /// Also a raster of whole numbers: 1 cut, 2 fill, 0 unchanged.
+    /// Escribe también un ráster de números enteros: 1 desmonte, 2 terraplén, 0 sin cambio.
     pub classified: bool,
 }
 
@@ -59,11 +60,11 @@ impl CutFillJob {
     }
 }
 
-/// Cut and fill of the whole raster or of one polygon.
+/// Desmonte y terraplén de todo el ráster o de un polígono.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Totals {
     pub name: String,
-    /// Volumes (m³) and the areas (m²) they come from.
+    /// Volúmenes (m³) y las áreas (m²) de las que salen.
     pub cut: f64,
     pub fill: f64,
     pub cut_area: f64,
@@ -72,7 +73,7 @@ pub struct Totals {
 }
 
 impl Totals {
-    /// Fill minus cut: positive when earth has to be brought in.
+    /// Terraplén menos desmonte: positivo cuando hay que traer tierra.
     pub fn net(&self) -> f64 {
         self.fill - self.cut
     }
@@ -107,7 +108,7 @@ pub struct CutFillReport {
     pub rows: Vec<Totals>,
 }
 
-/// `design - existing`, cell by cell, on the same cells; empty where either is empty.
+/// `diseño - existente`, celda a celda, sobre las mismas celdas; vacío donde cualquiera está vacío.
 pub fn diff(existing: &Grid, design: &Grid) -> Result<Grid> {
     if existing.cols != design.cols
         || existing.rows != design.rows
@@ -130,7 +131,7 @@ pub fn diff(existing: &Grid, design: &Grid) -> Result<Grid> {
     Ok(out)
 }
 
-/// The design as a surface on the cells of `existing`.
+/// El diseño como superficie sobre las celdas de `existing`.
 pub fn design_grid(existing: &Grid, design: &Design) -> Result<Grid> {
     match design {
         Design::Surface(p) => {
@@ -164,7 +165,7 @@ pub fn design_grid(existing: &Grid, design: &Design) -> Result<Grid> {
             for r in 0..g.rows {
                 for col in 0..g.cols {
                     let (x, y) = g.center(col, r);
-                    // the distance along the downhill direction
+                    // la distancia a lo largo de la dirección cuesta abajo
                     let along = (x - origin[0]) * s + (y - origin[1]) * c;
                     g.data[r * g.cols + col] = (z0 - k * along) as f32;
                 }
@@ -174,7 +175,8 @@ pub fn design_grid(existing: &Grid, design: &Design) -> Result<Grid> {
     }
 }
 
-/// Cut and fill of the raster `dz` (from [`diff`]) as a whole and, for each region, inside it.
+/// Desmonte y terraplén del ráster `dz` (de [`diff`]) en conjunto y, para cada región, dentro de
+/// ella.
 pub fn totals(dz: &Grid, regions: &[Region], tolerance: f64) -> Result<CutFillReport> {
     if !(tolerance >= 0.0) {
         return Err(Error::Param("la tolerancia no puede ser negativa".into()));
@@ -220,7 +222,7 @@ fn num(v: f64) -> String {
     format!("{v:.3}")
 }
 
-/// The totals as a CSV table: the whole raster first, then each polygon.
+/// Los totales como tabla CSV: primero todo el ráster y luego cada polígono.
 pub fn csv_text(rep: &CutFillReport) -> String {
     let mut s = String::from(
         "Nombre,Desmonte_m3,Terraplen_m3,Neto_m3,Area_desmonte_m2,Area_terraplen_m2,Area_sin_cambio_m2\n",
@@ -245,7 +247,7 @@ pub fn csv_text(rep: &CutFillReport) -> String {
     s
 }
 
-/// The fields the layer of polygons gets.
+/// Los campos que recibe la capa de polígonos.
 pub const LAYER_FIELDS: [&str; 6] = [
     "desmonte",
     "terraplen",
@@ -255,8 +257,8 @@ pub const LAYER_FIELDS: [&str; 6] = [
     "a_igual",
 ];
 
-/// The classes of `dz` as a raster of whole numbers: 1 cut, 2 fill, 0 unchanged, empty where
-/// `dz` is.
+/// Las clases de `dz` como ráster de números enteros: 1 desmonte, 2 terraplén, 0 sin cambio, vacío
+/// donde lo está `dz`.
 fn write_classes(
     dz: &Grid,
     tolerance: f64,
@@ -273,7 +275,7 @@ fn write_classes(
         x0: dz.x0,
         top: dz.y0 + dz.rows as f64 * dz.cell,
         epsg,
-        // 255 marks the cells without a value, since 0 is a class
+        // 255 marca las celdas sin valor, pues 0 es una clase
         nodata: 255.0,
         compression: Compression::Deflate,
         nearest: true,
@@ -297,14 +299,14 @@ fn write_classes(
     })
 }
 
-/// Computes cut and fill and writes what was asked; returns the summary.
+/// Calcula el desmonte y el terraplén y escribe lo pedido; devuelve el resumen.
 pub fn run(job: &CutFillJob) -> Result<String> {
     if let Ok(pyr) = crate::pyramid::Pyramid::open(&job.existing)
         && let Some(mem) = crate::copc_cache::total_memory()
     {
         let e = pyr.extent();
         let cells = ((e[2] - e[0]) / pyr.cell) * ((e[3] - e[1]) / pyr.cell);
-        // the existing surface, the design and the difference
+        // la superficie existente, el diseño y la diferencia
         if cells * 12.0 > mem as f64 * 0.7 {
             return Err(Error::Param(format!(
                 "{:.0} millones de celdas no caben en la memoria: recorta el terreno a la zona de la obra con un polígono",
@@ -423,7 +425,7 @@ mod tests {
         assert!(up.fill > 0.0 && up.cut == 0.0);
         let down = totals(&diff(&existing, &flat(7.0)?)?, &[], 0.0)?.total;
         assert!(down.cut == 300.0 && down.fill == 0.0);
-        // the same convention as the volume above and below a reference
+        // el mismo convenio que el volumen sobre y bajo una referencia
         let r = volume::volumes(&flat(12.0)?, Reference::Dtm(&existing), &[], 0.0)?;
         assert_eq!(r[0].above, up.fill);
         let r = volume::volumes(&flat(7.0)?, Reference::Dtm(&existing), &[], 0.0)?;
@@ -461,7 +463,7 @@ mod tests {
     #[test]
     fn a_sloping_plane_goes_down_the_way_it_faces() -> Result<()> {
         let existing = flat(0.0)?;
-        // 10 % down towards the east (90 degrees), from 20 m at x = 0
+        // 10 % hacia abajo hacia el este (90 grados), desde 20 m en x = 0
         let d = design_grid(
             &existing,
             &Design::Plane {

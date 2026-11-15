@@ -1,21 +1,22 @@
-//! Inverse-distance-weighted surfaces: each cell takes the mean of its nearest points weighted by
-//! 1/d². Points are first reduced to one per half cell (the mean, or the highest for canopy
-//! surfaces), so time and memory follow the grid and not the point density, and the search
-//! looks ring by ring in that lattice until it has `k` points.
+//! Superficies de ponderación por el inverso de la distancia: cada celda toma la media de sus
+//! puntos más cercanos ponderada por 1/d². Los puntos se reducen primero a uno por media celda (la
+//! media, o el más alto para superficies de dosel), de modo que el tiempo y la memoria siguen a la
+//! rejilla y no a la densidad de puntos, y la búsqueda mira anillo a anillo en ese retículo hasta
+//! tener `k` puntos.
 
 use rayon::prelude::*;
 
 use crate::grid::Grid;
 
-/// Neighbours averaged per cell.
+/// Vecinos promediados por celda.
 pub const NEIGHBOURS: usize = 8;
 
-/// Farthest a point may be to count (map units), at most; the reach is also limited to 30
-/// cells. Cells with none are left empty (and filled afterwards).
+/// Lo más lejos que puede estar un punto para contar (unidades del mapa), como mucho; el alcance se
+/// limita además a 30 celdas. Las celdas sin ninguno se dejan vacías (y se rellenan después).
 pub const MAX_DIST: f64 = 50.0;
 
-/// Writes into the empty cells of `grid` the IDW surface through `pts` (x, y, z). With
-/// `highest` each lattice bin keeps its highest point instead of the mean.
+/// Escribe en las celdas vacías de `grid` la superficie IDW por `pts` (x, y, z). Con `highest` cada
+/// intervalo del retículo conserva su punto más alto en lugar de la media.
 pub fn rasterize(pts: &[[f64; 3]], grid: &mut Grid, highest: bool) {
     let reach = (grid.cell * 30.0).clamp(10.0, MAX_DIST);
     let bin = (grid.cell / 2.0).max(1e-6);
@@ -31,7 +32,7 @@ pub fn rasterize(pts: &[[f64; 3]], grid: &mut Grid, highest: bool) {
     if bc.saturating_mul(br) > 1 << 27 {
         return;
     }
-    // per bin: x, y, z sums (or the highest point) and the count
+    // por intervalo: sumas de x, y, z (o el punto más alto) y el recuento
     let mut lattice = vec![[0f64; 4]; bc * br];
     for q in pts {
         let (c, r) = (((q[0] - x0) / bin).floor(), ((q[1] - y0) / bin).floor());
@@ -54,7 +55,7 @@ pub fn rasterize(pts: &[[f64; 3]], grid: &mut Grid, highest: bool) {
         let b = lattice[r * bc + c];
         (b[3] > 0.0).then(|| [b[0] / b[3], b[1] / b[3], b[2] / b[3]])
     };
-    // occupied bins in any square, in constant time (summed-area table)
+    // intervalos ocupados en cualquier cuadrado, en tiempo constante (tabla de áreas acumuladas)
     let w = bc + 1;
     let mut sat = vec![0u32; w * (br + 1)];
     for r in 0..br {
@@ -95,8 +96,8 @@ pub fn rasterize(pts: &[[f64; 3]], grid: &mut Grid, highest: bool) {
                     if sq(max_ring) == 0 {
                         return f32::NAN;
                     }
-                    // the smallest square with enough points, widened a bit so the nearest
-                    // ones, which may sit off its corners, are inside
+                    // el cuadrado más pequeño con suficientes puntos, ampliado un poco para que los
+                    // más cercanos, que pueden estar fuera de sus esquinas, queden dentro
                     let (mut lo, mut hi) = (0i64, max_ring);
                     while lo < hi {
                         let mid = (lo + hi) / 2;
@@ -125,7 +126,7 @@ pub fn rasterize(pts: &[[f64; 3]], grid: &mut Grid, highest: bool) {
                     found.truncate(NEIGHBOURS);
                     let (mut sw, mut sz) = (0.0, 0.0);
                     for (d2, z) in found {
-                        // a point on the cell centre is the cell's value
+                        // un punto en el centro de la celda es el valor de la celda
                         if d2 < 1e-12 {
                             return z as f32;
                         }
@@ -166,7 +167,7 @@ mod tests {
         rasterize(&pts, &mut g, false);
         let v = g.sample(10.0, 10.0).unwrap_or(f32::NAN);
         assert!((v - 12.0).abs() < 0.15, "{v}");
-        // a spike in the same bin: the highest-point surface follows it
+        // un pico en el mismo intervalo: la superficie del punto más alto lo sigue
         pts.push([10.6, 10.6, 30.0]);
         let (mut h, mut m) = (
             Grid::new(5.0, 5.0, 1.0, 10, 10)?,

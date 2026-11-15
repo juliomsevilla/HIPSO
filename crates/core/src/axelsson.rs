@@ -1,13 +1,13 @@
-//! Ground by progressive TIN densification (Axelsson 2000, "Adaptive surface models for the
-//! filtering of airborne laser scanner data", and the many filters built on it).
+//! Suelo por densificación progresiva de TIN (Axelsson 2000, «Adaptive surface models for the
+//! filtering of airborne laser scanner data», y los muchos filtros construidos sobre él).
 //!
-//! A sparse TIN is made of seed points: the lowest of each large cell, so that no building fits
-//! in a cell and every cell has a point on the ground. Then, again and again, every point inside a
-//! triangle of the TIN is tested against the plane of the triangle: it is ground when it is near
-//! the plane (the iteration distance) and the lines from it to the three vertices make small
-//! angles with the plane (the iteration angle). The points accepted are added to the TIN, which
-//! is made again, until none is accepted. Steep ground gets points in a few steps, where the
-//! angle that is allowed is small at each one.
+//! Se hace un TIN disperso con puntos semilla: el más bajo de cada celda grande, de modo que ningún
+//! edificio cabe en una celda y toda celda tiene un punto en el suelo. Luego, una y otra vez, cada
+//! punto dentro de un triángulo del TIN se comprueba contra el plano del triángulo: es suelo cuando
+//! está cerca del plano (la distancia de iteración) y las líneas de él a los tres vértices forman
+//! ángulos pequeños con el plano (el ángulo de iteración). Los puntos aceptados se añaden al TIN,
+//! que se rehace, hasta que no se acepta ninguno. El suelo empinado recibe puntos en unos pocos
+//! pasos, donde el ángulo permitido es pequeño en cada uno.
 
 use std::collections::HashMap;
 
@@ -18,22 +18,22 @@ use crate::{Error, Result};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AxelssonParams {
-    /// Side (m) of the cells whose lowest points seed the TIN: larger than the largest building
-    /// or structure in the area that is not ground.
+    /// Lado (m) de las celdas cuyos puntos más bajos siembran el TIN: mayor que el mayor edificio o
+    /// estructura de la zona que no es suelo.
     pub seed_cell: f64,
-    /// Largest angle (degrees) between the plane of a triangle and the line from a vertex to a
-    /// point that is added to the ground.
+    /// Mayor ángulo (grados) entre el plano de un triángulo y la línea de un vértice a un punto que
+    /// se añade al suelo.
     pub iter_angle: f64,
-    /// Largest distance (m) from the plane of a triangle to a point that is added.
+    /// Mayor distancia (m) del plano de un triángulo a un punto que se añade.
     pub iter_dist: f64,
-    /// Points this close to the plane (m, noise of the sensor) are ground whatever the angle,
-    /// which near a vertex is large even for a point that lies on the surface.
+    /// Los puntos tan cerca del plano (m, ruido del sensor) son suelo sea cual sea el ángulo, que
+    /// cerca de un vértice es grande incluso para un punto que está sobre la superficie.
     pub flat_tolerance: f64,
-    /// Triangles whose longest edge is shorter than this (m) have the angle reduced in
-    /// proportion (down to half), so that a dense TIN does not take in low vegetation.
+    /// Los triángulos cuya arista más larga es más corta que esto (m) tienen el ángulo reducido en
+    /// proporción (hasta la mitad), de modo que un TIN denso no acoge la vegetación baja.
     pub reduce_edge: f64,
-    /// Triangles whose longest edge is shorter than this (m) take no more points: the surface
-    /// there is dense enough (0: they go on until nothing is added).
+    /// Los triángulos cuya arista más larga es más corta que esto (m) no toman más puntos: la
+    /// superficie allí es suficientemente densa (0: siguen hasta que no se añade nada).
     pub min_edge: f64,
     pub max_iterations: u32,
 }
@@ -72,7 +72,7 @@ impl AxelssonParams {
     }
 }
 
-/// A vertex of the TIN.
+/// Un vértice del TIN.
 #[derive(Clone, Copy)]
 struct V {
     x: f64,
@@ -80,8 +80,8 @@ struct V {
     z: f64,
 }
 
-/// The candidate points bucketed in a regular grid, so that the ones inside a triangle are found
-/// by looking at the cells its box covers.
+/// Los puntos candidatos repartidos en una rejilla regular, de modo que los que están dentro de un
+/// triángulo se encuentran mirando las celdas que cubre su caja.
 struct Buckets {
     cell: f64,
     cols: usize,
@@ -92,7 +92,7 @@ struct Buckets {
 
 impl Buckets {
     fn new(xy: &[(f64, f64)], ids: &[usize], extent: (f64, f64)) -> Self {
-        // about 3 points to a cell
+        // unos 3 puntos por celda
         let cell = ((extent.0 * extent.1 * 3.0 / ids.len().max(1) as f64).sqrt()).max(0.25);
         let cols = ((extent.0 / cell).floor() as usize + 1).min(1 << 14);
         let rows = ((extent.1 / cell).floor() as usize + 1).min(1 << 14);
@@ -125,7 +125,7 @@ impl Buckets {
         }
     }
 
-    /// The candidates in the cells that the box covers.
+    /// Los candidatos de las celdas que cubre la caja.
     fn in_box(&self, lo: (f64, f64), hi: (f64, f64)) -> impl Iterator<Item = usize> + '_ {
         let c0 = ((lo.0 / self.cell).max(0.0) as usize).min(self.cols - 1);
         let c1 = ((hi.0 / self.cell).max(0.0) as usize).min(self.cols - 1);
@@ -141,8 +141,8 @@ impl Buckets {
     }
 }
 
-/// The candidates of one triangle that are ground: near its plane, with small angles to the
-/// vertices.
+/// Los candidatos de un triángulo que son suelo: cerca de su plano, con ángulos pequeños a los
+/// vértices.
 fn accepted(
     tri: [V; 3],
     xy: &[(f64, f64)],
@@ -156,7 +156,7 @@ fn accepted(
     if longest < p.min_edge {
         return Vec::new();
     }
-    // the plane through the vertices: a normal n; a vertical one has no height to compare
+    // el plano por los vértices: una normal n; uno vertical no tiene altura que comparar
     let (ux, uy, uz) = (b.x - a.x, b.y - a.y, b.z - a.z);
     let (vx, vy, vz) = (c.x - a.x, c.y - a.y, c.z - a.z);
     let n = (uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
@@ -176,13 +176,13 @@ fn accepted(
     let mut out = Vec::new();
     for q in buckets.in_box(lo, hi) {
         let (qx, qy) = xy[q];
-        // inside the triangle: the three barycentric weights are not negative
+        // dentro del triángulo: los tres pesos baricéntricos no son negativos
         let l1 = ((b.y - c.y) * (qx - c.x) + (c.x - b.x) * (qy - c.y)) / area;
         let l2 = ((c.y - a.y) * (qx - c.x) + (a.x - c.x) * (qy - c.y)) / area;
         if l1 < -1e-9 || l2 < -1e-9 || 1.0 - l1 - l2 < -1e-9 {
             continue;
         }
-        // distance to the plane, measured perpendicular to it
+        // distancia al plano, medida perpendicularmente a él
         let zp = a.z - (n.0 * (qx - a.x) + n.1 * (qy - a.y)) / n.2;
         let d = (z[q] - zp) * n.2.abs() / norm;
         if d.abs() <= p.flat_tolerance {
@@ -203,7 +203,7 @@ fn accepted(
     out
 }
 
-/// Which points are ground. Noise and withheld points are never ground and take no part.
+/// Qué puntos son suelo. El ruido y los puntos retenidos nunca son suelo y no participan.
 pub fn ground(pts: &[Point], p: &AxelssonParams) -> Result<Vec<bool>> {
     p.validate()?;
     let n = pts.len();
@@ -228,11 +228,11 @@ pub fn ground(pts: &[Point], p: &AxelssonParams) -> Result<Vec<bool>> {
             y1.max(pts[i].y),
         );
     }
-    // coordinates relative to the corner keep the triangulation precise
+    // las coordenadas relativas a la esquina mantienen precisa la triangulación
     let xy: Vec<(f64, f64)> = pts.iter().map(|q| (q.x - x0, q.y - y0)).collect();
     let z: Vec<f64> = pts.iter().map(|q| q.z).collect();
     let extent = (x1 - x0, y1 - y0);
-    // the seeds: the lowest point of each cell
+    // las semillas: el punto más bajo de cada celda
     let mut lowest: HashMap<(i64, i64), usize> = HashMap::new();
     for &i in &valid {
         let key = (
@@ -251,9 +251,10 @@ pub fn ground(pts: &[Point], p: &AxelssonParams) -> Result<Vec<bool>> {
     for &i in lowest.values() {
         ground[i] = true;
     }
-    // Seeds interior to their cells leave the edge of the cloud outside their hull, where no
-    // triangle tests a point: along each side of the extent, the lowest point of each stretch of
-    // half a seed cell, taken in a band at the edge, is a seed as well.
+    // Las semillas interiores a sus celdas dejan el borde de la nube fuera de su envolvente, donde
+    // ningún triángulo comprueba un punto: a lo largo de cada lado de la extensión, el punto más
+    // bajo de cada tramo de media celda de semilla, tomado en una banda en el borde, es también una
+    // semilla.
     let band = (p.seed_cell / 10.0).max(1.0);
     let stretch = p.seed_cell / 2.0;
     let mut sides: HashMap<(u8, i64), usize> = HashMap::new();
@@ -297,10 +298,11 @@ pub fn ground(pts: &[Point], p: &AxelssonParams) -> Result<Vec<bool>> {
                 y: xy[i].1,
             })
             .collect();
-        // The seeds are interior to their cells, so their hull leaves a strip along the edge of
-        // the cloud that no triangle covers: four virtual vertices at the corners of the extent,
-        // at the height of the nearest ground point, extend the TIN over it. They only give
-        // planes to test the points of the strip against and are never ground themselves.
+        // Las semillas son interiores a sus celdas, así que su envolvente deja una franja a lo
+        // largo del borde de la nube que ningún triángulo cubre: cuatro vértices virtuales en las
+        // esquinas de la extensión, a la altura del punto de suelo más cercano, extienden el TIN
+        // sobre ella. Solo dan planos contra los que comprobar los puntos de la franja y nunca son
+        // suelo ellos mismos.
         let real = ids.len();
         let mut corner_z = [0.0f64; 4];
         for (c, (cx, cy)) in [
@@ -374,7 +376,7 @@ mod tests {
         }
     }
 
-    /// Terrain on a slope with a gentle wave, a building with a flat roof, and trees.
+    /// Terreno en pendiente con una ligera ondulación, un edificio con tejado plano y árboles.
     fn scene() -> (Vec<Point>, Vec<bool>) {
         let terrain = |x: f64, y: f64| 0.2 * x + 0.1 * y + 0.4 * (x / 9.0).sin();
         let mut pts = Vec::new();
@@ -389,14 +391,14 @@ mod tests {
                     .iter()
                     .any(|t: &(f64, f64)| (x - t.0).hypot(y - t.1) < 3.0);
                 if in_building {
-                    // only the roof, 6 m above the ground
+                    // solo el tejado, a 6 m sobre el suelo
                     pts.push(pt(x, y, terrain(x, y) + 6.0));
                     is_ground.push(false);
                 } else {
                     pts.push(pt(x, y, terrain(x, y)));
                     is_ground.push(true);
                     if in_tree {
-                        // a crown: points 6 to 12 m above the ground
+                        // una copa: puntos a 6 a 12 m sobre el suelo
                         for k in 0..6 {
                             pts.push(pt(x, y, terrain(x, y) + 6.0 + f64::from(k)));
                             is_ground.push(false);
@@ -424,7 +426,7 @@ mod tests {
                 wrong += usize::from(g[k]);
             }
         }
-        // nearly all the ground, and no roof or crown point
+        // casi todo el suelo y ningún punto de tejado ni de copa
         assert!(hit as f64 / total as f64 > 0.99, "{hit} of {total}");
         assert_eq!(
             wrong, 0,
@@ -435,7 +437,8 @@ mod tests {
 
     #[test]
     fn a_building_larger_than_the_seed_cell_is_taken_for_ground() -> Result<()> {
-        // the seed cell is smaller than the 18 x 12 m roof, so a cell can hold only roof points
+        // la celda de semilla es menor que el tejado de 18 x 12 m, así que una celda puede contener
+        // solo puntos de tejado
         let (pts, is_ground) = scene();
         let small = AxelssonParams {
             seed_cell: 5.0,
@@ -454,14 +457,15 @@ mod tests {
 
     #[test]
     fn the_strip_along_the_edge_that_the_seeds_do_not_cover_is_ground_too() -> Result<()> {
-        // flat ground on a 0.5 m lattice over 50 x 50 m with 20 m seed cells: the lowest point of
-        // each cell is inside it, so the hull of the seeds leaves a strip along the edge
+        // suelo llano en un retículo de 0,5 m sobre 50 x 50 m con celdas de semilla de 20 m: el
+        // punto más bajo de cada celda está dentro de ella, así que la envolvente de las semillas
+        // deja una franja a lo largo del borde
         let mut pts = Vec::new();
         let mut x = 0.0;
         while x <= 50.0 {
             let mut y = 0.0;
             while y <= 50.0 {
-                // a little relief so the lowest point of a cell is not at its corner
+                // un poco de relieve para que el punto más bajo de una celda no esté en su esquina
                 pts.push(pt(x, y, 0.05 * ((x * 0.7).sin() + (y * 0.9).cos())));
                 y += 0.5;
             }

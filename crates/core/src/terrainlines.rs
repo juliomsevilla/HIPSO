@@ -1,14 +1,14 @@
-//! Ridge and drainage lines traced from a terrain model.
+//! Líneas de cresta y de drenaje trazadas a partir de un modelo del terreno.
 //!
-//! The drainage network is the cells that collect at least a minimum area, followed downstream
-//! with the flow directions of [`crate::hydro`]. Ridges are the drainage of the upside-down
-//! surface: what a stream is to the terrain, a crest is to its mirror image. The network is cut
-//! into reaches (from a source or a confluence to the next confluence) and each reach is a line
-//! with the heights of the original model, its Strahler order (a source is 1; two reaches of the
-//! same order that meet make the next order), its length and its mean slope.
+//! La red de drenaje son las celdas que recogen al menos un área mínima, seguidas aguas abajo con
+//! las direcciones de flujo de [`crate::hydro`]. Las crestas son el drenaje de la superficie al
+//! revés: lo que un cauce es para el terreno, una cresta lo es para su imagen especular. La red se
+//! corta en tramos (de un nacimiento o una confluencia a la siguiente confluencia) y cada tramo es
+//! una línea con las alturas del modelo original, su orden de Strahler (un nacimiento es 1; dos
+//! tramos del mismo orden que se unen hacen el orden siguiente), su longitud y su pendiente media.
 //!
-//! On perfectly flat crests or channels (equal heights along the line) the flow splits in the
-//! middle and the line comes out in two pieces that meet there.
+//! En crestas o cauces perfectamente llanos (alturas iguales a lo largo de la línea) el flujo se
+//! divide en el medio y la línea sale en dos trozos que se juntan allí.
 
 use std::path::PathBuf;
 
@@ -18,23 +18,23 @@ use crate::{Error, Result};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    /// Crest lines.
+    /// Líneas de cresta.
     Ridge,
-    /// Drainage lines (streams).
+    /// Líneas de drenaje (cauces).
     Drainage,
 }
 
-/// Memory a cell takes (the model, the flow, the accumulation, the order and the marks).
+/// Memoria que ocupa una celda (el modelo, el flujo, la acumulación, el orden y las marcas).
 const BYTES_PER_CELL: f64 = 30.0;
 
 pub struct LinesJob {
     pub dtm: PathBuf,
     pub kind: Kind,
-    /// Drained area that makes a line (m²).
+    /// Superficie drenada que forma una línea (m²).
     pub min_area: f64,
-    /// Lines shorter than this are dropped (m).
+    /// Las líneas más cortas que esto se descartan (m).
     pub min_length: f64,
-    /// Chaikin smoothing passes; 0 keeps the cells.
+    /// Pasadas de suavizado de Chaikin; 0 conserva las celdas.
     pub smooth: u8,
     pub output: PathBuf,
 }
@@ -52,16 +52,16 @@ impl LinesJob {
     }
 }
 
-/// One reach of the network.
+/// Un tramo de la red.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Line {
-    /// Vertices x, y and the height of the model.
+    /// Vértices x, y y la altura del modelo.
     pub pts: Vec<[f64; 3]>,
-    /// Strahler order.
+    /// Orden de Strahler.
     pub order: u32,
-    /// Length on the plan (m).
+    /// Longitud en planta (m).
     pub length: f64,
-    /// Mean slope between the ends, per cent.
+    /// Pendiente media entre los extremos, por ciento.
     pub mean_slope: f64,
 }
 
@@ -97,7 +97,8 @@ fn chaikin(pts: &[[f64; 3]], passes: u8) -> Vec<[f64; 3]> {
     p
 }
 
-/// The lines of `kind` in `g`: reaches that drain at least `min_area` m², longer than `min_length`.
+/// Las líneas de `kind` en `g`: tramos que drenan al menos `min_area` m², más largos que
+/// `min_length`.
 pub fn lines(
     g: &Grid,
     kind: Kind,
@@ -120,7 +121,7 @@ pub fn lines(
         NONE => None,
         k => neighbour(g, i, usize::from(k)).filter(|&j| stream(j)),
     };
-    // streams flowing into each stream cell
+    // cauces que desembocan en cada celda de cauce
     let mut inflow = vec![0u8; n];
     for i in 0..n {
         if stream(i)
@@ -129,7 +130,7 @@ pub fn lines(
             inflow[j] = inflow[j].saturating_add(1);
         }
     }
-    // Strahler order, upstream first
+    // orden de Strahler, aguas arriba primero
     let mut strahler = vec![0u32; n];
     let (mut top, mut tops) = (vec![0u32; n], vec![0u8; n]);
     for &i in &order {
@@ -166,7 +167,7 @@ pub fn lines(
         if i % (1 << 20) == 0 {
             crate::check_cancel()?;
         }
-        // a source or a confluence starts a reach; it runs down to the next confluence
+        // un nacimiento o una confluencia empieza un tramo; baja hasta la siguiente confluencia
         let mut cells = vec![i];
         let mut at = i;
         while let Some(j) = down(at) {
@@ -199,7 +200,7 @@ pub fn lines(
     Ok(out)
 }
 
-/// Traces the lines of `job.dtm` and writes them as a polyline shapefile; returns the summary.
+/// Traza las líneas de `job.dtm` y las escribe como shapefile de polilíneas; devuelve el resumen.
 pub fn run(job: &LinesJob) -> Result<String> {
     if let Ok(pyr) = crate::pyramid::Pyramid::open(&job.dtm)
         && let Some(mem) = crate::copc_cache::total_memory()
@@ -270,7 +271,7 @@ pub fn run(job: &LinesJob) -> Result<String> {
 mod tests {
     use super::*;
 
-    /// Distance from (x, y) to the segment a-b.
+    /// Distancia de (x, y) al segmento a-b.
     fn dist(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
         let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
         let t = (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
@@ -288,7 +289,7 @@ mod tests {
         Ok(g)
     }
 
-    /// A roof with its crest on x = 10.5, going down towards the south.
+    /// Un tejado con su cumbrera en x = 10,5, bajando hacia el sur.
     fn roof() -> Result<Grid> {
         model(21, 30, |x, y| 10.0 - 0.5 * (x - 10.5).abs() + 0.05 * y)
     }
@@ -300,9 +301,9 @@ mod tests {
         assert_eq!(found.len(), 1, "{found:?}");
         let l = &found[0];
         assert!(l.pts.iter().all(|p| (p[0] - 10.5).abs() < 1e-9));
-        // from the north end to the south end of the roof: 29 m between centres
+        // del extremo norte al extremo sur del tejado: 29 m entre centros
         assert!((l.length - 29.0).abs() < 1.0, "{}", l.length);
-        // every vertex has the height of the model, not the inverted one
+        // todo vértice tiene la altura del modelo, no la invertida
         for p in &l.pts {
             let want = f64::from(g.sample(p[0], p[1]).unwrap_or(f32::NAN));
             assert!((p[2] - want).abs() < 1e-4 && p[2] > 0.0, "{p:?} {want}");
@@ -316,7 +317,7 @@ mod tests {
         let found = lines(&g, Kind::Drainage, 15.0, 0.0, 0)?;
         assert_eq!(found.len(), 1);
         assert!(found[0].pts.iter().all(|p| (p[0] - 10.5).abs() < 1e-9));
-        // the same roof upside down has no crest where the valley is not a ridge
+        // el mismo tejado al revés no tiene cresta donde el valle no es una cresta
         let none = lines(&g, Kind::Ridge, 15.0, 0.0, 0)?;
         assert!(
             none.iter()
@@ -340,7 +341,7 @@ mod tests {
 
     #[test]
     fn a_confluence_gives_three_reaches_of_order_1_1_and_2() -> Result<()> {
-        // the channels: the main one down x = 10.5 and a tributary joining it at y = 14
+        // los cauces: el principal por x = 10,5 y un afluente que se le une en y = 14
         let main = ([10.5, 0.0], [10.5, 29.5]);
         let trib = ([10.5, 14.5], [25.5, 28.5]);
         let g = model(30, 30, |x, y| {
@@ -350,7 +351,8 @@ mod tests {
         let mut orders: Vec<u32> = found.iter().map(|l| l.order).collect();
         orders.sort_unstable();
         assert_eq!(orders, vec![1, 1, 2], "{found:?}");
-        // the reaches meet: the end of each upstream reach is the start of the one below
+        // los tramos se encuentran: el final de cada tramo de aguas arriba es el principio del de
+        // debajo
         let ends: Vec<[f64; 2]> = found
             .iter()
             .map(|l| [l.pts[l.pts.len() - 1][0], l.pts[l.pts.len() - 1][1]])
@@ -396,7 +398,7 @@ mod tests {
         assert!(lines(&g, Kind::Ridge, 15.0, 100.0, 0)?.is_empty());
         let smooth = lines(&g, Kind::Ridge, 15.0, 0.0, 2)?;
         let raw = lines(&g, Kind::Ridge, 15.0, 0.0, 0)?;
-        // the ends stay where they were
+        // los extremos se quedan donde estaban
         assert_eq!(smooth[0].pts[0], raw[0].pts[0]);
         assert_eq!(
             smooth[0].pts[smooth[0].pts.len() - 1],

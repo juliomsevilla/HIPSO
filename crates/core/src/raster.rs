@@ -1,6 +1,7 @@
-//! Passive remote sensing next to the LiDAR: multiband images (aerial photos, satellite scenes),
-//! colour composites and spectral indices (NDVI, NDWI, EVI, SAVI…) from band expressions. The
-//! images serve as base maps for the clouds and the indices as rasters to compare with the CHM.
+//! Teledetección pasiva junto al LiDAR: imágenes multibanda (fotos aéreas, escenas de satélite),
+//! composiciones de color e índices espectrales (NDVI, NDWI, EVI, SAVI…) a partir de expresiones de
+//! bandas. Las imágenes sirven de mapas base para las nubes y los índices como rásteres con los que
+//! comparar el CHM.
 
 use std::io::BufReader;
 use std::path::Path;
@@ -11,7 +12,8 @@ use tiff::tags::Tag;
 use crate::grid::Grid;
 use crate::{Error, Result};
 
-/// A georeferenced image with any number of bands, as floats; row 0 is the northernmost.
+/// Una imagen georreferenciada con cualquier número de bandas, como decimales; la fila 0 es la más
+/// al norte.
 #[derive(Clone, Debug)]
 pub struct Image {
     pub x0: f64,
@@ -22,13 +24,13 @@ pub struct Image {
     pub bands: Vec<Vec<f32>>,
 }
 
-/// Extensions of the rasters that can be read (for file dialogs), in lower case.
+/// Extensiones de los rásteres que se pueden leer (para diálogos de archivos), en minúsculas.
 pub const EXTENSIONS: &[&str] = &[
     "tif", "tiff", "asc", "jp2", "j2k", "j2c", "png", "jpg", "jpeg", "bil", "bsq", "bip", "img",
     "hgt", "flt",
 ];
 
-/// Whether a lower-case extension is one of [`EXTENSIONS`].
+/// Si una extensión en minúsculas es una de [`EXTENSIONS`].
 pub fn is_raster_ext(ext: &str) -> bool {
     EXTENSIONS.contains(&ext)
 }
@@ -37,7 +39,8 @@ fn tiff_err(e: tiff::TiffError) -> Error {
     Error::Format(format!("TIFF: {e}{}", crate::cloud_hint(&e.to_string())))
 }
 
-/// Reads a GeoTIFF of any sample type (8 or 16 bits, integer or float) with interleaved bands.
+/// Lee un GeoTIFF de cualquier tipo de muestra (8 o 16 bits, entero o decimal) con bandas
+/// entrelazadas.
 pub fn read_image(path: &Path) -> Result<Image> {
     crate::check_raster_format(path)?;
     if crate::pyramid::is_jp2_file(path) {
@@ -66,7 +69,7 @@ pub fn read_image(path: &Path) -> Result<Image> {
         .ok()
         .and_then(|s| s.trim().parse::<f32>().ok());
     let (cols, rows) = (w as usize, h as usize);
-    // band-sequential files (planar configuration 2) come as one plane after another
+    // los archivos secuenciales por banda (configuración planar 2) vienen como un plano tras otro
     let planar = d.get_tag_u32(Tag::PlanarConfiguration).unwrap_or(1) == 2;
     let mut buf = DecodingResult::U8(Vec::new());
     d.read_image_to_buffer(&mut buf).map_err(tiff_err)?;
@@ -122,7 +125,8 @@ pub fn read_image(path: &Path) -> Result<Image> {
     })
 }
 
-/// The band values at the 2nd and 98th percentile (a contrast stretch that ignores outliers).
+/// Los valores de banda en los percentiles 2 y 98 (un estirado de contraste que ignora los valores
+/// atípicos).
 pub fn stretch(band: &[f32]) -> (f32, f32) {
     let mut v: Vec<f32> = band
         .iter()
@@ -140,7 +144,7 @@ pub fn stretch(band: &[f32]) -> (f32, f32) {
     )
 }
 
-/// What one band looks like: extremes, the 2nd and 98th percentile, mean and deviation.
+/// Qué aspecto tiene una banda: extremos, los percentiles 2 y 98, media y desviación.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct BandStats {
     pub min: f32,
@@ -151,7 +155,7 @@ pub struct BandStats {
     pub std: f32,
 }
 
-/// Statistics of a band from a sample of at most ~200 000 of its pixels.
+/// Estadísticos de una banda a partir de una muestra de como mucho unos 200 000 de sus píxeles.
 pub fn band_stats(band: &[f32]) -> BandStats {
     let mut v: Vec<f32> = band
         .iter()
@@ -184,8 +188,9 @@ pub fn band_stats(band: &[f32]) -> BandStats {
     }
 }
 
-/// How three bands become a picture: the band for red, green and blue, the values mapped to black
-/// and white for each of them, and brightness (−1…1), contrast (1 = none) and gamma (1 = none).
+/// Cómo tres bandas se convierten en una imagen: la banda para rojo, verde y azul, los valores
+/// asignados al negro y al blanco para cada una y brillo (−1…1), contraste (1 = ninguno) y gamma (1
+/// = ninguna).
 #[derive(Clone, Debug)]
 pub struct RgbStyle {
     pub bands: [usize; 3],
@@ -196,7 +201,7 @@ pub struct RgbStyle {
     pub gamma: f32,
 }
 
-/// An RGBA picture of the image: NaN pixels are transparent.
+/// Una imagen RGBA de la imagen: los píxeles NaN son transparentes.
 pub fn composite_style(img: &Image, st: &RgbStyle) -> Vec<u8> {
     use rayon::prelude::*;
     let pick = |k: usize| img.bands.get(k).or_else(|| img.bands.first());
@@ -233,7 +238,8 @@ pub fn composite_style(img: &Image, st: &RgbStyle) -> Vec<u8> {
     out
 }
 
-/// The indices offered by default, as expressions over the roles `RED GREEN BLUE NIR SWIR1 SWIR2`.
+/// Los índices que se ofrecen por defecto, como expresiones sobre los papeles `RED GREEN BLUE NIR
+/// SWIR1 SWIR2`.
 pub const INDICES: [(&str, &str); 9] = [
     ("NDVI (vegetación)", "(NIR-RED)/(NIR+RED)"),
     ("GNDVI (clorofila)", "(NIR-GREEN)/(NIR+GREEN)"),
@@ -255,8 +261,8 @@ enum Tok {
     Close,
 }
 
-/// A band expression compiled once and evaluated on every pixel (`+ - * /`, brackets, numbers,
-/// `B1`…`Bn`, and role names such as `NIR` given a band by `roles`).
+/// Una expresión de bandas compilada una vez y evaluada en cada píxel (`+ - * /`, paréntesis,
+/// números, `B1`…`Bn` y nombres de papel como `NIR` a los que `roles` da una banda).
 #[derive(Clone, Debug)]
 pub struct Expr {
     /// Reverse Polish form.
@@ -315,7 +321,7 @@ impl Expr {
             });
             i += 1;
         }
-        // shunting-yard; a '-' with nothing before it (or after an operator or '(') is a 0 - x
+        // patio de maniobras; un '-' sin nada delante (o tras un operador o '(') es un 0 - x
         let prec = |o: char| if o == '+' || o == '-' { 1 } else { 2 };
         let (mut out, mut ops): (Vec<Tok>, Vec<Tok>) = (Vec::new(), Vec::new());
         let mut prev_value = false;
@@ -395,7 +401,7 @@ impl Expr {
     }
 }
 
-/// The expression applied to every pixel of the image, as a one-band raster.
+/// La expresión aplicada a cada píxel de la imagen, como un ráster de una banda.
 pub fn index(img: &Image, expr: &Expr) -> Result<Grid> {
     let mut g = Grid::new(img.x0, img.y0, img.cell, img.cols, img.rows)?;
     let mut px = vec![0f32; img.bands.len()];

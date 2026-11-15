@@ -1,5 +1,6 @@
-//! Compares grid A with grid B at A's cell centres: `compare_grids a.tif b.asc [--b-nodes]`.
-//! `--b-nodes` reads B's ASCII corner as its first node (FUSION-compatible ASCII output).
+//! Compara la rejilla A con la rejilla B en los centros de celda de A: `compare_grids a.tif b.asc
+//! [--b-nodes]`. `--b-nodes` lee la esquina ASCII de B como su primer nodo (salida ASCII compatible
+//! con FUSION).
 
 use std::path::Path;
 

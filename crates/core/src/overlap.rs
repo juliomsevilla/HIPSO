@@ -1,38 +1,41 @@
-//! Overlap between flight lines. Where two strips of a survey cover the same ground, their points
-//! describe it twice; the strip scanned closest to the nadir (the smallest scan angle) sees it best,
-//! and the points of the others are set aside as class 12 (ASPRS: overlap points), so that the
-//! steps that follow work on one cover of the ground.
+//! Solape entre pasadas. Donde dos franjas de un vuelo cubren el mismo terreno, sus puntos lo
+//! describen dos veces; la franja escaneada más cerca del nadir (el menor ángulo de barrido) lo ve
+//! mejor, y los puntos de las demás se apartan como clase 12 (ASPRS: puntos de solape), de modo que
+//! los pasos siguientes trabajen sobre una sola cobertura del terreno.
 //!
-//! The ground is cut into square cells; in a cell reached by more than one flight line, the line
-//! with the smallest mean absolute scan angle keeps its points and the points of the other lines
-//! are overlap. A cell with one line, or a file with no flight line or scan angle, has none.
+//! El terreno se corta en celdas cuadradas; en una celda alcanzada por más de una pasada, la pasada
+//! con el menor ángulo de barrido absoluto medio conserva sus puntos y los puntos de las demás
+//! pasadas son solape. Una celda con una pasada, o un archivo sin pasada ni ángulo de barrido, no
+//! tiene ninguno.
 //!
-//! Side overlap between strips puts two lines over a cell (three at the corners). A cell reached by
-//! more lines than [`MAX_LINES`] is a survey that flies over the same ground again and again (a
-//! drone with several passes, crossing flights): there the passes add to each other, and above all
-//! add points to wires and thin structures, so nothing is set aside.
+//! El solape lateral entre franjas pone dos pasadas sobre una celda (tres en las esquinas). Una
+//! celda alcanzada por más pasadas que [`MAX_LINES`] es un vuelo que pasa por el mismo terreno una
+//! y otra vez (un dron con varias pasadas, vuelos cruzados): allí las pasadas se suman unas a otras
+//! y, sobre todo, añaden puntos a cables y estructuras finas, así que no se aparta nada.
 
 use std::collections::HashMap;
 
 use crate::las::Point;
 
-/// One flight line in a cell: its point source ID, the sum of the |scan angles| and the count.
+/// Una pasada en una celda: su identificador de fuente del punto, la suma de los |ángulos de
+/// barrido| y el recuento.
 type Line = (u16, f64, u32);
 
-/// The class of overlap points.
+/// La clase de los puntos de solape.
 pub const OVERLAP: u8 = 12;
 
-/// Most flight lines over a cell for the extra ones to be overlap.
+/// Máximo de pasadas sobre una celda para que las sobrantes sean solape.
 pub const MAX_LINES: usize = 2;
 
-/// Which points are overlap, with cells of `cell` metres. Noise and withheld points take no part.
+/// Qué puntos son solape, con celdas de `cell` metros. El ruido y los puntos retenidos no
+/// participan.
 pub fn find(pts: &[Point], cell: f64) -> Vec<bool> {
     let mut out = vec![false; pts.len()];
     if !(cell > 0.0) {
         return out;
     }
     let key = |q: &Point| ((q.x / cell).floor() as i64, (q.y / cell).floor() as i64);
-    // per cell, per flight line: sum of |scan angle| and count
+    // por celda, por pasada: suma de |ángulo de barrido| y recuento
     let mut cells: HashMap<(i64, i64), Vec<Line>> = HashMap::new();
     for q in pts.iter().filter(|q| !q.is_noise()) {
         let lines = cells.entry(key(q)).or_default();
@@ -45,7 +48,7 @@ pub fn find(pts: &[Point], cell: f64) -> Vec<bool> {
             None => lines.push((q.source_id, a, 1)),
         }
     }
-    // the line to keep in each cell reached by several
+    // la pasada que se conserva en cada celda alcanzada por varias
     let best: HashMap<(i64, i64), u16> = cells
         .iter()
         .filter(|(_, lines)| lines.len() > 1 && lines.len() <= MAX_LINES)
@@ -86,7 +89,7 @@ mod tests {
 
     #[test]
     fn the_line_nearest_the_nadir_keeps_the_cell() {
-        // two lines over the same 5 m cell, one at 4° and one at 18°; a lone line next door
+        // dos pasadas sobre la misma celda de 5 m, una a 4° y otra a 18°; una pasada sola al lado
         let pts = [
             pt(1.0, 1.0, 10, 4.0),
             pt(2.0, 2.0, 10, -6.0),

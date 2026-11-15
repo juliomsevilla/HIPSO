@@ -1,8 +1,8 @@
-//! Drainage on a DTM: depressions filled with the Priority-Flood of Barnes, Lehman and Mulla
-//! (2014), D8 flow directions (O'Callaghan and Mark, 1984), the area each cell drains, the
-//! topographic wetness index of Beven and Kirkby (1979) and the catchments of the reaches of
-//! the stream network. One pass floods from the edge, so memory is a few bytes per cell and
-//! the time is linear; nothing is sorted. Empty cells and the edge of the grid are outlets.
+//! Drenaje sobre un MDT: depresiones rellenadas con la Priority-Flood de Barnes, Lehman y Mulla
+//! (2014), direcciones de flujo D8 (O'Callaghan y Mark, 1984), la superficie que drena cada celda,
+//! el índice topográfico de humedad de Beven y Kirkby (1979) y las cuencas de los tramos de la red
+//! de cauces. Una pasada inunda desde el borde, así que la memoria son unos pocos bytes por celda y
+//! el tiempo es lineal; no se ordena nada. Las celdas vacías y el borde de la rejilla son salidas.
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
@@ -12,7 +12,7 @@ use rayon::prelude::*;
 use crate::grid::Grid;
 use crate::{Error, Result};
 
-/// The eight neighbours as (column, row) steps: E, SE, S, SW, W, NW, N, NE.
+/// Los ocho vecinos como pasos (columna, fila): E, SE, S, SO, O, NO, N, NE.
 pub(crate) const STEP: [(isize, isize); 8] = [
     (1, 0),
     (1, 1),
@@ -25,7 +25,7 @@ pub(crate) const STEP: [(isize, isize); 8] = [
 ];
 pub(crate) const NONE: u8 = 255;
 
-/// The index of the neighbour of `i` in direction `k`, if inside the grid.
+/// El índice del vecino de `i` en la dirección `k`, si está dentro de la rejilla.
 #[inline]
 pub(crate) fn neighbour(g: &Grid, i: usize, k: usize) -> Option<usize> {
     let (c, r) = ((i % g.cols) as isize, (i / g.cols) as isize);
@@ -37,7 +37,7 @@ pub(crate) fn neighbour(g: &Grid, i: usize, k: usize) -> Option<usize> {
     }
 }
 
-/// Distance to the neighbour in direction `k`, in cells.
+/// Distancia al vecino en la dirección `k`, en celdas.
 #[inline]
 pub(crate) fn reach(k: usize) -> f64 {
     if k.is_multiple_of(2) {
@@ -47,15 +47,15 @@ pub(crate) fn reach(k: usize) -> f64 {
     }
 }
 
-/// A float as an integer that sorts the same way.
+/// Un decimal como entero que ordena igual.
 #[inline]
 pub(crate) fn key(v: f32) -> u32 {
     let b = v.to_bits();
     if b >> 31 == 1 { !b } else { b | 0x8000_0000 }
 }
 
-/// The surface with its depressions filled, and for each cell the direction (0-7) in which
-/// it drains, or `NONE` where it leaves the grid.
+/// La superficie con sus depresiones rellenadas y, para cada celda, la dirección (0-7) en la que
+/// drena, o `NONE` donde sale de la rejilla.
 pub struct Drainage {
     pub filled: Vec<f32>,
     pub dir: Vec<u8>,
@@ -65,7 +65,8 @@ pub fn drainage(g: &Grid, z: f64) -> Result<Drainage> {
     let n = g.data.len();
     let z = z as f32;
     let mut filled: Vec<f32> = g.data.iter().map(|v| v * z).collect();
-    // the way back to the cell each cell was reached from: where flats and filled pits drain
+    // el camino de vuelta a la celda desde la que se llegó a cada celda: donde drenan los llanos y
+    // los hoyos rellenados
     let mut back = vec![NONE; n];
     let mut seen = vec![false; n];
     let mut heap: BinaryHeap<Reverse<(u32, u32)>> = BinaryHeap::new();
@@ -112,7 +113,8 @@ pub fn drainage(g: &Grid, z: f64) -> Result<Drainage> {
             }
         }
     }
-    // steepest descent on the filled surface; cells with nothing lower follow the way back
+    // descenso más pronunciado sobre la superficie rellena; las celdas sin nada más bajo siguen el
+    // camino de vuelta
     let mut dir = vec![NONE; n];
     dir.par_iter_mut().enumerate().for_each(|(i, d)| {
         if filled[i].is_nan() {
@@ -148,7 +150,7 @@ pub fn fill_depth(g: &Grid, z: f64) -> Grid {
     out
 }
 
-/// Cells that drain through each cell (itself included), and the order upstream first.
+/// Celdas que drenan por cada celda (ella misma incluida) y el orden, aguas arriba primero.
 pub(crate) fn accumulate(g: &Grid, dir: &[u8]) -> (Vec<u32>, Vec<u32>) {
     let n = dir.len();
     let mut indeg = vec![0u8; n];
@@ -183,7 +185,7 @@ pub(crate) fn accumulate(g: &Grid, dir: &[u8]) -> (Vec<u32>, Vec<u32>) {
     (acc, order)
 }
 
-/// Area drained through each cell, m².
+/// Superficie drenada por cada celda, m².
 pub fn flow_accumulation(g: &Grid, z: f64) -> Grid {
     let mut out = g.like();
     if let Ok(d) = drainage(g, z) {
@@ -198,8 +200,8 @@ pub fn flow_accumulation(g: &Grid, z: f64) -> Grid {
     out
 }
 
-/// `ln(a / tan β)`, with `a` the drained area per metre of contour and `β` the slope of the
-/// drainage direction (never flatter than 0.1 %, so flats do not blow up).
+/// `ln(a / tan β)`, con `a` la superficie drenada por metro de curva de nivel y `β` la pendiente de
+/// la dirección de drenaje (nunca más llana que 0,1 %, para que los llanos no se disparen).
 pub fn wetness(g: &Grid, z: f64) -> Grid {
     let mut out = g.like();
     let Ok(d) = drainage(g, z) else { return out };
@@ -233,7 +235,7 @@ pub(crate) fn threshold_cells(g: &Grid, area: f64) -> Result<u32> {
         .clamp(1.0, f64::from(u32::MAX)) as u32)
 }
 
-/// 1 where the drained area reaches `area` m², empty elsewhere.
+/// 1 donde la superficie drenada alcanza `area` m², vacío en el resto.
 pub fn streams(g: &Grid, z: f64, area: f64) -> Result<Grid> {
     let t = threshold_cells(g, area)?;
     let d = drainage(g, z)?;
@@ -247,9 +249,9 @@ pub fn streams(g: &Grid, z: f64, area: f64) -> Result<Grid> {
     Ok(out)
 }
 
-/// The catchment of every reach of the stream network, numbered from 1. A reach runs from a
-/// source or a confluence to the next confluence; each cell takes the number of the reach it
-/// drains into. Cells that leave the map without meeting a stream stay empty.
+/// La cuenca de cada tramo de la red de cauces, numerada desde 1. Un tramo va de un nacimiento o
+/// una confluencia a la siguiente confluencia; cada celda toma el número del tramo en que drena.
+/// Las celdas que salen del mapa sin encontrar un cauce quedan vacías.
 pub fn subbasins(g: &Grid, z: f64, area: f64) -> Result<Grid> {
     let t = threshold_cells(g, area)?;
     let d = drainage(g, z)?;
@@ -260,7 +262,7 @@ pub fn subbasins(g: &Grid, z: f64, area: f64) -> Result<Grid> {
         NONE => None,
         k => neighbour(g, i, usize::from(k)),
     };
-    // streams flowing into each stream cell
+    // cauces que desembocan en cada celda de cauce
     let mut inflow = vec![0u8; n];
     for i in 0..n {
         if stream(i)
@@ -288,7 +290,7 @@ pub fn subbasins(g: &Grid, z: f64, area: f64) -> Result<Grid> {
             id[j] = id[i];
         }
     }
-    // downstream first, so that the cell below is already numbered
+    // aguas abajo primero, para que la celda de abajo ya esté numerada
     for &i in order.iter().rev() {
         let i = i as usize;
         if !stream(i)
@@ -328,7 +330,7 @@ mod tests {
             &[9., 9., 9., 9., 9.],
         ])?;
         let d = drainage(&g, 1.0)?;
-        // the bowl spills over the 3 on the east edge
+        // el cuenco desborda por el 3 del borde este
         assert_eq!(d.filled[2 * 5 + 2], 5.0);
         assert_eq!(d.filled[2 * 5 + 4], 3.0);
         let depth = fill_depth(&g, 1.0);
@@ -339,14 +341,14 @@ mod tests {
 
     #[test]
     fn every_cell_drains_to_the_outlet_and_nothing_loops() -> Result<()> {
-        // a flat basin with a single exit
+        // una cuenca llana con una sola salida
         let mut g = Grid::new(0.0, 0.0, 1.0, 12, 9)?;
         g.data.fill(5.0);
         g.data[4 * 12 + 11] = 4.0;
         let d = drainage(&g, 1.0)?;
         let (acc, order) = accumulate(&g, &d.dir);
         assert_eq!(order.len(), g.data.len(), "a loop leaves cells unvisited");
-        // all the area leaves through the grid edge
+        // toda la superficie sale por el borde de la rejilla
         let out: u32 = (0..g.data.len())
             .filter(|i| d.dir[*i] == NONE)
             .map(|i| acc[i])
@@ -357,7 +359,7 @@ mod tests {
 
     #[test]
     fn a_v_valley_collects_its_slopes() -> Result<()> {
-        // height = |x - 5| + 0.1 y: water runs to the axis x = 5 and down to y = 0
+        // altura = |x - 5| + 0,1 y: el agua corre hasta el eje x = 5 y baja hasta y = 0
         let mut g = Grid::new(0.0, 0.0, 2.0, 11, 11)?;
         for r in 0..11 {
             for c in 0..11 {
@@ -365,7 +367,7 @@ mod tests {
             }
         }
         let acc = flow_accumulation(&g, 1.0);
-        // the axis cell on the last row has drained most of the map (cell area 4 m²)
+        // la celda del eje en la última fila ha drenado la mayor parte del mapa (celda de 4 m²)
         let axis = acc.data[10 * 11 + 5];
         let side = acc.data[10 * 11 + 1];
         assert!(axis > 30.0 * 4.0, "{axis}");
@@ -380,7 +382,7 @@ mod tests {
 
     #[test]
     fn subbasins_split_at_confluences() -> Result<()> {
-        // two valleys (x = 2 and x = 8) joining a trunk at the bottom row
+        // dos valles (x = 2 y x = 8) que se unen a un tronco en la fila de abajo
         let mut g = Grid::new(0.0, 0.0, 1.0, 11, 12)?;
         for r in 0..12 {
             for c in 0..11 {
@@ -397,7 +399,7 @@ mod tests {
         let right = b.data[6 * 11 + 8];
         assert!(left.is_finite() && right.is_finite());
         assert_ne!(left, right);
-        // a slope cell belongs to the reach beside it
+        // una celda de ladera pertenece al tramo que tiene al lado
         assert_eq!(b.data[6 * 11 + 1], left);
         assert_eq!(b.data[6 * 11 + 9], right);
         Ok(())

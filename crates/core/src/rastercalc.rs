@@ -1,4 +1,5 @@
-//! Raster calculator: an expression over one or several named rasters, evaluated cell by cell.
+//! Calculadora ráster: una expresión sobre uno o varios rásteres con nombre, evaluada celda a
+//! celda.
 //!
 //! ```text
 //! expr    := or
@@ -12,13 +13,14 @@
 //! atom    := number | variable | 'nan' | func '(' args ')' | '(' expr ')'
 //! ```
 //!
-//! A variable is a name given to a raster (`A`, `chm`) or one band of it (`A.2`). True is 1 and
-//! false is 0; anything but 0 counts as true. A value that is no number (an empty cell) makes
-//! the result empty, except inside `isnan()`; so does a division by zero. `-2^2` is `-(2^2)`
-//! and `2^3^2` is `2^(3^2)`; `not` binds like the minus sign, so `not A > 0` is `(not A) > 0`.
+//! Una variable es un nombre dado a un ráster (`A`, `chm`) o a una banda de él (`A.2`). Verdadero
+//! es 1 y falso es 0; todo salvo 0 cuenta como verdadero. Un valor que no es un número (una celda
+//! vacía) vacía el resultado, salvo dentro de `isnan()`; igual que una división por cero. `-2^2` es
+//! `-(2^2)` y `2^3^2` es `2^(3^2)`; `not` se une como el signo menos, así que `not A > 0` es `(not
+//! A) > 0`.
 //!
-//! The expression is compiled once to a short program for a small stack and run on strips of
-//! rows, in parallel, so memory follows a strip and not the raster.
+//! La expresión se compila una vez a un programa corto para una pila pequeña y se ejecuta sobre
+//! franjas de filas, en paralelo, de modo que la memoria sigue a una franja y no al ráster.
 
 use std::path::PathBuf;
 
@@ -29,7 +31,7 @@ use crate::pyramid::Pyramid;
 use crate::rastertools::{Dtype, Resample};
 use crate::{Error, Result};
 
-/// A name an expression can use: a band of an input raster.
+/// Un nombre que puede usar una expresión: una banda de un ráster de entrada.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Var {
     pub name: String,
@@ -37,10 +39,10 @@ pub struct Var {
     pub band: usize,
 }
 
-/// Where and why an expression is not valid.
+/// Dónde y por qué una expresión no es válida.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParseError {
-    /// Position of the error in the text, from 1.
+    /// Posición del error en el texto, desde 1.
     pub column: usize,
     pub message: String,
 }
@@ -93,7 +95,7 @@ enum Op {
     Or,
     F1(Fn1),
     Atan2,
-    /// The smallest of the last `n` values.
+    /// El menor de los últimos `n` valores.
     Min(usize),
     Max(usize),
     Clamp,
@@ -105,7 +107,7 @@ enum Op {
 #[derive(Clone, Debug)]
 pub struct Calc {
     prog: Vec<Op>,
-    /// Which of the variables the program reads.
+    /// Cuáles de las variables lee el programa.
     used: Vec<bool>,
     depth: usize,
 }
@@ -163,7 +165,7 @@ fn lex(text: &str) -> std::result::Result<Lexer, ParseError> {
             while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
                 i += 1;
             }
-            // a band: name.digits
+            // una banda: nombre.dígitos
             if chars.get(i) == Some(&'.') && chars.get(i + 1).is_some_and(char::is_ascii_digit) {
                 i += 1;
                 while i < chars.len() && chars[i].is_ascii_digit() {
@@ -469,7 +471,8 @@ impl Parser<'_> {
     }
 }
 
-/// The stack depth a program needs, or the position of the first op that pops too much.
+/// La profundidad de pila que necesita un programa, o la posición de la primera operación que saca
+/// demasiado.
 fn depth_of(prog: &[Op]) -> usize {
     let (mut d, mut max) = (0usize, 0usize);
     for op in prog {
@@ -496,7 +499,7 @@ fn depth_of(prog: &[Op]) -> usize {
 }
 
 impl Calc {
-    /// Compiles `text`, whose names are `vars`.
+    /// Compila `text`, cuyos nombres son `vars`.
     pub fn compile(text: &str, vars: &[Var]) -> std::result::Result<Calc, ParseError> {
         let lexer = lex(text)?;
         let mut p = Parser {
@@ -524,24 +527,24 @@ impl Calc {
         })
     }
 
-    /// Like [`Calc::compile`], with the error as one of ours.
+    /// Como [`Calc::compile`], con el error como uno de los nuestros.
     pub fn parse(text: &str, vars: &[Var]) -> Result<Calc> {
         Self::compile(text, vars).map_err(|e| Error::Param(e.to_string()))
     }
 
-    /// Which variables the expression reads (same order as the `vars` it was compiled with).
+    /// Qué variables lee la expresión (mismo orden que las `vars` con que se compiló).
     pub fn used(&self) -> &[bool] {
         &self.used
     }
 
-    /// The value for `inputs` (one per variable). Allocates its stack: use
-    /// [`Calc::eval_with`] in a loop.
+    /// El valor para `inputs` (uno por variable). Reserva su pila: usar [`Calc::eval_with`] en un
+    /// bucle.
     pub fn eval(&self, inputs: &[f32]) -> f32 {
         let mut stack = Vec::with_capacity(self.depth);
         self.eval_with(inputs, &mut stack)
     }
 
-    /// The value for `inputs`, with a stack to reuse.
+    /// El valor para `inputs`, con una pila que reutilizar.
     pub fn eval_with(&self, inputs: &[f32], s: &mut Vec<f32>) -> f32 {
         s.clear();
         for op in &self.prog {
@@ -637,7 +640,7 @@ fn flag(b: bool) -> f32 {
     if b { 1.0 } else { 0.0 }
 }
 
-/// Replaces the top value by `f` of it; a NaN stays NaN.
+/// Sustituye el valor de arriba por `f` de él; un NaN sigue siendo NaN.
 #[inline]
 fn un(s: &mut [f32], f: impl Fn(f32) -> f32) {
     if let Some(a) = s.last_mut() {
@@ -645,7 +648,7 @@ fn un(s: &mut [f32], f: impl Fn(f32) -> f32) {
     }
 }
 
-/// Replaces the top two values by `f` of them; a NaN in either gives NaN.
+/// Sustituye los dos valores de arriba por `f` de ellos; un NaN en cualquiera da NaN.
 #[inline]
 fn bin(s: &mut Vec<f32>, f: impl Fn(f32, f32) -> f32) {
     let b = s.pop().unwrap_or(f32::NAN);
@@ -660,20 +663,20 @@ fn bin(s: &mut Vec<f32>, f: impl Fn(f32, f32) -> f32) {
 
 // ------------------------------------------------------------------------------------ job
 
-/// What to compute.
+/// Qué calcular.
 #[derive(Clone, Debug)]
 pub struct CalcJob {
     pub expr: String,
-    /// The rasters and the names the expression gives them (`A`, `B`…).
+    /// Los rásteres y los nombres que les da la expresión (`A`, `B`…).
     pub inputs: Vec<(String, PathBuf)>,
     pub output: PathBuf,
     pub dtype: Dtype,
-    /// The overviews take the first valid pixel, not the mean: for classes.
+    /// Las vistas reducidas toman el primer píxel válido, no la media: para clases.
     pub nearest: bool,
-    /// Put the other rasters on the cells of the first one with this resampling when their
-    /// cells differ; `None` refuses them.
+    /// Pone los demás rásteres sobre las celdas del primero con este remuestreo cuando sus celdas
+    /// difieren; `None` los rechaza.
     pub align: Option<Resample>,
-    /// What an empty cell holds in the output; `None`: -9999 for decimals, 0 for integers.
+    /// Lo que contiene una celda vacía en la salida; `None`: -9999 para decimales, 0 para enteros.
     pub nodata: Option<f32>,
 }
 
@@ -691,8 +694,8 @@ impl CalcJob {
     }
 }
 
-/// The names an expression can use for `inputs` (already opened): each raster by its name, each
-/// band as `name.k`, and, when there is a single raster, `B1`…`Bn`.
+/// Los nombres que puede usar una expresión para `inputs` (ya abiertos): cada ráster por su nombre,
+/// cada banda como `nombre.k` y, cuando hay un solo ráster, `B1`…`Bn`.
 pub fn variables(names: &[(String, usize)]) -> Vec<Var> {
     let mut v = Vec::new();
     for (i, (name, bands)) in names.iter().enumerate() {
@@ -737,7 +740,7 @@ fn valid_name(n: &str) -> bool {
         && !matches!(n, "and" | "or" | "not" | "nan")
 }
 
-/// Computes the expression over the rasters and writes the result; returns the summary.
+/// Calcula la expresión sobre los rásteres y escribe el resultado; devuelve el resumen.
 pub fn run(job: &CalcJob) -> Result<String> {
     if job.inputs.is_empty() {
         return Err(Error::Param("no hay ráster de entrada".into()));
@@ -756,8 +759,8 @@ pub fn run(job: &CalcJob) -> Result<String> {
     for (_, p) in &job.inputs {
         opened.push(Pyramid::open(p)?);
     }
-    // the rasters must share cells; if asked, the others are put on those of the first
-    // one folder per run: two calculations at once must not share (or delete) each other's copies
+    // los rásteres deben compartir celdas; si se pide, los demás se ponen sobre las del primero;
+    // una carpeta por ejecución: dos cálculos a la vez no deben compartir (ni borrarse) sus copias
     static RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let temp = std::env::temp_dir().join(format!(
         "hipso_calc_{}_{}",
@@ -815,7 +818,7 @@ pub fn run(job: &CalcJob) -> Result<String> {
     let nodata_in: Vec<Option<f32>> = opened.iter().map(Pyramid::nodata).collect();
     let budget = crate::copc_cache::total_memory()
         .map_or(24_000_000, |m| (m / 512).clamp(16_000_000, 256_000_000));
-    // a strip holds every raster it reads
+    // una franja contiene cada ráster que lee
     let step = (budget as usize / (cols.max(1) * opened.len().max(1))).clamp(8, 16_384);
     crate::paths::ensure_parent(&job.output)?;
     let nodata = job
@@ -841,7 +844,7 @@ pub fn run(job: &CalcJob) -> Result<String> {
     let used = calc.used().to_vec();
     crate::tiled::write(&job.output, spec, step, |r0, r1| {
         crate::progress::advance((r1 - r0) as u64);
-        // a quarter of a cell inside the strip, so that the pixel boundaries are the right ones
+        // un cuarto de celda dentro de la franja, para que los límites de píxel sean los correctos
         let q = cell * 0.25;
         let win = [
             e[0] + q,
@@ -927,8 +930,8 @@ pub fn run(job: &CalcJob) -> Result<String> {
     Ok(lines.join("\n"))
 }
 
-/// The expression with the names `A`, `B`… in the order of `paths`: for a form that assigns the
-/// letters itself.
+/// La expresión con los nombres `A`, `B`… en el orden de `paths`: para un formulario que asigna él
+/// mismo las letras.
 pub fn letters(paths: &[PathBuf]) -> Vec<(String, PathBuf)> {
     paths
         .iter()
@@ -1037,7 +1040,7 @@ mod tests {
         assert_eq!(names, ["A", "A.1", "A.2", "A.3", "B1", "B2", "B3"]);
         assert!(Calc::compile("(B3 - B2) / (B3 + B2)", &v).is_ok());
         assert!(Calc::compile("A.2 * 2", &v).is_ok());
-        // with two rasters there are no B1…Bn
+        // con dos rásteres no hay B1…Bn
         let w = variables(&[("A".into(), 1), ("B".into(), 1)]);
         assert!(Calc::compile("B1", &w).is_err());
     }
@@ -1094,7 +1097,7 @@ mod tests {
                 }
             }
         }
-        // an integer output rounds and clamps
+        // una salida entera redondea y limita
         job.dtype = Dtype::U8;
         job.expr = "A * 10 + 1".into();
         job.output = dir.join("u8.tif");
@@ -1107,9 +1110,9 @@ mod tests {
         Ok(())
     }
 
-    /// Four rasters at once, one of them with a hole and another with other cells: every
-    /// letter reads its own raster, an empty cell of any input empties the result, and the
-    /// raster with other cells is put on those of the first.
+    /// Cuatro rásteres a la vez, uno de ellos con un hueco y otro con otras celdas: cada letra lee
+    /// su propio ráster, una celda vacía en cualquiera de las entradas vacía el resultado y el
+    /// ráster con otras celdas se pone sobre las del primero.
     #[test]
     fn it_computes_over_four_rasters_at_once() -> Result<()> {
         let dir = std::env::temp_dir().join(format!("hipso_calc_4_{}", std::process::id()));
@@ -1128,7 +1131,7 @@ mod tests {
                 .collect(),
             p("out.tif"),
         );
-        // D has other cells: refused unless asked
+        // D tiene otras celdas: se rechaza salvo que se pida
         assert!(run(&job).is_err());
         job.align = Some(Resample::Average);
         run(&job)?;
@@ -1140,7 +1143,7 @@ mod tests {
                 let want = if a > 10.0 { (a + b) * cv } else { b } - 1.0;
                 let got = out.data[r * 30 + c];
                 if want.is_nan() {
-                    // `b` is taken when A <= 10, so only the branch that reads C can be empty
+                    // `b` se toma cuando A <= 10, así que solo puede estar vacía la rama que lee C
                     assert!(got.is_nan() == (a > 10.0), "{c},{r}: {got}");
                 } else {
                     assert!((got - want).abs() < 1e-4, "{c},{r}: {got} / {want}");

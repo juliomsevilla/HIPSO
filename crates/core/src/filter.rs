@@ -1,10 +1,12 @@
-//! Which points a tool or export takes: by class, by return, by elevation, thinned.
+//! Qué puntos toma una herramienta o una exportación: por clase, por retorno, por elevación,
+//! adelgazados.
 
 use crate::classes::ClassSet;
 use crate::las::Point;
 use crate::{Error, Result};
 
-/// A set of classes. `parse` reads the FUSION-compatible form: `2,3,5` or `~7,18` (all but those).
+/// Un conjunto de clases. `parse` lee la forma compatible con FUSION: `2,3,5` o `~7,18` (todas
+/// menos esas).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClassSel {
     pub set: ClassSet,
@@ -40,13 +42,13 @@ impl ClassSel {
         self.set.contains(class)
     }
 
-    /// Sets a class in or out.
+    /// Pone una clase dentro o fuera.
     pub fn set(&mut self, class: u8, on: bool) {
         self.set.set(class, on);
     }
 }
 
-/// The kind of a return within its pulse.
+/// El tipo de un retorno dentro de su pulso.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ReturnKind {
     Single,
@@ -74,11 +76,12 @@ impl ReturnKind {
     }
 }
 
-/// A set of returns, by kind and by number. `parse` reads the FUSION-compatible form: `A`, `F`, `L`, `1235`.
+/// Un conjunto de retornos, por tipo y por número. `parse` lee la forma compatible con FUSION: `A`,
+/// `F`, `L`, `1235`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReturnSel {
     pub kinds: [bool; 4],
-    /// Bit `n`: return number `n`.
+    /// Bit `n`: número de retorno `n`.
     pub numbers: u16,
 }
 
@@ -121,17 +124,17 @@ impl ReturnSel {
     }
 }
 
-/// The points a tool takes.
+/// Los puntos que toma una herramienta.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Filter {
     pub classes: ClassSel,
     pub returns: ReturnSel,
-    /// Elevation limits (heights above ground when the tool normalises).
+    /// Límites de elevación (alturas sobre el suelo cuando la herramienta normaliza).
     pub zmin: Option<f64>,
     pub zmax: Option<f64>,
-    /// Keep one point in this many (1 keeps all).
+    /// Conserva un punto de cada tantos (1 los conserva todos).
     pub decimate: u64,
-    /// Points marked withheld, and noise (7, 18), are left out.
+    /// Los puntos marcados como retenidos y el ruido (7, 18) se dejan fuera.
     pub skip_noise: bool,
 }
 
@@ -149,8 +152,8 @@ impl Default for Filter {
 }
 
 impl Filter {
-    /// Whether a point passes class, return and noise tests (not elevation or thinning, which
-    /// the caller applies to the value it wants limited).
+    /// Si un punto pasa las pruebas de clase, retorno y ruido (no la de elevación ni la de
+    /// adelgazamiento, que aplica quien llama al valor que quiere limitar).
     #[inline]
     pub fn keeps(&self, p: &Point) -> bool {
         (!self.skip_noise || !p.is_noise())

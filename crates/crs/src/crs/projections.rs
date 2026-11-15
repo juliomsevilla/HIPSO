@@ -1,28 +1,29 @@
-//! The map projections EPSG CRSs use, ported from PROJ (<https://proj.org>, MIT licence) so that
-//! terrio's results match GDAL's. PROJ's copyright and permission notice is in `NOTICE`.
+//! Las proyecciones cartográficas que usan los sistemas EPSG, portadas de PROJ (<https://proj.org>,
+//! licencia MIT) para que los resultados de terrio coincidan con los de GDAL. El aviso de derechos
+//! y permiso de PROJ está en `NOTICE`.
 //!
-//! As in PROJ, a projection works on an ellipsoid with a semi-major axis of 1: the forward
-//! projection takes the longitude relative to the central meridian and the latitude in radians,
-//! and the caller scales by the semi-major axis and adds the false easting and northing.
+//! Como en PROJ, una proyección trabaja sobre un elipsoide de semieje mayor 1: la proyección
+//! directa toma la longitud relativa al meridiano central y la latitud en radianes, y quien la
+//! llama multiplica por el semieje mayor y suma el falso este y el falso norte.
 
-// The constants are PROJ's, digit for digit.
+// Las constantes son las de PROJ, dígito por dígito.
 #![allow(clippy::excessive_precision)]
 
 use super::math::*;
 use super::params::Params;
 use crate::{Error, Result};
 
-/// A map projection's forward and inverse formulas.
+/// Las fórmulas directa e inversa de una proyección cartográfica.
 pub(crate) trait Proj: Send + Sync + std::fmt::Debug {
-    /// Projects a longitude (relative to the central meridian) and latitude in radians.
+    /// Proyecta una longitud (relativa al meridiano central) y una latitud en radianes.
     fn fwd(&self, lam: f64, phi: f64) -> Option<(f64, f64)>;
-    /// Unprojects normalized coordinates into a longitude (relative to the central meridian) and
-    /// a latitude in radians.
+    /// Desproyecta coordenadas normalizadas a una longitud (relativa al meridiano central) y una
+    /// latitud en radianes.
     fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)>;
 }
 
-/// What a projection's setup reads and may change: the ellipsoid, origin, scale and false
-/// easting and northing.
+/// Lo que lee y puede cambiar la preparación de una proyección: el elipsoide, el origen, la escala
+/// y el falso este y el falso norte.
 pub(crate) struct Setup<'a> {
     pub p: &'a Params,
     pub ell: Ell,
@@ -37,7 +38,7 @@ fn err(msg: &str) -> Error {
     Error::Crs(msg.to_string())
 }
 
-/// Builds the projection `name`. `Ok(None)` when terrio does not implement it.
+/// Construye la proyección `name`. `Ok(None)` cuando terrio no la implementa.
 pub(crate) fn build(name: &str, s: &mut Setup<'_>) -> Result<Option<Box<dyn Proj>>> {
     Ok(Some(match name {
         "tmerc" | "etmerc" => Box::new(Tmerc::new(s.ell, s.k0, s.phi0)),
@@ -115,11 +116,11 @@ pub(crate) fn build(name: &str, s: &mut Setup<'_>) -> Result<Option<Box<dyn Proj
 }
 
 // ---------------------------------------------------------------------------------------------
-// Transverse Mercator: the "exact" Poder/Engsager algorithm PROJ uses by default.
+// Mercator transversa: el algoritmo «exacto» de Poder y Engsager que PROJ usa por defecto.
 
 const ETMERC_ORDER: usize = 6;
 
-/// Clenshaw summation of a real series of sin(2kB) (PROJ's `gatg`).
+/// Suma de Clenshaw de una serie real de sin(2kB) (`gatg` de PROJ).
 fn gatg(p: &[f64; ETMERC_ORDER], b: f64) -> f64 {
     let cos_2b = (2.0 * b).cos();
     let two_cos_2b = 2.0 * cos_2b;
@@ -132,7 +133,7 @@ fn gatg(p: &[f64; ETMERC_ORDER], b: f64) -> f64 {
     b + h * (2.0 * b).sin()
 }
 
-/// Clenshaw summation of a complex series (PROJ's `clenS`); returns the real and imaginary parts.
+/// Suma de Clenshaw de una serie compleja (`clenS` de PROJ); devuelve las partes real e imaginaria.
 fn clen_s(a: &[f64; ETMERC_ORDER], arg_r: f64, arg_i: f64) -> (f64, f64) {
     let (sin_r, cos_r) = arg_r.sin_cos();
     let (sinh_i, cosh_i) = (arg_i.sinh(), arg_i.cosh());
@@ -936,7 +937,7 @@ impl Proj for Laea {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Stereographic (polar and oblique, PROJ's `stere`).
+// Estereográfica (polar y oblicua, `stere` de PROJ).
 
 #[derive(Debug)]
 struct Stere {
@@ -1208,7 +1209,7 @@ fn srat(esinp: f64, ratexp: f64) -> f64 {
 }
 
 impl Gauss {
-    /// Returns the conformal sphere, the conformal latitude of the origin and the sphere's radius.
+    /// Devuelve la esfera conforme, la latitud conforme del origen y el radio de la esfera.
     fn new(e: f64, phi0: f64) -> Result<(Self, f64, f64)> {
         let es = e * e;
         let sphi = phi0.sin();
@@ -1442,7 +1443,8 @@ impl Proj for Cass {
         let a1 = lam * cosphi;
         let c = self.es * cosphi * cosphi / (1.0 - self.es);
         let a2 = a1 * a1;
-        // EPSG guidance note 7-2 (and PROJ since 9.2): X = ν(A − T A³/6 − (8 − T + 8C) T A⁵/120).
+        // Nota de orientación 7-2 de EPSG (y PROJ desde la 9.2): X = ν(A − T A³/6 − (8 − T + 8C) T
+        // A⁵/120).
         let x = n * a1 * (1.0 - a2 * t * (C1 + (8.0 - t + 8.0 * c) * a2 * C2));
         y -= self.m0 - n * tn * a2 * (0.5 + (5.0 - t + 6.0 * c) * a2 * C3);
         if self.hyperbolic {
@@ -1478,8 +1480,8 @@ impl Proj for Cass {
         let d2 = dd * dd;
         let phi = ph1 - (n * tn / r) * d2 * (0.5 - (1.0 + 3.0 * t) * d2 * C3);
         let lam = dd * (1.0 + t * d2 * (-C4 + (1.0 + 3.0 * t) * d2 * C5)) / ph1.cos();
-        // The series is a first guess, refined on the forward projection as PROJ does: it drifts
-        // by centimetres away from the central meridian.
+        // La serie es una primera aproximación, refinada sobre la proyección directa como hace
+        // PROJ: se desvía varios centímetros lejos del meridiano central.
         generic_inverse_2d(|lam, phi| self.fwd(lam, phi), x, y0, lam, phi, 1e-12)
     }
 }
@@ -1601,14 +1603,14 @@ impl Proj for Poly {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Equidistant Cylindrical: EPSG's ellipsoidal method 1028 on an ellipsoid (as PROJ 9.8 and later),
-// the spherical method 1029 on a sphere.
+// Cilíndrica equidistante: el método elipsoidal 1028 de EPSG sobre un elipsoide (como PROJ 9.8 y
+// posteriores), el método esférico 1029 sobre una esfera.
 
 #[derive(Debug)]
 struct Eqc {
     rc: f64,
     phi0: f64,
-    /// The meridian distance of an ellipsoid, and its value at the origin latitude.
+    /// La distancia meridiana de un elipsoide y su valor en la latitud del origen.
     en: Option<(Mlfn, f64)>,
 }
 
@@ -1626,7 +1628,7 @@ impl Eqc {
                 en: None,
             });
         }
-        // ν(φ1) cos φ1: the radius of the standard parallel.
+        // ν(φ1) cos φ1: el radio del paralelo estándar.
         let rc = cos1 / (1.0 - s.ell.es * sin1 * sin1).sqrt();
         let en = Mlfn::new(s.ell.es);
         let m0 = en.mlfn(s.phi0, s.phi0.sin(), s.phi0.cos());
@@ -1655,7 +1657,7 @@ impl Proj for Eqc {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Sinusoidal (Sanson-Flamsteed), with PROJ's ellipsoidal form on an ellipsoid.
+// Sinusoidal (Sanson-Flamsteed), con la forma elipsoidal de PROJ sobre un elipsoide.
 
 #[derive(Debug)]
 struct Sinu {
@@ -1686,7 +1688,7 @@ impl Proj for Sinu {
 
     fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
         let phi = if self.es == 0.0 { y } else { self.en.inv(y) };
-        // Past a pole, no point; at one, any longitude.
+        // Más allá de un polo, ningún punto; en uno, cualquier longitud.
         let t = phi.abs();
         if t < HALFPI {
             let s = phi.sin();
@@ -1706,9 +1708,9 @@ impl Proj for Sinu {
 struct Bonne {
     es: f64,
     phi1: f64,
-    /// cot φ1 on a sphere, ν(φ1) cot φ1 on an ellipsoid: the radius of the standard parallel.
+    /// cot φ1 sobre una esfera, ν(φ1) cot φ1 sobre un elipsoide: el radio del paralelo estándar.
     am1: f64,
-    /// The meridian distance of an ellipsoid, and its value at φ1.
+    /// La distancia meridiana de un elipsoide y su valor en φ1.
     en: Option<(Mlfn, f64)>,
 }
 
@@ -1792,9 +1794,9 @@ impl Proj for Bonne {
     }
 }
 
-/// The radius, for a semi-major axis of 1, of the sphere PROJ puts its spherical-only Miller and
-/// Van der Grinten projections on: on an ellipsoid, the sphere of the same area (`+R_A`, which
-/// PROJ adds to their conversions), with PROJ's series in e².
+/// El radio, para un semieje mayor de 1, de la esfera sobre la que PROJ pone sus proyecciones solo
+/// esféricas Miller y Van der Grinten: sobre un elipsoide, la esfera de la misma área (`+R_A`, que
+/// PROJ añade a sus conversiones), con la serie de PROJ en e².
 fn authalic_radius(ell: Ell) -> f64 {
     let es = ell.es;
     1.0 - es * (1.0 / 6.0 + es * (17.0 / 360.0 + es * 67.0 / 3024.0))
@@ -1830,7 +1832,7 @@ impl Proj for Mill {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Van der Grinten (I) (spherical), after Snyder (1987), p. 241, as PROJ.
+// Van der Grinten (I) (esférica), según Snyder (1987), p. 241, como PROJ.
 
 #[derive(Debug)]
 struct Vandg {
@@ -1946,8 +1948,8 @@ impl Proj for Vandg {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Gnomonic. On an ellipsoid, Karney's ellipsoidal gnomonic ("Algorithms for geodesics", 2013,
-// section 8), as PROJ: ρ = m12 / M12 along the azimuth of the geodesic from the centre.
+// Gnomónica. Sobre un elipsoide, la gnomónica elipsoidal de Karney («Algorithms for geodesics»,
+// 2013, sección 8), como PROJ: ρ = m12 / M12 a lo largo del acimut de la geodésica desde el centro.
 
 #[derive(Debug)]
 struct Gnom {
@@ -1955,7 +1957,7 @@ struct Gnom {
     phi0: f64,
     sinph0: f64,
     cosph0: f64,
-    /// The geodesics of an ellipsoid with a semi-major axis of 1.
+    /// Las geodésicas de un elipsoide de semieje mayor 1.
     geod: Option<geographiclib_rs::Geodesic>,
 }
 
@@ -1984,7 +1986,7 @@ impl Proj for Gnom {
                 phi.to_degrees(),
                 lam.to_degrees(),
             );
-            // Beyond the horizon (M12 <= 0, or NaN).
+            // Más allá del horizonte (M12 <= 0, o NaN).
             if mm12.is_nan() || mm12 <= 0.0 {
                 return None;
             }
@@ -2016,8 +2018,8 @@ impl Proj for Gnom {
     fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
         use geographiclib_rs::DirectGeodesic;
         if let Some(g) = &self.geod {
-            // Newton's method for the distance s along the azimuth, with dρ/ds = 1 / M12², or
-            // beyond ρ = 1 on 1/ρ, with d(1/ρ)/ds = -1 / m12².
+            // Método de Newton para la distancia s a lo largo del acimut, con dρ/ds = 1 / M12², o
+            // más allá de ρ = 1 sobre 1/ρ, con d(1/ρ)/ds = -1 / m12².
             let eps = 0.01 * f64::EPSILON.sqrt();
             let azi0 = x.atan2(y).to_degrees();
             let lat0 = self.phi0.to_degrees();
@@ -2027,8 +2029,9 @@ impl Proj for Gnom {
             if !little {
                 rho = 1.0 / rho;
             }
-            // As PROJ: the point at the last distance computed, once a step is small enough (or
-            // NaN, whose result is then refused), even when that is at the last iteration.
+            // Como PROJ: el punto en la última distancia calculada, una vez que un paso es
+            // suficientemente pequeño (o NaN, cuyo resultado entonces se rechaza), incluso cuando
+            // es en la última iteración.
             let mut converged = false;
             let mut point = (f64::NAN, f64::NAN);
             for _ in 0..10 {
@@ -2230,7 +2233,7 @@ impl Proj for EqEarth {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Hotine Oblique Mercator (variants A and B).
+// Mercator oblicua de Hotine (variantes A y B).
 
 #[derive(Debug)]
 struct Omerc {
@@ -2403,7 +2406,7 @@ impl Proj for Omerc {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Krovak, and Krovak Modified (EPSG 1042).
+// Krovak y Krovak modificada (EPSG 1042).
 
 #[derive(Debug)]
 struct Krovak {
@@ -2415,13 +2418,14 @@ struct Krovak {
     ad: f64,
     czech: f64,
     modified: bool,
-    /// Bessel's semi-major axis over the CRS's, which normalized coordinates are in.
+    /// El semieje mayor de Bessel sobre el del sistema, en el que están las coordenadas
+    /// normalizadas.
     scale: f64,
 }
 
 const KROVAK_S0: f64 = 1.37008346281555;
 const KROVAK_UQ: f64 = 1.04216856380474;
-/// Bessel 1841, which PROJ's Krovak uses whatever the CRS's ellipsoid.
+/// Bessel 1841, que la Krovak de PROJ usa sea cual sea el elipsoide del sistema.
 const KROVAK_A: f64 = 6377397.155;
 const KROVAK_ES: f64 = 0.006674372230614;
 
@@ -2438,7 +2442,8 @@ impl Krovak {
             s.k0 = 0.9999;
         }
         let czech = if p.has("czech") { 1.0 } else { -1.0 };
-        // As PROJ, on Bessel's ellipsoid whatever the CRS's (which only its datum uses).
+        // Como PROJ, sobre el elipsoide de Bessel sea cual sea el del sistema (que solo usa su
+        // datum).
         let (e, es, phi0) = (KROVAK_ES.sqrt(), KROVAK_ES, s.phi0);
         let alpha = (1.0 + (es * phi0.cos().powi(4)) / (1.0 - es)).sqrt();
         let u0 = (phi0.sin() / alpha).asin();
@@ -2452,7 +2457,7 @@ impl Krovak {
         let n = KROVAK_S0.sin();
         let rho0 = s.k0 * n0 / KROVAK_S0.tan();
         let ad = HALFPI - KROVAK_UQ;
-        // PROJ applies the false origin to the southing and westing, before their sign change.
+        // PROJ aplica el origen falso al sur y al oeste, antes de su cambio de signo.
         s.x0 *= czech;
         s.y0 *= czech;
         Ok(Self {
@@ -2468,8 +2473,8 @@ impl Krovak {
         })
     }
 
-    /// The correction of Krovak Modified, in normalized units, from the normalized unmodified
-    /// southing and westing (without false origin).
+    /// La corrección de Krovak modificada, en unidades normalizadas, a partir del sur y el oeste
+    /// normalizados sin modificar (sin origen falso).
     fn correction(&self, xr: f64, yr: f64) -> (f64, f64) {
         const X0: f64 = 1089000.0;
         const Y0: f64 = 654000.0;
@@ -2524,7 +2529,7 @@ impl Proj for Krovak {
         let eps = self.n * d;
         let rho = self.rho0 * (KROVAK_S0 / 2.0 + FORTPI).tan().powf(self.n)
             / (s / 2.0 + FORTPI).tan().powf(self.n);
-        // Southing and westing.
+        // Sur y oeste.
         let mut xs = rho * eps.cos();
         let mut yw = rho * eps.sin();
         if self.modified {
@@ -2539,7 +2544,7 @@ impl Proj for Krovak {
         let mut yw = x * self.czech / self.scale;
         let mut xs = y * self.czech / self.scale;
         if self.modified {
-            // The correction is small and smooth: a fixed-point iteration converges at once.
+            // La corrección es pequeña y suave: una iteración de punto fijo converge de inmediato.
             let (x0, y0) = (xs, yw);
             for _ in 0..5 {
                 let (dx, dy) = self.correction(xs, yw);
@@ -2705,7 +2710,7 @@ impl Proj for Labrd {
 }
 
 // ---------------------------------------------------------------------------------------------
-// New Zealand Map Grid.
+// Rejilla del mapa de Nueva Zelanda.
 
 #[derive(Debug)]
 struct Nzmg {
@@ -2746,7 +2751,7 @@ const NZMG_TPSI: [f64; 10] = [
 const SEC5_TO_RAD: f64 = 0.4848136811095359935899141023;
 const RAD_TO_SEC5: f64 = 2.062648062470963551564733573;
 
-/// z · (C₀ + z·(C₁ + … + z·Cₙ)) over complex numbers (PROJ's `pj_zpoly1`).
+/// z · (C₀ + z·(C₁ + … + z·Cₙ)) sobre números complejos (`pj_zpoly1` de PROJ).
 fn zpoly1(z: (f64, f64), c: &[(f64, f64)]) -> (f64, f64) {
     let n = c.len() - 1;
     let mut a = c[n];
@@ -2759,7 +2764,7 @@ fn zpoly1(z: (f64, f64), c: &[(f64, f64)]) -> (f64, f64) {
     (z.0 * t - z.1 * a.1, z.0 * a.1 + z.1 * t)
 }
 
-/// [`zpoly1`] with its derivative (PROJ's `pj_zpolyd1`).
+/// [`zpoly1`] con su derivada (`pj_zpolyd1` de PROJ).
 fn zpolyd1(z: (f64, f64), c: &[(f64, f64)]) -> ((f64, f64), (f64, f64)) {
     let n = c.len() - 1;
     let mut a = c[n];
@@ -2898,7 +2903,7 @@ impl Proj for ColUrban {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Azimuthal Equidistant (with the Guam variant).
+// Acimutal equidistante (con la variante de Guam).
 
 #[derive(Debug)]
 struct Aeqd {
@@ -2999,10 +3004,10 @@ impl Proj for Aeqd {
     }
 }
 
-/// Geodesics on an ellipsoid of semi-major axis 1, by Vincenty's formulas (which agree with
-/// Karney's, which PROJ uses, to well below a millimetre away from antipodes).
+/// Geodésicas sobre un elipsoide de semieje mayor 1, por las fórmulas de Vincenty (que coinciden
+/// con las de Karney, que usa PROJ, con mucho menos de un milímetro lejos de los antípodas).
 mod geodesic {
-    /// The distance and forward azimuth from (0, φ1) to (λ2, φ2).
+    /// La distancia y el acimut directo de (0, φ1) a (λ2, φ2).
     pub fn inverse(es: f64, phi1: f64, lam1: f64, phi2: f64, lam2: f64) -> Option<(f64, f64)> {
         let f = 1.0 - (1.0 - es).sqrt();
         let b = 1.0 - f;
@@ -3059,7 +3064,7 @@ mod geodesic {
         None
     }
 
-    /// The point at distance `s` along azimuth `azi1` from (0, φ1): (λ, φ).
+    /// El punto a distancia `s` a lo largo del acimut `azi1` desde (0, φ1): (λ, φ).
     pub fn direct(es: f64, phi1: f64, azi1: f64, s: f64) -> Option<(f64, f64)> {
         let f = 1.0 - (1.0 - es).sqrt();
         let b = 1.0 - f;
@@ -3113,7 +3118,7 @@ mod geodesic {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Orthographic, with the local orthographic variant (EPSG 1130: azimuth and scale).
+// Ortográfica, con la variante ortográfica local (EPSG 1130: acimut y escala).
 
 #[derive(Debug)]
 struct Ortho {
@@ -3152,7 +3157,7 @@ impl Proj for Ortho {
         let es = self.ell.es;
         let (sinphi, cosphi) = phi.sin_cos();
         let coslam = lam.cos();
-        // Visible hemisphere check, as PROJ does.
+        // Comprobación del hemisferio visible, como hace PROJ.
         if self.sinph0 * sinphi + self.cosph0 * cosphi * coslam < -1e-10 {
             return None;
         }
@@ -3160,14 +3165,15 @@ impl Proj for Ortho {
         let x = nu * cosphi * lam.sin();
         let y = nu * (sinphi * self.cosph0 - cosphi * self.sinph0 * coslam)
             + es * (self.nu0 * self.sinph0 - nu * sinphi) * self.cosph0;
-        // Local orthographic: rotate by the azimuth and scale.
+        // Ortográfica local: gira por el acimut y escala.
         let xr = x * self.cos_alpha - y * self.sin_alpha;
         let yr = x * self.sin_alpha + y * self.cos_alpha;
         Some((self.k0 * xr, self.k0 * yr))
     }
 
     fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        // Undo scale and rotation, then Newton's method on the forward formulas.
+        // Deshace la escala y el giro y aplica después el método de Newton sobre las fórmulas
+        // directas.
         let (x, y) = (x / self.k0, y / self.k0);
         let xu = x * self.cos_alpha + y * self.sin_alpha;
         let yu = -x * self.sin_alpha + y * self.cos_alpha;
@@ -3211,17 +3217,17 @@ impl Proj for Ortho {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Geostationary satellite view: the scan angles of a satellite at height `h` above the equator,
-// times `h`. `+sweep=x` (GOES) sweeps the x angle across the y one, `+sweep=y` (Meteosat,
-// Himawari, the default) the other way round.
+// Vista de satélite geoestacionario: los ángulos de barrido de un satélite a altura `h` sobre el
+// ecuador, por `h`. `+sweep=x` (GOES) barre el ángulo x a través del y, `+sweep=y` (Meteosat,
+// Himawari, el valor por defecto) al revés.
 
 #[derive(Debug)]
 struct Geos {
-    /// The satellite height above the ellipsoid, over the semi-major axis.
+    /// La altura del satélite sobre el elipsoide, entre el semieje mayor.
     h: f64,
     /// `a² / b²`.
     rp: f64,
-    /// The semi-minor axis over the semi-major axis.
+    /// El semieje menor entre el semieje mayor.
     b: f64,
     es: f64,
     sweep_x: bool,
@@ -3251,13 +3257,13 @@ impl Geos {
 
 impl Proj for Geos {
     fn fwd(&self, lam: f64, phi: f64) -> Option<(f64, f64)> {
-        // The point on the ellipsoid, from its geocentric latitude.
+        // El punto del elipsoide, a partir de su latitud geocéntrica.
         let phic = (phi.tan() / self.rp).atan();
         let (sinc, cosc) = phic.sin_cos();
         let r = self.b / (1.0 - self.es * cosc * cosc).sqrt();
         let (vx, vy, vz) = (r * cosc * lam.cos(), r * cosc * lam.sin(), r * sinc);
         let d = 1.0 + self.h - vx;
-        // Hidden from the satellite.
+        // Oculto para el satélite.
         if d * vx - vy * vy - self.rp * vz * vz < 0.0 {
             return None;
         }
@@ -3270,7 +3276,7 @@ impl Proj for Geos {
     }
 
     fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        // The ray from the satellite along the scan angles, met with the ellipsoid.
+        // El rayo del satélite a lo largo de los ángulos de barrido, cortado con el elipsoide.
         let (tx, ty) = (x / self.h, y / self.h);
         let (ux, uy, uz) = if self.sweep_x {
             (-ty.cos(), tx.tan(), ty.sin())
@@ -3285,9 +3291,9 @@ impl Proj for Geos {
         if disc < 0.0 {
             return None;
         }
-        // The nearer root, in the form that keeps its precision near the limb.
+        // La raíz más cercana, en la forma que conserva su precisión cerca del limbo.
         let t = 2.0 * qc / (-qb + disc.sqrt());
-        // Scan angles past a right angle point the ray away from the Earth.
+        // Los ángulos de barrido mayores que un ángulo recto apuntan el rayo lejos de la Tierra.
         if t.is_nan() || t <= 0.0 {
             return None;
         }
@@ -3297,11 +3303,11 @@ impl Proj for Geos {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The world projections below are spherical in PROJ, which computes them on a sphere of the
-// semi-major axis whatever the ellipsoid (it sets `es` to 0), except the Gauss-Schreiber
-// transverse Mercator.
+// Las proyecciones del mundo que siguen son esféricas en PROJ, que las calcula sobre una esfera del
+// semieje mayor sea cual sea el elipsoide (pone `es` a 0), salvo la Mercator transversa de
+// Gauss-Schreiber.
 
-/// PROJ's `aasin`: `asin`, refusing arguments past ±1 by more than rounding.
+/// `aasin` de PROJ: `asin`, que rechaza los argumentos más allá de ±1 por más que el redondeo.
 fn aasin_checked(v: f64) -> Option<f64> {
     if v.abs() > 1.0 + 1e-14 {
         None
@@ -3310,8 +3316,8 @@ fn aasin_checked(v: f64) -> Option<f64> {
     }
 }
 
-/// PROJ's `pj_generic_inverse_2d`: Newton's method on the forward projection, from `(lam, phi)`,
-/// until the forward projection is within `tol` of `(x, y)`.
+/// `pj_generic_inverse_2d` de PROJ: método de Newton sobre la proyección directa, desde `(lam,
+/// phi)`, hasta que la proyección directa está a `tol` de `(x, y)`.
 fn generic_inverse_2d(
     fwd: impl Fn(f64, f64) -> Option<(f64, f64)>,
     x: f64,
@@ -3329,7 +3335,7 @@ fn generic_inverse_2d(
         if dx.abs() < tol && dy.abs() < tol {
             return Some((lam, phi));
         }
-        // The Jacobian, by finite differences, only while far from the result.
+        // El jacobiano, por diferencias finitas, solo mientras se está lejos del resultado.
         if i == 0 || dx.abs() > 1e-6 || dy.abs() > 1e-6 {
             let dl = if lam > 0.0 { -1e-6 } else { 1e-6 };
             let (x2, y2) = fwd(lam + dl, phi)?;
@@ -3345,7 +3351,7 @@ fn generic_inverse_2d(
                 d_phi_y = x_lam / det;
             }
         }
-        // Corrections limited against overshoots from a bad first guess.
+        // Correcciones limitadas contra los sobrepasos de una mala primera aproximación.
         lam = (lam - (dx * d_lam_x + dy * d_lam_y).clamp(-0.3, 0.3)).clamp(-PI, PI);
         phi = (phi - (dx * d_phi_x + dy * d_phi_y).clamp(-0.3, 0.3)).clamp(-HALFPI, HALFPI);
     }
@@ -3353,13 +3359,14 @@ fn generic_inverse_2d(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Robinson: a cubic in the latitude per 5° band, with PROJ's single-precision coefficients
-// (their constant terms are Robinson's table rounded to `f32`).
+// Robinson: un polinomio cúbico en la latitud por cada banda de 5°, con los coeficientes de
+// precisión simple de PROJ (sus términos constantes son la tabla de Robinson redondeada a `f32`).
 
 #[derive(Debug)]
 struct Robin;
 
-/// `X(φ)` per 5° band: `c0 + c1 z + c2 z² + c3 z³`, z the offset into the band in degrees.
+/// `X(φ)` por banda de 5°: `c0 + c1 z + c2 z² + c3 z³`, siendo z el desplazamiento dentro de la
+/// banda en grados.
 const ROBIN_X: [[f32; 4]; 19] = [
     [1.0, 2.2199e-17, -7.15515e-05, 3.1103e-06],
     [0.9986, -0.000482243, -2.4897e-05, -1.3309e-06],
@@ -3382,7 +3389,7 @@ const ROBIN_X: [[f32; 4]; 19] = [
     [0.5322, -0.00677797, 0.000275608, 6.24051e-06],
 ];
 
-/// `Y(φ)` per 5° band, as `ROBIN_X`.
+/// `Y(φ)` por banda de 5°, como `ROBIN_X`.
 const ROBIN_Y: [[f32; 4]; 19] = [
     [-5.20417e-18, 0.0124, 1.21431e-18, -8.45284e-11],
     [0.062, 0.0124, -1.26793e-09, 4.22642e-10],
@@ -3407,17 +3414,17 @@ const ROBIN_Y: [[f32; 4]; 19] = [
 
 const ROBIN_FXC: f64 = 0.8487;
 const ROBIN_FYC: f64 = 1.3523;
-/// Radians to 5° bands, and back.
+/// Radianes a bandas de 5° y de vuelta.
 const ROBIN_C1: f64 = 11.45915590261646417544;
 const ROBIN_RC1: f64 = 0.08726646259971647884;
 const ROBIN_NODES: usize = 18;
 
-/// A band's cubic at `z` (PROJ's `V`).
+/// El cúbico de una banda en `z` (`V` de PROJ).
 fn robin_v(c: &[f32; 4], z: f64) -> f64 {
     c[0] as f64 + z * (c[1] as f64 + z * (c[2] as f64 + z * c[3] as f64))
 }
 
-/// Its derivative (PROJ's `DV`).
+/// Su derivada (`DV` de PROJ).
 fn robin_dv(c: &[f32; 4], z: f64) -> f64 {
     c[1] as f64 + 2.0 * z * c[2] as f64 + z * z * 3.0 * c[3] as f64
 }
@@ -3442,7 +3449,7 @@ impl Proj for Robin {
             return None;
         }
         if phi >= 1.0 {
-            // Past the pole by more than rounding: outside the projection.
+            // Más allá del polo por más que el redondeo: fuera de la proyección.
             if phi > 1.000001 {
                 return None;
             }
@@ -3451,7 +3458,8 @@ impl Proj for Robin {
                 if y < 0.0 { -HALFPI } else { HALFPI },
             ));
         }
-        // The band holding the northing, then Newton's method on its cubic from a linear guess.
+        // La banda que contiene el norte y luego el método de Newton sobre su cúbico desde una
+        // aproximación lineal.
         let mut i = (phi * ROBIN_NODES as f64).floor() as usize;
         loop {
             if ROBIN_Y[i][0] as f64 > phi {
@@ -3478,8 +3486,8 @@ impl Proj for Robin {
         }
         let phi = (5.0 * i as f64 + t).to_radians();
         let lam = lam / robin_v(&ROBIN_X[i], t);
-        // Past the antimeridian, by more than the rounding of terrio's normalization (PROJ's
-        // differs by an ulp).
+        // Más allá del antimeridiano, por más que el redondeo de la normalización de terrio (la de
+        // PROJ difiere en un ulp).
         if lam.abs() > std::f64::consts::PI + 1e-12 {
             return None;
         }
@@ -3488,9 +3496,9 @@ impl Proj for Robin {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Winkel Tripel: the mean of Aitoff and the equirectangular projection on `lat_1`. PROJ's
-// operator defaults `lat_1` to acos(2/π), but its CRS model (and so GDAL and pyproj) to 0, which
-// terrio follows.
+// Winkel Tripel: la media de Aitoff y la proyección equirrectangular sobre `lat_1`. El operador de
+// PROJ pone `lat_1` por defecto en acos(2/π), pero su modelo de sistemas (y por tanto GDAL y
+// pyproj) en 0, que es lo que sigue terrio.
 
 #[derive(Debug)]
 struct Wintri {
@@ -3511,7 +3519,7 @@ impl Proj for Wintri {
     fn fwd(&self, lam: f64, phi: f64) -> Option<(f64, f64)> {
         let (sin_half_lam, cos_half_lam) = (0.5 * lam).sin_cos();
         let (sin_phi, cos_phi) = phi.sin_cos();
-        // Aitoff, with atan2 for its precision near the origin: alpha / sin(alpha) is `a`.
+        // Aitoff, con atan2 por su precisión cerca del origen: alpha / sin(alpha) es `a`.
         let sin_alpha = (cos_phi * sin_half_lam).hypot(sin_phi);
         let a = if sin_alpha == 0.0 {
             1.0
@@ -3524,8 +3532,8 @@ impl Proj for Wintri {
     }
 
     fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        // Newton's method on the Jacobian (Bildirici and Ipbuker, 2002), in rounds until the
-        // solution projects back onto the point, as PROJ does.
+        // Método de Newton sobre el jacobiano (Bildirici e Ipbuker, 2002), en rondas hasta que la
+        // solución proyecta de vuelta sobre el punto, como hace PROJ.
         const MAXITER: u32 = 10;
         const MAXROUND: u32 = 20;
         const EPSILON: f64 = 1e-12;
@@ -3582,7 +3590,7 @@ impl Proj for Wintri {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Winkel I: the mean of the sinusoidal and the equirectangular projection on `lat_ts`.
+// Winkel I: la media de la sinusoidal y la proyección equirrectangular sobre `lat_ts`.
 
 #[derive(Debug)]
 struct Wink1 {
@@ -3600,7 +3608,7 @@ impl Proj for Wink1 {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Winkel II: the mean of Mollweide-like parallels and the equirectangular projection on `lat_1`.
+// Winkel II: la media de paralelos tipo Mollweide y la proyección equirrectangular sobre `lat_1`.
 
 #[derive(Debug)]
 struct Wink2 {
@@ -3636,8 +3644,8 @@ impl Proj for Wink2 {
     }
 
     fn inv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        // PROJ stops within 1e-10 of the radius, which leaves up to 1e-8° (0.6 mm); terrio goes on
-        // to 1e-12, from the same start.
+        // PROJ se detiene a menos de 1e-10 del radio, lo que deja hasta 1e-8° (0,6 mm); terrio
+        // sigue hasta 1e-12, desde el mismo comienzo.
         generic_inverse_2d(|lam, phi| self.fwd(lam, phi), x, y, x, y, 1e-12)
     }
 }
@@ -3664,8 +3672,8 @@ impl Proj for Gall {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Gauss-Schreiber transverse Mercator (Gauss-Laborde Réunion): a spherical transverse Mercator of
-// the ellipsoid's conformal sphere. Ellipsoidal, unlike the others here.
+// Mercator transversa de Gauss-Schreiber (Gauss-Laborde Réunion): una Mercator transversa esférica
+// de la esfera conforme del elipsoide. Elipsoidal, a diferencia de las demás de aquí.
 
 #[derive(Debug)]
 struct Gstmerc {
@@ -3683,7 +3691,7 @@ impl Gstmerc {
         let n1 = (1.0 + es * phi0.cos().powi(4) / (1.0 - es)).sqrt();
         let phic = (sinphi0 / n1).asin();
         let c = tsfn(-phic, -sinphi0 / n1, 0.0).ln() - n1 * tsfn(-phi0, -sinphi0, e).ln();
-        // PROJ's n2 carries the semi-major axis, which terrio applies afterwards.
+        // El n2 de PROJ lleva el semieje mayor, que terrio aplica después.
         let n2 = s.k0 * (1.0 - es).sqrt() / (1.0 - es * sinphi0 * sinphi0);
         Self {
             e,
@@ -3717,8 +3725,8 @@ impl Proj for Gstmerc {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Foucaut sinusoidal, from the sinusoidal (`n` = 0, the default) to the equirectangular
-// projection (`n` = 1).
+// Sinusoidal de Foucaut, de la sinusoidal (`n` = 0, el valor por defecto) a la proyección
+// equirrectangular (`n` = 1).
 
 #[derive(Debug)]
 struct FoucS {
@@ -3773,8 +3781,8 @@ impl Proj for FoucS {
 }
 
 // ---------------------------------------------------------------------------------------------
-// McBryde-Thomas flat-polar sinusoidal: PROJ's general sinusoidal series with m = 1/2 and
-// n = 1 + π/4 (not `mbt_fps`, a different projection).
+// Sinusoidal polar plana de McBryde-Thomas: la serie sinusoidal general de PROJ con m = 1/2 y n = 1
+// + π/4 (no `mbt_fps`, una proyección distinta).
 
 #[derive(Debug)]
 struct Mbtfps {
@@ -3822,8 +3830,9 @@ impl Proj for Mbtfps {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Putniņš P4′ and Werenskiold I (its scaled form), with PROJ's constants as written: they are
-// truncated, and the exact ones differ from PROJ's results by millimetres to a centimetre.
+// Putniņš P4′ y Werenskiold I (su forma escalada), con las constantes de PROJ tal como están
+// escritas: están truncadas, y las exactas difieren de los resultados de PROJ en milímetros hasta
+// un centímetro.
 
 #[derive(Debug)]
 struct Putp4p {
@@ -3848,8 +3857,8 @@ impl Proj for Putp4p {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Two of PROJ's simple conics (`sconics.cpp`) on `lat_1` and `lat_2`, ported literally: Murdoch
-// II and Tissot (PROJ's Tissot is not the textbook form).
+// Dos de las cónicas simples de PROJ (`sconics.cpp`) sobre `lat_1` y `lat_2`, portadas
+// literalmente: Murdoch II y Tissot (la Tissot de PROJ no es la forma de los libros de texto).
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum SconicKind {

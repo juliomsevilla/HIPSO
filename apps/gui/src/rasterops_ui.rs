@@ -52,7 +52,7 @@ impl Op {
     }
 }
 
-/// One tool (and window) per operation, in the order of [`Op::ALL`].
+/// Una herramienta (y ventana) por operación, en el orden de [`Op::ALL`].
 pub fn tools() -> Vec<RasterOpsTool> {
     Op::ALL.iter().map(|op| RasterOpsTool::new(*op)).collect()
 }
@@ -61,17 +61,19 @@ pub struct RasterOpsTool {
     pub open: bool,
     pub op: Op,
     pub input: String,
-    /// Sieve: patches with fewer cells than this are merged.
+    /// Tamizar: las manchas con menos celdas que esto se fusionan.
     pub threshold: f64,
     pub eight: bool,
-    /// Proximity: the values that count as targets, separated by commas (empty: every non-zero cell).
+    /// Proximidad: los valores que cuentan como objetivos, separados por comas (vacío: toda celda
+    /// distinta de cero).
     pub values: String,
     pub max_distance: String,
     pub in_cells: bool,
-    /// Fill: how far to look, in cells, and the passes of smoothing.
+    /// Relleno: hasta dónde mirar, en celdas, y las pasadas de suavizado.
     pub fill_distance: f64,
     pub smoothing: f64,
-    /// Vectorize: 0 classes, 1 range, 2 breaks; the limits as typed; parts under `min_cells` go.
+    /// Vectorizar: 0 clases, 1 rango, 2 cortes; los límites tal como se escriben; las partes por
+    /// debajo de `min_cells` se van.
     pub vec_mode: u8,
     pub vec_lo: String,
     pub vec_hi: String,
@@ -79,21 +81,21 @@ pub struct RasterOpsTool {
     pub min_cells: f64,
     pub simplify: f64,
     pub gpkg: bool,
-    /// Calculator: the rasters (named A, B… in this order, with their bands), the expression,
-    /// the sample type (0 decimal, 1 u8, 2 u16), classes, and putting the others on the first.
+    /// Calculadora: los rásteres (llamados A, B… en este orden, con sus bandas), la expresión, el
+    /// tipo de muestra (0 decimal, 1 u8, 2 u16), clases y poner los demás sobre el primero.
     pub calc_inputs: Vec<(PathBuf, usize)>,
     pub calc_expr: String,
     pub calc_dtype: u8,
     pub calc_nearest: bool,
     pub calc_align: bool,
-    /// Reclassify: the rules as typed, what the cells no rule matches become (0 keep, 1 empty,
-    /// 2 the value typed) and the band.
+    /// Reclasificar: las reglas tal como se escriben, en qué se convierten las celdas a las que no
+    /// se aplica ninguna regla (0 conservar, 1 vacías, 2 el valor escrito) y la banda.
     pub rc_rules: String,
     pub rc_else: u8,
     pub rc_else_value: String,
     pub rc_band: f64,
-    /// Clip: the mask (a polygon layer or a raster), cutting to its box, keeping the outside,
-    /// and the value of the cells left out as typed.
+    /// Recortar: la máscara (una capa de polígonos o un ráster), cortar a su caja, conservar el
+    /// exterior y el valor de las celdas dejadas fuera tal como se escribe.
     pub clip_mask: String,
     pub clip_crop: bool,
     pub clip_invert: bool,
@@ -154,7 +156,7 @@ impl RasterOpsTool {
             .map(rasterops::Targets::Values)
     }
 
-    /// How the cells are grouped to vectorize, from what was typed.
+    /// Cómo se agrupan las celdas para vectorizar, a partir de lo escrito.
     fn vec_mode(&self) -> Result<hipso_core::rastervec::Mode, String> {
         use hipso_core::rastervec::Mode;
         let n = |s: &str| {
@@ -181,7 +183,7 @@ impl RasterOpsTool {
         }
     }
 
-    /// The names the calculator gives its rasters, with their bands.
+    /// Los nombres que da la calculadora a sus rásteres, con sus bandas.
     fn calc_names(&self) -> Vec<(String, usize)> {
         let paths: Vec<PathBuf> = self.calc_inputs.iter().map(|i| i.0.clone()).collect();
         hipso_core::rastercalc::letters(&paths)
@@ -191,7 +193,8 @@ impl RasterOpsTool {
             .collect()
     }
 
-    /// Why the calculator cannot run, with the column of the error in the expression if so.
+    /// Por qué no se puede ejecutar la calculadora, con la columna del error en la expresión si es
+    /// el caso.
     fn calc_problem(&self) -> Option<String> {
         if self.calc_inputs.is_empty() {
             return Some("Añade al menos un ráster.".into());
@@ -202,7 +205,7 @@ impl RasterOpsTool {
             .map(|e| e.to_string())
     }
 
-    /// The rules typed, with what to do with the other cells.
+    /// Las reglas escritas, con qué hacer con las demás celdas.
     fn reclass_table(&self) -> Result<hipso_core::reclass::Table, String> {
         use hipso_core::reclass::{Out, Table};
         let mut t = Table::parse(&self.rc_rules).map_err(|e| e.to_string())?;
@@ -237,7 +240,7 @@ impl RasterOpsTool {
 }
 
 impl App {
-    /// The windows of the raster operations: each one opens its own.
+    /// Las ventanas de las operaciones ráster: cada una abre la suya.
     pub fn rasterops_windows(&mut self, ctx: &egui::Context) {
         for i in 0..self.ro.len() {
             self.rasterops_window(ctx, i);

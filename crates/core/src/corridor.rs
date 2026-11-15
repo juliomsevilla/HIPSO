@@ -1,22 +1,22 @@
-//! Power-line corridors: the conductors rebuilt from the points classified as wires, the poles
-//! from those classified as poles, and the vegetation that comes too close or could reach the
-//! line if it fell.
+//! Corredores de líneas eléctricas: los conductores reconstruidos a partir de los puntos
+//! clasificados como cables, los postes a partir de los clasificados como postes, y la vegetación
+//! que se acerca demasiado o que podría alcanzar la línea si cayera.
 //!
-//! 1. The wire points that touch are joined into one conductor each; the conductor's path is the
-//!    median height and offset of its points along its main direction, every `step` metres, and
-//!    gaps (a few metres where the laser did not hit the wire) are filled with a parabola fitted
-//!    to the points next to them, which follows the sag instead of cutting across it.
-//! 2. Poles are the clusters of pole points; the spans of a conductor are the stretches between the
-//!    poles that stand beside it.
-//! 3. The vegetation is read once more; every point within `half_width` of a conductor is measured
-//!    against it, and the points are grouped in cells of `cell` metres, each remembering its highest
-//!    point and its closest approach. A cell is a hazard when it comes closer than `min_distance`
-//!    ("invasión"), or when its height plus a margin reaches the conductor's horizontal position
-//!    ("caída").
+//! 1. Los puntos de cable que se tocan se unen en un conductor cada uno; el trazado del conductor
+//!    es la altura y el desplazamiento medianos de sus puntos a lo largo de su dirección principal,
+//!    cada `step` metros, y los huecos (unos metros donde el láser no dio en el cable) se rellenan
+//!    con una parábola ajustada a los puntos contiguos, que sigue la flecha en lugar de cortarla.
+//! 2. Los postes son los grupos de puntos de poste; los vanos de un conductor son los tramos entre
+//!    los postes que están a su lado.
+//! 3. La vegetación se lee una vez más; cada punto a menos de `half_width` de un conductor se mide
+//!    contra él, y los puntos se agrupan en celdas de `cell` metros, cada una recordando su punto
+//!    más alto y su mayor aproximación. Una celda es un peligro cuando se acerca más que
+//!    `min_distance` («invasión») o cuando su altura más un margen alcanza la posición horizontal
+//!    del conductor («caída»).
 //!
-//! What it cannot do: the wire points of airborne surveys are few and sometimes missing, so a
-//! conductor with long gaps is reported in pieces and its clearance there is not measured; and the
-//! safety distance depends on the voltage, which is the user's to set.
+//! Lo que no puede hacer: los puntos de cable de los vuelos aéreos son pocos y a veces faltan, así
+//! que un conductor con huecos largos se comunica en trozos y su distancia de seguridad allí no se
+//! mide; y la distancia de seguridad depende de la tensión, que es el usuario quien debe fijar.
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -35,41 +35,43 @@ pub const POLE: u8 = 15;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CorridorParams {
-    /// Class of the wire points (ASPRS 14, wire conductor); another only for clouds that use their own codes.
+    /// Clase de los puntos de cable (ASPRS 14, conductor); otra solo para nubes que usan sus
+    /// propios códigos.
     pub wire_class: u8,
-    /// Class of the pole points (ASPRS 15, transmission tower).
+    /// Clase de los puntos de poste (ASPRS 15, torre de transmisión).
     pub pole_class: u8,
-    /// Wire points closer than this are the same conductor.
+    /// Los puntos de cable más cercanos que esto son el mismo conductor.
     pub link: f64,
-    /// Spacing of the vertices of a conductor's path.
+    /// Espaciado de los vértices del trazado de un conductor.
     pub step: f64,
-    /// Conductors that run side by side are told apart when their points are farther than this
-    /// from each other across the line (side and height, m).
+    /// Los conductores que van uno al lado de otro se distinguen cuando sus puntos están más lejos
+    /// que esto entre sí a través de la línea (lado y altura, m).
     pub lane: f64,
-    /// A conductor made of fewer points is dropped.
+    /// Un conductor hecho de menos puntos se descarta.
     pub min_points: usize,
-    /// A conductor shorter than this is dropped: a span is tens of metres, while the short
-    /// "lines" that a classifier finds in tree crowns are a few.
+    /// Un conductor más corto que esto se descarta: un vano mide decenas de metros, mientras que
+    /// las «líneas» cortas que un clasificador encuentra en las copas de los árboles son unos
+    /// pocos.
     pub min_length: f64,
-    /// A pole lower than this, or wider than `pole_max_width`, is not one.
+    /// Un poste más bajo que esto, o más ancho que `pole_max_width`, no es un poste.
     pub min_pole_height: f64,
     pub pole_max_width: f64,
-    /// Gaps longer than this are not filled: the conductor is cut there.
+    /// Los huecos más largos que esto no se rellenan: el conductor se corta allí.
     pub gap_max: f64,
-    /// Vegetation farther than this from every conductor is not looked at.
+    /// La vegetación más lejos que esto de todo conductor no se mira.
     pub half_width: f64,
-    /// Closer than this to a conductor (in space) is an invasion.
+    /// A menos de esta distancia de un conductor (en el espacio) hay invasión.
     pub min_distance: f64,
-    /// A tree whose height plus this margin reaches the conductor's horizontal position could hit
-    /// it when falling.
+    /// Un árbol cuya altura más este margen alcanza la posición horizontal del conductor podría
+    /// golpearlo al caer.
     pub fall_margin: f64,
-    /// Side of the cells the vegetation is grouped in.
+    /// Lado de las celdas en las que se agrupa la vegetación.
     pub cell: f64,
-    /// Vegetation below this height above ground is ignored.
+    /// La vegetación por debajo de esta altura sobre el suelo se ignora.
     pub min_height: f64,
-    /// Pole points closer than this are the same pole.
+    /// Los puntos de poste más cercanos que esto son el mismo poste.
     pub pole_link: f64,
-    /// A pole farther than this from a conductor is not one of its supports.
+    /// Un poste más lejos que esto de un conductor no es uno de sus apoyos.
     pub pole_reach: f64,
     pub vegetation: ClassSel,
 }
@@ -102,9 +104,9 @@ impl Default for CorridorParams {
 #[derive(Clone, Debug)]
 pub struct CorridorJob {
     pub inputs: Vec<PathBuf>,
-    /// Ground model, to know how tall the vegetation is.
+    /// Modelo del suelo, para saber cuán alta es la vegetación.
     pub dtm: PathBuf,
-    /// Base path of the results.
+    /// Ruta base de los resultados.
     pub output: PathBuf,
     pub params: CorridorParams,
     pub formats: Formats,
@@ -140,7 +142,7 @@ impl CorridorJob {
 
 // ----------------------------------------------------------------------------- clustering
 
-/// Groups of points closer than `link` (chained), in 3D when `three_d`, else in plan.
+/// Grupos de puntos más cercanos que `link` (encadenados), en 3D cuando `three_d`, si no en planta.
 fn cluster(pts: &[[f64; 3]], link: f64, three_d: bool) -> Vec<Vec<usize>> {
     let labels = crate::cluster::link_labels(
         pts.len(),
@@ -151,7 +153,7 @@ fn cluster(pts: &[[f64; 3]], link: f64, three_d: bool) -> Vec<Vec<usize>> {
     crate::cluster::groups(&labels)
 }
 
-/// Least-squares parabola `z = a + b t + c t²` through `(t, z)`; `None` when it is degenerate.
+/// Parábola de mínimos cuadrados `z = a + b t + c t²` por `(t, z)`; `None` cuando es degenerada.
 fn parabola(samples: &[(f64, f64)]) -> Option<[f64; 3]> {
     let n = samples.len() as f64;
     let (mut s1, mut s2, mut s3, mut s4) = (0.0, 0.0, 0.0, 0.0);
@@ -165,7 +167,7 @@ fn parabola(samples: &[(f64, f64)]) -> Option<[f64; 3]> {
         z1 += t * z;
         z2 += t * t * z;
     }
-    // normal equations by Cramer's rule
+    // ecuaciones normales por la regla de Cramer
     let m = [[n, s1, s2], [s1, s2, s3], [s2, s3, s4]];
     let det = |m: &[[f64; 3]; 3]| {
         m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
@@ -188,9 +190,9 @@ fn parabola(samples: &[(f64, f64)]) -> Option<[f64; 3]> {
     Some(out)
 }
 
-/// Joins groups of wire points that are pieces of one conductor split by a gap in the laser
-/// returns: they point the same way, the gap is shorter than `gap_max` and the end of one lies on
-/// the line of the other.
+/// Une grupos de puntos de cable que son trozos de un mismo conductor partido por un hueco en los
+/// retornos del láser: apuntan en la misma dirección, el hueco es más corto que `gap_max` y el
+/// extremo de uno está en la línea del otro.
 fn join_pieces(pts: &[[f64; 3]], groups: Vec<Vec<usize>>, p: &CorridorParams) -> Vec<Vec<usize>> {
     if groups.len() < 2 || groups.len() > 5000 {
         return groups;
@@ -237,7 +239,7 @@ fn join_pieces(pts: &[[f64; 3]], groups: Vec<Vec<usize>>, p: &CorridorParams) ->
     for a in 0..groups.len() {
         for b in a + 1..groups.len() {
             let (pa, pb) = (&pieces[a], &pieces[b]);
-            // the pair of ends that face each other
+            // el par de extremos que se enfrentan
             let mut best: Option<(f64, [f64; 3], [f64; 3])> = None;
             for ea in &pa.end {
                 for eb in &pb.end {
@@ -251,7 +253,7 @@ fn join_pieces(pts: &[[f64; 3]], groups: Vec<Vec<usize>>, p: &CorridorParams) ->
             if d > p.gap_max || d <= p.link {
                 continue;
             }
-            // same direction (either way), and the other end lies on the line of this one
+            // misma dirección (en cualquier sentido), y el otro extremo está en la línea de este
             let cos = (pa.axis[0] * pb.axis[0] + pa.axis[1] * pb.axis[1]).abs();
             let v = [(eb[0] - ea[0]) / d, (eb[1] - ea[1]) / d];
             let along_a = (v[0] * pa.axis[0] + v[1] * pa.axis[1]).abs();
@@ -268,8 +270,8 @@ fn join_pieces(pts: &[[f64; 3]], groups: Vec<Vec<usize>>, p: &CorridorParams) ->
     }
     let mut out: Vec<Vec<usize>> = merged.into_values().collect();
     out.sort_by_key(|g| g[0]);
-    // pieces of a metre or two, too short to tell their direction, are joined by standing in a
-    // row: the same test the classification uses for the pieces of a conductor
+    // los trozos de un metro o dos, demasiado cortos para saber su dirección, se unen por estar en
+    // fila: la misma prueba que usa la clasificación para los trozos de un conductor
     let centres: Vec<[f64; 3]> = out
         .iter()
         .map(|g| {
@@ -299,16 +301,16 @@ fn join_pieces(pts: &[[f64; 3]], groups: Vec<Vec<usize>>, p: &CorridorParams) ->
     out
 }
 
-/// One conductor: a path of vertices (x, y, z) every `step` metres, in order.
+/// Un conductor: un trazado de vértices (x, y, z) cada `step` metros, en orden.
 #[derive(Clone, Debug)]
 pub struct Conductor {
     pub verts: Vec<[f64; 3]>,
-    /// Distance along the path of each vertex.
+    /// Distancia a lo largo del trazado de cada vértice.
     pub cum: Vec<f64>,
     pub points: usize,
-    /// Stretches that were filled.
+    /// Tramos que se rellenaron.
     pub gaps: usize,
-    /// Parts of the cluster dropped for being cut by a gap too long to fill.
+    /// Partes del grupo descartadas por estar cortadas por un hueco demasiado largo para rellenar.
     pub breaks: usize,
 }
 
@@ -332,8 +334,8 @@ impl Conductor {
         self.cum.last().copied().unwrap_or(0.0)
     }
 
-    /// The point of the path closest to `(x, y)` in plan: the distance along the path and the plan
-    /// distance to it.
+    /// El punto del trazado más cercano a `(x, y)` en planta: la distancia a lo largo del trazado y
+    /// la distancia en planta hasta él.
     pub fn locate(&self, x: f64, y: f64) -> Option<(f64, f64)> {
         let mut best: Option<(f64, f64)> = None;
         for k in 1..self.verts.len() {
@@ -346,9 +348,9 @@ impl Conductor {
     }
 }
 
-/// The samples of one stretch of a cluster: its points in (side, height) grouped within `lane`
-/// of each other, as (median side, median height, points). Parallel conductors, a metre or
-/// three apart, are separate groups; one conductor is one.
+/// Las muestras de un tramo de un grupo: sus puntos en (lado, altura) agrupados a menos de `lane`
+/// unos de otros, como (lado mediano, altura mediana, puntos). Los conductores paralelos, a uno o
+/// tres metros, son grupos separados; un conductor es uno.
 fn lane_samples(side: &[f64], z: &[f64], lane: f64) -> Vec<(f64, f64, usize)> {
     let labels = crate::cluster::link_labels(side.len(), |i| [side[i], z[i], 0.0], lane, 0.0);
     crate::cluster::groups(&labels)
@@ -361,8 +363,8 @@ fn lane_samples(side: &[f64], z: &[f64], lane: f64) -> Vec<(f64, f64, usize)> {
         .collect()
 }
 
-/// One conductor followed along the cluster: the vertex of each stretch where it has points,
-/// (distance along, side, height), and how many points it has.
+/// Un conductor seguido a lo largo del grupo: el vértice de cada tramo donde tiene puntos,
+/// (distancia a lo largo, lado, altura), y cuántos puntos tiene.
 struct Lane {
     vs: Vec<Option<(f64, f64, f64)>>,
     last: (f64, f64),
@@ -370,9 +372,9 @@ struct Lane {
     points: usize,
 }
 
-/// A path through the stretches of a lane, with the empty ones between full ones filled by a
-/// parabola of their neighbours (unless the gap is longer than `gap_max`): the pieces that remain,
-/// how many gaps were filled and how many were too long.
+/// Un trazado por los tramos de un carril, con los vacíos entre los llenos rellenados por una
+/// parábola de sus vecinos (salvo que el hueco sea más largo que `gap_max`): las partes que quedan,
+/// cuántos huecos se rellenaron y cuántos eran demasiado largos.
 fn trace(
     mut vs: Vec<Option<(f64, f64, f64)>>,
     smin: f64,
@@ -396,7 +398,7 @@ fn trace(
         }
         let len_m = (b - start) as f64 * p.step;
         if cur.is_empty() || b >= nbins {
-            // gaps at the ends are just shorter conductors
+            // los huecos en los extremos son solo conductores más cortos
             continue;
         }
         if len_m > p.gap_max {
@@ -404,7 +406,7 @@ fn trace(
             breaks += 1;
             continue;
         }
-        // parabola through up to four vertices on each side
+        // parábola por hasta cuatro vértices a cada lado
         let before: Vec<(f64, f64, f64)> = cur.iter().rev().take(4).copied().collect();
         let after: Vec<(f64, f64, f64)> = (b..nbins.min(b + 4)).filter_map(|k| vs[k]).collect();
         let mid = smin + (start as f64 + (b - start) as f64 / 2.0) * p.step;
@@ -437,9 +439,9 @@ fn trace(
     (pieces, gaps, breaks)
 }
 
-/// The conductor paths of a cluster of wire points: one for each conductor in it (the lanes of
-/// points that run side by side along its main direction), and more than one of those when a long
-/// gap cuts it.
+/// Los trazados de conductor de un grupo de puntos de cable: uno por cada conductor que hay en él
+/// (los carriles de puntos que van uno al lado de otro a lo largo de su dirección principal), y más
+/// de uno de ellos cuando un hueco largo lo corta.
 fn fit(points: &[[f64; 3]], p: &CorridorParams) -> Vec<Conductor> {
     let n = points.len() as f64;
     let (mx, my) = (
@@ -466,8 +468,9 @@ fn fit(points: &[[f64; 3]], p: &CorridorParams) -> Vec<Conductor> {
         bins[b].0.push(side(q));
         bins[b].1.push(q[2]);
     }
-    // follow the conductors from stretch to stretch: a sample goes to the lane whose last vertex
-    // is closest in (side, height), if within two lane widths, else it starts a new lane
+    // se siguen los conductores de tramo en tramo: una muestra va al carril cuyo último vértice
+    // está más cerca en (lado, altura), si está a menos de dos anchuras de carril; si no, empieza
+    // un carril nuevo
     let max_jump = 2.0 * p.lane;
     let max_idle = (p.gap_max / p.step).ceil() as usize + 1;
     let mut lanes: Vec<Lane> = Vec::new();
@@ -525,7 +528,7 @@ fn fit(points: &[[f64; 3]], p: &CorridorParams) -> Vec<Conductor> {
     out
 }
 
-// ----------------------------------------------------------------------------- the scene
+// ----------------------------------------------------------------------------- la escena
 
 /// A pole.
 #[derive(Clone, Debug)]
@@ -535,18 +538,18 @@ pub struct Pole {
     pub base_z: f64,
     pub top_z: f64,
     pub points: usize,
-    /// The larger side of its plan extent.
+    /// El lado mayor de su extensión en planta.
     pub width: f64,
 }
 
-/// The stretch of a conductor between two poles.
+/// El tramo de un conductor entre dos postes.
 #[derive(Clone, Debug)]
 pub struct Span {
     pub conductor: usize,
     pub index: usize,
     pub pole_a: Option<usize>,
     pub pole_b: Option<usize>,
-    /// Distance along the conductor where it begins and ends.
+    /// Distancia a lo largo del conductor donde empieza y termina.
     pub from: f64,
     pub to: f64,
     pub sag: f64,
@@ -560,7 +563,7 @@ struct SpanStats {
     tallest: f64,
 }
 
-/// A group of vegetation points.
+/// Un grupo de puntos de vegetación.
 #[derive(Clone, Copy)]
 struct Cell {
     max_h: f64,
@@ -572,7 +575,7 @@ struct Cell {
     along: f64,
 }
 
-/// One hazard found.
+/// Un peligro encontrado.
 #[derive(Clone, Debug)]
 pub struct Hazard {
     pub x: f64,
@@ -588,7 +591,7 @@ pub struct Hazard {
     pub span: usize,
 }
 
-/// What a run found.
+/// Lo que halló una ejecución.
 pub struct Scene {
     pub conductors: Vec<Conductor>,
     pub poles: Vec<Pole>,
@@ -596,11 +599,11 @@ pub struct Scene {
     pub hazards: Vec<Hazard>,
     pub span_stats: Vec<(f64, u32, u32, f64)>,
     pub vegetation_points: u64,
-    /// Conductor pieces left out for being shorter than `min_length`.
+    /// Trozos de conductor dejados fuera por ser más cortos que `min_length`.
     pub discarded: usize,
 }
 
-/// The closest point of segment `a`–`b` to `(x, y)` in plan: `(distance, t)`.
+/// El punto del segmento `a`–`b` más cercano a `(x, y)` en planta: `(distancia, t)`.
 fn segment(a: &[f64; 3], b: &[f64; 3], x: f64, y: f64) -> (f64, f64) {
     let (vx, vy) = (b[0] - a[0], b[1] - a[1]);
     let l2 = vx * vx + vy * vy;
@@ -612,7 +615,7 @@ fn segment(a: &[f64; 3], b: &[f64; 3], x: f64, y: f64) -> (f64, f64) {
     ((x - a[0] - t * vx).hypot(y - a[1] - t * vy), t)
 }
 
-/// Plan index of the conductors' vertices.
+/// Índice en planta de los vértices de los conductores.
 struct Index {
     cell: f64,
     grid: HashMap<(i64, i64), Vec<(u32, u32)>>,
@@ -631,8 +634,8 @@ impl Index {
         Self { cell, grid }
     }
 
-    /// The nearest conductor to `(x, y, z)` in plan within `reach`: its number, the distance along
-    /// it, the plan distance, and the conductor's height there.
+    /// El conductor más cercano a `(x, y, z)` en planta a menos de `reach`: su número, la distancia
+    /// a lo largo de él, la distancia en planta y la altura del conductor allí.
     fn nearest(
         &self,
         conductors: &[Conductor],
@@ -659,7 +662,7 @@ impl Index {
         let (_, c, i) = best?;
         let cd = &conductors[c as usize];
         let i = i as usize;
-        // refine on the two segments next to the vertex
+        // se refina sobre los dos segmentos junto al vértice
         let mut out: Option<(f64, f64, f64)> = None;
         for (a, b) in [(i.wrapping_sub(1), i), (i, i + 1)] {
             if a < cd.verts.len() && b < cd.verts.len() {
@@ -676,7 +679,7 @@ impl Index {
     }
 }
 
-/// Poles from the pole points.
+/// Postes a partir de los puntos de poste.
 fn find_poles(pts: &[[f64; 3]], p: &CorridorParams) -> Vec<Pole> {
     cluster(pts, p.pole_link, false)
         .into_iter()
@@ -714,12 +717,12 @@ fn find_poles(pts: &[[f64; 3]], p: &CorridorParams) -> Vec<Pole> {
         .collect()
 }
 
-/// The spans of every conductor: between consecutive poles standing beside it.
+/// Los vanos de cada conductor: entre postes consecutivos que están a su lado.
 fn find_spans(conductors: &[Conductor], poles: &[Pole], p: &CorridorParams) -> Vec<Span> {
     let mut spans = Vec::new();
     for (c, cd) in conductors.iter().enumerate() {
-        // poles beside this conductor (every conductor a pole stands beside has it as a support)
-        // and where along it they stand
+        // postes junto a este conductor (todo conductor junto al que está un poste lo tiene como
+        // apoyo) y dónde están a lo largo de él
         let mut mine: Vec<(f64, usize)> = poles
             .iter()
             .enumerate()
@@ -750,7 +753,8 @@ fn find_spans(conductors: &[Conductor], poles: &[Pole], p: &CorridorParams) -> V
             if to - from < p.step {
                 continue;
             }
-            // sag: how far the conductor hangs below the chord between the ends of the span
+            // flecha: cuánto cuelga el conductor por debajo de la cuerda entre los extremos del
+            // vano
             let (za, zb) = (z_at(from), z_at(to));
             let sag = cd
                 .verts
@@ -781,14 +785,14 @@ fn span_of(spans: &[Span], conductor: usize, s: f64) -> usize {
         .unwrap_or(0)
 }
 
-/// Reads the clouds and finds the conductors, poles and hazards.
+/// Lee las nubes y encuentra los conductores, los postes y los peligros.
 pub fn analyse(j: &CorridorJob) -> Result<Scene> {
     let p = &j.params;
     if !(p.link > 0.0 && p.step > 0.0 && p.cell > 0.0 && p.half_width > 0.0) {
         return Err(Error::Param("las distancias deben ser positivas".into()));
     }
     let dtm = Grid::read(&j.dtm)?;
-    // pass 1: wires and poles
+    // pasada 1: cables y postes
     let (mut wires, mut pole_pts): (Vec<[f64; 3]>, Vec<[f64; 3]>) = (Vec::new(), Vec::new());
     for input in &j.inputs {
         Reader::open(input)?.scan(|pt| {
@@ -824,8 +828,8 @@ pub fn analyse(j: &CorridorJob) -> Result<Scene> {
             p.min_points
         )));
     }
-    // what the classifier took for lines in the crowns is short, and what it took for poles is low,
-    // wide or far from every conductor
+    // lo que el clasificador tomó por líneas en las copas es corto, y lo que tomó por postes es
+    // bajo, ancho o está lejos de todo conductor
     let before = conductors.len();
     conductors.retain(|c| c.length() >= p.min_length);
     if conductors.is_empty() {
@@ -846,7 +850,7 @@ pub fn analyse(j: &CorridorJob) -> Result<Scene> {
         .collect();
     let spans = find_spans(&conductors, &poles, p);
     check_cancel()?;
-    // pass 2: the vegetation near the conductors
+    // pasada 2: la vegetación cerca de los conductores
     let index = Index::new(&conductors, p.half_width.max(5.0));
     let mut cells: HashMap<(i64, i64), Cell> = HashMap::new();
     let mut seen = 0u64;
@@ -961,7 +965,7 @@ fn name(c: usize, s: &Span) -> String {
     format!("C{}-V{}", c + 1, s.index + 1)
 }
 
-/// Runs the whole analysis and writes the results.
+/// Ejecuta todo el análisis y escribe los resultados.
 pub fn run(j: &CorridorJob) -> Result<String> {
     let mut files = j.inputs.clone();
     files.push(j.dtm.clone());
@@ -1162,7 +1166,7 @@ pub fn run(j: &CorridorJob) -> Result<String> {
     Ok(lines.join("\n") + &crate::crs::notes(&notes))
 }
 
-/// The paths of the inputs the job reads.
+/// Las rutas de las entradas que lee el trabajo.
 pub fn inputs(j: &CorridorJob) -> Vec<&Path> {
     let mut v: Vec<&Path> = j.inputs.iter().map(PathBuf::as_path).collect();
     v.push(j.dtm.as_path());
@@ -1174,7 +1178,8 @@ mod tests {
     use super::*;
     use crate::las::{Writer, WriterOptions};
 
-    /// A record of point format 0: position (scaled by 0.001 from the offset), class.
+    /// Un registro de formato de punto 0: posición (escalada por 0,001 desde el desplazamiento),
+    /// clase.
     fn record(x: f64, y: f64, z: f64, class: u8) -> Vec<u8> {
         let mut r = vec![0u8; 20];
         for (k, v) in [x - 500_000.0, y - 4_000_000.0, z].iter().enumerate() {
@@ -1191,12 +1196,13 @@ mod tests {
         std::fs::create_dir_all(&dir)?;
         let (x0, y0) = (500_000.0, 4_000_000.0);
         let mut recs: Vec<Vec<u8>> = Vec::new();
-        // two conductors 4 m apart, from x = 0 to 100 m, hanging 4 m at mid-span from 12 m
+        // dos conductores a 4 m uno de otro, de x = 0 a 100 m, colgando 4 m a mitad de vano desde
+        // 12 m
         let sag = |s: f64| 12.0 - 4.0 * (1.0 - ((s - 50.0) / 50.0).powi(2));
         for (k, dy) in [0.0, 4.0].iter().enumerate() {
             let mut s = 0.0;
             while s <= 100.0 {
-                // a missing stretch in the middle of the first conductor
+                // un tramo ausente en medio del primer conductor
                 if !(k == 0 && (40.0..46.0).contains(&s)) {
                     recs.push(record(
                         x0 + s,
@@ -1208,7 +1214,7 @@ mod tests {
                 s += 0.5;
             }
         }
-        // two poles, between the conductors, 12 m high
+        // dos postes, entre los conductores, de 12 m de altura
         for px in [0.0, 100.0] {
             let mut z = 0.0;
             while z <= 12.0 {
@@ -1216,7 +1222,7 @@ mod tests {
                 z += 0.5;
             }
         }
-        // trees: A under the line (invasion), B tall and 15 m aside (fall), C short and far
+        // árboles: A bajo la línea (invasión), B alto y a 15 m al lado (caída), C bajo y lejos
         for (tx, ty, h) in [(50.0, 2.0, 6.5), (20.0, 15.0, 20.0), (80.0, 25.0, 10.0)] {
             let mut z = 2.0;
             while z <= h {
@@ -1224,7 +1230,7 @@ mod tests {
                 z += 0.5;
             }
         }
-        // a header-only template, then the file
+        // una plantilla solo con cabecera y luego el archivo
         let tpl = crate::ply::template(&dir, 0, 0.001, [x0, y0, 0.0], Some(25830))?;
         let cloud = dir.join("linea.las");
         let mut w = Writer::create_with(&cloud, &tpl, &WriterOptions::default())?;
@@ -1246,7 +1252,7 @@ mod tests {
             },
         };
         let sc = analyse(&job)?;
-        // the missing stretch is filled, so both are whole conductors, 100 m long
+        // el tramo ausente se rellena, así que ambos son conductores enteros, de 100 m de largo
         assert_eq!(
             sc.conductors.len(),
             2,
@@ -1257,7 +1263,8 @@ mod tests {
             assert!((c.length() - 100.0).abs() < 4.0, "{}", c.length());
         }
         assert!(sc.conductors.iter().any(|c| c.gaps > 0));
-        // the filled gap follows the sag: at s = 43 the wire hangs about 12 - 4(1-(7/50)^2) = 8.08
+        // el hueco rellenado sigue la flecha: en s = 43 el cable cuelga unos 12 - 4(1-(7/50)^2) =
+        // 8,08
         let first = sc
             .conductors
             .iter()
@@ -1284,7 +1291,7 @@ mod tests {
             sc.spans
         );
         assert!((sc.spans[0].sag - 4.0).abs() < 0.8, "{}", sc.spans[0].sag);
-        // A is an invasion, B a fall hazard, C nothing
+        // A es una invasión, B un peligro de caída, C nada
         assert_eq!(sc.hazards.len(), 2, "{:?}", sc.hazards);
         let a = sc
             .hazards
@@ -1298,7 +1305,7 @@ mod tests {
             .find(|h| !h.invasion)
             .ok_or(Error::Cancelled)?;
         assert!(b.fall && (b.x - (x0 + 20.0)).abs() < 3.0);
-        // the report and the files
+        // el informe y los archivos
         let text = run(&job)?;
         assert!(
             text.contains("2 conductor(es), 2 poste(s), 2 vano(s)"),
@@ -1309,7 +1316,7 @@ mod tests {
         assert_eq!(spans.lines().count(), 3, "{spans}");
         assert!(out.conductors.as_ref().is_some_and(|p| p.exists()));
         assert!(out.hazards.as_ref().is_some_and(|p| p.exists()));
-        // a cloud without wires says so
+        // una nube sin cables lo dice
         let none = dir.join("sin.las");
         let mut w = Writer::create_with(&none, &tpl, &WriterOptions::default())?;
         w.write(&record(x0, y0, 1.0, 2))?;
@@ -1323,15 +1330,15 @@ mod tests {
         Ok(())
     }
 
-    /// Conductors closer than the linking distance end up in one cluster of points; they must
-    /// still come out as one path each, not as a path through the middle of both.
+    /// Los conductores más cercanos que la distancia de enlace acaban en un mismo grupo de puntos;
+    /// aun así deben salir como un trazado cada uno, no como un trazado por el medio de ambos.
     #[test]
     fn parallel_conductors_in_one_cluster_are_told_apart() {
         let p = CorridorParams::default();
         let mut pts = Vec::new();
         let mut s = 0.0_f64;
         while s <= 60.0 {
-            // 2 m apart across and 1 m apart in height
+            // a 2 m uno de otro a través y a 1 m de altura
             for (side, z) in [(0.0, 20.0), (2.0, 21.0)] {
                 pts.push([s, side, z - 0.002 * (s - 30.0).powi(2)]);
             }
@@ -1348,8 +1355,8 @@ mod tests {
         assert!(paths.iter().all(|c| c.length() > 50.0));
     }
 
-    /// A survey with few passes sees a conductor in pieces a metre long, ten metres apart: too short
-    /// to tell their direction, they are one conductor because they stand in a row.
+    /// Un vuelo con pocas pasadas ve un conductor en trozos de un metro, a diez metros unos de
+    /// otros: demasiado cortos para saber su dirección, son un conductor por estar en fila.
     #[test]
     fn pieces_of_a_metre_in_a_row_are_one_conductor() {
         let p = CorridorParams::default();
@@ -1362,7 +1369,7 @@ mod tests {
         let groups = join_pieces(&pts, cluster(&pts, p.link, true), &p);
         assert_eq!(groups.len(), 1, "{}", groups.len());
         assert_eq!(groups[0].len(), pts.len());
-        // a piece off the line stays alone
+        // un trozo fuera de la línea se queda solo
         pts.push([55.0, 40.0, 30.0]);
         pts.push([55.5, 40.0, 30.0]);
         let groups = join_pieces(&pts, cluster(&pts, p.link, true), &p);
@@ -1379,7 +1386,7 @@ mod tests {
         assert!(
             (c[0] - 3.0).abs() < 1e-9 && (c[1] + 0.1).abs() < 1e-9 && (c[2] - 0.02).abs() < 1e-9
         );
-        // three samples on one point cannot say anything
+        // tres muestras en un punto no pueden decir nada
         assert!(parabola(&[(1.0, 1.0), (1.0, 1.0), (1.0, 1.0), (1.0, 1.0)]).is_none());
     }
 }

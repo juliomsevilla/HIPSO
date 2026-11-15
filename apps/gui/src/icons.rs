@@ -1,10 +1,11 @@
-//! Flat SVG icons (`assets/icons`), rasterised once per size and colour into egui textures.
+//! Iconos SVG planos (`assets/icons`), rasterizados una vez por tamaño y color en texturas de egui.
 //!
-//! Each SVG is drawn on a 24 px grid with a 1.5 px stroke. Neutral strokes use `currentColor`,
-//! which is replaced by the tint requested by the caller; accents keep their own colours.
+//! Cada SVG se dibuja en una cuadrícula de 24 px con un trazo de 1,5 px. Los trazos neutros usan
+//! `currentColor`, que se sustituye por el tinte que pide quien llama; los acentos conservan sus
+//! propios colores.
 //!
-//! To add an icon, drop `assets/icons/<name>.svg` (see the README there) and use `"@<name>"`;
-//! `build.rs` picks it up. A name with no file falls back to `@missing`.
+//! Para añadir un icono, déjese `assets/icons/<nombre>.svg` (véase el LÉEME de allí) y úsese
+//! `"@<nombre>"`; `build.rs` lo recoge. Un nombre sin archivo recurre a `@missing`.
 
 use eframe::egui::{
     self, Color32, ColorImage, Id, Pos2, Rect, TextureHandle, TextureOptions, Vec2,
@@ -13,7 +14,7 @@ use resvg::{tiny_skia, usvg};
 
 include!(concat!(env!("OUT_DIR"), "/icons_table.rs"));
 
-/// The icon name behind a glyph that older call sites still pass.
+/// El nombre de icono que hay detrás de un glifo que todavía pasan lugares de llamada antiguos.
 fn glyph_name(glyph: &str) -> Option<&'static str> {
     Some(match glyph {
         "➕" => "add",
@@ -43,7 +44,7 @@ fn source(name: &str) -> Option<&'static str> {
     SOURCES.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
 }
 
-/// The icon name for `icon` (`@name` or a known glyph), when there is an SVG for it.
+/// El nombre de icono para `icon` (`@nombre` o un glifo conocido), cuando hay un SVG para él.
 pub fn resolve(icon: &str) -> Option<&'static str> {
     let name = match icon.strip_prefix('@') {
         Some(n) => n,
@@ -69,7 +70,7 @@ fn rasterise(svg: &str, px: u32, tint: Color32) -> Option<ColorImage> {
     ))
 }
 
-/// Paints the icon `name` centred on `c` in a `size` x `size` box; false when it cannot.
+/// Pinta el icono `name` centrado en `c` en una caja de `size` x `size`; falso cuando no puede.
 pub fn paint(p: &egui::Painter, c: Pos2, size: f32, name: &str, tint: Color32) -> bool {
     let Some(svg) = source(name) else {
         return false;

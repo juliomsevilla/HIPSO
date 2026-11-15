@@ -1,8 +1,8 @@
-//! Big vector layers drawn as one picture. Millions of vertices as egui shapes or meshes cost
-//! gigabytes in the renderer and seconds per frame; the same layer rasterised on the CPU into a
-//! texture costs the size of the screen, whatever the number of vertices. While the view moves
-//! the last picture is shifted and scaled (as a raster layer is), and it is drawn again once the
-//! view has been still for a moment.
+//! Capas vectoriales grandes dibujadas como una sola imagen. Millones de vértices como formas o
+//! mallas de egui cuestan gigabytes en el renderizador y segundos por fotograma; la misma capa
+//! rasterizada en la CPU en una textura cuesta el tamaño de la pantalla, sea cual sea el número de
+//! vértices. Mientras la vista se mueve, la última imagen se desplaza y escala (como una capa
+//! ráster) y se vuelve a dibujar una vez que la vista lleva un momento quieta.
 
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
@@ -13,21 +13,21 @@ use super::*;
 use crate::layers::VecLayer;
 use crate::symbology::SymKind;
 
-/// Above this many vertices a layer is drawn as a picture.
+/// Por encima de este número de vértices una capa se dibuja como imagen.
 pub const HEAVY_VERTICES: usize = 150_000;
-/// Above this many features too: a point layer has one vertex each.
+/// Por encima de este número de elementos también: una capa de puntos tiene un vértice cada uno.
 pub const HEAVY_FEATURES: usize = 4_000;
-/// How long the view must be still before the picture is made again.
+/// Cuánto tiempo debe estar quieta la vista antes de volver a hacer la imagen.
 const SETTLE: Duration = Duration::from_millis(150);
 
-/// The picture of a layer and what it was made for.
+/// La imagen de una capa y para qué se hizo.
 pub struct Cache {
     key: u64,
-    /// The view the picture shows, and the size it was made for.
+    /// La vista que muestra la imagen y el tamaño para el que se hizo.
     plan: Plan,
     size: (usize, usize),
     tex: Option<egui::TextureHandle>,
-    /// The view of the last frame and since when it has not changed.
+    /// La vista del último fotograma y desde cuándo no ha cambiado.
     seen: (u64, u64, u64, usize, usize),
     changed: Instant,
 }
@@ -54,7 +54,7 @@ impl VecLayer {
         self.geom.nverts > HEAVY_VERTICES || self.data.features.len() > HEAVY_FEATURES
     }
 
-    /// What the picture depends on besides the view.
+    /// De qué depende la imagen además de la vista.
     fn style_key(&self, opacity: f32) -> u64 {
         hash_of((
             self.rev,
@@ -72,7 +72,7 @@ impl VecLayer {
     }
 }
 
-/// The layer in the view `plan` of a `w`×`h` window, `ppp` pixels per point.
+/// La capa en la vista `plan` de una ventana de `w`×`h`, `ppp` píxeles por punto.
 fn render(
     v: &VecLayer,
     plan: Plan,
@@ -108,7 +108,8 @@ fn render(
         line_join: tiny_skia::LineJoin::Round,
         ..Default::default()
     };
-    // vertices closer than this (squared, in pixels) to the last one drawn are left out
+    // los vértices más cercanos que esto (al cuadrado, en píxeles) al último dibujado se dejan
+    // fuera
     let min_d2 = 0.6 * ppp * ppp;
     let mut dots: HashSet<(i32, i32)> = HashSet::new();
     for &i in &visible {
@@ -126,7 +127,7 @@ fn render(
                 Some(p) => px(p),
                 None => continue,
             };
-            // one dot per 2 px square: points on top of each other would only cost time
+            // un punto por cuadrado de 2 px: los puntos unos sobre otros solo costarían tiempo
             if !dots.insert(((x / (2.0 * ppp)) as i32, (y / (2.0 * ppp)) as i32)) {
                 continue;
             }
@@ -149,7 +150,7 @@ fn render(
             continue;
         }
         if size_px < 1.0 {
-            // a feature under a pixel is a dot
+            // un elemento bajo un píxel es un punto
             let (x, y) = px(&[(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0]);
             if dots.insert(((x / ppp) as i32, (y / ppp) as i32)) {
                 paint.set_color_rgba8(c[0], c[1], c[2], a(opacity));
@@ -213,7 +214,7 @@ fn render(
 }
 
 impl App {
-    /// Draws a heavy layer as its picture, making it again when the view has settled.
+    /// Dibuja una capa pesada como su imagen, rehaciéndola cuando la vista se ha asentado.
     pub fn paint_raster(
         &self,
         clip: &egui::Painter,
@@ -261,8 +262,8 @@ impl App {
             }
         }
         let Some(tex) = &c.tex else { return };
-        // where the picture lies in the current view: its corners, mapped from the view it was
-        // made for to the one on screen
+        // dónde está la imagen en la vista actual: sus esquinas, trasladadas de la vista para la
+        // que se hizo a la que está en pantalla
         let (pw, ph) = c.size;
         let (tl, br) = (
             c.plan.to_map(0.0, 0.0, pw, ph),

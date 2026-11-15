@@ -1,9 +1,10 @@
-//! Operations on polygon layers: validity check and repair, buffer, dissolve, union and
-//! intersection, and the cut and attach edits of single polygons.
+//! Operaciones sobre capas de polígonos: comprobación de validez y reparación, búfer, disolver,
+//! unión e intersección, y las ediciones de cortar y adosar de polígonos sueltos.
 //!
-//! Geometry comes from the `geo` crate's algorithms (OGC validity rules; repair after Ledoux,
-//! Arroyo Ohori and Meijers 2014; boolean operations; buffer). A layer keeps its attribute
-//! table: operations that merge features say what the attributes of the result are.
+//! La geometría sale de los algoritmos del crate `geo` (reglas de validez de OGC; reparación según
+//! Ledoux, Arroyo Ohori y Meijers 2014; operaciones booleanas; búfer). Una capa conserva su tabla
+//! de atributos: las operaciones que fusionan elementos dicen cuáles son los atributos del
+//! resultado.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -15,24 +16,24 @@ use geo::algorithm::validation::Validation;
 use crate::vector::{self, ColKind, Region, Shape2, Table, Val};
 use crate::{Error, Result};
 
-/// One feature: its geometry and its attribute values (field, text).
+/// Un elemento: su geometría y sus valores de atributo (campo, texto).
 #[derive(Clone, Debug)]
 pub struct Feature {
     pub geom: MultiPolygon<f64>,
     pub attrs: Vec<(String, String)>,
 }
 
-/// A polygon layer.
+/// Una capa de polígonos.
 #[derive(Clone, Debug, Default)]
 pub struct PolyLayer {
     pub features: Vec<Feature>,
-    /// The `.prj` text of the file read, written back with the result.
+    /// El texto `.prj` del archivo leído, que se vuelve a escribir con el resultado.
     pub prj: Option<String>,
 }
 
-/// The polygons (with holes and parts) of a set of rings, whose orientation is not trusted: a
-/// ring is a hole when an odd number of other rings hold it, and belongs to the innermost ring
-/// that holds it.
+/// Los polígonos (con huecos y partes) de un conjunto de anillos, cuya orientación no se fía: un
+/// anillo es un hueco cuando un número impar de otros anillos lo contienen, y pertenece al anillo
+/// más interno que lo contiene.
 pub fn multipolygon_of(rings: &[Vec<[f64; 2]>]) -> MultiPolygon<f64> {
     let rings: Vec<&Vec<[f64; 2]>> = rings.iter().filter(|r| r.len() >= 3).collect();
     let polys: Vec<vector::Polygon> = rings.iter().map(|r| vector::Polygon::new(vec![(*r).clone()])).collect();
@@ -61,12 +62,13 @@ pub fn rings_of(region: &Region) -> Vec<Vec<[f64; 2]>> {
     }
 }
 
-/// Reads the polygons of a shapefile, GeoJSON or GeoPackage layer with their attributes.
+/// Lee los polígonos de una capa de shapefile, GeoJSON o GeoPackage con sus atributos.
 pub fn read_polygons(path: &Path) -> Result<PolyLayer> {
     read_polygons_with(path, &vector::ReadOptions::default())
 }
 
-/// Like [`read_polygons`], with options: a point layer becomes circles of `opts.radius`.
+/// Como [`read_polygons`], con opciones: una capa de puntos se convierte en círculos de
+/// `opts.radius`.
 pub fn read_polygons_with(path: &Path, opts: &vector::ReadOptions) -> Result<PolyLayer> {
     let regions = vector::read_regions(path, opts)?;
     let features = regions
@@ -80,8 +82,8 @@ pub fn read_polygons_with(path: &Path, opts: &vector::ReadOptions) -> Result<Pol
     Ok(PolyLayer { features, prj })
 }
 
-/// The attribute table of a layer: a column is numeric when every value is a number, else text.
-/// Names are cut to the 10 characters of the format and kept distinct.
+/// La tabla de atributos de una capa: una columna es numérica cuando todos sus valores son números;
+/// si no, texto. Los nombres se cortan a los 10 caracteres del formato y se mantienen distintos.
 pub fn table_of(features: &[Feature]) -> Table {
     let mut names: Vec<String> = Vec::new();
     for f in features {
@@ -145,7 +147,7 @@ pub fn table_of(features: &[Feature]) -> Table {
     Table { columns, rows }
 }
 
-/// Writes a layer as a shapefile (with its `.prj` when it has one).
+/// Escribe una capa como shapefile (con su `.prj` cuando lo tiene).
 pub fn write_polygons(layer: &PolyLayer, path: &Path) -> Result<()> {
     crate::paths::ensure_parent(path)?;
     let feats: Vec<Vec<(Vec<[f64; 2]>, bool)>> = layer
@@ -166,7 +168,7 @@ pub fn write_polygons(layer: &PolyLayer, path: &Path) -> Result<()> {
     vector::write_polygon_layer(path, &feats, &table_of(&layer.features), layer.prj.as_deref())
 }
 
-/// Features that are not valid, with what is wrong: `(feature index, reasons)`.
+/// Los elementos que no son válidos, con lo que les pasa: `(índice del elemento, motivos)`.
 pub fn invalid(layer: &PolyLayer) -> Vec<(usize, String)> {
     layer
         .features
@@ -183,9 +185,9 @@ pub fn invalid(layer: &PolyLayer) -> Vec<(usize, String)> {
         .collect()
 }
 
-/// The layer with every invalid feature repaired (even-odd rule): self-crossings become parts,
-/// doubled edges cancel. Valid features are not touched. The count of features changed is
-/// returned.
+/// La capa con cada elemento inválido reparado (regla par-impar): los cruces consigo mismo pasan a
+/// ser partes, los bordes duplicados se cancelan. Los elementos válidos no se tocan. Se devuelve el
+/// número de elementos cambiados.
 pub fn make_valid(layer: &PolyLayer) -> Result<(PolyLayer, usize)> {
     let mut out = layer.clone();
     let mut changed = 0;
@@ -214,8 +216,8 @@ fn require_valid(layer: &PolyLayer, what: &str) -> Result<()> {
     Ok(())
 }
 
-/// Each feature grown by `dist` map units (shrunk if negative), with rounded corners. Features
-/// that vanish when shrunk keep their row with no geometry.
+/// Cada elemento ampliado `dist` unidades del mapa (reducido si es negativa), con esquinas
+/// redondeadas. Los elementos que desaparecen al reducirse conservan su fila sin geometría.
 pub fn buffer(layer: &PolyLayer, dist: f64) -> Result<PolyLayer> {
     require_valid(layer, "hacer el buffer")?;
     let mut out = layer.clone();
@@ -225,8 +227,9 @@ pub fn buffer(layer: &PolyLayer, dist: f64) -> Result<PolyLayer> {
     Ok(out)
 }
 
-/// Merges features. With `field`, those sharing its value become one feature (that value kept,
-/// plus `n` the number merged); without, the whole layer becomes one feature with `n`.
+/// Fusiona elementos. Con `field`, los que comparten su valor pasan a ser un elemento (se conserva
+/// ese valor, más `n` el número de fusionados); sin él, toda la capa pasa a ser un elemento con
+/// `n`.
 pub fn dissolve(layer: &PolyLayer, field: Option<&str>) -> Result<PolyLayer> {
     require_valid(layer, "disolver")?;
     let mut groups: BTreeMap<String, Vec<&Feature>> = BTreeMap::new();
@@ -257,8 +260,9 @@ pub fn dissolve(layer: &PolyLayer, field: Option<&str>) -> Result<PolyLayer> {
     Ok(PolyLayer { features, prj: layer.prj.clone() })
 }
 
-/// The extents of a layer's features (not finite for a feature with no geometry) and an index
-/// over them, so that the features near a window are found without looking at all of them.
+/// Las extensiones de los elementos de una capa (no finita para un elemento sin geometría) y un
+/// índice sobre ellas, de modo que los elementos cercanos a una ventana se encuentran sin mirarlos
+/// todos.
 fn index_of(layer: &PolyLayer) -> (Vec<[f64; 4]>, crate::rtree::RTree) {
     let boxes: Vec<[f64; 4]> = layer
         .features
@@ -269,7 +273,7 @@ fn index_of(layer: &PolyLayer) -> (Vec<[f64; 4]>, crate::rtree::RTree) {
     (boxes, tree)
 }
 
-/// The features of the indexed layer whose extent meets that of `g`, in layer order.
+/// Los elementos de la capa indexada cuya extensión corta la de `g`, en el orden de la capa.
 fn near(tree: &crate::rtree::RTree, g: &MultiPolygon<f64>) -> Vec<usize> {
     let Some(r) = g.bounding_rect() else { return Vec::new() };
     let mut hits = tree.query([r.min().x, r.min().y, r.max().x, r.max().y]);
@@ -277,8 +281,8 @@ fn near(tree: &crate::rtree::RTree, g: &MultiPolygon<f64>) -> Vec<usize> {
     hits
 }
 
-/// The union of two layers as an overlay: pieces in both (with the attributes of both, those of
-/// `b` after a `b_` prefix), in `a` only and in `b` only. Pieces with no area are dropped.
+/// La unión de dos capas como superposición: piezas en ambas (con los atributos de ambas, los de
+/// `b` tras un prefijo `b_`), solo en `a` y solo en `b`. Las piezas sin área se descartan.
 pub fn union(a: &PolyLayer, b: &PolyLayer) -> Result<PolyLayer> {
     require_valid(a, "la unión")?;
     require_valid(b, "la unión")?;
@@ -313,8 +317,8 @@ pub fn union(a: &PolyLayer, b: &PolyLayer) -> Result<PolyLayer> {
     Ok(PolyLayer { features, prj: a.prj.clone().or_else(|| b.prj.clone()) })
 }
 
-/// The intersection of two layers: only the pieces that lie in both, with the attributes of
-/// both (those of `b` after a `b_` prefix). Pieces with no area are dropped.
+/// La intersección de dos capas: solo las piezas que están en ambas, con los atributos de ambas
+/// (los de `b` tras un prefijo `b_`). Las piezas sin área se descartan.
 pub fn intersect(a: &PolyLayer, b: &PolyLayer) -> Result<PolyLayer> {
     require_valid(a, "la intersección")?;
     require_valid(b, "la intersección")?;
@@ -333,8 +337,8 @@ pub fn intersect(a: &PolyLayer, b: &PolyLayer) -> Result<PolyLayer> {
     Ok(PolyLayer { features, prj: a.prj.clone().or_else(|| b.prj.clone()) })
 }
 
-/// The features of `a` without what `b` covers; the pieces keep the attributes of `a`. Features
-/// that nothing is left of are dropped.
+/// Los elementos de `a` sin lo que cubre `b`; las piezas conservan los atributos de `a`. Los
+/// elementos de los que no queda nada se descartan.
 pub fn difference(a: &PolyLayer, b: &PolyLayer) -> Result<PolyLayer> {
     require_valid(a, "la diferencia")?;
     require_valid(b, "la diferencia")?;
@@ -352,8 +356,8 @@ pub fn difference(a: &PolyLayer, b: &PolyLayer) -> Result<PolyLayer> {
     Ok(PolyLayer { features, prj: a.prj.clone().or_else(|| b.prj.clone()) })
 }
 
-/// What is in one layer or the other but not in both: what only `a` covers (with its attributes)
-/// and what only `b` covers (with its attributes after a `b_` prefix).
+/// Lo que está en una capa o en la otra pero no en ambas: lo que solo cubre `a` (con sus atributos)
+/// y lo que solo cubre `b` (con sus atributos tras un prefijo `b_`).
 pub fn symmetric_difference(a: &PolyLayer, b: &PolyLayer) -> Result<PolyLayer> {
     let mut out = difference(a, b)?;
     let only_b = difference(b, a)?;
@@ -364,21 +368,23 @@ pub fn symmetric_difference(a: &PolyLayer, b: &PolyLayer) -> Result<PolyLayer> {
     Ok(out)
 }
 
-/// The union of the polygons of several features as parts (rings of polygons with their holes).
-/// Slivers and gaps narrower than a millionth of the extent, which edges that should coincide
-/// leave when they do not quite (after a cut, or drawn by hand), are closed, so that the border
-/// between neighbours disappears.
+/// La unión de los polígonos de varios elementos como partes (anillos de polígonos con sus huecos).
+/// Las astillas y los huecos más estrechos que una millonésima de la extensión, que dejan los
+/// bordes que deberían coincidir cuando no lo hacen del todo (tras un corte o dibujados a mano), se
+/// cierran, de modo que el límite entre vecinos desaparece.
 pub fn merge_parts(sets: &[&[Vec<[f64; 2]>]]) -> Vec<Vec<[f64; 2]>> {
     let polys: Vec<MultiPolygon<f64>> = sets.iter().map(|s| multipolygon_of(s)).collect();
     let all = geo::algorithm::bool_ops::unary_union(polys.iter());
     let tol = tolerance(&all);
-    // the round corners that buffering leaves are straightened out again
+    // las esquinas redondeadas que deja el búfer se vuelven a enderezar
     parts_of(&geo::Simplify::simplify(&all.buffer(tol).buffer(-tol), 2.0 * tol))
 }
 
-/// The rings of a multipolygon as closed parts: for each polygon its outer ring, then its holes.
+/// Los anillos de un multipolígono como partes cerradas: para cada polígono su anillo exterior y
+/// luego sus huecos.
 pub fn parts_of(m: &MultiPolygon<f64>) -> Vec<Vec<[f64; 2]>> {
-    // exteriors run clockwise and holes counter-clockwise, as the rest of the program keeps them
+    // los exteriores van en el sentido de las agujas del reloj y los huecos en sentido contrario,
+    // como los guarda el resto del programa
     let ring = |l: &LineString<f64>, exterior: bool| {
         let mut r: Vec<[f64; 2]> = l.0.iter().map(|c| [c.x, c.y]).collect();
         if (crate::geojson::signed_area(&r) > 0.0) == exterior {
@@ -391,8 +397,9 @@ pub fn parts_of(m: &MultiPolygon<f64>) -> Vec<Vec<[f64; 2]>> {
         .collect()
 }
 
-/// Cuts a polygon feature (its parts) with a line that starts and ends outside it: the pieces on
-/// each side of the line, each as parts. One piece when the line does not split it.
+/// Corta un elemento poligonal (sus partes) con una línea que empieza y termina fuera de él: las
+/// piezas a cada lado de la línea, cada una como partes. Una sola pieza cuando la línea no lo
+/// divide.
 pub fn cut_by_line(parts: &[Vec<[f64; 2]>], line: &[[f64; 2]]) -> Vec<Vec<Vec<[f64; 2]>>> {
     let poly = multipolygon_of(parts);
     let whole = || vec![parts.to_vec()];
@@ -400,8 +407,8 @@ pub fn cut_by_line(parts: &[Vec<[f64; 2]>], line: &[[f64; 2]]) -> Vec<Vec<Vec<[f
     if line.len() < 2 {
         return whole();
     }
-    // the line is thickened to a sliver that splits the polygon, and each piece grows back to
-    // the line by the same amount
+    // la línea se engrosa hasta una astilla que divide el polígono, y cada pieza vuelve a crecer
+    // hasta la línea en la misma cantidad
     let eps = (r.width().hypot(r.height()) * 1e-7).max(f64::MIN_POSITIVE);
     let ls = LineString::new(line.iter().map(|p| Coord { x: p[0], y: p[1] }).collect());
     let cut = ls.buffer(eps);
@@ -416,34 +423,36 @@ pub fn cut_by_line(parts: &[Vec<[f64; 2]>], line: &[[f64; 2]]) -> Vec<Vec<Vec<[f
         .collect()
 }
 
-/// A new polygon drawn over existing ones, without what is already covered: the parts of
-/// `ring` minus `others`. Empty when nothing is left.
+/// Un polígono nuevo dibujado sobre otros existentes, sin lo que ya está cubierto: las partes de
+/// `ring` menos `others`. Vacío cuando no queda nada.
 ///
-/// Ground that the ring and the polygons enclose between them (a pocket the closing side of the
-/// ring leaves behind) is taken too, so that the new polygon meets the others with no gap.
+/// El terreno que el anillo y los polígonos encierran entre sí (una bolsa que deja atrás el lado de
+/// cierre del anillo) también se toma, de modo que el polígono nuevo encuentra a los demás sin
+/// hueco.
 pub fn attach(ring: &[[f64; 2]], others: &[&[Vec<[f64; 2]>]]) -> Vec<Vec<[f64; 2]>> {
     let new = multipolygon_of(&[ring.to_vec()]);
     let polys: Vec<MultiPolygon<f64>> = others.iter().map(|o| multipolygon_of(o)).collect();
     let covered = geo::algorithm::bool_ops::unary_union(polys.iter());
     let tol = tolerance(&new);
-    // slivers between polygons that do not quite touch (after a cut) are part of what is covered,
-    // or the new polygon would fill them as thin spikes along the old borders
+    // las astillas entre polígonos que no se tocan del todo (tras un corte) forman parte de lo que
+    // está cubierto, o el polígono nuevo las rellenaría como finas púas a lo largo de los bordes
+    // antiguos
     let slivers = covered.buffer(tol).buffer(-tol).difference(&covered);
     let covered = covered.union(&MultiPolygon::new(slivers.0.into_iter().filter(|p| p.unsigned_area() > 100.0 * tol * tol).collect()));
     let pockets = holes_of(&new.union(&covered)).difference(&holes_of(&covered));
     let pockets = MultiPolygon::new(pockets.0.into_iter().filter(|p| p.unsigned_area() > tol * tol).collect());
-    // what is left of the slivers (notches too small to see) is straightened out
+    // lo que queda de las astillas (muescas demasiado pequeñas para verse) se endereza
     let m = geo::Simplify::simplify(&new.union(&pockets).difference(&covered), tol);
     if m.unsigned_area() <= 1e-9 { Vec::new() } else { parts_of(&m) }
 }
 
-/// The holes of a multipolygon as polygons.
+/// Los huecos de un multipolígono como polígonos.
 fn holes_of(m: &MultiPolygon<f64>) -> MultiPolygon<f64> {
     MultiPolygon::new(m.0.iter().flat_map(|p| p.interiors().iter().map(|h| GPoly::new(h.clone(), Vec::new()))).collect())
 }
 
-/// A distance too small to matter on the map (a millionth of its extent), under which two edges
-/// that should coincide are taken as one.
+/// Una distancia demasiado pequeña para importar en el mapa (una millonésima de su extensión), por
+/// debajo de la cual dos bordes que deberían coincidir se toman como uno.
 fn tolerance(m: &MultiPolygon<f64>) -> f64 {
     m.bounding_rect().map_or(1e-9, |r| (r.width().hypot(r.height()) * 1e-6).max(1e-9))
 }
@@ -486,9 +495,9 @@ mod tests {
         assert!(invalid(&fixed).is_empty());
         assert_eq!(fixed.features[0].geom.0.len(), 2);
         assert!((fixed.features[0].geom.unsigned_area() - 50.0).abs() < 1e-6);
-        // the other is untouched and the table follows
+        // el otro no se toca y la tabla lo sigue
         assert_eq!(fixed.features[1].attrs[0].1, "2");
-        // the operations refuse invalid input and say what to do
+        // las operaciones rechazan una entrada inválida y dicen qué hacer
         let e = buffer(&l, 1.0).unwrap_err().to_string();
         assert!(e.contains("make-valid"), "{e}");
     }
@@ -503,7 +512,7 @@ mod tests {
         assert_eq!(d.features[0].attrs, [("id".to_string(), "1".to_string())]);
         let s = symmetric_difference(&a, &b)?;
         let area: f64 = s.features.iter().map(|f| f.geom.unsigned_area()).sum();
-        // a only: 50; b only: 100 - 50 (overlap with the first) + (400 - 25) = 425
+        // solo a: 50; solo b: 100 - 50 (solape con el primero) + (400 - 25) = 425
         assert!((area - 475.0).abs() < 1e-6, "{area}");
         assert!(s.features.iter().any(|f| f.attrs.iter().any(|(k, _)| k == "b_k")));
         Ok(())
@@ -511,7 +520,7 @@ mod tests {
 
     #[test]
     fn neighbours_that_do_not_quite_touch_merge_with_no_border_left() {
-        // two squares with a gap of 1e-5 between them, and one with a sliver overlap
+        // dos cuadrados con un hueco de 1e-5 entre ellos, y uno con un solape en astilla
         let (a, b, c) = (vec![sq(0.0, 0.0, 10.0)], vec![sq(10.00001, 0.0, 10.0)], vec![sq(19.99999, 0.0, 10.0)]);
         let parts = merge_parts(&[&a, &b, &c]);
         assert_eq!(parts.len(), 1, "one ring: no hole and no second part: {parts:?}");
@@ -521,12 +530,13 @@ mod tests {
 
     #[test]
     fn an_attached_polygon_fills_the_pocket_the_closing_side_leaves() {
-        // a U of three polygons, and a ring from inside one arm, over the top, to the other arm
+        // una U de tres polígonos y un anillo desde dentro de un brazo, por arriba, hasta el otro
+        // brazo
         let (left, right, floor) = (vec![sq(0.0, 0.0, 10.0)], vec![sq(20.0, 0.0, 10.0)], vec![vec![[0.0, 0.0], [0.0, 2.0], [30.0, 2.0], [30.0, 0.0]]]);
         let ring = vec![[5.0, 5.0], [5.0, 20.0], [25.0, 20.0], [25.0, 5.0]];
         let parts = attach(&ring, &[&left, &right, &floor]);
         let area = multipolygon_of(&parts).unsigned_area();
-        // the gap between the arms up to y = 20 (10 x 18) and the ring above each arm (2 x 50)
+        // el hueco entre los brazos hasta y = 20 (10 x 18) y el anillo sobre cada brazo (2 x 50)
         assert!((area - 280.0).abs() < 1e-6, "{area}");
     }
 
@@ -546,7 +556,7 @@ mod tests {
         let parts = merge_parts(&[&a, &b, &far]);
         assert_eq!(parts.len(), 2);
         assert!((multipolygon_of(&parts).unsigned_area() - (150.0 + 16.0)).abs() < 1e-2);
-        // exteriors clockwise, as the program keeps them
+        // exteriores en el sentido de las agujas del reloj, como los guarda el programa
         assert!(parts.iter().all(|r| crate::geojson::signed_area(r) < 0.0));
     }
 
@@ -554,7 +564,7 @@ mod tests {
     fn buffer_grows_by_the_distance() {
         let l = layer(vec![feat(vec![sq(0.0, 0.0, 100.0)], &[])]);
         let g = &buffer(&l, 10.0).unwrap().features[0].geom;
-        // a square grown by 10 with round corners: 100² + 4·100·10 + π·10²
+        // un cuadrado ampliado 10 con esquinas redondeadas: 100² + 4·100·10 + π·10²
         let expect = 10_000.0 + 4_000.0 + std::f64::consts::PI * 100.0;
         assert!((g.unsigned_area() - expect).abs() / expect < 0.01, "{}", g.unsigned_area());
         let s = &buffer(&l, -10.0).unwrap().features[0].geom;
@@ -613,7 +623,7 @@ mod tests {
         let areas: Vec<f64> = pieces.iter().map(|p| multipolygon_of(p).unsigned_area()).collect();
         assert!((areas[0] + areas[1] - 100.0).abs() < 1e-3, "{areas:?}");
         assert!((areas[0] - 50.0).abs() < 1e-3);
-        // a line that stays outside leaves the polygon whole
+        // una línea que se queda fuera deja el polígono entero
         assert_eq!(cut_by_line(&[square], &[[20.0, 0.0], [20.0, 10.0]]).len(), 1);
     }
 
@@ -623,7 +633,7 @@ mod tests {
         let drawn = vec![[5.0, 5.0], [5.0, 15.0], [15.0, 15.0], [15.0, 5.0]];
         let parts = attach(&drawn, &[&old]);
         assert!((multipolygon_of(&parts).unsigned_area() - 75.0).abs() < 1e-6);
-        // drawn inside the old one there is nothing left
+        // dibujado dentro del antiguo no queda nada
         assert!(attach(&sq(2.0, 2.0, 3.0), &[&old]).is_empty());
     }
 

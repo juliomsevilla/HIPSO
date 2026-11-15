@@ -1,6 +1,6 @@
-//! Histograms of the point attributes, in the editor: the bars picked with the mouse, or the
-//! tails of the odd values a statistic finds, become a selection of points. The editing tools
-//! then delete those points or give them another class.
+//! Histogramas de los atributos de los puntos, en el editor: las barras elegidas con el ratón, o
+//! las colas de los valores atípicos que halla un estadístico, pasan a ser una selección de puntos.
+//! Las herramientas de edición eliminan entonces esos puntos o les dan otra clase.
 
 use std::collections::HashMap;
 
@@ -9,7 +9,7 @@ use crate::editing::Cmd;
 use hipso_core::edit::{self, Attr, AttrKind, Mode, RangeSel, Region, SelOp};
 use hipso_core::histogram::{self, Histogram, Method};
 
-/// How the odd values of an attribute are told from the rest.
+/// Cómo se distinguen los valores atípicos de un atributo del resto.
 #[derive(Clone, Copy, PartialEq)]
 enum Odd {
     Tukey,
@@ -30,7 +30,7 @@ impl Odd {
         }
     }
 
-    /// The label, default value and range of its parameter.
+    /// La etiqueta, el valor por defecto y el rango de su parámetro.
     fn param(self) -> (&'static str, f64, std::ops::RangeInclusive<f64>) {
         match self {
             Odd::Tukey => ("k (1,5 usual; 3 solo extremos)", 1.5, 0.1..=20.0),
@@ -50,8 +50,8 @@ impl Odd {
     }
 }
 
-/// What a cached histogram was made from: attribute, bars, only the selected points, and the
-/// versions of the points and of the selection.
+/// De qué se hizo un histograma en caché: atributo, barras, solo los puntos seleccionados y las
+/// versiones de los puntos y de la selección.
 type Key = (AttrKind, usize, bool, u64, u64);
 
 pub struct State {
@@ -60,12 +60,12 @@ pub struct State {
     bins: f64,
     only_selected: bool,
     log: bool,
-    /// The intervals marked on each attribute; a point must lie in the marked ones of all.
+    /// Los intervalos marcados en cada atributo; un punto debe estar en los marcados de todos.
     ranges: HashMap<AttrKind, Vec<(f64, f64)>>,
     odd: Odd,
     k: f64,
     cache: Option<(Key, Histogram)>,
-    /// A drag over the bars: where it began and whether it marks or clears.
+    /// Un arrastre sobre las barras: dónde empezó y si marca o borra.
     paint: Option<(usize, bool)>,
     notice: String,
 }
@@ -258,7 +258,7 @@ impl App {
                 color,
             );
         }
-        // where the chosen statistic would cut
+        // dónde cortaría el estadístico elegido
         let span = h.width * nb as f64;
         let x_of =
             |v: f64| rect.left() + (((v - h.lo) / span) as f32).clamp(0.0, 1.0) * rect.width();

@@ -1,12 +1,12 @@
-//! Igualar rásteres (Ráster): puts rasters on the cells of a reference, so that they coincide
-//! cell for cell.
+//! Igualar rásteres (Ráster): pone rásteres sobre las celdas de una referencia, de modo que
+//! coincidan celda a celda.
 
 use super::*;
 use hipso_core::paths;
 use hipso_core::pyramid::Pyramid;
 use hipso_core::rastertools::{self, AlignJob, Dtype, Resample};
 
-/// What a raster says about its cells, for the list.
+/// Lo que dice un ráster de sus celdas, para la lista.
 #[derive(Clone)]
 pub struct Cells {
     pub text: String,
@@ -51,7 +51,7 @@ pub struct AlignTool {
     pub open: bool,
     pub reference: Option<(PathBuf, Cells)>,
     pub inputs: Vec<(PathBuf, Cells)>,
-    /// 0 automatic, then [`Resample::ALL`].
+    /// 0 automático, luego [`Resample::ALL`].
     pub resample: usize,
     pub nodata: String,
 }
@@ -68,14 +68,15 @@ impl Default for AlignTool {
     }
 }
 
-/// Index 0 is automatic; the rest follow [`Resample::ALL`].
+/// El índice 0 es automático; los demás siguen [`Resample::ALL`].
 pub fn resample_of(k: usize) -> Option<Resample> {
     k.checked_sub(1).and_then(|k| Resample::ALL.get(k).copied())
 }
 
 const AUTO_HELP: &str = "Elige según los datos: si el ráster son números enteros (clases, identificadores) conserva los valores (vecino más cercano, o moda si reduce la resolución); si no, usa la media cuando las celdas de salida son mayores que las de entrada y bilineal en los demás casos.";
 
-/// The list of resampling methods with what each is for, shared by the tools that resample.
+/// La lista de métodos de remuestreo con para qué sirve cada uno, compartida por las herramientas
+/// que remuestrean.
 pub fn resample_picker(ui: &mut egui::Ui, id: &str, k: &mut usize, weak: egui::Color32) {
     ui.horizontal(|ui| {
         ui.label("Remuestreo");
@@ -97,7 +98,7 @@ pub fn resample_picker(ui: &mut egui::Ui, id: &str, k: &mut usize, weak: egui::C
 }
 
 impl AlignTool {
-    /// What differs between a raster and the reference: nothing when it already matches.
+    /// En qué se diferencia un ráster de la referencia: nada cuando ya coincide.
     fn verdict(&self, c: &Cells) -> (bool, String) {
         let Some((_, r)) = &self.reference else {
             return (true, String::new());

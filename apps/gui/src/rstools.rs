@@ -1,5 +1,5 @@
-//! Multiband images and mosaics made from rasters (Ráster): the bands of several
-//! rasters stacked into one image, and a mosaic that says what to do where pixels overlap.
+//! Imágenes multibanda y mosaicos hechos a partir de rásteres (Ráster): las bandas de varios
+//! rásteres apiladas en una imagen, y un mosaico que dice qué hacer donde se solapan los píxeles.
 
 use super::*;
 use hipso_core::paths;
@@ -13,7 +13,7 @@ pub struct RasterTools {
     pub resample: Resample,
     pub extent: Extent,
     pub cell: String,
-    /// 0: as the first raster, 1: 8 bits, 2: 16 bits, 3: 32-bit float.
+    /// 0: como el primer ráster, 1: 8 bits, 2: 16 bits, 3: decimal de 32 bits.
     pub dtype: usize,
     pub src_nodata: String,
     pub nodata: String,
@@ -53,7 +53,7 @@ impl App {
         } else {
             ("Mosaico de rásteres", "mosaico")
         };
-        // rasters already on the map
+        // rásteres que ya están en el mapa
         let loaded: Vec<(String, PathBuf)> = self
             .refs
             .iter()
@@ -215,7 +215,8 @@ impl App {
                     ui.label("en la salida");
                     ui.add(egui::TextEdit::singleline(&mut rt.nodata).desired_width(60.0));
                 });
-                // the output: beside the first raster, named after the tool, until edited
+                // la salida: junto al primer ráster, con el nombre de la herramienta, hasta que se
+                // edita
                 if !rt.out_manual {
                     rt.out = rt.files.first().map_or(String::new(), |f| {
                         let t = if mode == 1 { format!("{tag}_{}", rt.overlap.tag()) } else { tag.to_string() };

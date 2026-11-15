@@ -1,6 +1,6 @@
-//! Writes the points around a class: `dump_around FILE OUT CLASS [--half 60]`. Takes the points
-//! within `--half` m (plan) of the centre of the points of that class, with SMRF's ground height:
-//! `x y z class height` per line, to look at them.
+//! Escribe los puntos alrededor de una clase: `dump_around ARCHIVO SALIDA CLASE [--half 60]`. Toma
+//! los puntos a menos de `--half` m (en planta) del centro de los puntos de esa clase, con la
+//! altura de suelo de SMRF: `x y z clase altura` por línea, para mirarlos.
 
 use hipso_core::las::{Points, Reader};
 use hipso_core::smrf::{self, SmrfParams};

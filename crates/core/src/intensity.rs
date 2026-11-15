@@ -1,40 +1,42 @@
-//! Intensity normalised for range: the energy that comes back falls with the square of the
-//! distance to the scanner (extended targets: ground, canopy), so the same surface looks darker
-//! at the edge of a swath or from a higher flight line. Each intensity is multiplied by
-//! `(R / R_ref)^a` (Höfle and Pfeifer 2007, "Correction of laser scanning intensity data: data
-//! and model-driven approaches", ISPRS J. Photogramm. 62: 415–433), with `a = 2` by default and
-//! `R_ref` the mean range of the cloud unless one is given, so values keep their usual size.
+//! Intensidad normalizada por la distancia: la energía que vuelve cae con el cuadrado de la
+//! distancia al escáner (blancos extensos: suelo, dosel), de modo que la misma superficie parece
+//! más oscura en el borde de una franja o desde una pasada más alta. Cada intensidad se multiplica
+//! por `(R / R_ref)^a` (Höfle y Pfeifer 2007, «Correction of laser scanning intensity data: data
+//! and model-driven approaches», ISPRS J. Photogramm. 62: 415–433), con `a = 2` por defecto y
+//! `R_ref` la distancia media de la nube salvo que se dé una, de modo que los valores conserven su
+//! tamaño habitual.
 //!
-//! The range `R` of each point comes from the trajectory of the scanner (time, x, y, z) at the
-//! point's GPS time, or, without one, from the height of the sensor above the point and the scan
-//! angle: `R = (Z_sensor − z) / cos(angle)`.
+//! La distancia `R` de cada punto sale de la trayectoria del escáner (tiempo, x, y, z) en el tiempo
+//! GPS del punto o, sin ella, de la altura del sensor sobre el punto y el ángulo de barrido: `R =
+//! (Z_sensor − z) / cos(ángulo)`.
 
 use std::path::{Path, PathBuf};
 
 use crate::las::{Reader, Writer, WriterOptions};
 use crate::{Error, Result};
 
-/// Where the scanner was.
+/// Dónde estaba el escáner.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Sensor {
-    /// A text file of the trajectory: GPS time, x, y, z per line (comma, semicolon, tab or
-    /// spaces; a header line is skipped), in the cloud's coordinates and time.
+    /// Un archivo de texto de la trayectoria: tiempo GPS, x, y, z por línea (coma, punto y coma,
+    /// tabulador o espacios; se omite una línea de cabecera), en las coordenadas y el tiempo de la
+    /// nube.
     Trajectory(PathBuf),
-    /// The altitude of the flight (same vertical datum as the points), constant.
+    /// La altitud del vuelo (mismo datum vertical que los puntos), constante.
     Altitude(f64),
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct IntensityJob {
     pub sensor: Sensor,
-    /// Exponent of the range: 2 for extended targets, about 3 for wires and edges.
+    /// Exponente de la distancia: 2 para blancos extensos, alrededor de 3 para cables y bordes.
     pub exponent: f64,
-    /// Reference range; the mean range of each cloud when `None`.
+    /// Distancia de referencia; la distancia media de cada nube cuando `None`.
     pub reference: Option<f64>,
     pub inputs: Vec<(PathBuf, PathBuf)>,
 }
 
-/// A trajectory sorted by time.
+/// Una trayectoria ordenada por tiempo.
 struct Track {
     t: Vec<f64>,
     xyz: Vec<[f64; 3]>,
@@ -72,8 +74,8 @@ impl Track {
         })
     }
 
-    /// The position at time `t`, interpolated; `None` outside the trajectory (by more than a
-    /// second).
+    /// La posición en el tiempo `t`, interpolada; `None` fuera de la trayectoria (en más de un
+    /// segundo).
     fn at(&self, t: f64) -> Option<[f64; 3]> {
         let n = self.t.len();
         if !(t >= self.t[0] - 1.0 && t <= self.t[n - 1] + 1.0) {
@@ -95,7 +97,7 @@ impl Track {
     }
 }
 
-/// The range of a point to the sensor, if it can be known.
+/// La distancia de un punto al sensor, si se puede saber.
 fn range(
     track: Option<&Track>,
     altitude: Option<f64>,
@@ -113,7 +115,7 @@ fn range(
     (r.is_finite() && r > 0.5).then_some(r)
 }
 
-/// Normalises the intensity of every cloud of the job.
+/// Normaliza la intensidad de cada nube del trabajo.
 pub fn run(job: &IntensityJob) -> Result<String> {
     if !(job.exponent > 0.0 && job.exponent <= 6.0) {
         return Err(Error::Param(
@@ -164,7 +166,7 @@ pub fn run(job: &IntensityJob) -> Result<String> {
             };
             range(track.as_ref(), altitude, [p.x, p.y, p.z], t, p.scan_angle)
         };
-        // pass 1: the mean range, unless a reference is given
+        // pasada 1: la distancia media, salvo que se dé una referencia
         let reference = match job.reference {
             Some(v) => v,
             None => {
@@ -248,12 +250,12 @@ mod tests {
         let t = Track::read(&p)?;
         assert_eq!(t.at(15.0), Some([50.0, 0.0, 1000.0]));
         assert_eq!(t.at(30.0), None);
-        // straight below at 1000 m, and 600 m to the side
+        // justo debajo a 1000 m, y a 600 m al lado
         let d0 = range(Some(&t), None, [50.0, 0.0, 0.0], 15.0, 0.0);
         assert_eq!(d0, Some(1000.0));
         let d1 = range(Some(&t), None, [50.0, 600.0, 200.0], 15.0, 0.0).unwrap_or(0.0);
         assert!((d1 - 1000.0).abs() < 1e-9, "{d1}");
-        // without a trajectory: the altitude and the angle
+        // sin trayectoria: la altitud y el ángulo
         let d2 = range(None, Some(1100.0), [0.0, 0.0, 100.0], 0.0, 60.0).unwrap_or(0.0);
         assert!((d2 - 2000.0).abs() < 1e-6, "{d2}");
         std::fs::remove_dir_all(&dir)?;
@@ -267,7 +269,7 @@ mod tests {
         let tpl = crate::ply::template(&dir, 0, 0.01, [0.0, 0.0, 0.0], Some(25830))?;
         let cloud = dir.join("n.las");
         let mut w = Writer::create(&cloud, &tpl)?;
-        // same intensity 1000 at 0 m and at 500 m of height: sensor at 1000 m
+        // la misma intensidad 1000 a 0 m y a 500 m de altura: sensor a 1000 m
         for z in [0.0f64, 500.0] {
             let mut rec = vec![0u8; 20];
             rec[8..12].copy_from_slice(&((z / 0.01).round() as i32).to_le_bytes());

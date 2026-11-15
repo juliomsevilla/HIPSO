@@ -1,8 +1,9 @@
-//! Point editing in the viewer, with the tools of a vector editor: select points with a
-//! rectangle, polygon, lasso or circle (in the plan or in a profile), combine selections
-//! (new, add with Shift, subtract with Alt, intersect with Ctrl, invert), restrict them by
-//! attributes, delete them or change their class, undo and redo, and save a new file. The edits
-//! are rules the engine applies to every point of the file when saving.
+//! Edición de puntos en el visor, con las herramientas de un editor vectorial: se seleccionan
+//! puntos con un rectángulo, polígono, lazo o círculo (en la planta o en un perfil), se combinan
+//! las selecciones (nueva, añadir con Mayús, restar con Alt, intersecar con Ctrl, invertir), se
+//! restringen por atributos, se eliminan o se les cambia la clase, deshacer y rehacer, y se guarda
+//! un archivo nuevo. Las ediciones son reglas que el motor aplica a cada punto del archivo al
+//! guardar.
 
 use super::*;
 use hipso_core::edit::{self, Attr, Edit, Mode, Region, SelOp, Session, ViewCut};
@@ -17,7 +18,7 @@ pub enum Cmd {
     Reclass(u8),
     Undo,
     Redo,
-    /// Switches the edit of the history at this position off or on.
+    /// Activa o desactiva la edición del historial en esta posición.
     Toggle(usize),
     Discard,
 }
@@ -26,16 +27,17 @@ pub struct Editing {
     pub session: Option<Session>,
     pub ops: Vec<SelOp>,
     pub mode: Mode,
-    /// Polygon vertices or lasso trail in plan coordinates, and in profile ones (distance, z).
+    /// Vértices del polígono o trazo del lazo en coordenadas de planta, y en las de perfil
+    /// (distancia, z).
     pub draft: Vec<[f64; 2]>,
     pub pdraft: Vec<[f64; 2]>,
     pub pstart: Option<Pos2>,
-    /// Lasso trail and start of the drag on the 3D view, in pixels of the view.
+    /// Trazo del lazo e inicio del arrastre en la vista 3D, en píxeles de la vista.
     pub d3draft: Vec<[f64; 2]>,
     pub d3start: Option<Pos2>,
-    /// Radius of the brushes on the screen, in pixels.
+    /// Radio de los pinceles en la pantalla, en píxeles.
     pub brush_px: f64,
-    /// Selections in 3D reach only this many metres either side of the plane of the target.
+    /// Las selecciones en 3D alcanzan solo tantos metros a cada lado del plano del objetivo.
     pub slab: bool,
     pub slab_half: f64,
     pub sel_rev: u64,
@@ -48,12 +50,12 @@ pub struct Editing {
     pub z_hi: String,
     pub i_lo: String,
     pub i_hi: String,
-    /// Edits already written to a file.
+    /// Ediciones ya escritas en un archivo.
     pub saved: usize,
-    /// An edit was switched off or on since the last save.
+    /// Se activó o desactivó una edición desde el último guardado.
     pub toggled: bool,
     pub want_save: bool,
-    /// Save without asking where (command-line `--save-edited`).
+    /// Guarda sin preguntar dónde (línea de comandos `--save-edited`).
     pub auto_save: bool,
 }
 
@@ -97,8 +99,8 @@ pub fn is_select(n: Nav) -> bool {
     is_select_3d(n) || is_brush(n) || is_line(n)
 }
 
-/// The tools that work on the 3D view too: shapes drawn on the screen. The brushes and the
-/// lines belong to the plan and the profile.
+/// Las herramientas que funcionan también en la vista 3D: formas dibujadas en la pantalla. Los
+/// pinceles y las líneas pertenecen a la planta y al perfil.
 pub fn is_select_3d(n: Nav) -> bool {
     matches!(
         n,
@@ -110,14 +112,14 @@ pub fn is_brush(n: Nav) -> bool {
     matches!(n, Nav::SelBrush | Nav::SelBrushSq)
 }
 
-/// Above or below a line drawn in the profile.
+/// Por encima o por debajo de una línea dibujada en el perfil.
 pub fn is_line(n: Nav) -> bool {
     matches!(n, Nav::SelAbove | Nav::SelBelow)
 }
 
-/// A brush stroke in progress: adds the pointer's position to `draft` (view coordinates) while
-/// the button is down, and gives the stroke when it ends. `px` is how many pixels make one unit
-/// of the view and `size_px` the radius of the brush on the screen; `[` and `]` change it.
+/// Un trazo de pincel en curso: añade la posición del puntero a `draft` (coordenadas de la vista)
+/// mientras el botón está pulsado, y da el trazo cuando termina. `px` es cuántos píxeles hacen una
+/// unidad de la vista y `size_px` el radio del pincel en la pantalla; `[` y `]` lo cambian.
 fn brush_stroke(
     nav: Nav,
     resp: &egui::Response,
@@ -158,7 +160,7 @@ fn brush_stroke(
     }
     let mut path = std::mem::take(draft);
     if path.is_empty() {
-        // a click paints one dab
+        // un clic pinta una pincelada
         path.push(to(end?));
     }
     Some(edit::Brush::new(
@@ -168,7 +170,7 @@ fn brush_stroke(
     ))
 }
 
-/// The brush on the screen: the stroke so far and the shape of the brush under the pointer.
+/// El pincel en la pantalla: el trazo hasta ahora y la forma del pincel bajo el puntero.
 fn paint_brush(
     painter: &egui::Painter,
     nav: Nav,
@@ -215,8 +217,9 @@ fn paint_brush(
     }
 }
 
-/// The shape a selection tool just finished, from the pointer's events. `to` turns a screen
-/// position into the coordinates of the view; `px` is how many pixels make one unit of them.
+/// La forma que acaba de terminar una herramienta de selección, a partir de los eventos del
+/// puntero. `to` convierte una posición de pantalla en las coordenadas de la vista; `px` es cuántos
+/// píxeles hacen una unidad de ellas.
 fn finished_shape(
     nav: Nav,
     resp: &egui::Response,
@@ -231,7 +234,7 @@ fn finished_shape(
         Nav::SelRect if stopped => {
             let (a, b) = (start?, end?);
             let (p, q) = if (a - b).length() < 4.0 {
-                // a click picks what lies within a few pixels
+                // un clic elige lo que está a unos pocos píxeles
                 let r = 4.0 / px;
                 let c = to(a);
                 ([c[0] - r, c[1] - r], [c[0] + r, c[1] + r])
@@ -342,7 +345,7 @@ impl App {
         self.ed.cmds.push(c);
     }
 
-    /// Selection tools in the plan window.
+    /// Herramientas de selección en la ventana de planta.
     pub fn plan_select(
         &mut self,
         ctx: &egui::Context,
@@ -399,7 +402,7 @@ impl App {
         }
     }
 
-    /// Draws the selection in progress over the plan.
+    /// Dibuja la selección en curso sobre la planta.
     pub fn paint_plan_select(
         &self,
         painter: &egui::Painter,
@@ -438,8 +441,9 @@ impl App {
         );
     }
 
-    /// Selection tools in the 3D view: the shapes are drawn on the screen and pick every point
-    /// that projects inside, in front or behind (limited to a slab when it is on).
+    /// Herramientas de selección en la vista 3D: las formas se dibujan en la pantalla y eligen cada
+    /// punto que se proyecta dentro, delante o detrás (limitadas a una rebanada cuando está
+    /// activada).
     pub fn view3d_select(
         &mut self,
         ctx: &egui::Context,
@@ -485,7 +489,8 @@ impl App {
         );
     }
 
-    /// Selection tools in the profile window: the shapes live in (distance, elevation).
+    /// Herramientas de selección en la ventana de perfil: las formas viven en (distancia,
+    /// elevación).
     pub fn profile_select(
         &mut self,
         ctx: &egui::Context,
@@ -572,7 +577,7 @@ impl App {
                 resp.interact_pointer_pos(),
             ) {
                 painter.line_segment([a, b], Stroke::new(2.0, color));
-                // the side that is taken, shaded along the line
+                // el lado que se toma, sombreado a lo largo de la línea
                 let off = if above { -14.0 } else { 14.0 };
                 painter.line_segment(
                     [a + Vec2::new(0.0, off), b + Vec2::new(0.0, off)],
@@ -607,8 +612,8 @@ impl App {
         );
     }
 
-    /// When points are selected: the files that hold them as `…_sel` paths, the (cloud, `_sel` file)
-    /// pairs to write, the number of points and the selection itself.
+    /// Cuando hay puntos seleccionados: los archivos que los contienen como rutas `…_sel`, los
+    /// pares (nube, archivo `_sel`) que escribir, el número de puntos y la propia selección.
     #[allow(clippy::type_complexity)]
     pub fn selection_inputs(
         &self,
@@ -617,7 +622,7 @@ impl App {
         if self.ed.ops.is_empty() || self.ed.sel_count == 0 || s.selected.is_empty() {
             return None;
         }
-        // file k of the store is the k-th LAS or LAZ cloud
+        // el archivo k del almacén es la k-ésima nube LAS o LAZ
         let las: Vec<&PathBuf> = self
             .clouds
             .iter()
@@ -649,9 +654,9 @@ impl App {
         (!pairs.is_empty()).then(|| (paths, pairs, self.ed.sel_count, self.ed.ops.clone()))
     }
 
-    /// Writes the selected points to `…_sel` files and shows only them, at the density of the
-    /// file: a tree cut out of a scan can be edited point by point instead of at the thinning of
-    /// the whole scene.
+    /// Escribe los puntos seleccionados en archivos `…_sel` y muestra solo esos, a la densidad del
+    /// archivo: un árbol recortado de un escaneo se puede editar punto a punto en lugar de con el
+    /// adelgazamiento de toda la escena.
     pub fn isolate_selection(&mut self, ctx: &egui::Context) {
         if self
             .ed
@@ -707,7 +712,8 @@ impl App {
         (!parts.is_empty()).then(|| parts.join(" · "))
     }
 
-    /// Applies the queued edit commands. Runs between frames, when nothing else holds the store.
+    /// Aplica las órdenes de edición en cola. Se ejecuta entre fotogramas, cuando nada más retiene
+    /// el almacén.
     pub fn process_edit_cmds(&mut self) {
         if self.ed.cmds.is_empty() || self.store.is_none() || self.ed.session.is_none() {
             return;
@@ -813,7 +819,7 @@ impl App {
         self.ed.sel_rev += 1;
     }
 
-    /// Writes the edited clouds: every point of each file goes through the edit rules.
+    /// Escribe las nubes editadas: cada punto de cada archivo pasa por las reglas de edición.
     pub fn save_edited(&mut self, ctx: &egui::Context) {
         let Some(ses) = &self.ed.session else { return };
         if ses.edits.is_empty() {
@@ -885,7 +891,7 @@ impl App {
     }
 
     pub fn edit_keys(&mut self, ctx: &egui::Context) {
-        // the vector tools have their own keys
+        // las herramientas vectoriales tienen sus propias teclas
         if self.edit_layer_on() {
             return;
         }
@@ -955,10 +961,10 @@ impl App {
         }
     }
 
-    // ---------------------------------------------------------------------------- side tab
+    // ---------------------------------------------------------------------------- pestaña lateral
 
-    /// The editing panel: every tool of point editing in one place, beside the ribbon, so the
-    /// View tools and these can be at hand together.
+    /// El panel de edición: todas las herramientas de edición de puntos en un solo sitio, junto a
+    /// la cinta, de modo que las herramientas de Vista y estas pueden estar a mano juntas.
     pub fn edit_side(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let t = self.tokens();
         if self.store.is_none() {
@@ -1199,8 +1205,8 @@ impl App {
             });
     }
 
-    /// The edit history. Each step has a box: clearing it undoes that edit alone and leaves the
-    /// others as they are.
+    /// El historial de ediciones. Cada paso tiene una casilla: al desmarcarla se deshace esa
+    /// edición sola y las demás se quedan como están.
     fn history(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         let (n_edits, n_saved) = (
             self.ed.session.as_ref().map_or(0, |s| s.edits.len()),
@@ -1246,7 +1252,7 @@ impl App {
             });
     }
 
-    /// The attribute filter every selection passes through.
+    /// El filtro de atributos por el que pasa toda selección.
     fn attr_filter(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         egui::CollapsingHeader::new("Filtro de atributos de las selecciones")
             .default_open(false)

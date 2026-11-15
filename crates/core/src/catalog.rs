@@ -1,14 +1,14 @@
-//! A catalogue of a delivery of LAS/LAZ sheets, made from their headers alone (no point is
-//! read, so a thousand sheets take a second or so), and the checks that tell whether the sheets
-//! make a tiling that can be processed: same coordinate system, no sheet twice, no overlaps that
-//! count points twice, no holes inside the block.
+//! Un catálogo de una entrega de hojas LAS/LAZ, hecho solo a partir de sus cabeceras (no se lee
+//! ningún punto, así que mil hojas tardan un segundo más o menos), y las comprobaciones que dicen
+//! si las hojas forman un teselado que se puede procesar: mismo sistema de coordenadas, ninguna
+//! hoja repetida, ningún solape que cuente puntos dos veces, ningún hueco dentro del bloque.
 
 use std::path::{Path, PathBuf};
 
 use crate::las::Reader;
 use crate::{Error, Result};
 
-/// What the header of one sheet says.
+/// Lo que dice la cabecera de una hoja.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entry {
     pub path: PathBuf,
@@ -21,15 +21,16 @@ pub struct Entry {
     pub scale: [f64; 3],
     pub epsg: Option<u16>,
     pub vertical_epsg: Option<u16>,
-    /// A projection is declared (an EPSG code or WKT).
+    /// Se declara una proyección (un código EPSG o un WKT).
     pub has_crs: bool,
-    /// COPC, or a `.lax` file beside it: reading a part of the sheet does not need the whole.
+    /// COPC, o un archivo `.lax` junto a ella: leer una parte de la hoja no necesita la hoja
+    /// entera.
     pub indexed: bool,
     pub file_size: u64,
 }
 
 impl Entry {
-    /// Width and height of the extent.
+    /// Anchura y altura de la extensión.
     pub fn size(&self) -> (f64, f64) {
         (
             self.bounds[3] - self.bounds[0],
@@ -53,12 +54,12 @@ impl Entry {
     }
 }
 
-/// How serious a problem of the tiling is.
+/// Cuán grave es un problema del teselado.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Severity {
-    /// The result of processing would be wrong or the run would stop.
+    /// El resultado del proceso sería erróneo o la ejecución se detendría.
     Error,
-    /// The result is usable, with a caveat.
+    /// El resultado es utilizable, con una salvedad.
     Warning,
     /// Worth knowing.
     Note,
@@ -81,7 +82,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    /// A short name for scripts.
+    /// Un nombre corto para guiones.
     pub fn id(self) -> &'static str {
         match self {
             Kind::Unreadable => "unreadable",
@@ -110,7 +111,7 @@ pub struct Issue {
 #[derive(Clone, Debug, Default)]
 pub struct Catalog {
     pub entries: Vec<Entry>,
-    /// Files that could not be read, with the reason.
+    /// Archivos que no se pudieron leer, con el motivo.
     pub failed: Vec<(PathBuf, String)>,
 }
 
@@ -167,8 +168,8 @@ fn entry_of(path: &Path) -> Result<Entry> {
     })
 }
 
-/// Reads the header of every file. A file that cannot be read is listed in `failed` and the
-/// others go on; no file readable at all is an error.
+/// Lee la cabecera de cada archivo. Un archivo que no se puede leer se lista en `failed` y los
+/// demás siguen; que ningún archivo sea legible es un error.
 pub fn catalog(paths: &[PathBuf]) -> Result<Catalog> {
     let files = expand(paths)?;
     let mut cat = Catalog::default();
@@ -190,9 +191,9 @@ pub fn catalog(paths: &[PathBuf]) -> Result<Catalog> {
     Ok(cat)
 }
 
-/// The points of `paths` within `margin` metres of `extent` (`[min x, min y, max x, max y]`), in
-/// one pass over each file that reaches it: the strip of a neighbouring sheet that borders this
-/// one, kept in memory so that it can be used again and again at the price of one reading.
+/// Los puntos de `paths` a menos de `margin` metros de `extent` (`[x mínima, y mínima, x máxima, y
+/// máxima]`), en una pasada sobre cada archivo que la alcanza: la franja de una hoja vecina que
+/// linda con esta, guardada en memoria para poder usarla una y otra vez al precio de una lectura.
 pub fn halo_points(
     paths: &[PathBuf],
     extent: [f64; 4],
@@ -221,9 +222,10 @@ pub fn halo_points(
     Ok(out)
 }
 
-/// Which of the sheets `candidates` (indices of `entries`) a point belongs to: the one whose
-/// extent holds it or, outside all of them, the nearest; a tie goes to the lower index. Each cell
-/// of a block belongs to exactly one sheet, so none is written twice or left out.
+/// A cuál de las hojas `candidates` (índices de `entries`) pertenece un punto: aquella cuya
+/// extensión lo contiene o, fuera de todas, la más cercana; un empate va al índice menor. Cada
+/// celda de un bloque pertenece exactamente a una hoja, de modo que ninguna se escribe dos veces ni
+/// se deja fuera.
 pub fn owner_of(entries: &[Entry], candidates: &[usize], x: f64, y: f64) -> Option<usize> {
     candidates
         .iter()
@@ -251,8 +253,8 @@ fn median(mut v: Vec<f64>) -> f64 {
     }
 }
 
-/// A coarse raster of the extents: which cells the sheets cover, each box grown by `grow` on
-/// every side.
+/// Un ráster grueso de las extensiones: qué celdas cubren las hojas, cada caja ampliada `grow` por
+/// cada lado.
 struct Cover {
     x0: f64,
     y0: f64,
@@ -276,7 +278,7 @@ impl Cover {
             x1 = x1.max(e.bounds[3]);
             y1 = y1.max(e.bounds[4]);
         }
-        // a margin of one empty cell all round, from which the outside is told from holes
+        // un margen de una celda vacía alrededor, con el que se distingue el exterior de los huecos
         let mut cell = cell;
         while ((x1 - x0) / cell + 3.0) * ((y1 - y0) / cell + 3.0) > 4.0e6 {
             cell *= 2.0;
@@ -298,7 +300,7 @@ impl Cover {
     }
 
     fn mark(&mut self, b: [f64; 4], grow: f64) {
-        // a cell is covered when its centre is inside the box
+        // una celda está cubierta cuando su centro está dentro de la caja
         let lo = |v: f64, o: f64| ((v - grow - o) / self.cell - 0.5).ceil().max(0.0) as usize;
         let hi = |v: f64, o: f64, n: usize| {
             let k = ((v + grow - o) / self.cell - 0.5).floor();
@@ -324,7 +326,7 @@ impl Cover {
         self.on.iter().filter(|v| **v).count() as f64 * self.cell * self.cell
     }
 
-    /// Areas (m²) of the empty regions that do not reach the outside, largest first.
+    /// Áreas (m²) de las regiones vacías que no llegan al exterior, la mayor primero.
     fn holes(&self) -> Vec<f64> {
         let mut seen = vec![false; self.on.len()];
         let flood = |start: usize, seen: &mut Vec<bool>| -> usize {
@@ -356,7 +358,7 @@ impl Cover {
             }
             n
         };
-        // the outside: the margin is empty, so its first cell reaches it all
+        // el exterior: el margen está vacío, así que su primera celda lo alcanza todo
         flood(0, &mut seen);
         let mut out = Vec::new();
         for i in 0..self.on.len() {
@@ -369,8 +371,8 @@ impl Cover {
     }
 }
 
-/// The overlap of two extents: `(area, share of the smaller one)`, when each of its sides is
-/// longer than `tolerance`.
+/// El solape de dos extensiones: `(área, proporción de la menor)`, cuando cada uno de sus lados es
+/// más largo que `tolerance`.
 fn overlap(a: &Entry, b: &Entry, tolerance: f64) -> Option<(f64, f64)> {
     let ox = a.bounds[3].min(b.bounds[3]) - a.bounds[0].max(b.bounds[0]);
     let oy = a.bounds[4].min(b.bounds[4]) - a.bounds[1].max(b.bounds[1]);
@@ -401,7 +403,7 @@ impl Catalog {
         self.entries.iter().map(|e| e.points).sum()
     }
 
-    /// `[min x, min y, min z, max x, max y, max z]` of the block.
+    /// `[x mínima, y mínima, z mínima, x máxima, y máxima, z máxima]` del bloque.
     pub fn bounds(&self) -> [f64; 6] {
         let mut b = [
             f64::INFINITY,
@@ -420,7 +422,7 @@ impl Catalog {
         b
     }
 
-    /// The side (m) of a typical sheet: the median of the two sides of every extent.
+    /// El lado (m) de una hoja típica: la mediana de los dos lados de cada extensión.
     pub fn sheet_side(&self) -> (f64, f64) {
         (
             median(self.entries.iter().map(|e| e.size().0).collect()),
@@ -434,12 +436,12 @@ impl Catalog {
         Cover::new(&self.entries, cell, grow)
     }
 
-    /// Area (m²) the extents cover, overlaps counted once.
+    /// Área (m²) que cubren las extensiones, contando una vez los solapes.
     pub fn area(&self, tolerance: f64) -> f64 {
         self.cover(tolerance, 0.0).area()
     }
 
-    /// The sheets, other than `k`, whose extent comes within `buffer` metres of sheet `k`'s.
+    /// Las hojas, distintas de `k`, cuya extensión llega a `buffer` metros de la de la hoja `k`.
     pub fn neighbours(&self, k: usize, buffer: f64) -> Vec<usize> {
         let a = self.entries[k].footprint();
         (0..self.entries.len())
@@ -454,8 +456,8 @@ impl Catalog {
             .collect()
     }
 
-    /// Everything that is wrong or odd in the tiling. `tolerance` (m) is how far extents may
-    /// overlap, or fall short of each other, without it counting.
+    /// Todo lo que está mal o es raro en el teselado. `tolerance` (m) es cuánto pueden solaparse
+    /// las extensiones, o quedarse cortas unas de otras, sin que cuente.
     pub fn issues(&self, tolerance: f64) -> Vec<Issue> {
         let mut out = Vec::new();
         let mut add = |kind: Kind, severity: Severity, message: String| {
@@ -481,7 +483,7 @@ impl Catalog {
                 format!("{} hoja(s) sin puntos: {}", empty.len(), some(&empty, 5)),
             );
         }
-        // the same sheet twice
+        // la misma hoja dos veces
         let mut twins: Vec<String> = Vec::new();
         for (i, a) in es.iter().enumerate() {
             for b in &es[i + 1..] {
@@ -567,7 +569,7 @@ impl Catalog {
                 "las hojas cuantizan las coordenadas con escalas distintas".into(),
             );
         }
-        // overlaps: sweep over the west edges
+        // solapes: barrido sobre los bordes oeste
         let mut order: Vec<usize> = (0..es.len()).collect();
         order.sort_by(|&a, &b| es[a].bounds[0].total_cmp(&es[b].bounds[0]));
         let (mut pairs, mut area, mut heavy) = (0usize, 0.0f64, 0usize);
@@ -613,7 +615,7 @@ impl Catalog {
                 ),
             );
         }
-        // holes inside the block (a gap narrower than the tolerance does not count)
+        // huecos dentro del bloque (un hueco más estrecho que la tolerancia no cuenta)
         let holes = self.cover(tolerance, tolerance / 2.0).holes();
         let cell = self.cover(tolerance, 0.0).cell;
         let big: Vec<f64> = holes
@@ -652,7 +654,7 @@ impl Catalog {
         out
     }
 
-    /// The summary and the problems, as text.
+    /// El resumen y los problemas, como texto.
     pub fn report(&self, tolerance: f64) -> String {
         let es = &self.entries;
         let b = self.bounds();
@@ -737,7 +739,7 @@ mod tests {
         }
     }
 
-    /// A `n x n` block of 100 m sheets.
+    /// Un bloque de `n x n` hojas de 100 m.
     fn block(n: usize, skip: Option<(usize, usize)>) -> Catalog {
         let mut es = Vec::new();
         for i in 0..n {
@@ -775,18 +777,18 @@ mod tests {
         let c = block(3, Some((1, 1)));
         let i = c.issues(1.0);
         assert_eq!(i.iter().filter(|i| i.kind == Kind::Gap).count(), 1, "{i:?}");
-        // a missing corner is the outside, not a hole
+        // una esquina que falta es el exterior, no un hueco
         assert!(!kinds(&block(3, Some((0, 0)))).contains(&Kind::Gap));
     }
 
     #[test]
     fn overlap_and_flight_lines_are_told_apart() {
         let mut c = block(2, None);
-        // a sheet shifted 20 m over its neighbour: a seam of overlap
+        // una hoja desplazada 20 m sobre su vecina: una costura de solape
         c.entries
             .push(entry("seam.laz", [80.0, 0.0, 180.0, 100.0], Some(25830)));
         assert!(kinds(&c).contains(&Kind::Overlap));
-        // strips: the same ground covered again and again
+        // franjas: el mismo terreno cubierto una y otra vez
         let mut s = Catalog::default();
         for k in 0..4 {
             s.entries.push(entry(
@@ -820,10 +822,10 @@ mod tests {
     #[test]
     fn neighbours_within_the_buffer() {
         let c = block(3, None);
-        // the middle sheet touches all the others; a corner touches three
+        // la hoja del medio toca a todas las demás; una esquina toca a tres
         assert_eq!(c.neighbours(4, 5.0).len(), 8);
         assert_eq!(c.neighbours(0, 5.0).len(), 3);
-        // a buffer of nothing still finds the ones that share an edge
+        // un margen de nada sigue encontrando las que comparten un borde
         assert_eq!(c.neighbours(0, 0.0).len(), 3);
     }
 
@@ -831,7 +833,8 @@ mod tests {
     fn a_cell_belongs_to_one_sheet() {
         let c = block(2, None);
         let all: Vec<usize> = (0..c.entries.len()).collect();
-        // inside a sheet, outside the block (nearest), and on the seam (the lower index)
+        // dentro de una hoja, fuera del bloque (la más cercana) y sobre la costura (el índice
+        // menor)
         let name = |x: f64, y: f64| {
             let k = owner_of(&c.entries, &all, x, y).unwrap_or(usize::MAX);
             c.entries[k].path.display().to_string()

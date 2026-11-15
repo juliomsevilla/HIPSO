@@ -1,0 +1,69 @@
+{
+ "hipso_modelo": 1,
+ "results": "",
+ "nodes": [
+  {
+   "id": "n1",
+   "label": "CHM",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n2",
+   "label": "Rodales",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n3",
+   "label": "Estadística por rodal",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "zonal",
+   "args": {
+    "prefix": [
+     "chm_"
+    ]
+   }
+  },
+  {
+   "id": "n4",
+   "label": "Resumen",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "summary",
+   "args": {
+    "by": [
+     "ESPECIE"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": "n1",
+   "to": "n3",
+   "port": "raster"
+  },
+  {
+   "from": "n2",
+   "to": "n3",
+   "port": "regions"
+  },
+  {
+   "from": "n3",
+   "to": "n4",
+   "port": "input"
+  }
+ ]
+}

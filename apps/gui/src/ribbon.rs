@@ -1,5 +1,5 @@
-//! Ribbon widgets in a ribbon style: a tab strip, groups with a caption, large buttons (icon
-//! over label) and small ones (icon beside label).
+//! Elementos de cinta al estilo de una cinta de opciones: una tira de pestañas, grupos con un
+//! título, botones grandes (icono sobre la etiqueta) y pequeños (icono junto a la etiqueta).
 
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2};
 
@@ -17,7 +17,7 @@ fn fill(t: &Tokens, r: &Response, selected: bool) -> Color32 {
     }
 }
 
-/// A 32 px icon over an 11.5 pt label.
+/// Un icono de 32 px sobre una etiqueta de 11,5 pt.
 pub fn big_button(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: bool) -> Response {
     let r = big_button_body(ui, t, icon, label, selected);
     match crate::tips::tip(label) {
@@ -61,12 +61,12 @@ pub fn big_button_body(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selecte
     r
 }
 
-/// An 18 px icon beside a label, in a 22 px row.
+/// Un icono de 18 px junto a una etiqueta, en una fila de 22 px.
 pub fn small_button(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: bool) -> Response {
     small_button_on(ui, t, icon, label, selected, true)
 }
 
-/// A small button that can be disabled: it is drawn faded and does not answer clicks.
+/// Un botón pequeño que se puede desactivar: se dibuja atenuado y no responde a los clics.
 pub fn small_button_on(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected: bool, enabled: bool) -> Response {
     let r = small_button_body(ui, t, icon, label, selected, enabled);
     match crate::tips::tip(label) {
@@ -101,8 +101,8 @@ fn small_button_body(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected:
     r
 }
 
-/// A small button that opens a menu below it, drawn like [`small_button`] with a ▾ after the
-/// label, so that menus sit in the ribbon as the other commands do.
+/// Un botón pequeño que abre un menú debajo, dibujado como [`small_button`] con un ▾ tras la
+/// etiqueta, de modo que los menús quedan en la cinta como las demás órdenes.
 pub fn small_menu(
     ui: &mut Ui,
     t: &Tokens,
@@ -119,8 +119,8 @@ pub fn small_menu(
     r
 }
 
-/// One command of a ribbon group: its icon and label, whether its window is open, and what a
-/// click does.
+/// Una orden de un grupo de la cinta: su icono y etiqueta, si su ventana está abierta y lo que hace
+/// un clic.
 pub struct Item<A> {
     pub icon: &'static str,
     pub label: &'static str,
@@ -128,26 +128,26 @@ pub struct Item<A> {
     pub action: A,
 }
 
-/// A large button that opens a menu of commands.
+/// Un botón grande que abre un menú de órdenes.
 pub struct Menu<A> {
     pub icon: &'static str,
     pub label: &'static str,
     pub items: Vec<Item<A>>,
 }
 
-/// A ribbon group described as data, so that it can be drawn whole or folded into one button.
+/// Un grupo de la cinta descrito como datos, para poder dibujarlo entero o plegado en un botón.
 pub struct Group<A> {
     pub caption: &'static str,
-    /// The icon of the group when it is folded.
+    /// El icono del grupo cuando está plegado.
     pub icon: &'static str,
-    /// Large buttons, then large menu buttons, then columns of up to three small ones.
+    /// Botones grandes, luego botones grandes de menú y luego columnas de hasta tres pequeños.
     pub big: Vec<Item<A>>,
     pub menus: Vec<Menu<A>>,
     pub columns: Vec<Vec<Item<A>>>,
 }
 
 impl<A> Group<A> {
-    /// Every command of the group, in the order they are drawn.
+    /// Cada orden del grupo, en el orden en que se dibujan.
     fn items(&self) -> impl Iterator<Item = &Item<A>> {
         self.big
             .iter()
@@ -156,7 +156,7 @@ impl<A> Group<A> {
     }
 }
 
-/// The width of a text in the ribbon's font.
+/// El ancho de un texto con la tipografía de la cinta.
 fn text_width(ui: &Ui, text: &str, size: f32) -> f32 {
     ui.painter()
         .layout_no_wrap(text.to_string(), FontId::proportional(size), Color32::WHITE)
@@ -177,7 +177,7 @@ fn small_width(ui: &Ui, label: &str) -> f32 {
 }
 
 impl<A> Group<A> {
-    /// The width the group takes when drawn whole.
+    /// El ancho que ocupa el grupo cuando se dibuja entero.
     fn width(&self, ui: &Ui) -> f32 {
         let big: f32 = self
             .big
@@ -207,9 +207,9 @@ impl<A> Group<A> {
     }
 }
 
-/// Draws the groups whole when they fit the width of the ribbon; when they do not, the groups
-/// from the right are folded, each into one large button with a menu of its commands, so every
-/// command stays one click away whatever the size of the window.
+/// Dibuja los grupos enteros cuando caben en el ancho de la cinta; cuando no, los grupos de la
+/// derecha se pliegan, cada uno en un botón grande con un menú de sus órdenes, de modo que toda
+/// orden queda a un clic sea cual sea el tamaño de la ventana.
 pub fn adaptive_groups<A: Copy>(
     ui: &mut Ui,
     t: &Tokens,
@@ -219,7 +219,7 @@ pub fn adaptive_groups<A: Copy>(
     let avail = ui.available_width() - 24.0;
     let mut folded = vec![false; groups.len()];
     let mut total: f32 = groups.iter().map(|g| g.width(ui)).sum();
-    // from the right, and only where folding saves room
+    // desde la derecha, y solo donde plegar ahorra sitio
     for k in (0..groups.len()).rev() {
         if total <= avail {
             break;
@@ -278,7 +278,7 @@ pub fn adaptive_groups<A: Copy>(
     }
 }
 
-/// Starts a ribbon row whose [`fold_group`]s share `avail` pixels.
+/// Empieza una fila de la cinta cuyos [`fold_group`] comparten `avail` píxeles.
 pub fn fold_begin(ctx: &egui::Context, avail: f32) {
     ctx.data_mut(|d| {
         d.insert_temp(egui::Id::new("rf_avail"), avail);
@@ -286,9 +286,9 @@ pub fn fold_begin(ctx: &egui::Context, avail: f32) {
     });
 }
 
-/// A [`group`] that folds into one button with a menu holding its controls when the groups
-/// before it leave no room for it and for the `after` groups that follow. Its width is
-/// measured the first time it is drawn whole, so the first frame never folds.
+/// Un [`group`] que se pliega en un botón con un menú que contiene sus controles cuando los grupos
+/// anteriores no le dejan sitio a él y a los `after` grupos que le siguen. Su ancho se mide la
+/// primera vez que se dibuja entero, así que el primer fotograma nunca se pliega.
 pub fn fold_group(
     ui: &mut Ui,
     t: &Tokens,
@@ -318,7 +318,8 @@ pub fn fold_group(
             egui::Popup::menu(&r)
                 .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                 .show(|ui| {
-                    // the controls say they are in a popup: a menu inside it has to be a submenu
+                    // los controles dicen que están en un menú emergente: un menú dentro de él
+                    // tiene que ser un submenú
                     ctx.data_mut(|d| d.insert_temp(egui::Id::new("rf_in_popup"), true));
                     ui.horizontal(add);
                     ctx.data_mut(|d| d.insert_temp(egui::Id::new("rf_in_popup"), false));
@@ -336,15 +337,16 @@ pub fn fold_group(
     });
 }
 
-/// Whether the controls being drawn are in the popup of a folded group, where a menu has to be
-/// a submenu (`ui.menu_button`) and not a popup of its own, which would close the first.
+/// Si los controles que se dibujan están en el menú emergente de un grupo plegado, donde un menú
+/// tiene que ser un submenú (`ui.menu_button`) y no un menú emergente propio, que cerraría el
+/// primero.
 pub fn in_folded_popup(ctx: &egui::Context) -> bool {
     ctx.data(|d| d.get_temp::<bool>(egui::Id::new("rf_in_popup")))
         .unwrap_or(false)
 }
 
-/// The spacing of the form controls inside a ribbon group: three rows fit the height of a
-/// group, every control has the same height and the rows line up across groups.
+/// El espaciado de los controles de formulario dentro de un grupo de la cinta: tres filas caben en
+/// la altura de un grupo, todo control tiene la misma altura y las filas se alinean entre grupos.
 pub fn compact(ui: &mut Ui) {
     let s = ui.spacing_mut();
     s.interact_size.y = 20.0;
@@ -352,7 +354,7 @@ pub fn compact(ui: &mut Ui) {
     s.item_spacing = Vec2::new(6.0, 3.0);
 }
 
-/// A − and a + button side by side, with their tooltips; `step(-1)` or `step(1)` on a click.
+/// Un botón − y uno + lado a lado, con sus ayudas emergentes; `step(-1)` o `step(1)` en un clic.
 pub fn stepper(ui: &mut Ui, less: &str, more: &str, mut step: impl FnMut(i32)) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
@@ -373,7 +375,8 @@ pub fn stepper(ui: &mut Ui, less: &str, more: &str, mut step: impl FnMut(i32)) {
     });
 }
 
-/// A square 28 px icon button for panels, lit when `selected`, with its name as a tooltip.
+/// Un botón de icono cuadrado de 28 px para paneles, iluminado cuando `selected`, con su nombre
+/// como ayuda emergente.
 pub fn tool_button(ui: &mut Ui, t: &Tokens, icon: &str, tip: &str, selected: bool) -> Response {
     let (rect, r) = ui.allocate_exact_size(Vec2::new(30.0, 28.0), Sense::click());
     if ui.is_rect_visible(rect) {
@@ -398,13 +401,14 @@ pub fn tool_button(ui: &mut Ui, t: &Tokens, icon: &str, tip: &str, selected: boo
     r.on_hover_text(tip)
 }
 
-/// Makes [`group`] draw its controls as a collapsing section of a vertical panel (what the side
-/// panel needs) instead of a ribbon group; set it on before the panel and off after.
+/// Hace que [`group`] dibuje sus controles como una sección plegable de un panel vertical (lo que
+/// necesita el panel lateral) en lugar de como un grupo de la cinta; actívese antes del panel y
+/// desactívese después.
 pub fn panel_groups(ui: &Ui, on: bool) {
     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("panel_groups"), on));
 }
 
-/// A group of controls with its caption centred below and a rule after it.
+/// Un grupo de controles con su título centrado debajo y una línea después.
 pub fn group(ui: &mut Ui, t: &Tokens, caption: &str, add: impl FnOnce(&mut Ui)) {
     if ui.ctx().data(|d| d.get_temp::<bool>(egui::Id::new("panel_groups"))).unwrap_or(false) {
         egui::CollapsingHeader::new(egui::RichText::new(caption).strong())
@@ -418,8 +422,8 @@ pub fn group(ui: &mut Ui, t: &Tokens, caption: &str, add: impl FnOnce(&mut Ui)) 
     }
     let r = ui
         .vertical(|ui| {
-            // controls start at the top of the group, as in every ribbon: rows of different
-            // groups line up and a taller group never pushes its caption out of the ribbon
+            // los controles empiezan arriba del grupo, como en toda cinta: las filas de distintos
+            // grupos se alinean y un grupo más alto nunca empuja su título fuera de la cinta
             let inner = ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
                 ui.spacing_mut().item_spacing = Vec2::new(2.0, 2.0);
                 ui.set_min_height(70.0);
@@ -451,8 +455,8 @@ pub fn group(ui: &mut Ui, t: &Tokens, caption: &str, add: impl FnOnce(&mut Ui)) 
     ui.add_space(8.0);
 }
 
-/// The tab strip: a brand-coloured first button, then the tabs; returns true when the brand
-/// button was clicked.
+/// La tira de pestañas: un primer botón del color de la marca y luego las pestañas; devuelve
+/// verdadero cuando se pulsó el botón de la marca.
 pub fn tab_strip(
     ui: &mut Ui,
     t: &Tokens,
@@ -525,7 +529,8 @@ pub fn tab_strip(
 
 type Line = (Vec<[f32; 2]>, bool);
 
-/// The drawn icons (names starting with `@`), as polylines in a unit square plus dots.
+/// Los iconos dibujados (nombres que empiezan por `@`), como polilíneas en un cuadrado unidad más
+/// puntos.
 fn icon_shapes(name: &str) -> (Vec<Line>, Vec<[f32; 2]>) {
     let rect: Vec<[f32; 2]> = vec![[0.1, 0.15], [0.9, 0.15], [0.9, 0.85], [0.1, 0.85]];
     let open = |v: &[[f32; 2]]| (v.to_vec(), false);
@@ -1066,7 +1071,7 @@ fn icon_shapes(name: &str) -> (Vec<Line>, Vec<[f32; 2]>) {
     }
 }
 
-/// An icon: a drawn one when `icon` starts with `@`, else a glyph.
+/// Un icono: uno dibujado cuando `icon` empieza por `@` o, si no, un glifo.
 pub fn draw_icon(p: &egui::Painter, c: Pos2, size: f32, icon: &str, color: Color32) {
     if let Some(name) = crate::icons::resolve(icon)
         && crate::icons::paint(p, c, size, name, color)
@@ -1102,7 +1107,7 @@ pub fn draw_icon(p: &egui::Painter, c: Pos2, size: f32, icon: &str, color: Color
     }
 }
 
-/// A small square icon button for the header.
+/// Un pequeño botón de icono cuadrado para la cabecera.
 pub fn icon_button(ui: &mut Ui, t: &Tokens, icon: &str, tip: &str) -> Response {
     let (rect, r) = ui.allocate_exact_size(Vec2::new(24.0, 24.0), Sense::click());
     if r.hovered() {

@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Compares hipso-crs with PROJ (pyproj) on points in several countries, without extra grids.
+"""Compara hipso-crs con PROJ (pyproj) en puntos de varios países, sin rejillas adicionales.
 
-    python3 scripts/check_world_crs.py [max error in metres, default 0.001]
+    python3 scripts/check_world_crs.py [error máximo en metros, por defecto 0.001]
 
-Needs pyproj and `cargo build -p hipso-crs --release --example batch`. Pairs that need a datum
-grid PROJ does not have offline are not included: this checks projections and grid-free datum
-operations worldwide. Exit status 1 when a pair exceeds the tolerance.
+Necesita pyproj y `cargo build -p hipso-crs --release --example batch`. No se incluyen los
+pares que necesitan una rejilla de datum que PROJ no tiene sin conexión: esto comprueba
+proyecciones y operaciones de datum sin rejillas en todo el mundo. Código de salida 1 cuando
+un par supera la tolerancia.
 """
 import json, math, os, random, subprocess, sys, tempfile
 from pyproj import Transformer
 
 tol = float(sys.argv[1]) if len(sys.argv) > 1 else 0.001
-# country, (lon0, lon1, lat0, lat1), src, dst
+# país, (lon0, lon1, lat0, lat1), origen, destino
 CASES = [
     ("US NAD83 UTM17N", (-82.0, -79.0, 28.0, 45.0), "EPSG:26917", "EPSG:4269"),
     ("US NAD83 UTM17N", (-82.0, -79.0, 28.0, 45.0), "EPSG:4269", "EPSG:26917"),

@@ -1,14 +1,15 @@
-//! Building classification against a reference classification: `building_bench FILE... [--ground
-//! classes|smrf] [--size 0]`. Takes the whole file (or a square window of `--size` m around its
-//! middle), uses the file's own class 2 as ground (`classes`) or SMRF's, runs the building step and
-//! compares what it calls building (class 6) with the class 6 of the file.
+//! Clasificación de edificios contra una clasificación de referencia: `building_bench ARCHIVO...
+//! [--ground classes|smrf] [--size 0]`. Toma el archivo entero (o una ventana cuadrada de `--size`
+//! m alrededor de su medio), usa la propia clase 2 del archivo como suelo (`classes`) o la de SMRF,
+//! ejecuta el paso de edificios y compara lo que llama edificio (clase 6) con la clase 6 del
+//! archivo.
 //!
-//! `--center x,y --size M` takes a window around a point; `--dump FILE` writes its points with the
-//! reference and the new class, to draw them.
+//! `--center x,y --size M` toma una ventana alrededor de un punto; `--dump ARCHIVO` escribe sus
+//! puntos con la referencia y la clase nueva, para dibujarlos.
 //!
-//! The reference is whatever class 6 the file carries (for PNOA sheets, the producer's
-//! classification): the numbers measure agreement with it, not truth. Points of class 12 (overlap
-//! between flight lines) and noise are left out.
+//! La referencia es la clase 6 que lleve el archivo (para hojas PNOA, la clasificación del
+//! productor): los números miden la concordancia con ella, no la verdad. Los puntos de clase 12
+//! (solape entre pasadas) y el ruido se dejan fuera.
 
 use std::time::Instant;
 
@@ -118,7 +119,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 (true, false) => {
                     fneg += 1;
-                    // what the step made of it: another class, or left as it was
+                    // en qué lo convirtió el paso: otra clase o se dejó como estaba
                     let to = match out[k] {
                         Some(c) => c,
                         None => {

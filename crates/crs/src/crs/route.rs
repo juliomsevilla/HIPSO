@@ -1,10 +1,10 @@
-//! How a transformation moves points between two datums, as PROJ (and so GDAL) does: from the
-//! transformations GDAL lists for the pair (sorted again for the CRSs' area of interest), or,
-//! when PROJ's database has none between the two datums, by chaining two of the transformations
-//! it registers (concatenations of several among them) through intermediate CRSs and datums as
-//! PROJ's `proj_create_operations` finds and sorts them; then picking for each point the most
-//! accurate whose area holds it, else the first that needs no grid (PROJ's `proj_trans`); a list
-//! of one is used for every point.
+//! Cómo mueve una transformación los puntos entre dos datums, como lo hace PROJ (y por tanto GDAL):
+//! a partir de las transformaciones que GDAL lista para el par (reordenadas según el área de
+//! interés de los sistemas) o, cuando la base de datos de PROJ no tiene ninguna entre los dos
+//! datums, encadenando dos de las que registra (concatenaciones de varias entre ellas) a través de
+//! sistemas y datums intermedios, tal como `proj_create_operations` de PROJ las encuentra y ordena;
+//! después se elige para cada punto la más precisa cuya área lo contiene o, si no, la primera que
+//! no necesita rejilla (`proj_trans` de PROJ); una lista de una sola se usa para todos los puntos.
 
 use super::datum::{self, Op, Point, Step};
 use super::def::Def;
@@ -13,15 +13,15 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
-/// A transformation and the direction it runs in.
+/// Una transformación y el sentido en que se ejecuta.
 #[derive(Debug, Clone)]
 pub(crate) struct Leg {
     pub op: Arc<Op>,
     pub reverse: bool,
 }
 
-/// Two transformations through an intermediate datum, with the area, accuracy and flags PROJ
-/// ranks the chain by.
+/// Dos transformaciones a través de un datum intermedio, con el área, la precisión y los
+/// indicadores por los que PROJ ordena la cadena.
 #[derive(Debug)]
 struct Chain {
     legs: [Leg; 2],
@@ -30,40 +30,43 @@ struct Chain {
 
 #[derive(Debug)]
 enum Kind {
-    /// Same datum: no shift.
+    /// Mismo datum: sin desplazamiento.
     Same,
-    /// GDAL's list of transformations for the pair: the best for a point, else the first.
+    /// La lista de transformaciones de GDAL para el par: la mejor para un punto o, si no, la
+    /// primera.
     List(Vec<Leg>),
-    /// Chains through intermediate datums, in PROJ's order, then PROJ's ballpark (no shift, which
-    /// holds every point) when it lists one: the best for a point, else the ballpark, else the
-    /// first chain that needs no grid.
+    /// Cadenas a través de datums intermedios, en el orden de PROJ, y después la aproximación de
+    /// PROJ (sin desplazamiento, que contiene todos los puntos) cuando la lista: la mejor para un
+    /// punto o, si no, la aproximación o, si no, la primera cadena que no necesita rejilla.
     Chains {
         chains: Vec<Chain>,
         ballpark: Option<Op>,
     },
-    /// CRSs without EPSG geographic CRS: through WGS 84 with each side's transformations.
+    /// Sistemas sin sistema geográfico EPSG: a través de WGS 84 con las transformaciones de cada
+    /// lado.
     Hub,
 }
 
-/// Areas in source coordinates, per transformation (two boxes across the antimeridian).
+/// Áreas en coordenadas de origen, por transformación (dos cajas a ambos lados del antimeridiano).
 type Boxes = Vec<Vec<[f64; 4]>>;
 
-/// The datum part of a transformation between two CRSs.
+/// La parte de datum de una transformación entre dos sistemas.
 #[derive(Debug)]
 pub(crate) struct Route {
     kind: Kind,
-    /// The areas of the transformations in source coordinates, computed when first needed: per
-    /// leg of `List`, or per `Chain`.
+    /// Las áreas de las transformaciones en coordenadas de origen, calculadas la primera vez que
+    /// hacen falta: por tramo de `List` o por `Chain`.
     boxes: OnceLock<Boxes>,
-    /// The same, for the source's and target's transformations of `Hub`.
+    /// Lo mismo, para las transformaciones del origen y del destino de `Hub`.
     hub_boxes: OnceLock<(Boxes, Boxes)>,
-    /// The target's transformations to WGS 84, for `Hub`.
+    /// Las transformaciones del destino a WGS 84, para `Hub`.
     dst_ops: Vec<Arc<Op>>,
-    /// The two datums are official realizations of one another (no shift exists or is needed).
+    /// Los dos datums son realizaciones oficiales uno del otro (no existe ni hace falta ningún
+    /// desplazamiento).
     coincident: bool,
 }
 
-/// Datums the authorities define as coinciding: ETRS89 and REGCAN95 (Canary Islands).
+/// Datums que las autoridades definen como coincidentes: ETRS89 y REGCAN95 (Canarias).
 fn coincident(a: &Def, b: &Def) -> bool {
     const ETRS89: u32 = 6258;
     const REGCAN95: u32 = 1035;
@@ -82,7 +85,7 @@ fn legs(ops: &[Arc<Op>], reverse: bool) -> Vec<Leg> {
         .collect()
 }
 
-/// Whether two areas intersect, as PROJ's `GeographicBoundingBox::intersects`.
+/// Si dos áreas se cortan, como `GeographicBoundingBox::intersects` de PROJ.
 fn intersects(a: &[f64; 4], b: &[f64; 4]) -> bool {
     let [w, s, e, n] = *a;
     let [ow, os, oe, on] = *b;
@@ -110,7 +113,7 @@ fn intersects(a: &[f64; 4], b: &[f64; 4]) -> bool {
     true
 }
 
-/// Whether area `a` holds area `b`, as PROJ's `GeographicBoundingBox::contains`.
+/// Si el área `a` contiene el área `b`, como `GeographicBoundingBox::contains` de PROJ.
 fn contains(a: &[f64; 4], b: &[f64; 4]) -> bool {
     let [w, s, e, n] = *a;
     let [ow, os, oe, on] = *b;
@@ -133,8 +136,8 @@ fn contains(a: &[f64; 4], b: &[f64; 4]) -> bool {
     }
 }
 
-/// The intersection of two areas, as PROJ's `GeographicBoundingBox::intersection`: `None` when
-/// they do not overlap; the larger part when it has two across the antimeridian.
+/// La intersección de dos áreas, como `GeographicBoundingBox::intersection` de PROJ: `None` cuando
+/// no se solapan; la parte mayor cuando tiene dos a ambos lados del antimeridiano.
 fn intersection(a: &[f64; 4], b: &[f64; 4]) -> Option<[f64; 4]> {
     let [w, s, e, n] = *a;
     let [ow, os, oe, on] = *b;
@@ -170,7 +173,7 @@ fn intersection(a: &[f64; 4], b: &[f64; 4]) -> Option<[f64; 4]> {
     Some([w.max(ow), s2, e.min(oe), n2])
 }
 
-/// PROJ's measure of the size of an area.
+/// La medida del tamaño de un área en PROJ.
 fn pseudo_area(a: &[f64; 4]) -> f64 {
     let [w, s, mut e, n] = *a;
     if w > e {
@@ -179,13 +182,13 @@ fn pseudo_area(a: &[f64; 4]) -> f64 {
     (e - w) * (n.to_radians().sin() - s.to_radians().sin())
 }
 
-/// The area the transformations between two CRSs must intersect: the smaller of their areas of
-/// use, as PROJ's `SourceTargetCRSExtentUse::SMALLEST`.
+/// El área que deben cortar las transformaciones entre dos sistemas: la menor de sus áreas de uso,
+/// como `SourceTargetCRSExtentUse::SMALLEST` de PROJ.
 fn area_of_interest(src: &Def, dst: &Def) -> Option<[f64; 4]> {
     smaller(src.area(), dst.area())
 }
 
-/// The smaller of two areas, as PROJ measures them.
+/// La menor de dos áreas, como las mide PROJ.
 fn smaller(a: Option<[f64; 4]>, b: Option<[f64; 4]>) -> Option<[f64; 4]> {
     match (a, b) {
         (Some(a), Some(b)) => Some(if pseudo_area(&a) < pseudo_area(&b) {
@@ -197,8 +200,8 @@ fn smaller(a: Option<[f64; 4]>, b: Option<[f64; 4]>) -> Option<[f64; 4]> {
     }
 }
 
-/// Whether PROJ considers a transformation between two CRSs: its area must intersect both CRSs'
-/// areas (as PROJ queries its database) and the area of interest.
+/// Si PROJ considera una transformación entre dos sistemas: su área debe cortar las áreas de ambos
+/// sistemas (como consulta PROJ su base de datos) y el área de interés.
 fn relevant(op: &Op, src: &Def, dst: &Def, aoi: Option<&[f64; 4]>) -> bool {
     op.ballpark
         || [src.area().as_ref(), dst.area().as_ref(), aoi]
@@ -208,14 +211,13 @@ fn relevant(op: &Op, src: &Def, dst: &Def, aoi: Option<&[f64; 4]>) -> bool {
 }
 
 impl Route {
-    /// The route from `src` to `dst`.
+    /// La ruta de `src` a `dst`.
     pub fn new(src: &Def, dst: &Def) -> Self {
         let aoi = area_of_interest(src, dst);
         let keep = |op: &Op| relevant(op, src, dst, aoi.as_ref());
-        // Between projected CRSs, PROJ concatenates the transformations with the projections,
-        // which gives a concatenation its database registers the accuracy and area of its
-        // steps (NAD83 to NAD83(NSRS2007) (NADCON5, Alaska) between British Columbia Albers
-        // and UTM).
+        // Entre sistemas proyectados, PROJ concatena las transformaciones con las proyecciones, lo
+        // que da una concatenación cuya precisión y área registra su base de datos para sus pasos
+        // (NAD83 a NAD83(NSRS2007) (NADCON5, Alaska) entre British Columbia Albers y UTM).
         let concatenated = !src.is_geographic() || !dst.is_geographic();
         let list = |ops: &[Arc<Op>], reverse: bool| -> Kind {
             Kind::List(
@@ -247,19 +249,20 @@ impl Route {
         } else {
             match (src.geog(), dst.geog()) {
                 (Some(a), Some(b)) => match epsg::pair(a, b) {
-                    // PROJ looks for transformations through other datums when its database has
-                    // none it can use between the two for the CRSs' areas (NAD83(CSRS) to NAD83
-                    // between Arctic CRSs, outside the offshore area of their only one, or with
-                    // the grids missing).
+                    // PROJ busca transformaciones a través de otros datums cuando su base de datos
+                    // no tiene ninguna utilizable entre los dos para las áreas de los sistemas
+                    // (NAD83(CSRS) a NAD83 entre sistemas árticos, fuera del área marítima de su
+                    // única transformación, o con las rejillas ausentes).
                     Some((ops, reverse)) if ops.iter().any(|o| !o.ballpark && keep(o)) => {
                         let mut kind = list(&ops, reverse);
-                        // GDAL's order is for the two geographic CRSs: between CRSs of another
-                        // area of interest, PROJ sorts the transformations for theirs.
+                        // El orden de GDAL es el de los dos sistemas geográficos: entre sistemas de
+                        // otra área de interés, PROJ ordena las transformaciones para la suya.
                         let area = |code: u32| epsg::get(code).and_then(|e| e.area);
                         if let Kind::List(l) = &mut kind
                             && aoi != smaller(area(a), area(b))
                         {
-                            // Run in reverse, a transformation has the inverse's name.
+                            // Ejecutada a la inversa, una transformación tiene el nombre de la
+                            // inversa.
                             let key = |leg: &Leg| {
                                 let name = step_names(&leg.op, leg.reverse).join(" + ");
                                 SortKey::new(
@@ -290,9 +293,10 @@ impl Route {
         }
     }
 
-    /// The accuracy (metres) of the transformation [`Route::apply`] picks for a point, as PROJ
-    /// adds it to the accuracy of a vertical transformation it chains with: 0 between CRSs of one
-    /// datum, negative when unknown (a ballpark, or no transformation for the point).
+    /// La precisión (metros) de la transformación que [`Route::apply`] elige para un punto, como la
+    /// suma PROJ a la precisión de una transformación vertical con la que la encadena: 0 entre
+    /// sistemas de un datum, negativa cuando se desconoce (una aproximación o ninguna
+    /// transformación para el punto).
     pub fn accuracy_at(&self, src: &Def, x: f64, y: f64, p: Point) -> f64 {
         let (dlon, dlat) = src
             .source_degrees(x, y)
@@ -348,15 +352,16 @@ impl Route {
         }
     }
 
-    /// Moves a geodetic point (radians) from the source datum to the target's. `(x, y)` are its
-    /// source coordinates, which pick the transformation for a projected source as in PROJ.
-    /// Heights go through the transformation when `three_d` (between 3D CRSs). `None` when no
-    /// transformation succeeds.
+    /// Mueve un punto geodésico (radianes) del datum de origen al del destino. `(x, y)` son sus
+    /// coordenadas de origen, que eligen la transformación para un origen proyectado como en PROJ.
+    /// Las alturas pasan por la transformación cuando `three_d` (entre sistemas 3D). `None` cuando
+    /// ninguna transformación tiene éxito.
     pub fn apply(&self, src: &Def, x: f64, y: f64, p: Point, three_d: bool) -> Option<Point> {
         if !self.coincident {
             return self.apply_raw(src, x, y, p, three_d);
         }
-        // Datums that coincide need no shift: the engine's "no shift" is exact, not a ballpark.
+        // Los datums que coinciden no necesitan desplazamiento: el «sin desplazamiento» del motor
+        // es exacto, no una aproximación.
         let before = super::policy::peek();
         let r = self.apply_raw(src, x, y, p, three_d);
         super::policy::restore_ballpark(before);
@@ -364,12 +369,13 @@ impl Route {
     }
 
     fn apply_raw(&self, src: &Def, x: f64, y: f64, p: Point, three_d: bool) -> Option<Point> {
-        // PROJ compares the source coordinates with the areas: for a geographic source, its
-        // longitude and latitude as given, in degrees.
+        // PROJ compara las coordenadas de origen con las áreas: para un origen geográfico, su
+        // longitud y latitud tal como se dan, en grados.
         let (dlon, dlat) = src
             .source_degrees(x, y)
             .unwrap_or((p.lon.to_degrees(), p.lat.to_degrees()));
-        // Longitudes out of [-180, 180] are also tried wrapped into it, as PROJ does.
+        // Las longitudes fuera de [-180, 180] se prueban también envueltas en ese intervalo, como
+        // hace PROJ.
         let wrapped = if (-180.0..=180.0).contains(&dlon) {
             dlon
         } else {
@@ -383,8 +389,8 @@ impl Route {
         };
         match &self.kind {
             Kind::Same => Some(p),
-            // No transformation at all (a CRS of an unknown datum, defined by its ellipsoid alone):
-            // no shift, PROJ's ballpark transformation.
+            // Ninguna transformación (un sistema de datum desconocido, definido solo por su
+            // elipsoide): sin desplazamiento, la transformación aproximada de PROJ.
             Kind::List(list) if list.is_empty() => {
                 super::policy::note(super::policy::Approximation::NoDatumShift);
                 Some(p)
@@ -400,15 +406,15 @@ impl Route {
                     |i| datum::run_op(&list[i].op, p, list[i].reverse, three_d),
                 )
             }
-            // PROJ's ballpark alone: no shift.
+            // Solo la aproximación de PROJ: sin desplazamiento.
             Kind::Chains { chains, .. } if chains.is_empty() => {
                 super::policy::note(super::policy::Approximation::NoDatumShift);
                 Some(p)
             }
             Kind::Chains { chains, ballpark } => {
-                // Heights go through both transformations, as in PROJ's pipeline for the chain (the
-                // conversion to geodetic coordinates and back between them cancelling out), and
-                // are restored after them when the chain keeps them.
+                // Las alturas pasan por las dos transformaciones, como en la tubería de PROJ para
+                // la cadena (la conversión a coordenadas geodésicas y de vuelta entre ellas se
+                // anula), y se restauran después de ellas cuando la cadena las conserva.
                 let run = |c: &Chain| {
                     let [l1, l2] = &c.legs;
                     let r = datum::run(&l1.op.steps, p, l1.reverse, true)
@@ -419,7 +425,8 @@ impl Route {
                         Point { h: p.h, ..r }
                     })
                 };
-                // A single operation is used for every point, whatever its area, as PROJ does.
+                // Se usa una sola operación para todos los puntos, sea cual sea su área, como hace
+                // PROJ.
                 if chains.len() == 1 && ballpark.is_none() {
                     return run(&chains[0]);
                 }
@@ -438,8 +445,8 @@ impl Route {
                     }) else {
                         break;
                     };
-                    // The ballpark (more accurate than the chains between CRSs that differ by
-                    // their prime meridians alone): no shift.
+                    // La aproximación (más precisa que las cadenas entre sistemas que solo difieren
+                    // por sus meridianos origen): sin desplazamiento.
                     let Some(chain) = chains.get(i) else {
                         super::policy::note(super::policy::Approximation::NoDatumShift);
                         return Some(p);
@@ -451,12 +458,12 @@ impl Route {
                     excluded.push(i);
                 }
                 if ballpark.is_some() {
-                    // The ballpark holds every point: no shift.
+                    // La aproximación contiene todos los puntos: sin desplazamiento.
                     super::policy::note(super::policy::Approximation::NoDatumShift);
                     return Some(p);
                 }
-                // No transformation for the point: the first that needs no grid, as PROJ's
-                // `proj_trans`.
+                // Ninguna transformación para el punto: la primera que no necesita rejilla, como
+                // `proj_trans` de PROJ.
                 let first = chains.iter().find(|c| !c.rank.needs_grids())?;
                 run(first)
             }
@@ -465,13 +472,14 @@ impl Route {
                     let areas = |ops: &[Arc<Op>]| ops.iter().map(|o| src.areas(o)).collect();
                     (areas(src_ops(src)), areas(&self.dst_ops))
                 });
-                // Single transformations only, as PROJ chains them.
+                // Solo transformaciones simples, como las encadena PROJ.
                 let single = |op: &Op| !op.ballpark && !op.concatenated;
                 let s = datum::pick_in(src_ops(src), |op, i| single(op) && inside(op, sb.get(i)));
                 let d = datum::pick_in(&self.dst_ops, |op, i| single(op) && inside(op, db.get(i)));
                 match (s, d) {
                     (Some(s), Some(d)) => {
-                        // Heights go through both, as in PROJ's pipeline (see the chains).
+                        // Las alturas pasan por las dos, como en la tubería de PROJ (véanse las
+                        // cadenas).
                         let r = datum::run(&s.steps, p, false, true)
                             .and_then(|q| datum::run(&d.steps, q, true, true))?;
                         Some(if three_d || !(s.keeps_height && d.keeps_height) {
@@ -480,7 +488,8 @@ impl Route {
                             Point { h: p.h, ..r }
                         })
                     }
-                    // No transformation (or an unknown datum): no shift, as PROJ's ballpark.
+                    // Ninguna transformación (o un datum desconocido): sin desplazamiento, como la
+                    // aproximación de PROJ.
                     _ => {
                         super::policy::note(super::policy::Approximation::NoDatumShift);
                         Some(p)
@@ -495,19 +504,20 @@ fn src_ops(src: &Def) -> &[Arc<Op>] {
     src.ops()
 }
 
-/// What a chain is made of, before PROJ sorts the chains: its two registered transformations in
-/// the directions they run, and the names of the conversions PROJ frames them with.
+/// De qué se compone una cadena, antes de que PROJ ordene las cadenas: sus dos transformaciones
+/// registradas en los sentidos en que se ejecutan y los nombres de las conversiones con las que
+/// PROJ las enmarca.
 struct Found {
     legs: [(usize, bool); 2],
-    /// Conversions before the first transformation, between them, and after the second.
+    /// Conversiones antes de la primera transformación, entre ellas y después de la segunda.
     conversions: [Option<String>; 3],
 }
 
 impl Found {
-    /// The chain run in reverse.
+    /// La cadena ejecutada a la inversa.
     fn reversed(self) -> Self {
         let [(i1, r1), (i2, r2)] = self.legs;
-        // A conversion's inverse, but an axis order change, which is its own.
+        // La inversa de una conversión, salvo un cambio de orden de ejes, que es su propia inversa.
         let back = |c: Option<String>| {
             c.map(|n| {
                 if n.starts_with("axis order change") {
@@ -525,10 +535,11 @@ impl Found {
     }
 }
 
-/// PROJ's name for the operation between two geodetic CRSs of one datum, as its `buildOpName`
-/// makes it (with the kind of each CRS when their names are the same): a conversion to or from
-/// geocentric coordinates, an axis order change between CRSs of one kind, else a null offset
-/// (which PROJ leaves out of the chains of its datum pivot).
+/// El nombre que da PROJ a la operación entre dos sistemas geodésicos de un datum, tal como lo
+/// construye su `buildOpName` (con el tipo de cada sistema cuando sus nombres son iguales): una
+/// conversión a coordenadas geocéntricas o desde ellas, un cambio de orden de ejes entre sistemas
+/// de un tipo o, si no, un desplazamiento nulo (que PROJ deja fuera de las cadenas de su pivote de
+/// datum).
 fn conversion_name(from: &epsg::Geodetic, to: &epsg::Geodetic) -> String {
     use epsg::GeodeticKind::*;
     let qualifier = |g: &epsg::Geodetic| match g.kind {
@@ -556,25 +567,27 @@ fn conversion_name(from: &epsg::Geodetic, to: &epsg::Geodetic) -> String {
     format!("{kind} from {}{q1} to {}{q2}", from.name, to.name)
 }
 
-/// The name of PROJ's null transformations between geographic CRSs of one datum.
+/// El nombre de las transformaciones nulas de PROJ entre sistemas geográficos de un datum.
 const NULL_OFFSET: &str = "Null geographic offset";
 
-/// The chains of two transformations from geographic CRS `a` to `b` through intermediate
-/// datums, as PROJ's `proj_create_operations` lists them for CRSs `src` and `dst` when its
-/// database has no transformation between the two datums, sorted as PROJ sorts them:
+/// Las cadenas de dos transformaciones del sistema geográfico `a` al `b` a través de datums
+/// intermedios, como las lista `proj_create_operations` de PROJ para los sistemas `src` y `dst`
+/// cuando su base de datos no tiene ninguna transformación entre los dos datums, ordenadas como las
+/// ordena PROJ:
 ///
-/// - first those through an intermediate CRS PROJ's database registers transformations to
-///   from CRSs of both datums (`createFromCRSCodesWithIntermediates`), trying the geographic
-///   2D, 3D and geocentric CRSs of the two datums in order of code (its datum pivot), and
-///   keeping those of the first pair of CRSs that has some;
-/// - then, when that finds none, or only chains through PROJ's null transformations between
-///   the WGS 84 ensemble and its realizations, or only chains over less than half the CRSs'
-///   common area, or only time-dependent ones between static CRSs, those through an
-///   intermediate datum, whatever its CRSs (`createBetweenGeodeticCRSWithDatumBasedIntermediates`).
+/// - primero las que pasan por un sistema intermedio al que la base de datos de PROJ registra
+///   transformaciones desde sistemas de ambos datums (`createFromCRSCodesWithIntermediates`),
+///   probando por orden de código los sistemas geográficos 2D, 3D y geocéntricos de los dos datums
+///   (su pivote de datum) y conservando las del primer par de sistemas que tiene alguna;
+/// - después, cuando eso no encuentra ninguna, o solo cadenas por las transformaciones nulas de
+///   PROJ entre el conjunto de WGS 84 y sus realizaciones, o solo cadenas sobre menos de la mitad
+///   del área común de los sistemas, o solo dependientes del tiempo entre sistemas estáticos, las
+///   que pasan por un datum intermedio, sean cuales sean sus sistemas
+///   (`createBetweenGeodeticCRSWithDatumBasedIntermediates`).
 ///
-/// Transformations PROJ's database replaces by another it finds too are left out, as are those
-/// whose grids are missing. PROJ ends the list with its ballpark (no shift) unless a chain that
-/// needs no grid holds the area of interest.
+/// Se dejan fuera las transformaciones que la base de datos de PROJ sustituye por otra que también
+/// encuentra, y aquellas cuyas rejillas faltan. PROJ termina la lista con su aproximación (sin
+/// desplazamiento), salvo que una cadena que no necesita rejilla contenga el área de interés.
 fn chains(a: u32, b: u32, src: &Def, dst: &Def, aoi: Option<&[f64; 4]>) -> Kind {
     let reg = epsg::registry();
     let (Some(ga), Some(gb)) = (reg.geodetic.get(&a), reg.geodetic.get(&b)) else {
@@ -588,8 +601,8 @@ fn chains(a: u32, b: u32, src: &Def, dst: &Def, aoi: Option<&[f64; 4]>) -> Kind 
         .flatten()
         .filter(|e| *e != [-180.0, -90.0, 180.0, 90.0])
         .collect();
-    // PROJ looks for the transformations to a projected CRS from it, and runs them in reverse:
-    // those it finds are the chains from `b` to `a` (it sorts them once reversed).
+    // PROJ busca las transformaciones hacia un sistema proyectado desde él y las ejecuta a la
+    // inversa: las que encuentra son las cadenas de `b` a `a` (las ordena una vez invertidas).
     let reverse = !dst.is_geographic();
     let (ga, gb) = if reverse { (gb, ga) } else { (ga, gb) };
     let mut found = crs_code_chains(reg, ga, gb, &extents);
@@ -605,7 +618,7 @@ fn chains(a: u32, b: u32, src: &Def, dst: &Def, aoi: Option<&[f64; 4]>) -> Kind 
             .all(|f| f.legs.iter().any(|&(i, _)| reg.ops[i].time_dependent));
     let small = too_small(reg, &found, src.area(), dst.area());
     if found.is_empty() || ensemble_only || time_only || small {
-        // After chains over too small an area, those of other names only.
+        // Tras las cadenas sobre un área demasiado pequeña, solo las de otros nombres.
         let known: Vec<String> = if small {
             found.iter().map(|f| found_name(reg, f)).collect()
         } else {
@@ -620,7 +633,7 @@ fn chains(a: u32, b: u32, src: &Def, dst: &Def, aoi: Option<&[f64; 4]>) -> Kind 
     if reverse {
         found = found.into_iter().map(Found::reversed).collect();
     }
-    // The chains, each with what PROJ sorts it by.
+    // Las cadenas, cada una con aquello por lo que PROJ la ordena.
     let mut out: Vec<(SortKey, Chain)> = Vec::new();
     for f in found {
         let [(i1, r1), (i2, r2)] = f.legs;
@@ -631,7 +644,7 @@ fn chains(a: u32, b: u32, src: &Def, dst: &Def, aoi: Option<&[f64; 4]>) -> Kind 
         if aoi.is_some_and(|a| !intersects(&bounds, a)) {
             continue;
         }
-        // The common area has the name (and so the flags) of the leg whose area it is.
+        // El área común tiene el nombre (y por tanto los indicadores) del tramo cuya área es.
         let named = if contains(&o1.chain_bounds, &o2.chain_bounds) {
             Some(o2)
         } else if contains(&o2.chain_bounds, &o1.chain_bounds) {
@@ -652,8 +665,8 @@ fn chains(a: u32, b: u32, src: &Def, dst: &Def, aoi: Option<&[f64; 4]>) -> Kind 
             chain_accuracy: accuracy,
             chain_bounds: bounds,
             offshore: named.is_some_and(|o| o.offshore),
-            // An intersection of areas that is neither leg's has no name, which PROJ takes for
-            // an unknown area.
+            // Una intersección de áreas que no es la de ninguno de los tramos no tiene nombre, que
+            // PROJ toma por un área desconocida.
             unknown_area: named.is_none_or(|o| o.unknown_area),
             ballpark: false,
             concatenated: true,
@@ -683,8 +696,8 @@ fn chains(a: u32, b: u32, src: &Def, dst: &Def, aoi: Option<&[f64; 4]>) -> Kind 
         out.push((key, Chain { legs, rank }));
     }
     out.sort_by(|x, y| x.0.cmp(&y.0));
-    // PROJ drops its ballpark when a chain that needs no grid holds the area of interest, even
-    // one it then drops itself.
+    // PROJ descarta su aproximación cuando una cadena que no necesita rejilla contiene el área de
+    // interés, incluso una que luego descarta él mismo.
     let ballpark = !aoi.is_some_and(|a| {
         out.iter()
             .any(|(_, c)| !c.rank.needs_grids() && contains(&c.rank.bounds, a))
@@ -696,12 +709,12 @@ fn chains(a: u32, b: u32, src: &Def, dst: &Def, aoi: Option<&[f64; 4]>) -> Kind 
     }
 }
 
-/// The chains PROJ keeps once sorted: without one that brings nothing over the previous one kept
-/// (of the same area, as or less accurate, with more transformations; PROJ's
-/// `removeUninterestingOps`), nor one that runs the same steps over the same area as another
-/// before it (`removeDuplicateOps`).
+/// Las cadenas que conserva PROJ una vez ordenadas: sin una que no aporte nada sobre la anterior
+/// conservada (de la misma área, igual o menos precisa, con más transformaciones;
+/// `removeUninterestingOps` de PROJ), ni una que ejecute los mismos pasos sobre la misma área que
+/// otra anterior (`removeDuplicateOps`).
 fn remove_uninteresting(chains: Vec<Chain>) -> Vec<Chain> {
-    // The transformations of a chain, as PROJ counts them: its steps but conversions.
+    // Las transformaciones de una cadena, como las cuenta PROJ: sus pasos salvo las conversiones.
     let count = |c: &Chain| {
         c.rank
             .name
@@ -739,8 +752,9 @@ fn remove_uninteresting(chains: Vec<Chain>) -> Vec<Chain> {
     out
 }
 
-/// PROJ's name for a chain: the names of its conversions and transformations (those of a
-/// registered concatenation's steps), without the conversions to an intermediate CRS and back.
+/// El nombre que da PROJ a una cadena: los nombres de sus conversiones y transformaciones (los de
+/// los pasos de una concatenación registrada), sin las conversiones a un sistema intermedio y de
+/// vuelta.
 fn found_name(reg: &epsg::Registry, f: &Found) -> String {
     let [(i1, r1), (i2, r2)] = f.legs;
     let mut names: Vec<String> = Vec::new();
@@ -761,8 +775,8 @@ fn found_name(reg: &epsg::Registry, f: &Found) -> String {
     names.join(" + ")
 }
 
-/// Whether every chain covers at most half the CRSs' common area, as PROJ's
-/// `hasTooSmallAreas` measures it (for fewer than 10 chains).
+/// Si toda cadena cubre como mucho la mitad del área común de los sistemas, como lo mide
+/// `hasTooSmallAreas` de PROJ (para menos de 10 cadenas).
 fn too_small(
     reg: &epsg::Registry,
     found: &[Found],
@@ -801,8 +815,8 @@ fn too_small(
     })
 }
 
-/// The intersection of two extents as PROJ's `Extent::intersection` computes it: the one
-/// when it holds the other, else the intersection of their areas.
+/// La intersección de dos extensiones como la calcula `Extent::intersection` de PROJ: la una cuando
+/// contiene a la otra o, si no, la intersección de sus áreas.
 fn extent_intersection(a: &[f64; 4], b: &[f64; 4]) -> Option<[f64; 4]> {
     if contains(a, b) {
         return Some(*b);
@@ -813,8 +827,8 @@ fn extent_intersection(a: &[f64; 4], b: &[f64; 4]) -> Option<[f64; 4]> {
     intersection(a, b)
 }
 
-/// Whether PROJ rejects an intermediate CRS between two CRSs: an ITRF realization out of the
-/// years of two ETRF realizations, NAD83 or WGS 84 between two NAD83(CSRS) realizations.
+/// Si PROJ rechaza un sistema intermedio entre dos sistemas: una realización de ITRF fuera de los
+/// años de dos realizaciones de ETRF, NAD83 o WGS 84 entre dos realizaciones de NAD83(CSRS).
 fn rejected_pivot(from: &str, to: &str, pivot: &str) -> bool {
     let year = |name: &str, prefix: &str| {
         let digits: String = name
@@ -838,16 +852,15 @@ fn rejected_pivot(from: &str, to: &str, pivot: &str) -> bool {
         && matches!(pivot, "NAD83" | "WGS 84")
 }
 
-/// Whether a registered concatenation goes through one of two CRSs (PROJ's
-/// `useIrrelevantPivot`).
+/// Si una concatenación registrada pasa por uno de dos sistemas (`useIrrelevantPivot` de PROJ).
 fn irrelevant(reg: &epsg::Registry, i: usize, a: u32, b: u32) -> bool {
     reg.ops[i].via.iter().any(|&c| c == a || c == b)
 }
 
-/// The transformations of a list that others of the list replace: those of which one
-/// replacement is in the list when `any`, else those of which every replacement is (PROJ
-/// queries a transformation once per replacement, and drops the rows whose replacement it
-/// finds).
+/// Las transformaciones de una lista que otras de la lista sustituyen: aquellas de las que una
+/// sustituta está en la lista cuando `any`, o si no aquellas de las que lo están todas (PROJ
+/// consulta una transformación una vez por sustituta y descarta las filas cuya sustituta
+/// encuentra).
 fn superseded(
     reg: &epsg::Registry,
     ids: impl Iterator<Item = usize> + Clone,
@@ -867,11 +880,11 @@ fn superseded(
     .collect()
 }
 
-/// PROJ's datum pivot: the chains through an intermediate CRS between the geodetic CRSs of the
-/// datums of `a` and `b`, in order of code: first those of their names and of one kind, then
-/// those of other names, then of their names and of other kinds; those of the first pair of CRSs
-/// that has some (then also of the next pairs while every chain found uses one of PROJ's own
-/// transformations).
+/// El pivote de datum de PROJ: las cadenas a través de un sistema intermedio entre los sistemas
+/// geodésicos de los datums de `a` y `b`, por orden de código: primero las de sus nombres y de un
+/// mismo tipo, luego las de otros nombres y después las de sus nombres y de otros tipos; las del
+/// primer par de sistemas que tiene alguna (y también las de los pares siguientes mientras toda
+/// cadena encontrada use una de las transformaciones propias de PROJ).
 fn crs_code_chains(
     reg: &epsg::Registry,
     a: &epsg::Geodetic,
@@ -896,7 +909,8 @@ fn crs_code_chains(
         })
     };
     for same_kind in [true, false] {
-        // Of the names of `a` and `b`, of one kind (then of other kinds); then of other names.
+        // De los nombres de `a` y `b`, de un mismo tipo (luego de otros tipos); después de otros
+        // nombres.
         let pairs = ca
             .iter()
             .flat_map(|x| cb.iter().map(move |y| (*x, *y)))
@@ -913,7 +927,7 @@ fn crs_code_chains(
             if more.is_empty() {
                 continue;
             }
-            // The operations from `a` to `x` and from `y` to `b`, without null ones.
+            // Las operaciones de `a` a `x` y de `y` a `b`, sin las nulas.
             let framing = |from: &epsg::Geodetic, to: &epsg::Geodetic| {
                 (from.code != to.code)
                     .then(|| conversion_name(from, to))
@@ -932,11 +946,12 @@ fn crs_code_chains(
     found
 }
 
-/// The chains of two transformations PROJ's database registers from CRS `x` to an intermediate
-/// CRS and from it to CRS `y` (PROJ's `createFromCRSCodesWithIntermediates`): through a
-/// geographic CRS of a datum published since the older of theirs (or of none, as WGS 84)
-/// between geographic CRSs, through any CRS otherwise; with areas that intersect each other and
-/// the CRSs' areas; without those replaced by another of the same direction found.
+/// Las cadenas de dos transformaciones que la base de datos de PROJ registra del sistema `x` a un
+/// sistema intermedio y de este al sistema `y` (`createFromCRSCodesWithIntermediates` de PROJ): a
+/// través de un sistema geográfico de un datum publicado desde el más antiguo de los suyos (o de
+/// ninguno, como WGS 84) entre sistemas geográficos, a través de cualquier sistema en los demás
+/// casos; con áreas que se cortan entre sí y con las de los sistemas; sin las sustituidas por otra
+/// del mismo sentido encontrada.
 fn crs_code_pair(
     reg: &epsg::Registry,
     x: &epsg::Geodetic,
@@ -956,8 +971,8 @@ fn crs_code_pair(
     let (Some(from_x), Some(from_y)) = (reg.at.get(&x.code), reg.at.get(&y.code)) else {
         return Vec::new();
     };
-    // The other end of a transformation from or to a CRS, and whether it runs in reverse to
-    // leave the CRS.
+    // El otro extremo de una transformación desde o hacia un sistema, y si se ejecuta a la inversa
+    // para salir del sistema.
     let other = |i: usize, code: u32| {
         let r = &reg.ops[i];
         if r.source == code {
@@ -967,8 +982,8 @@ fn crs_code_pair(
         }
     };
     let mut out = Vec::new();
-    // PROJ's four queries, by the directions of the two transformations, each without those
-    // replaced by another it finds.
+    // Las cuatro consultas de PROJ, por los sentidos de las dos transformaciones, cada una sin las
+    // sustituidas por otra que encuentra.
     for (rev1, rev2) in [(false, false), (false, true), (true, false), (true, true)] {
         let mut rows: Vec<(usize, usize, u32)> = Vec::new();
         for &i in from_x {
@@ -988,7 +1003,7 @@ fn crs_code_pair(
                 continue;
             }
             for &j in from_y {
-                // The second runs from the pivot to `y`: in reverse when registered from `y`.
+                // La segunda va del pivote a `y`: a la inversa cuando está registrada desde `y`.
                 let (back, r2) = other(j, y.code);
                 if back != pivot
                     || r2 == rev2
@@ -1005,7 +1020,7 @@ fn crs_code_pair(
         let gone2 = superseded(reg, rows.iter().map(|r| r.1), false);
         for (i, j, pivot) in rows {
             let name = reg.geodetic.get(&pivot).map_or("", |p| p.name.as_str());
-            // Then those whose grids are missing.
+            // Después aquellas cuyas rejillas faltan.
             if gone1.contains(&i)
                 || gone2.contains(&j)
                 || !reg.ops[i].op.available()
@@ -1022,11 +1037,12 @@ fn crs_code_pair(
     out
 }
 
-/// PROJ's chains through an intermediate datum (`createBetweenGeodeticCRSWithDatumBasedIntermediates`):
-/// transformations PROJ's database registers between any CRSs of the datum of `a` and of a
-/// third datum, and of that datum and the datum of `b`, whose areas intersect each other and the
-/// CRSs' areas, without those replaced by another found or that use a datum published before
-/// 1900 (unless both datums are), with the conversions between the CRSs they go between.
+/// Las cadenas de PROJ a través de un datum intermedio
+/// (`createBetweenGeodeticCRSWithDatumBasedIntermediates`): transformaciones que la base de datos
+/// de PROJ registra entre cualesquiera sistemas del datum de `a` y de un tercer datum, y de ese
+/// datum y del de `b`, cuyas áreas se cortan entre sí y con las de los sistemas, sin las
+/// sustituidas por otra encontrada ni las que usan un datum publicado antes de 1900 (salvo que lo
+/// sean ambos datums), con las conversiones entre los sistemas por los que pasan.
 fn datum_chains(
     reg: &epsg::Registry,
     a: &epsg::Geodetic,
@@ -1036,8 +1052,8 @@ fn datum_chains(
     let date = epsg::datum_date;
     let csrs = a.name.starts_with("NAD83(CSRS)") && b.name.starts_with("NAD83(CSRS)");
     let fits = |i: usize| extents.iter().all(|e| intersects(&reg.ops[i].op.bounds, e));
-    // The transformations from or to the CRSs of a datum, by the datum at their other end, with
-    // whether they leave the datum in reverse.
+    // Las transformaciones desde o hacia los sistemas de un datum, por el datum de su otro extremo,
+    // con si salen del datum a la inversa.
     let side = |datum: u32| -> HashMap<u32, Vec<(usize, bool)>> {
         let mut by: HashMap<u32, Vec<(usize, bool)>> = HashMap::new();
         for code in reg.by_datum.get(&datum).into_iter().flatten() {
@@ -1111,7 +1127,8 @@ fn datum_chains(
         {
             continue;
         }
-        // The CRSs the transformations go from and to, in the directions they run.
+        // Los sistemas de los que parten y a los que llegan las transformaciones, en los sentidos
+        // en que se ejecutan.
         let ends = |r: &epsg::Registered, reverse: bool| {
             if reverse {
                 (r.target, r.source)
@@ -1137,10 +1154,10 @@ fn datum_chains(
     out
 }
 
-/// PROJ's ballpark transformation between two CRSs, which holds every point: of unknown
-/// accuracy, but of 0 m when it is a longitude rotation alone (CRSs on one ellipsoid with
-/// different prime meridians, such as MGI 1901 and Greek (Athens)), which then wins over every
-/// chain PROJ lists before it.
+/// La transformación aproximada de PROJ entre dos sistemas, que contiene todos los puntos: de
+/// precisión desconocida, pero de 0 m cuando es solo una rotación de longitud (sistemas sobre un
+/// mismo elipsoide con distintos meridianos origen, como MGI 1901 y Greek (Athens)), que entonces
+/// gana a toda cadena que PROJ lista antes.
 fn ballpark_op(src: &Def, dst: &Def) -> Op {
     let accuracy = if src.rotation_only_to(dst) { 0.0 } else { -1.0 };
     Op {
@@ -1151,10 +1168,10 @@ fn ballpark_op(src: &Def, dst: &Def) -> Op {
     }
 }
 
-/// What PROJ sorts a transformation by, in its order: known accuracy first (unknown ones with
-/// grids first), then decreasing area within the area of interest, then accuracy, those without
-/// grids first, then those of fewer steps, then of fewer pipeline steps, then of shorter name,
-/// then of greater name.
+/// Aquello por lo que PROJ ordena una transformación, en su orden: primero la precisión conocida
+/// (las desconocidas con rejillas primero), luego el área decreciente dentro del área de interés,
+/// luego la precisión, las que no tienen rejillas primero, luego las de menos pasos, luego las de
+/// menos pasos de tubería, luego las de nombre más corto y luego las de nombre mayor.
 struct SortKey {
     unknown: bool,
     unknown_without_grids: bool,
@@ -1167,8 +1184,8 @@ struct SortKey {
 }
 
 impl SortKey {
-    /// The key of a transformation with PROJ's name for it and about how many steps its
-    /// pipeline has.
+    /// La clave de una transformación con el nombre que le da PROJ y aproximadamente cuántos pasos
+    /// tiene su tubería.
     fn new(op: &Op, name: String, pipeline_steps: usize, aoi: Option<&[f64; 4]>) -> Self {
         let area = aoi
             .map_or(Some(op.bounds), |a| intersection(&op.bounds, a))
@@ -1186,7 +1203,7 @@ impl SortKey {
         }
     }
 
-    /// The order of two keys: a total order.
+    /// El orden de dos claves: un orden total.
     fn cmp(&self, other: &Self) -> Ordering {
         self.unknown
             .cmp(&other.unknown)
@@ -1201,25 +1218,25 @@ impl SortKey {
     }
 }
 
-/// About how many steps PROJ's pipeline for transformations run one after the other (each in
-/// its direction) has, which PROJ prefers fewer of: their datum steps, without a conversion to
-/// geocentric coordinates right after its inverse on the same ellipsoid (which PROJ's pipeline
-/// optimization takes out), with consecutive geocentric translations merged into one (or taken
-/// out when they cancel), as PROJ's optimization does, and the `push v_3` and `pop v_3` around
-/// geocentric steps.
+/// Aproximadamente cuántos pasos tiene la tubería de PROJ para transformaciones ejecutadas una tras
+/// otra (cada una en su sentido), de los que PROJ prefiere menos: sus pasos de datum, sin una
+/// conversión a coordenadas geocéntricas justo después de su inversa sobre el mismo elipsoide (que
+/// la optimización de la tubería de PROJ elimina), con las traslaciones geocéntricas consecutivas
+/// fusionadas en una (o eliminadas cuando se anulan), como hace la optimización de PROJ, y los
+/// `push v_3` y `pop v_3` alrededor de los pasos geocéntricos.
 fn pipeline_steps(legs: &[(&Op, bool)]) -> usize {
-    /// A step of the pipeline: a datum step and whether it runs inverted, or translations PROJ
-    /// merged.
+    /// Un paso de la tubería: un paso de datum y si se ejecuta invertido, o traslaciones que PROJ
+    /// fusionó.
     enum Item<'a> {
         Step(&'a Step, bool),
         Translation([f64; 3]),
     }
-    // The ellipsoid of a conversion and whether it runs from geocentric coordinates.
+    // El elipsoide de una conversión y si parte de coordenadas geocéntricas.
     let cart = |item: &Item| match item {
         Item::Step(Step::Cart { ell, inv }, inverted) => Some((*ell, *inv != *inverted)),
         _ => None,
     };
-    // The translation of a Helmert step with translations alone, as it runs.
+    // La traslación de un paso de Helmert solo con traslaciones, tal como se ejecuta.
     let translation = |item: &Item| match item {
         Item::Translation(t) => Some(*t),
         Item::Step(
@@ -1271,8 +1288,9 @@ fn pipeline_steps(legs: &[(&Op, bool)]) -> usize {
     run.len() + if geocentric { 2 } else { 0 }
 }
 
-/// PROJ's name for the inverse of a single operation: the names PROJ makes (`Conversion from A
-/// to B`) with their CRSs swapped, others with `Inverse of ` added or taken off.
+/// El nombre que da PROJ a la inversa de una operación simple: los nombres que hace PROJ
+/// (`Conversion from A to B`) con sus sistemas intercambiados, los demás con `Inverse of ` añadido
+/// o quitado.
 fn inverse_name(name: &str) -> String {
     if let Some(forward) = name.strip_prefix("Inverse of ") {
         return forward.to_string();
@@ -1293,8 +1311,8 @@ fn inverse_name(name: &str) -> String {
     format!("Inverse of {name}")
 }
 
-/// The names of a transformation's steps as PROJ names them when it runs `reverse` or not: those
-/// of the inverse are the inverses of the steps in reverse order.
+/// Los nombres de los pasos de una transformación tal como los nombra PROJ cuando la ejecuta
+/// `reverse` o no: los de la inversa son las inversas de los pasos en orden inverso.
 fn step_names(op: &Op, reverse: bool) -> Vec<String> {
     let names: Vec<&str> = op.name.split(" + ").filter(|n| !n.is_empty()).collect();
     if reverse {
@@ -1309,7 +1327,7 @@ mod tests {
     use super::*;
     use crate::crs::{SpatialRef, Transformer};
 
-    /// A point moved from one EPSG CRS to another.
+    /// Un punto movido de un sistema EPSG a otro.
     fn moved(src: u32, dst: u32, x: f64, y: f64) -> (f64, f64) {
         let (s, d) = (
             SpatialRef::from_epsg(src).unwrap(),
@@ -1346,14 +1364,15 @@ mod tests {
 
     #[test]
     fn chains_outside_their_areas_as_proj() {
-        // Just east of the Azores Occidental 1939 area: no chain holds the point, and one holds
-        // the area of interest (so PROJ drops its ballpark): the first chain, as GDAL.
+        // Justo al este del área de Azores Occidental 1939: ninguna cadena contiene el punto y una
+        // contiene el área de interés (así que PROJ descarta su aproximación): la primera cadena,
+        // como GDAL.
         let (x, y) = moved(4182, 4740, -31.016816380974838, 39.56501297818613);
         assert!(
             (x + 31.021097205869058).abs() < 1e-7 && (y - 39.566344404860935).abs() < 1e-7,
             "{x} {y}"
         );
-        // A single chain is used whatever the point, as GDAL does.
+        // Se usa una sola cadena sea cual sea el punto, como hace GDAL.
         let (x, y) = moved(2999, 9053, 298971.18861002335, 8694000.007133322);
         assert!(
             (x - 43.16443339530448).abs() < 1e-7 && (y + 11.811498334670878).abs() < 1e-7,
@@ -1375,7 +1394,7 @@ mod tests {
             inverse_name("Conversion from A (geog2D) to A (geocentric)"),
             "Conversion from A (geocentric) to A (geog2D)"
         );
-        // The conversions between the CRSs of a datum, as PROJ names them.
+        // Las conversiones entre los sistemas de un datum, como las nombra PROJ.
         let reg = epsg::registry();
         let name = |a: u32, b: u32| conversion_name(&reg.geodetic[&a], &reg.geodetic[&b]);
         assert_eq!(
@@ -1394,25 +1413,28 @@ mod tests {
         let close = |(x, y): (f64, f64), (gx, gy): (f64, f64), tol: f64| {
             (x - gx).abs() < tol && (y - gy).abs() < tol
         };
-        // GDA94 through WGS 84 (G1762) and PROJ's own concatenation of the WGS 84 realizations.
+        // GDA94 a través de WGS 84 (G1762) y la concatenación propia de PROJ de las realizaciones
+        // de WGS 84.
         let p = moved(10459, 10606, 19600.97347104833, 592323.3389500268);
         assert!(
             close(p, (113.95807615479848, -27.180067590263132), 1e-8),
             "{p:?}"
         );
-        // Through WGS 84 rather than WGS 72, of equal accuracy and area: the greater name first.
+        // A través de WGS 84 en lugar de WGS 72, de igual precisión y área: primero el nombre
+        // mayor.
         let p = moved(27573, 32431, 412711.90358792024, 3155755.5255349036);
         assert!(
             close(p, (259245.25512248135, 4840436.820252412), 1e-3),
             "{p:?}"
         );
-        // GDA94 to WGS 84 (1), a null transformation, makes fewer pipeline steps than (2).
+        // GDA94 a WGS 84 (1), una transformación nula, hace menos pasos de tubería que (2).
         let p = moved(28351, 4324, 625263.796562132, 8842164.96869988);
         assert!(
             close(p, (124.144357767899, -10.472091951341795), 1e-8),
             "{p:?}"
         );
-        // Through WGS 84 rather than ETRS89, of equal accuracy and area: the shorter name first.
+        // A través de WGS 84 en lugar de ETRS89, de igual precisión y área: primero el nombre más
+        // corto.
         let p = moved(2392, 4124, 2500642.641281675, 7632767.385064217);
         assert!(
             close(p, (24.016658156077746, 68.77924926097009), 1e-7),

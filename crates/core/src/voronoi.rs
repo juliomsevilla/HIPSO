@@ -1,12 +1,12 @@
-//! Voronoi diagrams and Delaunay neighbours of a set of points.
+//! Diagramas de Voronoi y vecinos de Delaunay de un conjunto de puntos.
 //!
-//! The Delaunay triangulation comes from `delaunator`; the cell of a site is the area closer to it
-//! than to any other, which is the intersection of the half-planes towards its Delaunay
-//! neighbours (a neighbour is all that can bound a cell). Cells of the sites on the edge of the set
-//! have no end: with no clip they are `None`, and with a clip they are cut by it. Repeated
-//! sites (the same x and y) are one site: the first keeps the cell and the others get none and
-//! an area of 0. Coordinates are shifted to the centre of the points before the arithmetic, so
-//! that values like 4 500 000 do not eat the precision.
+//! La triangulación de Delaunay viene de `delaunator`; la celda de un sitio es el área más cercana
+//! a él que a cualquier otro, que es la intersección de los semiplanos hacia sus vecinos de
+//! Delaunay (un vecino es todo lo que puede delimitar una celda). Las celdas de los sitios del
+//! borde del conjunto no tienen fin: sin recorte son `None` y, con recorte, se cortan por él. Los
+//! sitios repetidos (mismas x e y) son un solo sitio: el primero conserva la celda y los demás no
+//! reciben ninguna y un área de 0. Las coordenadas se desplazan al centro de los puntos antes de la
+//! aritmética, para que valores como 4 500 000 no se coman la precisión.
 
 use std::collections::HashMap;
 
@@ -17,35 +17,35 @@ use crate::vector::Polygon;
 use crate::view::{Feature, GeomKind, VectorData};
 use crate::{Error, Result};
 
-/// What the cells are cut by.
+/// Por qué se cortan las celdas.
 #[derive(Clone, Debug)]
 pub enum Clip {
-    /// Nothing: the cells that have no end are left out.
+    /// Nada: las celdas que no tienen fin se dejan fuera.
     None,
     /// A rectangle: min x, min y, max x, max y.
     Bbox([f64; 4]),
-    /// A polygon (with its holes).
+    /// Un polígono (con sus huecos).
     Polygon(Polygon),
 }
 
-/// The cells of a set of sites.
+/// Las celdas de un conjunto de sitios.
 pub struct Diagram {
-    /// The cell of each site, in the order they were given; `None` for those without one.
+    /// La celda de cada sitio, en el orden en que se dieron; `None` para los que no tienen.
     pub cells: Vec<Option<MultiPolygon<f64>>>,
-    /// The site each one stands for: itself, or the first one with the same place.
+    /// El sitio que representa cada uno: él mismo o el primero con el mismo lugar.
     pub site_of_cell: Vec<usize>,
 }
 
-/// A triangulation of the distinct sites.
+/// Una triangulación de los sitios distintos.
 struct Mesh {
-    /// Centred coordinates of the distinct sites.
+    /// Coordenadas centradas de los sitios distintos.
     pts: Vec<[f64; 2]>,
     centre: [f64; 2],
-    /// Index (in the input) of each distinct site.
+    /// Índice (en la entrada) de cada sitio distinto.
     orig: Vec<usize>,
-    /// For each input site, the distinct site it is.
+    /// Para cada sitio de la entrada, el sitio distinto que es.
     unique_of: Vec<usize>,
-    /// Delaunay neighbours of each distinct site.
+    /// Vecinos de Delaunay de cada sitio distinto.
     nbrs: Vec<Vec<usize>>,
 }
 
@@ -114,7 +114,7 @@ fn mesh(sites: &[[f64; 2]]) -> Result<Mesh> {
     })
 }
 
-/// `ring` cut to the half-plane `a x + b y <= c` (Sutherland and Hodgman).
+/// `ring` cortado al semiplano `a x + b y <= c` (Sutherland y Hodgman).
 fn cut(ring: &[[f64; 2]], a: f64, b: f64, c: f64) -> Vec<[f64; 2]> {
     let side = |p: &[f64; 2]| a * p[0] + b * p[1] - c;
     let mut out = Vec::with_capacity(ring.len() + 1);
@@ -142,13 +142,14 @@ fn ring_area(r: &[[f64; 2]]) -> f64 {
 }
 
 impl Mesh {
-    /// The cell of distinct site `u`, inside the box `[x0, y0, x1, y1]` (centred coordinates).
+    /// La celda del sitio distinto `u`, dentro de la caja `[x0, y0, x1, y1]` (coordenadas
+    /// centradas).
     fn box_cell(&self, u: usize, b: [f64; 4]) -> Vec<[f64; 2]> {
         let mut ring = vec![[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]];
         let s = self.pts[u];
         for &n in &self.nbrs[u] {
             let q = self.pts[n];
-            // closer to s than to q: (q - s) . p <= (|q|^2 - |s|^2) / 2
+            // más cerca de s que de q: (q - s) . p <= (|q|^2 - |s|^2) / 2
             let (a, bb) = (q[0] - s[0], q[1] - s[1]);
             let c = (q[0] * q[0] + q[1] * q[1] - s[0] * s[0] - s[1] * s[1]) / 2.0;
             ring = cut(&ring, a, bb, c);
@@ -159,7 +160,7 @@ impl Mesh {
         ring
     }
 
-    /// Centred box that holds every site with `margin` to spare.
+    /// Caja centrada que contiene todos los sitios con `margin` de sobra.
     fn extent(&self, margin: f64) -> [f64; 4] {
         let mut b = [
             f64::INFINITY,
@@ -179,7 +180,7 @@ impl Mesh {
     }
 }
 
-/// The ring in map coordinates as a polygon.
+/// El anillo en coordenadas del mapa como polígono.
 fn polygon_of(ring: &[[f64; 2]], centre: [f64; 2]) -> geo::Polygon<f64> {
     let mut pts: Vec<geo::Coord<f64>> = ring
         .iter()
@@ -194,13 +195,14 @@ fn polygon_of(ring: &[[f64; 2]], centre: [f64; 2]) -> geo::Polygon<f64> {
     geo::Polygon::new(geo::LineString::new(pts), Vec::new())
 }
 
-/// The clip as a box in centred coordinates and, for a polygon, the polygon to intersect with.
+/// El recorte como caja en coordenadas centradas y, para un polígono, el polígono con el que
+/// intersecar.
 fn clip_box(m: &Mesh, clip: &Clip) -> (Option<[f64; 4]>, Option<MultiPolygon<f64>>) {
     match clip {
         Clip::None => {
             let b = m.extent(0.0);
             let size = (b[2] - b[0]).max(b[3] - b[1]).max(1.0);
-            // far enough that no cell with an end is cut before it reaches the edge
+            // lo bastante lejos para que ninguna celda con fin se corte antes de llegar al borde
             (Some(m.extent(4.0 * size)), None)
         }
         Clip::Bbox(b) => (
@@ -227,7 +229,7 @@ fn clip_box(m: &Mesh, clip: &Clip) -> (Option<[f64; 4]>, Option<MultiPolygon<f64
     }
 }
 
-/// Whether a cell cut by the far box touches it: it has no end.
+/// Si una celda cortada por la caja lejana la toca: no tiene fin.
 fn reaches(ring: &[[f64; 2]], b: [f64; 4]) -> bool {
     let eps = 1e-9 * (b[2] - b[0]).max(b[3] - b[1]).max(1.0);
     ring.iter().any(|p| {
@@ -238,7 +240,7 @@ fn reaches(ring: &[[f64; 2]], b: [f64; 4]) -> bool {
     })
 }
 
-/// The Voronoi cells of `sites`, cut by `clip`.
+/// Las celdas de Voronoi de `sites`, cortadas por `clip`.
 pub fn diagram(sites: &[[f64; 2]], clip: &Clip) -> Result<Diagram> {
     let m = mesh(sites)?;
     let (bx, poly) = clip_box(&m, clip);
@@ -268,8 +270,8 @@ pub fn diagram(sites: &[[f64; 2]], clip: &Clip) -> Result<Diagram> {
     })
 }
 
-/// The area of each site's cell cut by `clip`: NaN where the cell has no end and there is no clip,
-/// 0 for the sites that repeat another one.
+/// El área de la celda de cada sitio cortada por `clip`: NaN donde la celda no tiene fin y no hay
+/// recorte, 0 para los sitios que repiten a otro.
 pub fn cell_areas(sites: &[[f64; 2]], clip: &Clip) -> Result<Vec<f64>> {
     let m = mesh(sites)?;
     let (bx, poly) = clip_box(&m, clip);
@@ -303,8 +305,8 @@ pub fn cell_areas(sites: &[[f64; 2]], clip: &Clip) -> Result<Vec<f64>> {
     Ok(out)
 }
 
-/// The Delaunay neighbours of each site (the indices of the other sites it shares a triangle edge
-/// with); empty for the sites that repeat another one.
+/// Los vecinos de Delaunay de cada sitio (los índices de los otros sitios con los que comparte una
+/// arista de triángulo); vacío para los sitios que repiten a otro.
 pub fn neighbors(sites: &[[f64; 2]]) -> Result<Vec<Vec<usize>>> {
     let m = mesh(sites)?;
     let mut out = vec![Vec::new(); sites.len()];
@@ -314,7 +316,7 @@ pub fn neighbors(sites: &[[f64; 2]]) -> Result<Vec<Vec<usize>>> {
     Ok(out)
 }
 
-/// The edges of the Delaunay triangulation, each once, in map coordinates.
+/// Las aristas de la triangulación de Delaunay, cada una una vez, en coordenadas del mapa.
 pub fn delaunay_edges(sites: &[[f64; 2]]) -> Result<Vec<([f64; 2], [f64; 2])>> {
     let m = mesh(sites)?;
     let at = |u: usize| [m.pts[u][0] + m.centre[0], m.pts[u][1] + m.centre[1]];
@@ -327,7 +329,7 @@ pub fn delaunay_edges(sites: &[[f64; 2]]) -> Result<Vec<([f64; 2], [f64; 2])>> {
     Ok(out)
 }
 
-/// A clip made of the polygons of a layer.
+/// Un recorte hecho con los polígonos de una capa.
 pub fn clip_from_layer(path: &std::path::Path) -> Result<Clip> {
     let regions = crate::vector::read_regions(path, &crate::vector::ReadOptions::default())?;
     let rings: Vec<Vec<[f64; 2]>> = regions.iter().flat_map(geomops::rings_of).collect();
@@ -340,14 +342,14 @@ pub fn clip_from_layer(path: &std::path::Path) -> Result<Clip> {
     Ok(Clip::Polygon(Polygon::new(rings)))
 }
 
-/// A box a little bigger than the points of `d` (5 % of the larger side, at least 1).
+/// Una caja algo mayor que los puntos de `d` (5 % del lado mayor, al menos 1).
 pub fn clip_box_of(d: &VectorData) -> Clip {
     let b = d.bounds;
     let m = ((b[2] - b[0]).max(b[3] - b[1]) * 0.05).max(1.0);
     Clip::Bbox([b[0] - m, b[1] - m, b[2] + m, b[3] + m])
 }
 
-/// The points of a layer as sites, with their feature numbers.
+/// Los puntos de una capa como sitios, con sus números de elemento.
 fn sites_of(d: &VectorData) -> Result<(Vec<[f64; 2]>, Vec<usize>)> {
     let (mut sites, mut rows) = (Vec::new(), Vec::new());
     for (k, f) in d.features.iter().enumerate() {
@@ -362,7 +364,7 @@ fn sites_of(d: &VectorData) -> Result<(Vec<[f64; 2]>, Vec<usize>)> {
     Ok((sites, rows))
 }
 
-/// The Voronoi polygons of the points of a layer, with the attributes of their point.
+/// Los polígonos de Voronoi de los puntos de una capa, con los atributos de su punto.
 pub fn layer(d: &VectorData, clip: &Clip) -> Result<VectorData> {
     if d.polygons {
         return Err(Error::Param(
@@ -405,7 +407,7 @@ pub fn layer(d: &VectorData, clip: &Clip) -> Result<VectorData> {
     Ok(out)
 }
 
-/// The Delaunay edges of the points of a layer as a line layer.
+/// Las aristas de Delaunay de los puntos de una capa como capa de líneas.
 pub fn edges_layer(d: &VectorData) -> Result<VectorData> {
     let (sites, _) = sites_of(d)?;
     let edges = delaunay_edges(&sites)?;
@@ -424,8 +426,8 @@ pub fn edges_layer(d: &VectorData) -> Result<VectorData> {
     Ok(out)
 }
 
-/// Reads the points of `input`, writes their Voronoi polygons (and the Delaunay edges next to
-/// them if asked), and reports.
+/// Lee los puntos de `input`, escribe sus polígonos de Voronoi (y las aristas de Delaunay junto a
+/// ellos si se piden) e informa.
 pub fn run(
     input: &std::path::Path,
     output: &std::path::Path,
@@ -531,7 +533,7 @@ mod tests {
         let total: f64 = cell_areas(&sites, &Clip::Bbox(b))?.iter().sum();
         let exact = (b[2] - b[0]) * (b[3] - b[1]);
         assert!((total / exact - 1.0).abs() < 1e-9, "{total} / {exact}");
-        // the diagram holds the same cells
+        // el diagrama contiene las mismas celdas
         let d = diagram(&sites, &Clip::Bbox(b))?;
         let sum: f64 = d.cells.iter().flatten().map(|m| m.unsigned_area()).sum();
         assert!((sum / exact - 1.0).abs() < 1e-9);
@@ -583,8 +585,8 @@ mod tests {
     fn the_neighbours_of_a_lattice_and_its_edges() -> Result<()> {
         let sites = lattice(3, 1.0);
         let n = neighbors(&sites)?;
-        // the centre touches the four around it (and, in a perfect lattice, maybe a diagonal
-        // chosen by the triangulation): at least 4, at most 8, all distinct and not itself
+        // el centro toca a los cuatro de alrededor (y, en un retículo perfecto, quizá una diagonal
+        // elegida por la triangulación): al menos 4, como mucho 8, todos distintos y no él mismo
         assert!(n[4].len() >= 4 && n[4].len() <= 8 && !n[4].contains(&4));
         for (i, v) in n.iter().enumerate() {
             assert!(v.iter().all(|j| n[*j].contains(&i)));

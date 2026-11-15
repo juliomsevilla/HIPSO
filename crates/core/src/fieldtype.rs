@@ -1,11 +1,11 @@
-//! The type of a field of a vector layer: text, whole number, decimal, yes/no, date or
-//! hyperlink. A value is kept as text (as the table shows it) and as a number (for queries,
-//! ordering and graduated symbols); the type says how a typed value is checked and written, and
-//! how a query reads it.
+//! El tipo de un campo de una capa vectorial: texto, número entero, decimal, sí/no, fecha o
+//! hipervínculo. Un valor se guarda como texto (como lo muestra la tabla) y como número (para
+//! consultas, ordenación y símbolos graduados); el tipo dice cómo se comprueba y se escribe un
+//! valor tipado y cómo lo lee una consulta.
 //!
-//! Canonical text of each type: whole numbers and decimals with a point; yes/no as `Sí` / `No`
-//! (number 1 / 0); dates as `YYYY-MM-DD` (number: days since 1970-01-01); text and hyperlinks as
-//! they are.
+//! Texto canónico de cada tipo: enteros y decimales con punto; sí/no como `Sí` / `No` (número 1 /
+//! 0); fechas como `AAAA-MM-DD` (número: días desde 1970-01-01); texto e hipervínculos tal como
+//! están.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum FieldType {
@@ -15,7 +15,7 @@ pub enum FieldType {
     Real,
     Bool,
     Date,
-    /// A web address or a path: text that the table lets you open.
+    /// Una dirección web o una ruta: texto que la tabla permite abrir.
     Link,
 }
 
@@ -40,7 +40,7 @@ impl FieldType {
         }
     }
 
-    /// What the type accepts, for the help of the dialogs.
+    /// Lo que acepta el tipo, para la ayuda de los diálogos.
     pub fn help(self) -> &'static str {
         match self {
             FieldType::Text => "Cualquier texto.",
@@ -56,8 +56,8 @@ impl FieldType {
         matches!(self, FieldType::Integer | FieldType::Real)
     }
 
-    /// The type a column has by its values: every non-empty one a whole number, a decimal or
-    /// none (text); an empty column is text.
+    /// El tipo que tiene una columna por sus valores: todo valor no vacío un número entero, un
+    /// decimal o ninguno (texto); una columna vacía es texto.
     pub fn infer<'a>(values: impl Iterator<Item = &'a str>) -> FieldType {
         let (mut any, mut int) = (false, true);
         for t in values {
@@ -82,8 +82,8 @@ impl FieldType {
         }
     }
 
-    /// A typed value as the canonical text and the number it counts as (NaN when it has none).
-    /// An empty value is valid for every type. The error says what was expected.
+    /// Un valor tipado como el texto canónico y el número en que cuenta (NaN cuando no tiene). Un
+    /// valor vacío es válido para todo tipo. El error dice qué se esperaba.
     pub fn parse(self, raw: &str) -> Result<(String, f64), String> {
         let t = raw.trim();
         if t.is_empty() {
@@ -117,7 +117,7 @@ impl FieldType {
     }
 }
 
-/// Days since 1970-01-01 of a civil date (proleptic Gregorian; Hinnant's algorithm).
+/// Días desde 1970-01-01 de una fecha civil (gregoriano proléptico; algoritmo de Hinnant).
 pub fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = y.div_euclid(400);
@@ -127,7 +127,7 @@ pub fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
-/// The civil date `(year, month, day)` of a day count.
+/// La fecha civil `(año, mes, día)` de un recuento de días.
 pub fn civil_from_days(z: i64) -> (i64, i64, i64) {
     let z = z + 719_468;
     let era = z.div_euclid(146_097);
@@ -141,8 +141,8 @@ pub fn civil_from_days(z: i64) -> (i64, i64, i64) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
-/// A date as days since 1970-01-01: `2025-03-31`, `2025/03/31`, `31/03/2025`, `31-03-2025`, with
-/// an optional time after it (ignored).
+/// Una fecha como días desde 1970-01-01: `2025-03-31`, `2025/03/31`, `31/03/2025`, `31-03-2025`,
+/// con una hora opcional detrás (se ignora).
 pub fn parse_date(s: &str) -> Option<f64> {
     let s = s.trim();
     let s = s.split(['T', ' ']).next().unwrap_or(s);
@@ -162,11 +162,11 @@ pub fn parse_date(s: &str) -> Option<f64> {
         return None;
     }
     let days = days_from_civil(y, m, d);
-    // the day must exist in that month (no 31 of February)
+    // el día debe existir en ese mes (no hay 31 de febrero)
     (civil_from_days(days) == (y, m, d)).then_some(days as f64)
 }
 
-/// `YYYY-MM-DD` of a day count.
+/// `AAAA-MM-DD` de un recuento de días.
 pub fn format_date(days: f64) -> String {
     let (y, m, d) = civil_from_days(days.round() as i64);
     format!("{y:04}-{m:02}-{d:02}")
@@ -210,7 +210,7 @@ mod tests {
         assert_eq!(t(&[]), FieldType::Text);
     }
 
-    /// The types a layer was given survive being written and read in each format.
+    /// Los tipos que se dieron a una capa sobreviven a escribirla y leerla en cada formato.
     #[test]
     fn types_survive_every_format() -> crate::Result<()> {
         use crate::view::{Feature, GeomKind, VectorData};
@@ -250,7 +250,7 @@ mod tests {
             let path = dir.join(file);
             crate::vector::write_layer(&path, &d, GeomKind::Point, None)?;
             let back = crate::view::read_vector(&path)?;
-            // by name: a GeoPackage also gives its `fid` column
+            // por nombre: un GeoPackage da además su columna `fid`
             let got: Vec<FieldType> = d
                 .fields
                 .iter()
@@ -258,7 +258,7 @@ mod tests {
                 .collect();
             let col = |n: &str| back.fields.iter().position(|f| f == n).unwrap_or(0);
             let want: Vec<FieldType> = d.types.clone();
-            // GeoJSON has no dates or links: they come back as dates by their form and as text
+            // GeoJSON no tiene fechas ni enlaces: vuelven como fechas por su forma y como texto
             let ok = if file == "t.geojson" {
                 got[1..4] == want[1..4] && got[4] == FieldType::Date
             } else {

@@ -1,20 +1,21 @@
-//! A static R-tree of boxes (min x, min y, max x, max y), packed with the Sort-Tile-Recursive
-//! method of Leutenegger et al. (1997): built in O(n log n), queried in O(log n + hits). It
-//! answers which features of a layer lie inside a window without looking at all of them.
+//! Un R-tree estático de cajas (x mínima, y mínima, x máxima, y máxima), empaquetado con el método
+//! Sort-Tile-Recursive de Leutenegger et al. (1997): se construye en O(n log n) y se consulta en
+//! O(log n + aciertos). Responde qué elementos de una capa están dentro de una ventana sin mirarlos
+//! todos.
 
 const FANOUT: usize = 16;
 
 #[derive(Clone, Copy)]
 struct Node {
     b: [f64; 4],
-    /// First child: an index into the level below (or into `ids` for the lowest level).
+    /// Primer hijo: un índice en el nivel de abajo (o en `ids` para el nivel más bajo).
     first: u32,
     n: u32,
 }
 
 #[derive(Default)]
 pub struct RTree {
-    /// Level 0 holds the leaves (ranges of `ids`); the last level has one node, the root.
+    /// El nivel 0 contiene las hojas (rangos de `ids`); el último nivel tiene un nodo, la raíz.
     levels: Vec<Vec<Node>>,
     ids: Vec<u32>,
     boxes: Vec<[f64; 4]>,
@@ -33,8 +34,8 @@ fn meets(a: &[f64; 4], b: &[f64; 4]) -> bool {
     a[2] >= b[0] && a[0] <= b[2] && a[3] >= b[1] && a[1] <= b[3]
 }
 
-/// Puts the items in the order that makes runs of `FANOUT` of them close together: sorted by x
-/// into vertical slabs, each slab sorted by y.
+/// Pone los elementos en el orden que hace que tandas de `FANOUT` de ellos queden cerca: ordenados
+/// por x en franjas verticales, cada franja ordenada por y.
 fn pack(items: &mut [(u32, [f64; 4])]) {
     let n = items.len();
     let leaves = n.div_ceil(FANOUT);
@@ -47,7 +48,7 @@ fn pack(items: &mut [(u32, [f64; 4])]) {
 }
 
 impl RTree {
-    /// Indexes the boxes; one with a value that is not finite is left out.
+    /// Indexa las cajas; una con un valor que no es finito se deja fuera.
     pub fn new(boxes: &[[f64; 4]]) -> Self {
         let mut items: Vec<(u32, [f64; 4])> = boxes
             .iter()
@@ -77,7 +78,7 @@ impl RTree {
                 .map(|(k, n)| (k as u32, n.b))
                 .collect();
             pack(&mut keyed);
-            // the children of a parent are neighbours in the level below
+            // los hijos de un padre son vecinos en el nivel de abajo
             let ordered: Vec<Node> = keyed.iter().map(|k| level[k.0 as usize]).collect();
             let parents: Vec<Node> = ordered
                 .chunks(FANOUT)
@@ -99,7 +100,7 @@ impl RTree {
         }
     }
 
-    /// The indices of the boxes that meet the window, in ascending order.
+    /// Los índices de las cajas que tocan la ventana, en orden ascendente.
     pub fn query(&self, w: [f64; 4]) -> Vec<usize> {
         let mut out = Vec::new();
         let Some(top) = self.levels.len().checked_sub(1) else {
@@ -134,7 +135,7 @@ mod tests {
 
     #[test]
     fn a_query_finds_what_a_scan_finds() {
-        // boxes of varied size on a pseudo-random layout
+        // cajas de tamaño variado en una disposición pseudoaleatoria
         let mut s = 12345u64;
         let mut rnd = move || {
             s = s

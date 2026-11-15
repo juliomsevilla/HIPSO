@@ -1,14 +1,16 @@
-//! Stockpile volumes: how much material there is over a base surface inside each pile's outline.
+//! Volúmenes de acopios: cuánto material hay sobre una superficie base dentro del contorno de cada
+//! pila.
 //!
-//! The surface (a DSM) is measured against a base that is built for each pile in one of several
-//! ways: a fixed level, the lowest or the median height along the outline, a least-squares plane
-//! through the outline, a surface interpolated from the outline, or a terrain model of the site
-//! before the pile. The measure itself is [`crate::volume::volumes`], which decides by the
-//! centre of each cell: the volume of a pile has an error of the order of the perimeter times
-//! half a cell times the height at the edge, and it is smaller with finer cells.
+//! La superficie (un MDS) se mide contra una base que se construye para cada pila de una de varias
+//! maneras: un nivel fijo, la altura más baja o mediana a lo largo del contorno, un plano de
+//! mínimos cuadrados por el contorno, una superficie interpolada a partir del contorno o un modelo
+//! del terreno del sitio antes de la pila. La propia medida es [`crate::volume::volumes`], que
+//! decide por el centro de cada celda: el volumen de una pila tiene un error del orden del
+//! perímetro por media celda por la altura en el borde, y es menor con celdas más finas.
 //!
-//! The base is only as good as the outline: samples of the surface along it are taken as ground,
-//! so an outline drawn through the pile (instead of around its foot) lifts the base.
+//! La base es tan buena como el contorno: las muestras de la superficie a lo largo de él se toman
+//! como suelo, así que un contorno dibujado por la pila (en lugar de alrededor de su pie) levanta
+//! la base.
 
 use std::path::PathBuf;
 
@@ -19,36 +21,36 @@ use crate::vector::{self, Region};
 use crate::volume::{self, Reference};
 use crate::{Error, Result};
 
-/// How the base surface under a pile is made.
+/// Cómo se hace la superficie base bajo una pila.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Base {
-    /// A horizontal plane at this elevation.
+    /// Un plano horizontal a esta elevación.
     Level(f64),
-    /// The lowest height of the surface along the outline, as a horizontal plane.
+    /// La altura más baja de la superficie a lo largo del contorno, como plano horizontal.
     LowestPerimeter,
-    /// The median height of the surface along the outline, as a horizontal plane.
+    /// La altura mediana de la superficie a lo largo del contorno, como plano horizontal.
     MedianPerimeter,
-    /// The plane that best fits the heights along the outline (least squares).
+    /// El plano que mejor se ajusta a las alturas a lo largo del contorno (mínimos cuadrados).
     Plane,
-    /// A surface interpolated from the heights along the outline (triangulated).
+    /// Una superficie interpolada a partir de las alturas a lo largo del contorno (triangulada).
     Interpolated,
-    /// A terrain model of the site before the pile.
+    /// Un modelo del terreno del sitio antes de la pila.
     Dtm(PathBuf),
 }
 
 pub struct PileJob {
     pub surface: PathBuf,
-    /// The outlines: a polygon layer.
+    /// Los contornos: una capa de polígonos.
     pub piles: PathBuf,
     pub base: Base,
-    /// Heights closer than this to the base count as nothing (m).
+    /// Las alturas más cercanas que esto a la base cuentan como nada (m).
     pub min_height: f64,
-    /// Density of the material (t/m³); with it each pile has a mass.
+    /// Densidad del material (t/m³); con ella cada pila tiene una masa.
     pub density: Option<f64>,
-    /// Base path of the results; the layer is `<output>.shp`.
+    /// Ruta base de los resultados; la capa es `<salida>.shp`.
     pub output: PathBuf,
     pub csv: bool,
-    /// Rasters with the base surface and the height over it, inside the outlines.
+    /// Rásteres con la superficie base y la altura sobre ella, dentro de los contornos.
     pub base_raster: bool,
     pub height_raster: bool,
 }
@@ -69,31 +71,32 @@ impl PileJob {
     }
 }
 
-/// The measure of one pile.
+/// La medida de una pila.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PileRow {
     pub id: usize,
     pub name: String,
-    /// Area inside the outline that has surface and base (m²), and the same on the slope (m²).
+    /// Área dentro del contorno que tiene superficie y base (m²), y lo mismo sobre la pendiente
+    /// (m²).
     pub area_2d: f64,
     pub area_3d: f64,
-    /// Mean height of the base under the pile.
+    /// Altura media de la base bajo la pila.
     pub base_z: f64,
-    /// Volume over the base, and the part of the surface that is under it (m³).
+    /// Volumen sobre la base y la parte de la superficie que queda por debajo de ella (m³).
     pub volume: f64,
     pub below: f64,
     pub mean_h: f64,
     pub max_h: f64,
     pub perimeter: f64,
     pub centroid: [f64; 2],
-    /// Tonnes, when a density was given.
+    /// Toneladas, cuando se dio una densidad.
     pub mass: Option<f64>,
-    /// Cells of the outline that the base could not be made for (not measured).
+    /// Celdas del contorno para las que no se pudo hacer la base (no medidas).
     pub no_base: u64,
 }
 
-/// The surface along the rings of `region`, every half cell; points outside the raster or in
-/// holes are left out.
+/// La superficie a lo largo de los anillos de `region`, cada media celda; los puntos fuera del
+/// ráster o en huecos se dejan fuera.
 fn perimeter(surface: &Grid, region: &Region) -> Vec<[f64; 3]> {
     let step = (surface.cell / 2.0).max(1e-9);
     let mut out = Vec::new();
@@ -132,7 +135,7 @@ fn ring_length(region: &Region) -> f64 {
         .sum()
 }
 
-/// Solves the 3 x 3 system `m x = v` by elimination with pivoting; `None` when it is singular.
+/// Resuelve el sistema 3 x 3 `m x = v` por eliminación con pivoteo; `None` cuando es singular.
 fn solve3(mut m: [[f64; 3]; 3], mut v: [f64; 3]) -> Option<[f64; 3]> {
     let scale = m
         .iter()
@@ -163,7 +166,7 @@ fn solve3(mut m: [[f64; 3]; 3], mut v: [f64; 3]) -> Option<[f64; 3]> {
     Some(x)
 }
 
-/// The plane `z = a + b (x - cx) + c (y - cy)` through `pts` by least squares: `(cx, cy, a, b, c)`.
+/// El plano `z = a + b (x - cx) + c (y - cy)` por `pts` por mínimos cuadrados: `(cx, cy, a, b, c)`.
 fn fit_plane(pts: &[[f64; 3]]) -> Result<[f64; 5]> {
     if pts.len() < 3 {
         return Err(Error::Param(
@@ -198,8 +201,8 @@ fn fit_plane(pts: &[[f64; 3]]) -> Result<[f64; 5]> {
     Ok([cx, cy, s[0], s[1], s[2]])
 }
 
-/// The base surface under a pile, on the cells of `crop` (a window of the surface that holds
-/// the outline); and a note when part of it had to be filled differently.
+/// La superficie base bajo una pila, sobre las celdas de `crop` (una ventana de la superficie que
+/// contiene el contorno); y una nota cuando parte de ella hubo que rellenarla de otro modo.
 pub fn base_surface(
     crop: &Grid,
     region: &Region,
@@ -248,8 +251,9 @@ pub fn base_surface(
                 ));
             }
             crate::tin::rasterize_with(&pts, &mut g, 1e12, crate::tin::Thin::Nearest);
-            // the triangles cover the hull of the outline, so the cells inside it are filled;
-            // what is left (rounding at the very edge) takes the weighted mean of the outline
+            // los triángulos cubren la envolvente del contorno, así que las celdas dentro de ella
+            // se rellenan; lo que queda (redondeo en el mismo borde) toma la media ponderada del
+            // contorno
             let before = g.data.iter().filter(|v| v.is_nan()).count();
             if before > 0 {
                 crate::idw::rasterize(&pts, &mut g, false);
@@ -270,11 +274,12 @@ pub fn base_surface(
     Ok((g, note))
 }
 
-/// The piles measured, the base and the height rasters when asked, and notes about the way.
+/// Las pilas medidas, los rásteres de la base y de la altura cuando se piden, y notas sobre el
+/// camino.
 pub type PileRun = (Vec<PileRow>, Option<Grid>, Option<Grid>, Vec<String>);
 
-/// Measures every pile of `regions` on `surface`. Returns the rows and, when asked, the base
-/// and the height over it as rasters on the lattice of `surface`.
+/// Mide cada pila de `regions` sobre `surface`. Devuelve las filas y, cuando se piden, la base y la
+/// altura sobre ella como rásteres en la rejilla de `surface`.
 pub fn piles(
     surface: &Grid,
     regions: &[Region],
@@ -313,7 +318,7 @@ pub fn piles(
             job.min_height,
         )?;
         let v = &v[0];
-        // area on the slope, and where the pile is
+        // área sobre la pendiente y dónde está la pila
         let slope = terrain::slope(&crop, 1.0, false, Edges::RepeatEdge);
         let (mut a3, mut base_sum, mut base_n) = (0.0, 0.0, 0u64);
         let (mut sx, mut sy, mut sn) = (0.0, 0.0, 0.0);
@@ -385,7 +390,7 @@ fn num(v: f64) -> String {
     }
 }
 
-/// The rows as a CSV table.
+/// Las filas como tabla CSV.
 pub fn csv_text(rows: &[PileRow]) -> String {
     let mut s = String::from(
         "Id,Nombre,Area_2D_m2,Area_3D_m2,Cota_base_m,Volumen_m3,Vol_bajo_m3,H_media_m,H_max_m,Perimetro_m,X,Y,Masa_t\n",
@@ -416,7 +421,7 @@ pub fn csv_text(rows: &[PileRow]) -> String {
     s
 }
 
-/// The fields the layer gets, after the ones of the outlines.
+/// Los campos que recibe la capa, tras los de los contornos.
 pub const LAYER_FIELDS: [&str; 9] = [
     "area_2d",
     "area_3d",
@@ -429,8 +434,7 @@ pub const LAYER_FIELDS: [&str; 9] = [
     "masa_t",
 ];
 
-/// Measures the piles in `job.piles` over `job.surface` and writes what was asked; returns
-/// the summary.
+/// Mide las pilas de `job.piles` sobre `job.surface` y escribe lo pedido; devuelve el resumen.
 pub fn run(job: &PileJob) -> Result<String> {
     if let Ok(pyr) = crate::pyramid::Pyramid::open(&job.surface)
         && let Some(mem) = crate::copc_cache::total_memory()
@@ -457,7 +461,7 @@ pub fn run(job: &PileJob) -> Result<String> {
     let (rows, base, height, notes) = piles(&surface, &regions, job, dtm.as_ref())?;
     crate::paths::ensure_parent(&job.output)?;
     let mut lines = notes;
-    // the layer: the outlines with their own fields and the measures
+    // la capa: los contornos con sus propios campos y las medidas
     let features: Vec<Feature> = regions
         .iter()
         .zip(&rows)
@@ -543,7 +547,7 @@ mod tests {
         j
     }
 
-    /// A surface of 100 x 100 m with cells of `cell`, `f(x, y)` high.
+    /// Una superficie de 100 x 100 m con celdas de `cell`, `f(x, y)` de alto.
     fn surface(cell: f64, f: impl Fn(f64, f64) -> f64) -> Result<Grid> {
         let n = (100.0 / cell) as usize;
         let mut g = Grid::new(0.0, 0.0, cell, n, n)?;
@@ -601,7 +605,7 @@ mod tests {
 
     #[test]
     fn on_a_slope_the_plane_gives_the_prism_and_a_level_gives_more() -> Result<()> {
-        // ground z = 0.2 x; a pile 2 m high on 12..18 in x and 42..48 in y
+        // suelo z = 0,2 x; una pila de 2 m de alto en 12..18 en x y 42..48 en y
         let g = surface(0.5, |x, y| {
             0.2 * x
                 + if (12.0..18.0).contains(&x) && (42.0..48.0).contains(&y) {
@@ -610,7 +614,7 @@ mod tests {
                     0.0
                 }
         })?;
-        // an outline around the foot of the pile
+        // un contorno alrededor del pie de la pila
         let reg = region(Shape2::Rect([10.0, 40.0, 20.0, 50.0]));
         let mut j = job(Base::Plane);
         j.min_height = 0.01;
@@ -673,13 +677,13 @@ mod tests {
                 2.0
             }
         })?;
-        // a hole in the surface inside the outline
+        // un hueco en la superficie dentro del contorno
         let i = g.index(25.5, 43.5).ok_or(Error::Param("fuera".into()))?;
         g.data[i] = f32::NAN;
         let dtm = surface(2.0, |_, _| 2.0)?;
         let reg = region(Shape2::Rect([20.0, 40.0, 30.0, 46.0]));
         let (rows, ..) = piles(&g, &[reg], &job(Base::Dtm(PathBuf::new())), Some(&dtm))?;
-        // 59 cells of 3 m
+        // 59 celdas de 3 m
         assert!(
             (rows[0].volume - 59.0 * 3.0).abs() < 1e-3,
             "{}",
@@ -692,7 +696,7 @@ mod tests {
     #[test]
     fn bad_outlines_and_settings_are_refused() -> Result<()> {
         let g = surface(1.0, |_, _| 0.0)?;
-        // a thin outline whose perimeter has all its points on one line
+        // un contorno fino cuyo perímetro tiene todos sus puntos en una línea
         let reg = region(Shape2::Polygon(vector::Polygon::new(vec![vec![
             [10.0, 10.0],
             [20.0, 10.0],

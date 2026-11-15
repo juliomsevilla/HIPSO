@@ -1,15 +1,18 @@
-//! Helpers shared by the integration tests: synthetic LAS files in the temporary folder.
+//! Utilidades compartidas por las pruebas de integración: archivos LAS sintéticos en la carpeta
+//! temporal.
 #![allow(dead_code)]
 
 use hipso_core::Result;
 use std::path::PathBuf;
 
-/// A LAS 1.2 file of point format 1 (scale 1 mm); every point is a single return of class 1.
+/// Un archivo LAS 1.2 de formato de punto 1 (escala 1 mm); cada punto es un retorno único de clase
+/// 1.
 pub fn write_las(name: &str, pts: &[[f64; 3]]) -> Result<PathBuf> {
     write_las_with(name, pts, |_| (1, 0))
 }
 
-/// Like [`write_las`], with the class and the point source ID of each point given by `attrs`.
+/// Como [`write_las`], con la clase y el identificador de fuente del punto de cada punto dados por
+/// `attrs`.
 pub fn write_las_with(
     name: &str,
     pts: &[[f64; 3]],
@@ -21,7 +24,7 @@ pub fn write_las_with(
     })
 }
 
-/// Like [`write_las_with`], with the GPS time of each point too (the other writers leave 0).
+/// Como [`write_las_with`], con también el tiempo GPS de cada punto (los demás escritores dejan 0).
 pub fn write_las_with_gps(
     name: &str,
     pts: &[[f64; 3]],
@@ -72,14 +75,15 @@ pub fn write_las_with_gps(
     Ok(path)
 }
 
-/// A rolling terrain: a surface with slopes in every direction, so a motion in any direction
-/// changes the fit.
+/// Un terreno ondulado: una superficie con pendientes en todas direcciones, de modo que un
+/// movimiento en cualquier dirección cambia el ajuste.
 pub fn terrain(x: f64, y: f64) -> f64 {
     3.0 * (x / 12.0).sin() + 2.0 * (y / 9.0).cos() + 0.05 * x + 0.03 * y
 }
 
-/// The terrain sampled once in every cell of a square grid of `step` metres, at a random place
-/// in the cell (from `seed`): a regular lattice would pin point-to-point fits to the lattice.
+/// El terreno muestreado una vez en cada celda de una rejilla cuadrada de `step` metros, en un
+/// lugar aleatorio de la celda (a partir de `seed`): un retículo regular fijaría los ajustes punto
+/// a punto al retículo.
 pub fn terrain_points(size: f64, step: f64, seed: u64) -> Vec<[f64; 3]> {
     let mut state = seed
         .wrapping_mul(6364136223846793005)

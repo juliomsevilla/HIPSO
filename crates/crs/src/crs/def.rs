@@ -1,6 +1,7 @@
-//! A CRS as terrio transforms coordinates in it: a projection on an ellipsoid with linear and
-//! angular units, axis order, prime meridian and its datum transformations to WGS 84, built from
-//! the EPSG table, a PROJ string or a WKT definition.
+//! Un sistema de referencia tal como terrio transforma coordenadas en él: una proyección sobre un
+//! elipsoide con unidades lineales y angulares, orden de ejes, meridiano origen y sus
+//! transformaciones de datum a WGS 84, construido a partir de la tabla EPSG, una cadena PROJ o una
+//! definición WKT.
 
 use super::datum::{self, Op};
 use super::math::*;
@@ -11,64 +12,65 @@ use super::{SpatialRef, epsg, wkt1, wkt2};
 use crate::{Error, Result};
 use std::sync::Arc;
 
-/// A CRS ready for coordinate transformations.
+/// Un sistema listo para transformar coordenadas.
 #[derive(Debug, Clone)]
 pub(crate) struct Def {
-    /// The projection, `None` for a geographic CRS.
+    /// La proyección, `None` para un sistema geográfico.
     proj: Option<Arc<dyn Proj>>,
-    /// The pole rotation of a rotated-pole grid (`+proj=ob_tran`), a CRS in degrees without a
-    /// projection, whose longitudes are relative to `lam0`.
+    /// La rotación del polo de una rejilla de polo girado (`+proj=ob_tran`), un sistema en grados
+    /// sin proyección, cuyas longitudes son relativas a `lam0`.
     rot: Option<Rotation>,
     pub(crate) ell: Ell,
     lam0: f64,
-    /// The latitude of origin (for comparing definitions).
+    /// La latitud de origen (para comparar definiciones).
     phi0: f64,
     x0: f64,
     y0: f64,
-    /// Metres per linear unit.
+    /// Metros por unidad lineal.
     to_meter: f64,
-    /// Degrees per angular unit (geographic CRSs).
+    /// Grados por unidad angular (sistemas geográficos).
     to_deg: f64,
-    /// The prime meridian, in radians east of Greenwich.
+    /// El meridiano origen, en radianes al este de Greenwich.
     pm: f64,
-    /// The axis directions (`enu`, `wsu`, `neu`...).
+    /// Las direcciones de los ejes (`enu`, `wsu`, `neu`...).
     axis: [u8; 2],
-    /// Datum transformations to WGS 84, in the order they are tried; empty for WGS 84 itself or a
-    /// datum treated as equivalent to it.
+    /// Transformaciones de datum a WGS 84, en el orden en que se prueban; vacío para el propio WGS
+    /// 84 o un datum tratado como equivalente a él.
     ops: Vec<Arc<Op>>,
-    /// The EPSG code of the datum, when known.
+    /// El código EPSG del datum, cuando se conoce.
     datum: Option<u32>,
-    /// The EPSG code of the geographic CRS, when known.
+    /// El código EPSG del sistema geográfico, cuando se conoce.
     geog: Option<u32>,
-    /// Whether it is a geographic 3D CRS (with ellipsoidal heights).
+    /// Si es un sistema geográfico 3D (con alturas elipsoidales).
     three_d: bool,
-    /// Whether it is a dynamic CRS (on a dynamic reference frame such as ITRF2014).
+    /// Si es un sistema dinámico (sobre un marco de referencia dinámico como ITRF2014).
     dynamic: bool,
-    /// The vertical CRS of a compound CRS.
+    /// El sistema vertical de un sistema compuesto.
     vertical: Option<Arc<Vertical>>,
-    /// The area of use (west, south, east, north in degrees), when known.
+    /// El área de uso (oeste, sur, este, norte en grados), cuando se conoce.
     area: Option<[f64; 4]>,
 }
 
-/// The vertical part of a compound CRS: its unit and direction, and its geoid models.
+/// La parte vertical de un sistema compuesto: su unidad y dirección, y sus modelos de geoide.
 #[derive(Debug)]
 pub(crate) struct Vertical {
-    /// The EPSG code, when known.
+    /// El código EPSG, cuando se conoce.
     pub code: Option<u32>,
-    /// Metres per unit.
+    /// Metros por unidad.
     pub to_meter: f64,
-    /// Whether heights are depths (positive down).
+    /// Si las alturas son profundidades (positivas hacia abajo).
     pub down: bool,
-    /// Transformations from ellipsoidal heights (of a geographic 3D CRS, by EPSG code, or of the
-    /// horizontal CRS's datum when `None`) to heights in this CRS.
+    /// Transformaciones de alturas elipsoidales (de un sistema geográfico 3D, por código EPSG, o
+    /// del datum del sistema horizontal cuando `None`) a alturas en este sistema.
     pub models: Vec<(Option<u32>, Vec<Arc<Op>>)>,
-    /// Whether heights are kept as they are when no model applies (PROJ's ballpark vertical
-    /// transformation, which it adds for EPSG vertical CRSs but not for `+geoidgrids=`).
+    /// Si las alturas se conservan tal como están cuando no se aplica ningún modelo (la
+    /// transformación vertical aproximada de PROJ, que añade para los sistemas verticales EPSG pero
+    /// no para `+geoidgrids=`).
     pub ballpark: bool,
 }
 
 impl Vertical {
-    /// The vertical CRS of an EPSG code.
+    /// El sistema vertical de un código EPSG.
     pub fn from_epsg(code: u32) -> Option<Self> {
         let v = epsg::vertical(code)?;
         let models = epsg::geoid_models(code)
@@ -84,8 +86,8 @@ impl Vertical {
         })
     }
 
-    /// A vertical CRS whose heights are ellipsoidal heights minus a geoid grid's (PROJ's
-    /// `+geoidgrids=`, GDAL's `PROJ4_GRIDS` extension).
+    /// Un sistema vertical cuyas alturas son las alturas elipsoidales menos las de una rejilla de
+    /// geoide (`+geoidgrids=` de PROJ, extensión `PROJ4_GRIDS` de GDAL).
     pub fn from_geoid_grids(spec: &str, to_meter: f64) -> Self {
         let op = Op::world(vec![datum::vgridshift_step(spec, -1.0)]);
         Self {
@@ -97,7 +99,7 @@ impl Vertical {
         }
     }
 
-    /// Metres from a height in this CRS's unit and direction.
+    /// Metros a partir de una altura en la unidad y dirección de este sistema.
     pub fn to_metres(&self, z: f64) -> f64 {
         if self.down {
             -z * self.to_meter
@@ -106,7 +108,7 @@ impl Vertical {
         }
     }
 
-    /// A height in this CRS's unit and direction from metres.
+    /// Una altura en la unidad y dirección de este sistema a partir de metros.
     pub fn height_of(&self, h: f64) -> f64 {
         if self.down {
             -h / self.to_meter
@@ -116,7 +118,7 @@ impl Vertical {
     }
 }
 
-/// The EPSG geographic CRSs PROJ's `+datum=` names stand for.
+/// Los sistemas geográficos EPSG que representan los nombres `+datum=` de PROJ.
 pub(crate) fn datum_geog(name: &str) -> Option<u32> {
     Some(match name {
         "WGS84" => 4326,
@@ -133,7 +135,7 @@ pub(crate) fn datum_geog(name: &str) -> Option<u32> {
     })
 }
 
-/// The ellipsoids of PROJ's `+datum=` names.
+/// Los elipsoides de los nombres `+datum=` de PROJ.
 pub(crate) fn datum_ellps(name: &str) -> Option<&'static str> {
     Some(match name {
         "WGS84" => "WGS84",
@@ -150,7 +152,8 @@ pub(crate) fn datum_ellps(name: &str) -> Option<&'static str> {
     })
 }
 
-/// Wraps a wbprojection projection, for projections terrio does not implement itself.
+/// Envuelve una proyección de wbprojection, para proyecciones que terrio no implementa por sí
+/// mismo.
 struct WbProj {
     crs: wbprojection::Crs,
     a: f64,
@@ -175,8 +178,8 @@ impl Proj for WbProj {
 }
 
 impl Def {
-    /// The definition of a CRS: from the EPSG (or ESRI) table when it has a code there, else
-    /// from its PROJ string or WKT.
+    /// La definición de un sistema: de la tabla EPSG (o ESRI) cuando tiene allí un código o, si no,
+    /// de su cadena PROJ o WKT.
     pub fn new(s: &SpatialRef) -> Result<Self> {
         if let Some(code) = s.epsg
             && let Some(c) = epsg::compound(code)
@@ -188,8 +191,8 @@ impl Def {
             d.vertical = Vertical::from_epsg(c.vertical).map(Arc::new);
             return Ok(d);
         }
-        // An ESRI CRS whose projection terrio computes otherwise than PROJ goes by its WKT, as
-        // before terrio knew ESRI codes.
+        // Un sistema ESRI cuya proyección calcula terrio de otro modo que PROJ va por su WKT, como
+        // antes de que terrio conociera los códigos ESRI.
         let entry = match s.epsg {
             Some(code) => epsg::get(code),
             None => s
@@ -205,8 +208,8 @@ impl Def {
             d.three_d = e.three_d;
             d.dynamic = e.dynamic;
             d.area = e.area;
-            // A WKT identified as this code but with its own TOWGS84: GDAL uses that shift (not
-            // over a PROJ4 extension, which describes the whole CRS).
+            // Un WKT identificado con este código pero con su propio TOWGS84: GDAL usa ese
+            // desplazamiento (no sobre una extensión PROJ4, que describe el sistema entero).
             if s.proj4.is_none()
                 && let Some(w) = s.wkt.as_deref().filter(|w| *w != e.wkt)
                 && let Some(t) = wkt_towgs84(w)
@@ -229,8 +232,8 @@ impl Def {
         Err(Error::Crs("the CRS is unknown".into()))
     }
 
-    /// A definition from a PROJ string. `+towgs84=` and `+datum=` give its datum
-    /// transformation.
+    /// Una definición a partir de una cadena PROJ. `+towgs84=` y `+datum=` dan su transformación de
+    /// datum.
     pub fn from_proj(s: &str) -> Result<Self> {
         let p = Params::parse(s);
         if let Some(init) = p.str("init") {
@@ -252,7 +255,7 @@ impl Def {
         let mut ell = datum::ellipsoid(&p)
             .or_else(|| datum_name.and_then(datum_ellps).and_then(Ell::named))
             .unwrap_or_else(Ell::wgs84);
-        // `+R_A`: a sphere of the ellipsoid's area.
+        // `+R_A`: una esfera del área del elipsoide.
         if p.has("R_A") && ell.es != 0.0 {
             let e = ell.e;
             let r = ell.a * (0.5 * qsfn(1.0, e, ell.one_es)).sqrt();
@@ -303,7 +306,7 @@ impl Def {
             match projections::build(name, &mut setup)? {
                 Some(b) => Some(Arc::from(b)),
                 None => {
-                    // Fall back on wbprojection, which applies the origin and false easting itself.
+                    // Se recurre a wbprojection, que aplica por sí mismo el origen y el falso este.
                     let crs = wbprojection::from_proj_string(s)
                         .map_err(|e| Error::Crs(format!("{e}")))?;
                     setup.lam0 = 0.0;
@@ -337,7 +340,7 @@ impl Def {
             vertical: None,
             area: None,
         };
-        // The datum transformation.
+        // La transformación de datum.
         let towgs84 = p.list("towgs84").filter(|v| v.len() == 3 || v.len() == 7);
         let nadgrids = p
             .str("nadgrids")
@@ -367,8 +370,8 @@ impl Def {
         Ok(d)
     }
 
-    /// The coordinate conversion of a WKT definition (without its datum), when terrio reads it: that
-    /// of its `PROJ4` extension when it has one.
+    /// La conversión de coordenadas de una definición WKT (sin su datum), cuando terrio la lee: la
+    /// de su extensión `PROJ4` cuando la tiene.
     pub fn wkt_conversion(w: &str) -> Option<Self> {
         if let Some(d) = super::proj4_extension(w).and_then(|p| Self::from_proj(&p).ok()) {
             return Some(d);
@@ -382,8 +385,9 @@ impl Def {
         Self::from_proj(&c.proj).ok()
     }
 
-    /// Whether both CRSs have the same coordinate conversion (projection, units, axes and prime
-    /// meridian), whatever their datums: compared on points around the projection's origin.
+    /// Si ambos sistemas tienen la misma conversión de coordenadas (proyección, unidades, ejes y
+    /// meridiano origen), sean cuales sean sus datums: se comparan en puntos alrededor del origen
+    /// de la proyección.
     pub fn same_conversion(&self, other: &Def) -> bool {
         match (&self.proj, &other.proj) {
             (None, None) => {
@@ -394,7 +398,8 @@ impl Def {
                     && (self.rot.is_none() || (self.lam0 - other.lam0).abs() < 1e-12)
             }
             (Some(_), Some(_)) => {
-                // In the same unit (a State Plane zone in US survey feet is not the one in metres).
+                // En la misma unidad (una zona State Plane en pies de agrimensura de EE. UU. no es
+                // la de metros).
                 let ratio = self.to_meter / other.to_meter;
                 if !ratio.is_finite() || (ratio - 1.0).abs() > 1e-9 {
                     return false;
@@ -427,8 +432,8 @@ impl Def {
         }
     }
 
-    /// A definition from WKT. Datum transformations come from `TOWGS84`, else from the EPSG
-    /// geographic CRS the WKT's `GEOGCS` is identified as.
+    /// Una definición a partir de WKT. Las transformaciones de datum salen de `TOWGS84` o, si no,
+    /// del sistema geográfico EPSG con el que se identifica el `GEOGCS` del WKT.
     pub fn from_wkt(w: &str) -> Result<Self> {
         if let Some((horizontal, vertical)) = split_compound(w) {
             let h = SpatialRef::from_wkt(&horizontal);
@@ -436,8 +441,8 @@ impl Def {
             d.vertical = vertical_from_wkt(&vertical).map(Arc::new);
             return Ok(d);
         }
-        // A WKT 1 extended with its PROJ string (`EXTENSION["PROJ4", ...]`) is that PROJ string,
-        // whatever its nodes say, as GDAL and PROJ read it.
+        // Un WKT 1 ampliado con su cadena PROJ (`EXTENSION["PROJ4", ...]`) es esa cadena PROJ,
+        // digan lo que digan sus nodos, como lo leen GDAL y PROJ.
         if let Some(d) = super::proj4_extension(w).and_then(|p| Self::from_proj(&p).ok()) {
             return Ok(d);
         }
@@ -454,7 +459,8 @@ impl Def {
                     .geog
                     .or_else(|| c.geogcs.epsg())
                     .or_else(|| match &c.geogcs_wkt1 {
-                        // WKT 2: identified loosely, so on the same ellipsoid only.
+                        // WKT 2: identificado con imprecisión, así que solo sobre el mismo
+                        // elipsoide.
                         Some(text) => super::identify_epsg(text)
                             .filter(|g| wkt2::same_ellipsoid(*g, d.ell.a, d.ell.es)),
                         None => super::identify_epsg(geogcs_text(w)?),
@@ -470,9 +476,10 @@ impl Def {
             }
             return Ok(d);
         }
-        // Other kinds of WKT 2 CRS and WKT 1 projections the readers do not know: wbprojection's
-        // parser. A WKT 2 geographic or projected CRS the reader refuses is not handed to it: its
-        // WKT 2 parameters and method names would be read wrongly, silently (#123).
+        // Otros tipos de sistemas WKT 2 y proyecciones WKT 1 que los lectores no conocen: el
+        // analizador de wbprojection. Un sistema geográfico o proyectado WKT 2 que el lector
+        // rechaza no se le pasa: sus parámetros y nombres de método de WKT 2 se leerían mal, en
+        // silencio (#123).
         let crs = wbprojection::Crs::from_wkt(w).map_err(|e| Error::Crs(format!("{e}")))?;
         let geographic = crs.is_geographic();
         let e = &crs.datum.ellipsoid;
@@ -503,31 +510,31 @@ impl Def {
         Ok(d)
     }
 
-    /// Metres per linear unit.
+    /// Metros por unidad lineal.
     pub fn to_meter(&self) -> f64 {
         self.to_meter
     }
 
-    /// Whether this is a geographic CRS. A rotated-pole grid is not: its coordinates are in
-    /// degrees, but are not longitudes and latitudes.
+    /// Si es un sistema geográfico. Una rejilla de polo girado no lo es: sus coordenadas están en
+    /// grados, pero no son longitudes y latitudes.
     pub fn is_geographic(&self) -> bool {
         self.proj.is_none() && self.rot.is_none()
     }
 
-    /// Whether this is a rotated-pole grid (`+proj=ob_tran`).
+    /// Si es una rejilla de polo girado (`+proj=ob_tran`).
     pub fn is_rotated_pole(&self) -> bool {
         self.rot.is_some()
     }
 
-    /// A rotated-pole grid's CF parameters, in degrees: `grid_north_pole_latitude`,
-    /// `grid_north_pole_longitude` and `north_pole_grid_longitude`.
+    /// Los parámetros CF de una rejilla de polo girado, en grados: `grid_north_pole_latitude`,
+    /// `grid_north_pole_longitude` y `north_pole_grid_longitude`.
     pub fn rotated_pole(&self) -> Option<[f64; 3]> {
         let (lat, o_lon) = self.rot?.pole();
         let lon = adjlon(self.lam0 + self.pm - std::f64::consts::PI);
         Some([lat.to_degrees(), lon.to_degrees(), o_lon.to_degrees()])
     }
 
-    /// The coordinates `(east, north)` of axis-ordered ones.
+    /// Las coordenadas `(este, norte)` de las ordenadas por ejes.
     fn unaxis(&self, u: f64, v: f64) -> (f64, f64) {
         if self.axis == *b"en" {
             return (u, v);
@@ -558,7 +565,7 @@ impl Def {
         (pick(self.axis[0]), pick(self.axis[1]))
     }
 
-    /// Geodetic coordinates (radians, east of Greenwich) of a point in this CRS.
+    /// Coordenadas geodésicas (radianes, al este de Greenwich) de un punto en este sistema.
     pub fn unproject(&self, u: f64, v: f64) -> Option<(f64, f64)> {
         let (e, n) = self.unaxis(u, v);
         let (lam, phi) = match &self.proj {
@@ -588,8 +595,9 @@ impl Def {
         Some((adjlon(lam + self.pm), phi))
     }
 
-    /// The longitude and latitude in degrees (east of Greenwich) of coordinates in a geographic
-    /// CRS, as given (without the round trip through radians); `None` for a projected CRS.
+    /// La longitud y la latitud en grados (al este de Greenwich) de coordenadas en un sistema
+    /// geográfico, tal como se dan (sin el viaje de ida y vuelta por radianes); `None` para un
+    /// sistema proyectado.
     pub fn source_degrees(&self, u: f64, v: f64) -> Option<(f64, f64)> {
         if self.proj.is_some() || self.rot.is_some() {
             return None;
@@ -602,7 +610,7 @@ impl Def {
         Some((e * self.to_deg + pm, n * self.to_deg))
     }
 
-    /// The coordinates in this CRS of a geodetic point (radians, east of Greenwich).
+    /// Las coordenadas en este sistema de un punto geodésico (radianes, al este de Greenwich).
     pub fn project(&self, lon: f64, lat: f64) -> Option<(f64, f64)> {
         let lon = lon - self.pm;
         let (e, n) = match &self.proj {
@@ -633,7 +641,8 @@ impl Def {
         Some(self.axis(e, n))
     }
 
-    /// Whether both CRSs are on the same datum, so that no datum transformation is needed.
+    /// Si ambos sistemas están sobre el mismo datum, de modo que no hace falta transformación de
+    /// datum.
     pub fn same_datum(&self, other: &Def) -> bool {
         match (self.datum, other.datum) {
             (Some(a), Some(b)) => a == b,
@@ -641,60 +650,61 @@ impl Def {
         }
     }
 
-    /// Whether PROJ's ballpark transformation to `other` is a longitude rotation alone (both on
-    /// one ellipsoid, with different prime meridians), which PROJ gives an accuracy of 0 m.
+    /// Si la transformación aproximada de PROJ a `other` es solo una rotación de longitud (ambos
+    /// sobre un mismo elipsoide, con distintos meridianos origen), a la que PROJ da una precisión
+    /// de 0 m.
     pub fn rotation_only_to(&self, other: &Def) -> bool {
         self.ell.a == other.ell.a && self.ell.es == other.ell.es && self.pm != other.pm
     }
 
-    /// The datum transformations to WGS 84, in the order they are tried.
+    /// Las transformaciones de datum a WGS 84, en el orden en que se prueban.
     pub fn ops(&self) -> &[Arc<Op>] {
         &self.ops
     }
 
-    /// The area of use, when known.
+    /// El área de uso, cuando se conoce.
     pub fn area(&self) -> Option<[f64; 4]> {
         self.area
     }
 
-    /// The EPSG code of the datum.
+    /// El código EPSG del datum.
     pub fn datum_code(&self) -> Option<u32> {
         self.datum
     }
 
-    /// The EPSG code of the geographic CRS.
+    /// El código EPSG del sistema geográfico.
     pub fn geog(&self) -> Option<u32> {
         self.geog
     }
 
-    /// Whether the CRS is on WGS 84 itself.
+    /// Si el sistema está sobre el propio WGS 84.
     pub fn is_wgs84(&self) -> bool {
         self.datum == Some(6326)
     }
 
-    /// This CRS with its coordinates carrying an ellipsoidal height (a projected CRS with the
-    /// height above its ellipsoid, as GNSS and point clouds from them give).
+    /// Este sistema con sus coordenadas portando una altura elipsoidal (un sistema proyectado con
+    /// la altura sobre su elipsoide, como dan el GNSS y las nubes de puntos que salen de él).
     pub fn with_ellipsoidal_height(mut self) -> Self {
         self.three_d = true;
         self
     }
 
-    /// Whether coordinates have a height: a geographic 3D or a compound CRS.
+    /// Si las coordenadas tienen altura: un sistema geográfico 3D o compuesto.
     pub fn has_height(&self) -> bool {
         self.three_d || self.vertical.is_some()
     }
 
-    /// Whether it is a dynamic CRS.
+    /// Si es un sistema dinámico.
     pub fn is_dynamic(&self) -> bool {
         self.dynamic
     }
 
-    /// The vertical CRS of a compound CRS.
+    /// El sistema vertical de un sistema compuesto.
     pub fn vertical(&self) -> Option<&Arc<Vertical>> {
         self.vertical.as_ref()
     }
 
-    /// The same CRS without its vertical part.
+    /// El mismo sistema sin su parte vertical.
     pub fn horizontal(&self) -> Def {
         let mut d = self.clone();
         d.vertical = None;
@@ -702,9 +712,10 @@ impl Def {
         d
     }
 
-    /// The bounding boxes in this CRS of a transformation's area (two across the antimeridian),
-    /// from 21 points along each edge as PROJ's `proj_trans_bounds` samples them. Empty for a
-    /// geographic CRS, a world-wide area or one that does not project.
+    /// Las cajas envolventes en este sistema del área de una transformación (dos a ambos lados del
+    /// antimeridiano), a partir de 21 puntos a lo largo de cada borde como los muestrea
+    /// `proj_trans_bounds` de PROJ. Vacío para un sistema geográfico, un área mundial o una que no
+    /// se proyecta.
     pub fn areas(&self, op: &Op) -> Vec<[f64; 4]> {
         let [w, s, e, n] = op.bounds;
         if self.is_geographic() || (e - w >= 360.0 && n - s >= 180.0) {
@@ -740,7 +751,7 @@ impl Def {
     }
 }
 
-/// The horizontal and vertical parts of a compound CRS's WKT (`COMPD_CS` or `COMPOUNDCRS`).
+/// Las partes horizontal y vertical del WKT de un sistema compuesto (`COMPD_CS` o `COMPOUNDCRS`).
 pub(crate) fn split_compound(w: &str) -> Option<(String, String)> {
     let w = w.trim();
     let open = w.find(['[', '('])?;
@@ -748,7 +759,7 @@ pub(crate) fn split_compound(w: &str) -> Option<(String, String)> {
     if key != "COMPD_CS" && key != "COMPOUNDCRS" {
         return None;
     }
-    // The top-level arguments of the node.
+    // Los argumentos de nivel superior del nodo.
     let body = &w[open + 1..w.len().checked_sub(1)?];
     let mut args = Vec::new();
     let (mut depth, mut start, mut quoted) = (0i32, 0usize, false);
@@ -793,8 +804,8 @@ pub(crate) fn split_compound(w: &str) -> Option<(String, String)> {
     Some((horizontal.to_string(), vertical.to_string()))
 }
 
-/// The vertical CRS of a `VERT_CS` (or WKT 2 `VERTCRS`) definition: its EPSG code when it has
-/// one, else its unit and the geoid grids of GDAL's `PROJ4_GRIDS` extension.
+/// El sistema vertical de una definición `VERT_CS` (o `VERTCRS` de WKT 2): su código EPSG cuando lo
+/// tiene o, si no, su unidad y las rejillas de geoide de la extensión `PROJ4_GRIDS` de GDAL.
 pub(crate) fn vertical_from_wkt(w: &str) -> Option<Vertical> {
     let declared = super::declared_epsg(w);
     if let Some(v) = declared.and_then(Vertical::from_epsg) {
@@ -825,7 +836,7 @@ pub(crate) fn vertical_from_wkt(w: &str) -> Option<Vertical> {
     })
 }
 
-/// The `TOWGS84` parameters of a WKT 1 definition, when they shift.
+/// Los parámetros `TOWGS84` de una definición WKT 1, cuando desplazan.
 fn wkt_towgs84(w: &str) -> Option<Vec<f64>> {
     let root = wkt1::parse(w)?;
     let geogcs = if root.key.eq_ignore_ascii_case("GEOGCS") {
@@ -838,7 +849,7 @@ fn wkt_towgs84(w: &str) -> Option<Vec<f64>> {
     ((v.len() == 3 || v.len() == 7) && v.iter().any(|x| *x != 0.0)).then_some(v)
 }
 
-/// The `GEOGCS[...]` part of a WKT 1 definition.
+/// La parte `GEOGCS[...]` de una definición WKT 1.
 fn geogcs_text(w: &str) -> Option<&str> {
     let start = w.find("GEOGCS[")?;
     let mut depth = 0;
@@ -857,8 +868,8 @@ fn geogcs_text(w: &str) -> Option<&str> {
     None
 }
 
-/// The size in metres of a WKT definition's linear unit: the last `UNIT` (WKT 1) or
-/// `LENGTHUNIT` (WKT 2) that is not angular.
+/// El tamaño en metros de la unidad lineal de una definición WKT: el último `UNIT` (WKT 1) o
+/// `LENGTHUNIT` (WKT 2) que no es angular.
 pub(crate) fn wkt_linear_unit(w: &str) -> Option<f64> {
     let root = wkt1::parse(w)?;
     if let Some(u) = root

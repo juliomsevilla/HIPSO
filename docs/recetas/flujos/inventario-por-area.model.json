@@ -1,0 +1,107 @@
+{
+ "hipso_modelo": 1,
+ "results": "",
+ "nodes": [
+  {
+   "id": "n1",
+   "label": "Nube",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n2",
+   "label": "Parcelas",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n3",
+   "label": "Inventario de campo",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n4",
+   "label": "MDT",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "dtm",
+   "args": {
+    "cell": [
+     "1"
+    ]
+   }
+  },
+  {
+   "id": "n5",
+   "label": "Métricas de las parcelas",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "clip",
+   "args": {
+    "mode": [
+     "metrics"
+    ]
+   }
+  },
+  {
+   "id": "n6",
+   "label": "Modelo",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "model",
+   "args": {
+    "response": [
+     "VOL"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": "n1",
+   "to": "n4",
+   "port": "inputs"
+  },
+  {
+   "from": "n1",
+   "to": "n5",
+   "port": "inputs"
+  },
+  {
+   "from": "n2",
+   "to": "n5",
+   "port": "regions"
+  },
+  {
+   "from": "n4",
+   "to": "n5",
+   "port": "dtm"
+  },
+  {
+   "from": "n5",
+   "to": "n6",
+   "port": "plots"
+  },
+  {
+   "from": "n3",
+   "to": "n6",
+   "port": "field"
+  }
+ ]
+}

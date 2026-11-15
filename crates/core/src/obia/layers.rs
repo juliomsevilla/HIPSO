@@ -1,6 +1,6 @@
-//! The layers an object analysis works on besides the rasters it is given: statistics of the
-//! points in each cell (read once, whatever the number of layers asked for) and the local
-//! variation of a layer.
+//! Las capas con las que trabaja un análisis de objetos además de los rásteres que se le dan:
+//! estadísticos de los puntos de cada celda (leídos una vez, sea cual sea el número de capas
+//! pedidas) y la variación local de una capa.
 
 use std::path::PathBuf;
 
@@ -11,17 +11,17 @@ use crate::filter::Filter;
 use crate::las::Reader;
 use crate::{Result, check_cancel};
 
-/// A per-cell statistic of the points, on the lattice of the analysis.
+/// Un estadístico por celda de los puntos, sobre el retículo del análisis.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CloudLayer {
     /// Mean intensity.
     Intensity,
-    /// Mean number of returns of the pulses the points belong to: high where the light
-    /// crosses the canopy, 1 on roofs and bare ground.
+    /// Número medio de retornos de los pulsos a los que pertenecen los puntos: alto donde la luz
+    /// cruza el dosel, 1 en tejados y suelo desnudo.
     Returns,
-    /// Share of the points classified as ground (class 2).
+    /// Proporción de los puntos clasificados como suelo (clase 2).
     Ground,
-    /// Points per square map unit.
+    /// Puntos por unidad cuadrada del mapa.
     Density,
 }
 
@@ -46,8 +46,8 @@ impl CloudLayer {
     }
 }
 
-/// The asked-for statistics of the points of `inputs` in every cell of `lat`, in one pass over
-/// the clouds. Cells without points are NaN (density: 0).
+/// Los estadísticos pedidos de los puntos de `inputs` en cada celda de `lat`, en una pasada sobre
+/// las nubes. Las celdas sin puntos son NaN (densidad: 0).
 pub fn cloud_layers(
     inputs: &[PathBuf],
     lat: &Lattice,
@@ -128,10 +128,10 @@ fn mean_of(count: &[u32], sum: Option<&[f32]>) -> Vec<f32> {
     }
 }
 
-/// Fills each empty (NaN) cell with the value of the nearest cell that has one, when that is at
-/// most `max` cells away; farther cells stay empty. The nearest cell is found by two sweeps over
-/// the lattice that carry the best seed along, so the cost is linear and does not depend on
-/// `max`.
+/// Rellena cada celda vacía (NaN) con el valor de la celda más cercana que lo tenga, cuando está
+/// como mucho a `max` celdas; las celdas más lejanas quedan vacías. La celda más cercana se halla
+/// con dos barridos sobre el retículo que arrastran la mejor semilla, de modo que el coste es
+/// lineal y no depende de `max`.
 pub fn fill_empty(lat: &Lattice, data: &mut [f32], max: usize) {
     let (cols, rows) = (lat.cols, lat.rows);
     if max == 0 || data.len() != cols * rows || cols == 0 {
@@ -203,16 +203,16 @@ pub fn fill_empty(lat: &Lattice, data: &mut [f32], max: usize) {
     }
 }
 
-/// The mean of a layer in the square window of `radius` cells around each cell (clipped at the
-/// borders, empty cells left out). A cell with no value in its window stays empty. This evens
-/// out the cell-to-cell noise of statistics made from few points.
+/// La media de una capa en la ventana cuadrada de `radius` celdas alrededor de cada celda
+/// (recortada en los bordes, las celdas vacías excluidas). Una celda sin valor en su ventana queda
+/// vacía. Esto uniformiza el ruido de celda a celda de los estadísticos hechos con pocos puntos.
 pub fn local_mean(lat: &Lattice, data: &[f32], radius: usize) -> Vec<f32> {
     let (cols, rows) = (lat.cols, lat.rows);
     let r = radius.max(1);
     if data.len() != cols * rows || cols == 0 {
         return data.to_vec();
     }
-    // horizontal sums, then vertical ones, of the values and of how many there are
+    // sumas horizontales y luego verticales de los valores y de cuántos hay
     let mut hs = vec![0f64; data.len()];
     let mut hc = vec![0u32; data.len()];
     hs.par_chunks_mut(cols)
@@ -249,21 +249,21 @@ pub fn local_mean(lat: &Lattice, data: &[f32], radius: usize) -> Vec<f32> {
     out
 }
 
-/// The standard deviation of a layer in the square window of `radius` cells around each cell
-/// (clipped at the borders, empty cells left out): a roughness measure that tells a crown, whose
-/// height varies from cell to cell, from a roof or a lawn. Two running-sum passes, so the cost
-/// per cell does not depend on the radius.
+/// La desviación típica de una capa en la ventana cuadrada de `radius` celdas alrededor de cada
+/// celda (recortada en los bordes, las celdas vacías excluidas): una medida de rugosidad que
+/// distingue una copa, cuya altura varía de celda a celda, de un tejado o un césped. Dos pasadas de
+/// sumas acumuladas, de modo que el coste por celda no depende del radio.
 pub fn local_std(lat: &Lattice, data: &[f32], radius: usize) -> Vec<f32> {
     let (cols, rows) = (lat.cols, lat.rows);
     let r = radius.max(1);
-    // centred values keep the sums of squares small
+    // los valores centrados mantienen pequeñas las sumas de cuadrados
     let (mut total, mut seen) = (0f64, 0u64);
     for v in data.iter().filter(|v| !v.is_nan()) {
         total += f64::from(*v);
         seen += 1;
     }
     let mean = if seen > 0 { total / seen as f64 } else { 0.0 };
-    // horizontal window sums of the value, its square and the number of cells
+    // sumas de ventana horizontales del valor, su cuadrado y el número de celdas
     let mut hs = vec![0f32; data.len()];
     let mut hq = vec![0f32; data.len()];
     let mut hc = vec![0u32; data.len()];
@@ -297,7 +297,7 @@ pub fn local_std(lat: &Lattice, data: &[f32], radius: usize) -> Vec<f32> {
                 c[x] = wc;
             }
         });
-    // vertical sums, band by band so the bands run in parallel
+    // sumas verticales, banda a banda para que las bandas corran en paralelo
     let mut out = vec![f32::NAN; data.len()];
     const BAND: usize = 64;
     out.par_chunks_mut(BAND * cols)
@@ -315,7 +315,8 @@ pub fn local_std(lat: &Lattice, data: &[f32], radius: usize) -> Vec<f32> {
                     vc[x] += sign * i64::from(hc[o + x]);
                 }
             };
-            // the window of the band's first row, then slide it down a row at a time
+            // la ventana de la primera fila de la banda y luego se desliza hacia abajo una fila
+            // cada vez
             for y in first.saturating_sub(r)..=(first + r).min(rows - 1) {
                 apply(y, 1, &mut vs, &mut vq, &mut vc);
             }
@@ -350,7 +351,7 @@ mod tests {
         let mut d = vec![1.0, f32::NAN, f32::NAN, f32::NAN, f32::NAN, 9.0];
         fill_empty(&lat, &mut d, 2);
         assert_eq!(d, vec![1.0, 1.0, 1.0, 9.0, 9.0, 9.0]);
-        // too far from any value: stays empty
+        // demasiado lejos de cualquier valor: queda vacía
         let mut e = vec![1.0, f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN];
         fill_empty(&lat, &mut e, 2);
         assert!(e[3].is_nan() && e[2] == 1.0);
@@ -363,7 +364,7 @@ mod tests {
         d[4] = 6.0;
         d[0] = 2.0;
         let m = local_mean(&lat, &d, 1);
-        // the centre sees both values; the far corner sees only the centre
+        // el centro ve ambos valores; la esquina lejana ve solo el centro
         assert!((m[4] - 4.0).abs() < 1e-6 && (m[8] - 6.0).abs() < 1e-6);
     }
 
@@ -379,7 +380,7 @@ mod tests {
         }
     }
 
-    /// The same quantity the slow way.
+    /// La misma cantidad a la lenta.
     fn brute(l: &Lattice, d: &[f32], r: usize) -> Vec<f32> {
         let mut out = vec![f32::NAN; d.len()];
         for y in 0..l.rows {
@@ -406,7 +407,7 @@ mod tests {
 
     #[test]
     fn local_std_matches_the_direct_computation() {
-        // taller than one band, with holes
+        // más alta que una banda, con huecos
         let l = lat(37, 150);
         let d: Vec<f32> = (0..l.len())
             .map(|i| {

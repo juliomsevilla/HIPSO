@@ -1,5 +1,5 @@
-//! Isolated-point noise filter, the usual criterion: a point is noise when the
-//! 3 x 3 x 3 block of cells centred on its own cell holds at most `isolated` other points.
+//! Filtro de ruido de puntos aislados, el criterio habitual: un punto es ruido cuando el bloque de
+//! 3 x 3 x 3 celdas centrado en su propia celda contiene como mucho `isolated` otros puntos.
 
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
@@ -23,7 +23,7 @@ impl Default for NoiseParams {
     }
 }
 
-/// A hasher for cell keys that are already well spread integers.
+/// Un hasher para claves de celda que ya son enteros bien repartidos.
 #[derive(Default)]
 pub(crate) struct CellHasher(u64);
 
@@ -47,19 +47,20 @@ impl Hasher for CellHasher {
 
 pub(crate) type CellMap<V> = HashMap<u64, V, BuildHasherDefault<CellHasher>>;
 
-/// Packs cell coordinates (each within ±2^20) into one key.
+/// Empaqueta coordenadas de celda (cada una dentro de ±2^20) en una clave.
 #[inline]
 fn key(x: i64, y: i64, z: i64) -> u64 {
     let m = |v: i64| (v + (1 << 20)) as u64 & 0x1F_FFFF;
     (m(x) << 42) | (m(y) << 21) | m(z)
 }
 
-/// Which points are isolated. Points already marked noise, or withheld, take no part.
+/// Qué puntos están aislados. Los puntos ya marcados como ruido, o retenidos, no participan.
 pub fn isolated(pts: &[Point], p: &NoiseParams) -> Vec<bool> {
     let Some(first) = pts.first() else {
         return Vec::new();
     };
-    // Cells are counted from the first point, so keys stay small; the alignment is the step's.
+    // Las celdas se cuentan desde el primer punto, de modo que las claves se mantienen pequeñas; la
+    // alineación es la del paso.
     let (ox, oy, oz) = (
         (first.x / p.step_xy).floor(),
         (first.y / p.step_xy).floor(),
@@ -95,22 +96,22 @@ pub fn isolated(pts: &[Point], p: &NoiseParams) -> Vec<bool> {
                     }
                 }
             }
-            // The point itself is in its own cell.
+            // El propio punto está en su propia celda.
             n.saturating_sub(1) <= p.isolated
         })
         .collect()
 }
 
-/// Extended local minimum for low noise. The points are binned in square cells of `cell` metres
-/// and the lowest point of each cell is its local minimum. That point is low noise when it lies
-/// at least `drop` metres under the lower quartile of the heights of its own cell (it stands
-/// apart from what is above it; a burst of up to a quarter of the cell's points is caught too)
-/// and also at least `drop` metres under the median of the minima of the cells around
-/// it (it is not simply where the ground is low, as in a gully, or a cell whose ground returns
-/// are missing). The flagged points are left out and the lowest point of each cell is looked
-/// for again, until nothing more is flagged (at most 20 rounds), so a burst of low points in
-/// one cell is taken off layer by layer. A cell needs at least four points and four neighbours
-/// with points to be judged; those at the edge of the data are left alone.
+/// Mínimo local extendido para el ruido bajo. Los puntos se agrupan en celdas cuadradas de `cell`
+/// metros y el punto más bajo de cada celda es su mínimo local. Ese punto es ruido bajo cuando está
+/// al menos `drop` metros por debajo del cuartil inferior de las alturas de su propia celda (se
+/// aparta de lo que tiene encima; también se atrapa una ráfaga de hasta un cuarto de los puntos de
+/// la celda) y también al menos `drop` metros por debajo de la mediana de los mínimos de las celdas
+/// de alrededor (no es simplemente donde el suelo es bajo, como en un barranco, o una celda cuyos
+/// retornos de suelo faltan). Los puntos marcados se dejan fuera y se vuelve a buscar el punto más
+/// bajo de cada celda, hasta que no se marca nada más (como mucho 20 rondas), de modo que una
+/// ráfaga de puntos bajos en una celda se quita capa a capa. Una celda necesita al menos cuatro
+/// puntos y cuatro vecinas con puntos para ser juzgada; las del borde de los datos se dejan en paz.
 pub fn elm(pts: &[Point], cell: f64, drop: f64) -> Vec<bool> {
     let mut out = vec![false; pts.len()];
     if !(cell > 0.0) || !(drop > 0.0) {
@@ -124,7 +125,8 @@ pub fn elm(pts: &[Point], cell: f64, drop: f64) -> Vec<bool> {
         let (cx, cy) = ((p.x / cell).floor() as i64, (p.y / cell).floor() as i64);
         cells.entry(key(cx, cy, 0)).or_insert(((cx, cy), Vec::new())).1.push(i as u32);
     }
-    // each cell's points with the lowest last, so that the next minimum is the next point
+    // los puntos de cada celda con el más bajo el último, para que el siguiente mínimo sea el
+    // siguiente punto
     let mut at: Vec<(i64, i64)> = Vec::new();
     let mut members: Vec<Vec<u32>> = Vec::new();
     for (xy, mut m) in cells.into_values() {
@@ -179,10 +181,10 @@ pub fn elm(pts: &[Point], cell: f64, drop: f64) -> Vec<bool> {
     out
 }
 
-/// Statistical outlier removal (Rusu et al. 2008): a point is noise when its mean distance to
-/// its `k` nearest neighbours exceeds the mean of that distance over all points by more than
-/// `m` standard deviations. Neighbours are found in a hash grid of cubes, so the cost grows
-/// with the points, not their square.
+/// Eliminación estadística de valores atípicos (Rusu et al. 2008): un punto es ruido cuando su
+/// distancia media a sus `k` vecinos más próximos supera la media de esa distancia sobre todos los
+/// puntos en más de `m` desviaciones típicas. Los vecinos se encuentran en una rejilla hash de
+/// cubos, de modo que el coste crece con los puntos, no con su cuadrado.
 pub fn sor(pts: &[Point], k: usize, m: f64) -> Vec<bool> {
     let idx: Vec<usize> = (0..pts.len()).filter(|&i| !pts[i].is_noise()).collect();
     let mut out = vec![false; pts.len()];
@@ -205,7 +207,7 @@ pub fn sor(pts: &[Point], k: usize, m: f64) -> Vec<bool> {
             b
         },
     );
-    // Cubes holding about k points on average, in the cloud's (mostly flat) layer.
+    // Cubos que contienen unos k puntos de media, en la capa (casi plana) de la nube.
     let area = ((b[3] - b[0]) * (b[4] - b[1])).max(1e-6);
     let s = (area * k as f64 / idx.len() as f64).sqrt().max(1e-3);
     let cell = |q: &Point| {
@@ -227,7 +229,8 @@ pub fn sor(pts: &[Point], k: usize, m: f64) -> Vec<bool> {
             let q = &pts[i];
             let (cx, cy, cz) = cell(q);
             best.clear();
-            // Shells of cubes outward until the k-th distance is inside the searched radius.
+            // Capas de cubos hacia fuera hasta que la k-ésima distancia queda dentro del radio
+            // buscado.
             for ring in 0i64.. {
                 for dx in -ring..=ring {
                     for dy in -ring..=ring {
@@ -305,7 +308,8 @@ mod tests {
 
     #[test]
     fn elm_flags_deep_low_points_and_leaves_flat_ground_and_slopes() {
-        // gently noisy ground over two 20 m cells, three deep low points in the first
+        // suelo ligeramente ruidoso sobre dos celdas de 20 m, tres puntos bajos profundos en la
+        // primera
         let mut pts: Vec<Point> = (0..800)
             .map(|i| {
                 let (x, y) = (f64::from(i % 40) * 1.0, f64::from(i / 40) * 1.0);
@@ -318,7 +322,7 @@ mod tests {
         let low = elm(&pts, 5.0, 3.0);
         assert!(low[800] && low[801] && low[802]);
         assert!(low[..800].iter().all(|n| !n));
-        // a plain slope inside one cell is not noise at a generous threshold
+        // una pendiente simple dentro de una celda no es ruido con un umbral generoso
         let slope: Vec<Point> = (0..400).map(|i| pt(f64::from(i % 20) * 0.9, f64::from(i / 20), f64::from(i % 20) * 0.1)).collect();
         assert!(elm(&slope, 20.0, 3.0).iter().all(|n| !n));
     }

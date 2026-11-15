@@ -1,25 +1,25 @@
-//! Cloth Simulation Filter for ground points (Zhang et al. 2016, "An Easy-to-Use Airborne
-//! LiDAR Data Filtering Method Based on Cloth Simulation"; constants as in the authors' CSF
-//! library, Apache-2.0).
+//! Filtro de simulación de tela para puntos de suelo (Zhang et al. 2016, «An Easy-to-Use Airborne
+//! LiDAR Data Filtering Method Based on Cloth Simulation»; constantes como en la biblioteca CSF de
+//! los autores, Apache-2.0).
 //!
-//! The cloud is turned upside down and a cloth of particles falls onto it under gravity, held
-//! together by springs whose stiffness is the rigidness; particles stop where they meet the
-//! (inverted) points. Points within `threshold` of the settled cloth are ground. Works in
-//! memory: run it on tiles of bounded size.
+//! La nube se pone boca abajo y una tela de partículas cae sobre ella bajo la gravedad, sujeta por
+//! muelles cuya rigidez es la rigidez; las partículas se detienen donde encuentran los puntos
+//! (invertidos). Los puntos a menos de `threshold` de la tela asentada son suelo. Funciona en
+//! memoria: ejecútese sobre teselas de tamaño acotado.
 
 use crate::las::Point;
 use crate::{Error, Result};
 
-/// Most particles the cloth may have (8 bytes of height and 8 more of position each).
+/// Máximo de partículas que puede tener la tela (8 bytes de altura y otros 8 de posición cada una).
 const MAX_PARTICLES: f64 = (1u64 << 27) as f64;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CsfParams {
-    /// Distance between cloth particles.
+    /// Distancia entre las partículas de la tela.
     pub resolution: f64,
-    /// 1 (soft, steep terrain) to 3 (stiff, flat terrain).
+    /// 1 (blanda, terreno empinado) a 3 (rígida, terreno llano).
     pub rigidness: u8,
-    /// Height above the cloth up to which points are ground.
+    /// Altura sobre la tela hasta la que los puntos son suelo.
     pub threshold: f64,
     pub time_step: f64,
     pub iterations: u32,
@@ -37,16 +37,16 @@ impl Default for CsfParams {
     }
 }
 
-/// How far a constraint moves one free particle, and each of two, by rigidness.
+/// Cuánto mueve una restricción una partícula libre, y cada una de dos, según la rigidez.
 const SINGLE_MOVE: [f64; 4] = [0.0, 0.3, 0.51, 0.657];
 const DOUBLE_MOVE: [f64; 4] = [0.0, 0.3, 0.42, 0.468];
 const GRAVITY: f64 = 0.2;
 const DAMPING: f64 = 0.01;
-/// The cloth has settled when no particle moves more than this in a step.
+/// La tela se ha asentado cuando ninguna partícula se mueve más que esto en un paso.
 const SETTLED: f64 = 0.005;
 
-/// Which points are ground. Noise and withheld points are never ground and take no part. A
-/// cloth too fine for the extent of the cloud is an error, not an empty result.
+/// Qué puntos son suelo. El ruido y los puntos retenidos nunca son suelo y no participan. Una tela
+/// demasiado fina para la extensión de la nube es un error, no un resultado vacío.
 pub fn ground(pts: &[Point], p: &CsfParams) -> Result<Vec<bool>> {
     let mut out = vec![false; pts.len()];
     let valid: Vec<usize> = (0..pts.len()).filter(|&i| !pts[i].is_noise()).collect();
@@ -70,11 +70,11 @@ pub fn ground(pts: &[Point], p: &CsfParams) -> Result<Vec<bool>> {
         (x0, y0, x1, y1) = (x0.min(q.x), y0.min(q.y), x1.max(q.x), y1.max(q.y));
         top = top.max(-q.z);
     }
-    // A cloth two particles wider than the cloud on every side.
+    // Una tela dos partículas más ancha que la nube por cada lado.
     let r = p.resolution;
     let (ox, oy) = (x0 - 2.0 * r, y0 - 2.0 * r);
-    // counted in floating point first: a huge extent over a tiny resolution would overflow
-    // the integer product and give a small, wrong cloth
+    // contado primero en coma flotante: una extensión enorme sobre una resolución diminuta
+    // desbordaría el producto entero y daría una tela pequeña y errónea
     let (cols_f, rows_f) = (((x1 - ox) / r).ceil() + 3.0, ((y1 - oy) / r).ceil() + 3.0);
     if !(cols_f * rows_f <= MAX_PARTICLES) {
         return Err(Error::Param(format!(
@@ -83,8 +83,8 @@ pub fn ground(pts: &[Point], p: &CsfParams) -> Result<Vec<bool>> {
     }
     let (cols, rows) = (cols_f as usize, rows_f as usize);
     let n = cols * rows;
-    // Each particle's collision height: the highest inverted point (the lowest point) that
-    // rounds to it.
+    // La altura de colisión de cada partícula: el punto invertido más alto (el punto más bajo) que
+    // se redondea a ella.
     let mut ihv = vec![f64::NEG_INFINITY; n];
     for &i in &valid {
         let q = &pts[i];
@@ -95,14 +95,14 @@ pub fn ground(pts: &[Point], p: &CsfParams) -> Result<Vec<bool>> {
     }
     fill_scanline(&mut ihv, cols, rows);
 
-    // Cloth: positions now and before, free or stuck.
+    // Tela: posiciones ahora y antes, libres o fijas.
     let start = top + 1.0;
     let mut z = vec![start; n];
     let mut old = vec![start; n];
     let mut free = vec![true; n];
     let rig = usize::from(p.rigidness.clamp(1, 3));
-    // The authors' library scales the force by the squared time step when it adds it and again
-    // when it integrates: the cloth falls by g·dt⁴ per step.
+    // La biblioteca de los autores escala la fuerza por el cuadrado del paso de tiempo cuando la
+    // añade y otra vez cuando la integra: la tela cae g·dt⁴ por paso.
     let dt2 = p.time_step * p.time_step;
     let accel = -GRAVITY * dt2 * dt2;
     for _ in 0..p.iterations {
@@ -115,10 +115,10 @@ pub fn ground(pts: &[Point], p: &CsfParams) -> Result<Vec<bool>> {
             z[k] = now + (now - old[k]) * (1.0 - DAMPING) + accel;
             old[k] = now;
         }
-        // Springs between the 8 neighbours (the 4 nearest and the 4 diagonals, as in the authors'
-        // library): each particle pulls on each of its neighbours once, so
-        // every spring is relaxed from both ends; the move tables already stand for `rigidness`
-        // repetitions of the constraint.
+        // Muelles entre los 8 vecinos (los 4 más cercanos y las 4 diagonales, como en la biblioteca
+        // de los autores): cada partícula tira de cada vecina una vez, de modo que cada muelle se
+        // relaja desde ambos extremos; las tablas de movimiento ya representan `rigidness`
+        // repeticiones de la restricción.
         for rr in 0..rows {
             for c in 0..cols {
                 let k = rr * cols + c;
@@ -162,7 +162,7 @@ pub fn ground(pts: &[Point], p: &CsfParams) -> Result<Vec<bool>> {
         }
     }
 
-    // Ground: within the threshold of the cloth, interpolated under the point.
+    // Suelo: a menos del umbral de la tela, interpolado bajo el punto.
     for &i in &valid {
         let q = &pts[i];
         let (fx, fy) = ((q.x - ox) / r, (q.y - oy) / r);
@@ -179,8 +179,8 @@ pub fn ground(pts: &[Point], p: &CsfParams) -> Result<Vec<bool>> {
     Ok(out)
 }
 
-/// Gives particles with no point the nearest collision height along their row or column,
-/// as CSF does (scanline search), else the lowest one.
+/// Da a las partículas sin punto la altura de colisión más cercana a lo largo de su fila o columna,
+/// como hace CSF (búsqueda por líneas de barrido) y, si no, la más baja.
 fn fill_scanline(v: &mut [f64], cols: usize, rows: usize) {
     let src = v.to_vec();
     let low = src
@@ -232,14 +232,14 @@ mod tests {
 
     #[test]
     fn a_cloth_too_fine_for_the_area_is_an_error_not_an_empty_result() {
-        // 20 km across at 1 cm: 4·10¹² particles
+        // 20 km de lado a 1 cm: 4·10¹² partículas
         let pts = [pt(0.0, 0.0, 1.0), pt(20_000.0, 20_000.0, 1.0)];
         let p = CsfParams {
             resolution: 0.01,
             ..CsfParams::default()
         };
         assert!(matches!(ground(&pts, &p), Err(Error::Param(_))));
-        // an extent so large that the particle count cannot even be an integer
+        // una extensión tan grande que el número de partículas ni siquiera puede ser un entero
         let far = [pt(0.0, 0.0, 1.0), pt(1e300, 1e300, 1.0)];
         let p = CsfParams {
             resolution: 1e-6,
@@ -258,7 +258,7 @@ mod tests {
             };
             assert!(matches!(ground(&pts, &p), Err(Error::Param(_))), "{r}");
         }
-        // no points take no part: nothing to complain about
+        // sin puntos no participan: nada de lo que quejarse
         assert!(
             ground(
                 &[],
@@ -302,9 +302,9 @@ mod tests {
 
     #[test]
     fn a_soft_cloth_does_not_sink_into_a_wide_roof() -> Result<()> {
-        // rolling ground with a 15 x 12 m flat roof 7 m above it: the cloth is held up across the
-        // roof by the springs to its 8 neighbours (the shear springs among them), as in the
-        // authors' library; with only the 4 nearest it sags into the middle of the roof
+        // terreno ondulado con un tejado plano de 15 x 12 m a 7 m sobre él: los muelles hacia sus 8
+        // vecinos (los de cizalladura entre ellos) sostienen la tela a lo ancho del tejado, como en
+        // la biblioteca de los autores; con solo los 4 más cercanos se hunde en el medio del tejado
         let terrain = |x: f64, y: f64| 100.0 + 6.0 * (x / 30.0).sin() + 4.0 * (y / 25.0).cos();
         let mut pts = Vec::new();
         let mut roof = Vec::new();

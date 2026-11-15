@@ -1,0 +1,84 @@
+{
+ "hipso_modelo": 1,
+ "results": "",
+ "nodes": [
+  {
+   "id": "n1",
+   "label": "Nube primera fecha",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n2",
+   "label": "Nube segunda fecha",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n3",
+   "label": "CHM primera fecha",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "chm",
+   "args": {
+    "cell": [
+     "1"
+    ]
+   }
+  },
+  {
+   "id": "n4",
+   "label": "CHM segunda fecha",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "chm",
+   "args": {
+    "cell": [
+     "1"
+    ]
+   }
+  },
+  {
+   "id": "n5",
+   "label": "Cambio",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "change",
+   "args": {}
+  }
+ ],
+ "edges": [
+  {
+   "from": "n1",
+   "to": "n3",
+   "port": "inputs"
+  },
+  {
+   "from": "n2",
+   "to": "n4",
+   "port": "inputs"
+  },
+  {
+   "from": "n3",
+   "to": "n5",
+   "port": "before"
+  },
+  {
+   "from": "n4",
+   "to": "n5",
+   "port": "after"
+  }
+ ]
+}

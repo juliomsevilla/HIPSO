@@ -1,5 +1,5 @@
-//! Ruta de menor coste (Ráster › Análisis del terreno › Visibilidad y rutas): the cheapest way
-//! over a DTM between points.
+//! Ruta de menor coste (Ráster › Análisis del terreno › Visibilidad y rutas): el camino más barato
+//! sobre un MDT entre puntos.
 
 use super::*;
 use crate::numfield::NumField;
@@ -56,7 +56,7 @@ impl Default for RouteTool {
     }
 }
 
-/// The points `x y` of a text, one per line.
+/// Los puntos `x y` de un texto, uno por línea.
 fn points(text: &str) -> Option<Vec<[f64; 2]>> {
     text.lines()
         .filter(|l| !l.trim().is_empty())

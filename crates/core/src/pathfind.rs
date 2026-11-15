@@ -1,15 +1,15 @@
-//! Least-cost routes over a terrain model.
+//! Rutas de menor coste sobre un modelo del terreno.
 //!
-//! Each cell has a cost to cross it; moving between neighbours (eight of them) costs the distance
-//! times the mean cost of the two cells, and the route is the one with the lowest total
-//! (Dijkstra). Empty cells and cells outside the limits (too steep, out of the elevation range,
-//! inside a barrier) cannot be crossed. The cost comes from the slope, from a cost raster of the
-//! user, or from the walking time of Tobler's hiking function, which depends on the direction of
-//! the step (uphill, downhill) and gives seconds.
+//! Cada celda tiene un coste de cruzarla; moverse entre vecinas (ocho) cuesta la distancia por el
+//! coste medio de las dos celdas, y la ruta es la de menor total (Dijkstra). Las celdas vacías y
+//! las que están fuera de los límites (demasiado empinadas, fuera del rango de elevaciones, dentro
+//! de una barrera) no se pueden cruzar. El coste sale de la pendiente, de un ráster de costes del
+//! usuario o del tiempo de marcha de la función de senderismo de Tobler, que depende de la
+//! dirección del paso (cuesta arriba, cuesta abajo) y da segundos.
 //!
-//! Moving in eight directions favours the straight and diagonal directions: a route between two
-//! points is at most about 8 % longer than the straight line, and it hugs the grid. Preferred
-//! areas lower the cost by the given factor.
+//! Moverse en ocho direcciones favorece las direcciones rectas y diagonales: una ruta entre dos
+//! puntos es como mucho un 8 % más larga que la línea recta y se pega a la rejilla. Las áreas
+//! preferidas reducen el coste en el factor dado.
 
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
@@ -21,43 +21,44 @@ use crate::terrain::{self, Edges};
 use crate::vector;
 use crate::{Error, Result};
 
-/// How crossing a cell is priced.
+/// Cómo se valora cruzar una celda.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CostModel {
-    /// `1 + (slope / reference) ^ power` per metre, the slope in per cent.
+    /// `1 + (pendiente / referencia) ^ potencia` por metro, con la pendiente en porcentaje.
     Slope { power: f64, reference_pct: f64 },
-    /// Tobler's walking time (seconds) over the surface, uphill and downhill differ.
+    /// Tiempo de marcha de Tobler (segundos) sobre la superficie; cuesta arriba y cuesta abajo
+    /// difieren.
     Tobler,
-    /// A raster with the cost per metre of each cell (on the cells of the model).
+    /// Un ráster con el coste por metro de cada celda (sobre las celdas del modelo).
     Raster(PathBuf),
-    /// Every cell costs 1 per metre: the shortest route.
+    /// Cada celda cuesta 1 por metro: la ruta más corta.
     Uniform,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Constraints {
-    /// Cells steeper than this cannot be crossed (per cent).
+    /// Las celdas más empinadas que esto no se pueden cruzar (por ciento).
     pub max_slope_pct: Option<f64>,
-    /// Cells outside this range of elevations cannot be crossed.
+    /// Las celdas fuera de este rango de elevaciones no se pueden cruzar.
     pub elev: Option<(f64, f64)>,
-    /// Polygons that cannot be crossed.
+    /// Polígonos que no se pueden cruzar.
     pub barriers: Option<PathBuf>,
-    /// Polygons where the cost is multiplied by the factor (below 1: preferred).
+    /// Polígonos donde el coste se multiplica por el factor (por debajo de 1: preferidos).
     pub prefer: Option<(PathBuf, f64)>,
 }
 
 pub struct PathJob {
     pub dtm: PathBuf,
-    /// The origin, the stops in order, and the destination (map coordinates).
+    /// El origen, las paradas en orden y el destino (coordenadas del mapa).
     pub points: Vec<[f64; 2]>,
     pub model: CostModel,
     pub constraints: Constraints,
-    /// With several destinations: the first point is the origin and the others are alternatives;
-    /// the route goes to the one that costs least.
+    /// Con varios destinos: el primer punto es el origen y los demás son alternativas; la ruta va
+    /// al que cuesta menos.
     pub nearest: bool,
-    /// Also a raster of the cost of reaching each cell from the origin.
+    /// Escribe también un ráster con el coste de llegar a cada celda desde el origen.
     pub cost_distance: bool,
-    /// Base path of the results: `<output>.shp` and `<output>_coste.tif`.
+    /// Ruta base de los resultados: `<salida>.shp` y `<salida>_coste.tif`.
     pub output: PathBuf,
 }
 
@@ -78,7 +79,7 @@ impl PathJob {
     }
 }
 
-/// A route and what it adds up to.
+/// Una ruta y a cuánto asciende.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Route {
     pub pts: Vec<[f64; 3]>,
@@ -91,12 +92,12 @@ pub struct Route {
     pub descent: f64,
 }
 
-/// What a step between two cells costs, or `None` when it cannot be taken.
+/// Lo que cuesta un paso entre dos celdas, o `None` cuando no se puede dar.
 pub trait Steps {
     fn step(&self, from: usize, to: usize, k: usize) -> Option<f64>;
 }
 
-/// A cost per metre in each cell; NaN cannot be crossed.
+/// Un coste por metro en cada celda; NaN no se puede cruzar.
 struct PerMetre<'a>(&'a Grid);
 
 impl Steps for PerMetre<'_> {
@@ -109,7 +110,8 @@ impl Steps for PerMetre<'_> {
     }
 }
 
-/// Tobler's hiking function over the surface, times a factor of each cell (NaN: blocked).
+/// La función de senderismo de Tobler sobre la superficie, por un factor de cada celda (NaN:
+/// bloqueada).
 struct Tobler<'a> {
     z: &'a Grid,
     factor: &'a [f32],
@@ -125,16 +127,16 @@ impl Steps for Tobler<'_> {
         let d = self.z.cell * reach(k);
         let dz = f64::from(zb - za);
         let slope = dz / d;
-        // km/h; the surface distance in metres
+        // km/h; la distancia sobre la superficie en metros
         let speed = 6.0 * (-3.5 * (slope + 0.05).abs()).exp();
         let surface = d.hypot(dz);
         Some(surface / (speed * 1000.0 / 3600.0) * f64::from(fa + fb) / 2.0)
     }
 }
 
-/// The lowest cost of reaching every cell from `from`, and the way back (the direction, 0 to 7,
-/// of the previous cell); it stops at the first of `targets` it settles, if any. Returns the
-/// costs, the directions and that target.
+/// El menor coste de llegar a cada celda desde `from` y el camino de vuelta (la dirección, de 0 a
+/// 7, de la celda anterior); se detiene en el primero de `targets` que fija, si hay alguno.
+/// Devuelve los costes, las direcciones y ese destino.
 pub fn dijkstra(
     g: &Grid,
     steps: &dyn Steps,
@@ -153,7 +155,7 @@ pub fn dijkstra(
     let mut popped = 0usize;
     while let Some(Reverse((bits, i))) = heap.pop() {
         let i = i as usize;
-        // positive floats sort like their bits
+        // los decimales positivos se ordenan como sus bits
         if f64::from_bits(bits) > cost[i] {
             continue;
         }
@@ -182,7 +184,7 @@ pub fn dijkstra(
     Ok((cost, back, None))
 }
 
-/// The cells of the route from `from` to `to` (both included), from the directions back.
+/// Las celdas de la ruta de `from` a `to` (ambas incluidas), a partir de las direcciones de vuelta.
 fn trace(g: &Grid, back: &[u8], from: usize, to: usize) -> Vec<usize> {
     let mut cells = vec![to];
     let mut at = to;
@@ -197,8 +199,8 @@ fn trace(g: &Grid, back: &[u8], from: usize, to: usize) -> Vec<usize> {
     cells
 }
 
-/// The cheapest route from cell `from` to cell `to` over a cost per metre grid (NaN cannot be
-/// crossed): the cells and the total cost.
+/// La ruta más barata de la celda `from` a la celda `to` sobre una rejilla de coste por metro (NaN
+/// no se puede cruzar): las celdas y el coste total.
 pub fn route(cost: &Grid, from: usize, to: usize) -> Result<(Vec<usize>, f64)> {
     let (c, back, hit) = dijkstra(cost, &PerMetre(cost), from, &[to])?;
     if hit.is_none() {
@@ -207,7 +209,7 @@ pub fn route(cost: &Grid, from: usize, to: usize) -> Result<(Vec<usize>, f64)> {
     Ok((trace(cost, &back, from, to), c[to]))
 }
 
-/// The statistics of a route over the cells `cells`, with the heights of `z`.
+/// Los estadísticos de una ruta sobre las celdas `cells`, con las alturas de `z`.
 fn describe(z: &Grid, cells: &[usize], cost: f64) -> Route {
     let pts: Vec<[f64; 3]> = cells
         .iter()
@@ -249,8 +251,8 @@ fn marked(path: &std::path::Path) -> Result<Vec<vector::Region>> {
     crate::volume::read_regions(path)
 }
 
-/// The cost per metre of every cell for the job (NaN where it cannot be crossed), and for
-/// Tobler's model the factor of preferred areas on its own.
+/// El coste por metro de cada celda para el trabajo (NaN donde no se puede cruzar) y, para el
+/// modelo de Tobler, el factor de las áreas preferidas por sí solo.
 fn surface_for(g: &Grid, job: &PathJob) -> Result<Vec<f32>> {
     let n = g.data.len();
     let slope = terrain::slope(g, 1.0, true, Edges::RepeatEdge);
@@ -335,7 +337,7 @@ fn surface_for(g: &Grid, job: &PathJob) -> Result<Vec<f32>> {
     Ok(f)
 }
 
-/// Applies `f` to the cells whose centre is inside `region`.
+/// Aplica `f` a las celdas cuyo centro está dentro de `region`.
 fn mark(g: &Grid, region: &vector::Region, f: &mut [f32], op: impl Fn(f32) -> f32) {
     let b = region.bbox();
     let top = g.y0 + g.rows as f64 * g.cell;
@@ -359,7 +361,7 @@ fn mark(g: &Grid, region: &vector::Region, f: &mut [f32], op: impl Fn(f32) -> f3
     }
 }
 
-/// Finds the route of the job over `g`: the route and, with `cost_distance`, the cost raster.
+/// Halla la ruta del trabajo sobre `g`: la ruta y, con `cost_distance`, el ráster de costes.
 pub fn find(g: &Grid, job: &PathJob) -> Result<(Route, Option<Grid>)> {
     if job.points.len() < 2 {
         return Err(Error::Param("hacen falta un origen y un destino".into()));
@@ -450,14 +452,14 @@ pub fn find(g: &Grid, job: &PathJob) -> Result<(Route, Option<Grid>)> {
     Ok((describe(g, &path, total), distance))
 }
 
-/// Finds the route and writes it as a 3D polyline; returns the summary.
+/// Halla la ruta y la escribe como polilínea 3D; devuelve el resumen.
 pub fn run(job: &PathJob) -> Result<String> {
     if let Ok(pyr) = crate::pyramid::Pyramid::open(&job.dtm)
         && let Some(mem) = crate::copc_cache::total_memory()
     {
         let e = pyr.extent();
         let cells = ((e[2] - e[0]) / pyr.cell) * ((e[3] - e[1]) / pyr.cell);
-        // the model, the cost, the pending cost (8 bytes), the way back, and the slope
+        // el modelo, el coste, el coste pendiente (8 bytes), el camino de vuelta y la pendiente
         let need = cells * 32.0;
         if need > mem as f64 * 0.7 {
             return Err(Error::Param(format!(
@@ -553,7 +555,7 @@ mod tests {
     fn with_a_uniform_cost_the_route_is_the_shortest_on_the_grid() -> Result<()> {
         let g = grid(20, 20, |_, _| 1.0)?;
         let (cells, cost) = route(&g, cell(&g, 0, 0), cell(&g, 10, 4))?;
-        // four diagonal steps and six straight ones
+        // cuatro pasos diagonales y seis rectos
         let exact = 6.0 + 4.0 * std::f64::consts::SQRT_2;
         assert!((cost - exact).abs() < 1e-9, "{cost} / {exact}");
         assert_eq!(cells.len(), 11);
@@ -592,7 +594,7 @@ mod tests {
         Ok(())
     }
 
-    /// The cost of every cell by relaxing every edge until nothing improves.
+    /// El coste de cada celda relajando cada arista hasta que nada mejora.
     fn bellman_ford(g: &Grid, from: usize) -> Vec<f64> {
         let mut c = vec![f64::INFINITY; g.data.len()];
         c[from] = 0.0;
@@ -643,7 +645,7 @@ mod tests {
             match found {
                 Ok((_, cost)) => {
                     assert!((cost - oracle[b]).abs() < 1e-9, "{cost} / {}", oracle[b]);
-                    // the cost with a symmetric price is the same both ways
+                    // el coste con un precio simétrico es el mismo en ambos sentidos
                     let (_, back) = route(&g, b, a)?;
                     assert!((back - cost).abs() < 1e-9);
                 }
@@ -655,7 +657,7 @@ mod tests {
 
     #[test]
     fn walking_time_avoids_a_steep_hill_that_the_shortest_route_climbs() -> Result<()> {
-        // flat ground with a steep cone in the middle
+        // suelo llano con un cono empinado en medio
         let g = grid(41, 41, |c, r| {
             let d = ((c as f64 - 20.0).powi(2) + (r as f64 - 20.0).powi(2)).sqrt();
             (12.0 - d).max(0.0) as f32 * 2.0
@@ -690,7 +692,7 @@ mod tests {
         j.points = vec![[0.5, 0.5], [15.5, 20.5], [29.5, 0.5]];
         let (via, _) = find(&g, &j)?;
         assert!(via.cost >= direct.cost && via.length_2d > direct.length_2d);
-        // the nearest of two destinations
+        // el más cercano de dos destinos
         j.points = vec![[0.5, 0.5], [29.5, 29.5], [5.5, 0.5]];
         j.nearest = true;
         let (near, _) = find(&g, &j)?;
@@ -703,7 +705,7 @@ mod tests {
         let g = grid(30, 30, |c, _| c as f32 * 0.0)?;
         let dir = std::env::temp_dir().join(format!("hipso_path_{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
-        // a barrier across the way, from y = 0 to y = 24
+        // una barrera en el camino, de y = 0 a y = 24
         let layer = crate::geomops::PolyLayer {
             features: vec![crate::geomops::Feature {
                 geom: crate::geomops::multipolygon_of(&[vec![
@@ -729,10 +731,10 @@ mod tests {
             r.pts.iter().any(|p| p[1] > 24.0),
             "the route has to go around"
         );
-        // a point inside the barrier cannot be a start
+        // un punto dentro de la barrera no puede ser un inicio
         j.points = vec![[15.0, 5.5], [29.5, 5.5]];
         assert!(find(&g, &j).is_err());
-        // the slope limit
+        // el límite de pendiente
         let steep = grid(10, 10, |c, _| c as f32 * 2.0)?;
         let mut s = PathJob::new(PathBuf::new(), vec![[0.5, 5.5], [9.5, 5.5]], PathBuf::new());
         s.constraints.max_slope_pct = Some(50.0);

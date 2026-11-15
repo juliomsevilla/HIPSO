@@ -1,14 +1,14 @@
-//! A recipe against the classification a file carries: `pnoa_bench --recipe R.txt FILE... [--size
-//! 500] [--inner 400]`. For each file takes a square window of `--size` m around the middle of the
-//! cloud, classifies it with the recipe and compares, in the inner `--inner` m (the rest is the
-//! buffer, so the edge effects of the filters stay out), the classes it gives with the file's own,
-//! class 12 (overlap between flight lines) included.
+//! Una receta contra la clasificación que lleva un archivo: `pnoa_bench --recipe R.txt ARCHIVO...
+//! [--size 500] [--inner 400]`. Para cada archivo toma una ventana cuadrada de `--size` m alrededor
+//! del medio de la nube, la clasifica con la receta y compara, en los `--inner` m interiores (el
+//! resto es el margen, de modo que los efectos de borde de los filtros quedan fuera), las clases
+//! que da con las del propio archivo, la clase 12 (solape entre pasadas) incluida.
 //!
-//! `--analyze` instead prints, for each class of the file, how high its points are above the file's
-//! own ground (class 2): the thresholds the producer used show in it.
+//! `--analyze` imprime en su lugar, para cada clase del archivo, a qué altura están sus puntos
+//! sobre el propio suelo del archivo (clase 2): ahí se ven los umbrales que usó el productor.
 //!
-//! The reference is whatever classification the file carries (for PNOA sheets, the producer's):
-//! the numbers measure agreement with it, not truth.
+//! La referencia es la clasificación que lleve el archivo (para hojas PNOA, la del productor): los
+//! números miden la concordancia con ella, no la verdad.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -29,8 +29,8 @@ fn slot(c: u8) -> usize {
         .unwrap_or(CLASSES.len())
 }
 
-/// DALES 2 class codes as the standard ones: ground 2, vegetation and trees 5, power line 14,
-/// poles 15, buildings 6; cars, fences and the rest 1.
+/// Códigos de clase de DALES 2 como los estándar: suelo 2, vegetación y árboles 5, línea eléctrica
+/// 14, postes 15, edificios 6; coches, vallas y el resto 1.
 fn dales_class(c: u8) -> u8 {
     match c {
         0 => 2,
@@ -132,7 +132,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("ignored in the recipe: {}", loaded.ignored.join(" "));
     }
     let mut steps = loaded.recipe.steps;
-    // `--wire k=v,...` / `--pole k=v,...` change the parameters of those steps (to tune them)
+    // `--wire k=v,...` / `--pole k=v,...` cambian los parámetros de esos pasos (para ajustarlos)
     for (kind, spec) in [("wire", &wire_spec), ("pole", &pole_spec)] {
         for kv in spec.split(',').filter(|t| !t.is_empty()) {
             let (k, v) = kv.split_once('=').ok_or("--wire/--pole take k=v,k=v")?;
@@ -184,14 +184,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map(|q| if dales { dales_class(q.class) } else { q.class })
                 .collect();
             if thin > 1 {
-                // keep every n-th point (the reference travels with the points)
+                // conservar uno de cada n puntos (la referencia viaja con los puntos)
                 let keep: Vec<usize> = (0..w.pts.len()).filter(|k| k % thin == 0).collect();
                 let pts: Vec<_> = keep.iter().map(|&k| w.pts[k]).collect();
                 reference_thin = keep.iter().map(|&k| reference[k]).collect();
                 w = Points::new(pts);
             }
             let reference = if thin > 1 { reference_thin } else { reference };
-            // the recipe must find every class itself: none of the file's survives into its input
+            // la receta debe hallar cada clase por sí sola: ninguna del archivo sobrevive en su
+            // entrada
             for q in &mut w.pts {
                 q.class = 1;
             }

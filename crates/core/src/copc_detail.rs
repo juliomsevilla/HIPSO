@@ -1,7 +1,8 @@
-//! The detail of a window of COPC clouds: when the viewer zooms in, the points of the whole
-//! cloud it holds (an even sample) are too few for the window, but the COPC files keep every
-//! point in an octree whose levels are denser and denser. This reads the levels of the nodes
-//! that touch the window, down to the deepest one that fits a budget of points, and no deeper than one point per `px` map units (a pixel).
+//! El detalle de una ventana de nubes COPC: cuando el visor hace zoom, los puntos de toda la nube
+//! que guarda (una muestra uniforme) son demasiado pocos para la ventana, pero los archivos COPC
+//! guardan cada punto en un octree cuyos niveles son cada vez más densos. Esto lee los niveles de
+//! los nodos que tocan la ventana, hasta el más profundo que cabe en un presupuesto de puntos y no
+//! más profundo que un punto por `px` unidades del mapa (un píxel).
 
 use rayon::prelude::*;
 
@@ -10,7 +11,8 @@ use crate::las::Reader;
 use crate::view::PointStore;
 use crate::{Error, Result};
 
-/// One decoded record: x, y, z, intensity, return byte, class, source id, scan angle, colour.
+/// Un registro decodificado: x, y, z, intensidad, byte de retorno, clase, identificador de fuente,
+/// ángulo de barrido, color.
 type Row = (f64, f64, f64, u16, u8, u8, u16, i16, Option<[u8; 3]>, u32);
 
 fn u16_at(b: &[u8], i: usize) -> u16 {
@@ -18,11 +20,11 @@ fn u16_at(b: &[u8], i: usize) -> u16 {
         .map_or(0, |s| u16::from_le_bytes([s[0], s[1]]))
 }
 
-/// The points inside `window` `[x0, y0, x1, y1]` of COPC clouds, as a store that uses the
-/// `origin` and the file order of the store of the same clouds, so that the styles of the
-/// viewer work on it unchanged. About `budget` points at most: the levels of the octree are
-/// taken from the root down while they fit. `None` when a file is not COPC (a plain LAZ cannot
-/// give a window without reading all of it).
+/// Los puntos dentro de `window` `[x0, y0, x1, y1]` de nubes COPC, como un almacén que usa el
+/// `origin` y el orden de archivo del almacén de las mismas nubes, de modo que los estilos del
+/// visor funcionan sobre él sin cambios. Como mucho unos `budget` puntos: los niveles del octree se
+/// toman desde la raíz mientras caben. `None` cuando un archivo no es COPC (un LAZ normal no puede
+/// dar una ventana sin leerlo entero).
 pub fn load_detail(
     paths: &[std::path::PathBuf],
     window: [f64; 4],
@@ -42,9 +44,10 @@ pub fn load_detail(
         .iter()
         .map(|c| c.nodes(Some(window), None))
         .collect::<Result<_>>()?;
-    // the deepest level whose nodes (all of them, a node reaches past the window) fit
+    // el nivel más profundo cuyos nodos (todos, un nodo llega más allá de la ventana) caben
     let max_level = nodes.iter().flatten().map(|n| n.level).max().unwrap_or(0);
-    // the level whose spacing is about a pixel (`px` map units): finer would only overdraw
+    // el nivel cuyo espaciado es aproximadamente un píxel (`px` unidades del mapa): más fino solo
+    // sobredibujaría
     let spacing = clouds
         .iter()
         .map(|c| c.spacing())
@@ -96,7 +99,7 @@ pub fn load_detail(
             },
         );
         c.read_raw(&sel, |bytes| {
-            // decoding is the slow part: all the cores share it
+            // decodificar es lo lento: todos los núcleos lo comparten
             let rows: Vec<Vec<Row>> = bytes
                 .par_chunks(rec_len * 16_384)
                 .map(|block| {

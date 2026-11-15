@@ -1,14 +1,14 @@
-//! Reproyectar (Ráster y nubes): moves clouds and rasters to another coordinate system and,
-//! when asked, changes the vertical reference of their heights.
+//! Reproyectar (Ráster y nubes): lleva nubes y rásteres a otro sistema de coordenadas y, cuando se
+//! pide, cambia la referencia vertical de sus alturas.
 
 use super::*;
 use hipso_core::paths;
 use hipso_core::reproject::{self, Policy, Vertical, VerticalRef};
 
-/// What the user picked for a vertical reference.
+/// Lo que eligió el usuario como referencia vertical.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum VChoice {
-    /// Leave heights as they are (output) / the file's own declaration (input).
+    /// Dejar las alturas como están (salida) / la propia declaración del archivo (entrada).
     Keep,
     Ellipsoidal,
     Code,
@@ -30,12 +30,14 @@ pub struct ReprojectTool {
     pub v_out_code: String,
     pub allow_ballpark: bool,
     pub allow_fallback: bool,
-    /// Rasters: 0 automatic, then the methods of `Resample::ALL` (see `align_ui::resample_picker`).
+    /// Rásteres: 0 automático, luego los métodos de `Resample::ALL` (véase
+    /// `align_ui::resample_picker`).
     pub resample: usize,
-    /// Rasters: cell of the result as typed (empty: the same, or the equivalent in the new system).
+    /// Rásteres: celda del resultado tal como se escribe (vacío: la misma o la equivalente en el
+    /// sistema nuevo).
     pub cell: String,
-    /// Destination: 0 an EPSG code, 1 the system of a reference raster, 2 the cells of a reference
-    /// raster (system, extent and cell; rasters only).
+    /// Destino: 0 un código EPSG, 1 el sistema de un ráster de referencia, 2 las celdas de un
+    /// ráster de referencia (sistema, extensión y celda; solo rásteres).
     pub dest: u8,
     pub reference: Option<PathBuf>,
 }
@@ -76,7 +78,7 @@ fn parse_code(s: &str) -> Option<u16> {
 }
 
 impl ReprojectTool {
-    /// The EPSG code to write: the one typed, or that of the reference raster.
+    /// El código EPSG que escribir: el escrito o el del ráster de referencia.
     fn target(&self) -> Option<u16> {
         match self.dest {
             0 => parse_code(&self.to),
@@ -110,7 +112,7 @@ impl ReprojectTool {
         p
     }
 
-    /// Why a file cannot be processed as set, if so.
+    /// Por qué un archivo no se puede procesar tal como está configurado, si es el caso.
     fn problem(&self, f: &FileInfo, v: &Vertical) -> Option<String> {
         if f.epsg.is_none() && parse_code(&self.from).is_none() {
             return Some("no declara su sistema: indica el de origen".into());

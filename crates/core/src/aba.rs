@@ -1,27 +1,28 @@
-//! Area-based model: a linear regression of a field variable (volume, basal area, biomass…)
-//! on the LiDAR metrics of the sample plots, and the map of that variable from the metrics of
-//! every cell.
+//! Modelo por área: una regresión lineal de una variable de campo (volumen, área basimétrica,
+//! biomasa…) sobre las métricas LiDAR de las parcelas de muestreo, y el mapa de esa variable a
+//! partir de las métricas de cada celda.
 //!
-//! Plain least squares with a forward selection of the metrics (BIC or AICc, a cap on the number
-//! of variables and on their collinearity). What matters is how the result is judged:
+//! Mínimos cuadrados ordinarios con una selección hacia delante de las métricas (BIC o AICc, un
+//! tope al número de variables y a su colinealidad). Lo que importa es cómo se juzga el resultado:
 //!
-//! - **Cross-validation leaving one plot out, repeating the selection in every round.** Choosing
-//!   the metrics with the same plots that are then used to judge the model flatters it
-//!   (Ambroise and McLachlan, 2002); here each plot is predicted by a model that never saw it
-//!   or took part in picking its variables. The share of rounds each metric was picked in, and
-//!   how often the final model came out, tell how stable the choice is.
-//! - The leave-one-out error of the final model with its variables fixed, from the hat matrix
-//!   (Allen, 1974): the gap to the honest one is the cost of the selection.
-//! - Before the fit, the normality of the response (Shapiro–Wilk) and a screening of the
-//!   candidates that puts aside the metrics that repeat another (collinearity).
-//! - Standard errors, t and F tests, variance inflation factors, leverage, studentized residuals
-//!   and Cook's distance, and the three assumptions of the linear model: normal residuals
-//!   (Shapiro–Wilk), linearity (Ramsey's RESET) and constant variance (Breusch–Pagan).
-//! - On the map, cells whose metrics fall outside the range of the plots are left empty (the
-//!   model has seen nothing like them), and the half-width of the 95 % prediction interval can
-//!   be written next to the estimate.
+//! - **Validación cruzada dejando una parcela fuera, repitiendo la selección en cada ronda.**
+//!   Elegir las métricas con las mismas parcelas con las que luego se juzga el modelo lo favorece
+//!   (Ambroise y McLachlan, 2002); aquí cada parcela la predice un modelo que nunca la vio ni
+//!   participó en elegir sus variables. La proporción de rondas en que se eligió cada métrica y la
+//!   frecuencia con que salió el modelo final dicen cuán estable es la elección.
+//! - El error de dejar uno fuera del modelo final con sus variables fijas, a partir de la matriz
+//!   sombrero (Allen, 1974): la diferencia con el honesto es el coste de la selección.
+//! - Antes del ajuste, la normalidad de la respuesta (Shapiro–Wilk) y un cribado de los candidatos
+//!   que aparta las métricas que repiten otra (colinealidad).
+//! - Errores típicos, pruebas t y F, factores de inflación de la varianza, apalancamiento, residuos
+//!   estudentizados y distancia de Cook, y los tres supuestos del modelo lineal: residuos normales
+//!   (Shapiro–Wilk), linealidad (RESET de Ramsey) y varianza constante (Breusch–Pagan).
+//! - En el mapa, las celdas cuyas métricas quedan fuera del rango de las parcelas se dejan vacías
+//!   (el modelo no ha visto nada parecido), y la semianchura del intervalo de predicción del 95 %
+//!   puede escribirse junto a la estimación.
 //!
-//! A response in logarithms is brought back with the correction `exp(s²/2)` (Baskerville, 1972).
+//! Una respuesta en logaritmos se devuelve a su escala con la corrección `exp(s²/2)` (Baskerville,
+//! 1972).
 
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};
@@ -56,7 +57,7 @@ fn ln_gamma(x: f64) -> f64 {
     -tmp + (2.506_628_274_631_000_5 * ser / x).ln()
 }
 
-/// Continued fraction of the incomplete beta function (modified Lentz).
+/// Fracción continua de la función beta incompleta (Lentz modificado).
 fn beta_cf(a: f64, b: f64, x: f64) -> f64 {
     const TINY: f64 = 1e-300;
     let (qab, qap, qam) = (a + b, a + 1.0, a - 1.0);
@@ -100,7 +101,7 @@ fn beta_cf(a: f64, b: f64, x: f64) -> f64 {
     h
 }
 
-/// The regularized incomplete beta function `I_x(a, b)`.
+/// La función beta incompleta regularizada `I_x(a, b)`.
 fn beta_inc(a: f64, b: f64, x: f64) -> f64 {
     if x <= 0.0 {
         return 0.0;
@@ -116,7 +117,7 @@ fn beta_inc(a: f64, b: f64, x: f64) -> f64 {
     }
 }
 
-/// Two-sided p-value of a t statistic.
+/// Valor p bilateral de un estadístico t.
 fn t_pvalue(t: f64, df: f64) -> f64 {
     if !(df > 0.0) || !t.is_finite() {
         return f64::NAN;
@@ -124,7 +125,7 @@ fn t_pvalue(t: f64, df: f64) -> f64 {
     beta_inc(df / 2.0, 0.5, df / (df + t * t))
 }
 
-/// p-value of an F statistic with `d1` and `d2` degrees of freedom.
+/// Valor p de un estadístico F con `d1` y `d2` grados de libertad.
 fn f_pvalue(f: f64, d1: f64, d2: f64) -> f64 {
     if !(d1 > 0.0) || !(d2 > 0.0) || !f.is_finite() || f < 0.0 {
         return f64::NAN;
@@ -132,7 +133,7 @@ fn f_pvalue(f: f64, d1: f64, d2: f64) -> f64 {
     beta_inc(d2 / 2.0, d1 / 2.0, d2 / (d2 + d1 * f))
 }
 
-/// The t value leaving 2.5 % in each tail.
+/// El valor t que deja el 2,5 % en cada cola.
 fn t_crit95(df: f64) -> f64 {
     if !(df > 0.0) {
         return f64::NAN;
@@ -165,13 +166,13 @@ fn erfc(x: f64) -> f64 {
     if x >= 0.0 { ans } else { 2.0 - ans }
 }
 
-/// The standard normal distribution function.
+/// La función de distribución normal estándar.
 fn norm_cdf(z: f64) -> f64 {
     0.5 * erfc(-z / std::f64::consts::SQRT_2)
 }
 
-/// Inverse of the standard normal distribution function (Acklam's rational approximation,
-/// relative error below 1.2e-9).
+/// Inversa de la función de distribución normal estándar (aproximación racional de Acklam, error
+/// relativo inferior a 1,2e-9).
 fn norm_inv(p: f64) -> f64 {
     const A: [f64; 6] = [
         -3.969_683_028_665_376e1,
@@ -219,13 +220,14 @@ fn norm_inv(p: f64) -> f64 {
     }
 }
 
-/// The value of a standard normal variable below which a share `p` (0 to 1) of it lies.
+/// El valor de una variable normal estándar por debajo del cual queda una proporción `p` (0 a 1) de
+/// ella.
 pub fn normal_quantile(p: f64) -> f64 {
     norm_inv(p.clamp(1e-12, 1.0 - 1e-12))
 }
 
-/// The Shapiro–Wilk statistic W and its p-value (Royston's 1995 approximation), for 3 to 5000
-/// values that are not all equal.
+/// El estadístico W de Shapiro–Wilk y su valor p (aproximación de Royston de 1995), para 3 a 5000
+/// valores que no son todos iguales.
 pub fn shapiro_wilk(x: &[f64]) -> Option<(f64, f64)> {
     let n = x.len();
     if !(3..=5000).contains(&n) || x.iter().any(|v| !v.is_finite()) {
@@ -303,7 +305,7 @@ pub fn shapiro_wilk(x: &[f64]) -> Option<(f64, f64)> {
     Some((w, p.clamp(0.0, 1.0)))
 }
 
-/// Mean, standard deviation, skewness and excess kurtosis.
+/// Media, desviación típica, asimetría y curtosis en exceso.
 fn moments(x: &[f64]) -> (f64, f64, f64, f64) {
     let n = x.len() as f64;
     if x.len() < 2 {
@@ -326,7 +328,7 @@ fn moments(x: &[f64]) -> (f64, f64, f64, f64) {
     }
 }
 
-/// Pearson's correlation coefficient (NaN when either has no variation).
+/// Coeficiente de correlación de Pearson (NaN cuando alguno no tiene variación).
 fn pearson(x: &[f64], y: &[f64]) -> f64 {
     let n = x.len() as f64;
     let (mx, my) = (x.iter().sum::<f64>() / n, y.iter().sum::<f64>() / n);
@@ -367,7 +369,7 @@ fn ranks(x: &[f64]) -> Vec<f64> {
 // tables
 // ---------------------------------------------------------------------------------------------
 
-/// A table of text cells with a header row.
+/// Una tabla de celdas de texto con una fila de encabezado.
 pub struct Table {
     pub names: Vec<String>,
     rows: Vec<Vec<String>>,
@@ -388,13 +390,15 @@ fn clean(s: &str) -> String {
 fn lookup(names: &[String], name: &str) -> Option<usize> {
     let want = name.trim().to_lowercase();
     let find = |w: &str| names.iter().position(|c| c.trim().to_lowercase() == w);
-    // tables written before the sampling units were called "Muestra" name them "Parcela"
+    // las tablas escritas antes de que las unidades de muestreo se llamaran «Muestra» las nombran
+    // «Parcela»
     find(&want)
         .or_else(|| find(&want.replace("muestra", "parcela")).filter(|_| want.contains("muestra")))
 }
 
-/// A metric by its name or by the short name its column has in a shapefile (`EP90` for
-/// `Elev P90`): the shortening is deterministic, so the short names are worked out again.
+/// Una métrica por su nombre o por el nombre corto que tiene su columna en un shapefile (`EP90`
+/// para `Elev P90`): el acortamiento es determinista, así que los nombres cortos se vuelven a
+/// calcular.
 fn metric_position(names: &[String], name: &str) -> Option<usize> {
     lookup(names, name).or_else(|| {
         let want = name.trim();
@@ -404,7 +408,7 @@ fn metric_position(names: &[String], name: &str) -> Option<usize> {
     })
 }
 
-/// The error for a metric that is not in the table, with the names that look most like it.
+/// El error para una métrica que no está en la tabla, con los nombres que más se le parecen.
 fn missing_metric(names: &[String], name: &str, why: &str) -> Error {
     let want = name.trim().to_lowercase();
     let shorts = crate::vector::dbf_names(names);
@@ -431,8 +435,8 @@ fn missing_metric(names: &[String], name: &str, why: &str) -> Error {
     ))
 }
 
-/// A number from text: decimal commas allowed; empty, `NA` and the -9999 of an empty cell are
-/// missing (NaN).
+/// Un número a partir de texto: se admiten comas decimales; vacío, `NA` y el -9999 de una celda
+/// vacía son faltantes (NaN).
 fn number(s: &str) -> f64 {
     let t = s.trim().trim_matches('"').replace(',', ".");
     match t.parse::<f64>() {
@@ -441,7 +445,8 @@ fn number(s: &str) -> f64 {
     }
 }
 
-/// A plot name as compared between tables: `7`, `7.0` and ` 7 ` are the same plot.
+/// El nombre de una parcela tal como se compara entre tablas: `7`, `7.0` y ` 7 ` son la misma
+/// parcela.
 fn plot_key(s: &str) -> String {
     let t = clean(s).to_lowercase();
     match t.replace(',', ".").parse::<f64>() {
@@ -451,7 +456,7 @@ fn plot_key(s: &str) -> String {
 }
 
 impl Table {
-    /// Reads a delimited text table (tab, `;` or `,`) or the first sheet of an `.xlsx`.
+    /// Lee una tabla de texto delimitada (tabulador, `;` o `,`) o la primera hoja de un `.xlsx`.
     pub fn read(path: &Path) -> Result<Self> {
         let is_xlsx = path
             .extension()
@@ -462,7 +467,8 @@ impl Table {
         let grid: Vec<Vec<String>> = if is_xlsx {
             crate::xlsx::read(path)?
         } else if is_shp {
-            // the table of a layer: the plots with their metrics, as the plots tool writes it
+            // la tabla de una capa: las parcelas con sus métricas, como las escribe la herramienta
+            // de parcelas
             crate::check_vector_format(path)?;
             let (names, rows) = crate::vector::attribute_table(path)?;
             std::iter::once(names).chain(rows).collect()
@@ -517,7 +523,8 @@ impl Table {
         lookup(&self.names, name)
     }
 
-    fn text(&self, row: usize, col: usize) -> &str {
+    /// El texto de una celda (vacío fuera de la tabla).
+    pub fn text(&self, row: usize, col: usize) -> &str {
         self.rows
             .get(row)
             .and_then(|r| r.get(col))
@@ -525,7 +532,7 @@ impl Table {
     }
 }
 
-/// The header of a delimited text file, without reading the rest.
+/// La cabecera de un archivo de texto delimitado, sin leer el resto.
 fn header_of(path: &Path) -> Result<Vec<String>> {
     let f = std::fs::File::open(path).map_err(|e| {
         Error::Io(std::io::Error::new(
@@ -544,7 +551,7 @@ fn header_of(path: &Path) -> Result<Vec<String>> {
     Ok(head.split(d).map(clean).collect())
 }
 
-/// The column names of a table, for the user to choose from.
+/// Los nombres de las columnas de una tabla, para que el usuario elija.
 pub fn columns(path: &Path) -> Result<Vec<String>> {
     Ok(Table::read(path)?.names)
 }
@@ -553,9 +560,9 @@ pub fn columns(path: &Path) -> Result<Vec<String>> {
 // least squares
 // ---------------------------------------------------------------------------------------------
 
-/// Whether a column of the plot table can be a predictor on its own account: not an identifier or
-/// a position, and not an absolute count (a count depends on the size of the plot, so a model
-/// fitted on plots would not carry over to cells of another size).
+/// Si una columna de la tabla de parcelas puede ser un predictor por derecho propio: ni un
+/// identificador ni una posición, ni un recuento absoluto (un recuento depende del tamaño de la
+/// parcela, así que un modelo ajustado con parcelas no se trasladaría a celdas de otro tamaño).
 fn is_candidate_name(name: &str) -> bool {
     let n = name.trim().to_lowercase();
     let n = n.split('#').next().unwrap_or("");
@@ -575,25 +582,26 @@ fn is_candidate_name(name: &str) -> bool {
         || n.ends_with(" count"))
 }
 
-/// A least-squares fit of `y` on `k` predictors, worked in the standardized predictors: the
-/// correlation matrix of the predictors is inverted, so its diagonal is the variance inflation
-/// factors, and the leverage and the prediction variance follow from the same inverse.
+/// Un ajuste por mínimos cuadrados de `y` sobre `k` predictores, trabajado en los predictores
+/// estandarizados: se invierte la matriz de correlación de los predictores, así que su diagonal son
+/// los factores de inflación de la varianza, y el apalancamiento y la varianza de predicción salen
+/// de la misma inversa.
 #[derive(Clone)]
 struct Ols {
     n: usize,
     means: Vec<f64>,
-    /// Square roots of the sums of squares about the mean.
+    /// Raíces cuadradas de las sumas de cuadrados respecto a la media.
     norms: Vec<f64>,
     ybar: f64,
-    /// Slopes of the standardized predictors.
+    /// Pendientes de los predictores estandarizados.
     b: Vec<f64>,
-    /// Inverse of the correlation matrix, row-major `k × k`.
+    /// Inversa de la matriz de correlación, por filas, `k × k`.
     rinv: Vec<f64>,
     sse: f64,
     sst: f64,
 }
 
-/// Inverse of a small symmetric matrix by Gauss–Jordan; None if (near) singular.
+/// Inversa de una matriz simétrica pequeña por Gauss–Jordan; None si es (casi) singular.
 fn invert(mut a: Vec<f64>, k: usize) -> Option<Vec<f64>> {
     let mut inv = vec![0.0; k * k];
     for i in 0..k {
@@ -717,7 +725,7 @@ impl Ols {
         self.ybar + self.b.iter().zip(&z).map(|(b, z)| b * z).sum::<f64>()
     }
 
-    /// Leverage of a point: 1/n plus its distance in the standardized predictors.
+    /// Apalancamiento de un punto: 1/n más su distancia en los predictores estandarizados.
     fn leverage(&self, x: &[f64]) -> f64 {
         let k = self.k();
         let z = self.z(x);
@@ -738,14 +746,14 @@ impl Ols {
         (0..self.k()).map(|j| self.vif(j)).fold(1.0, f64::max)
     }
 
-    /// Slopes in the units of the predictors, and the intercept.
+    /// Pendientes en las unidades de los predictores y la ordenada en el origen.
     fn slopes(&self) -> (f64, Vec<f64>) {
         let s: Vec<f64> = self.b.iter().zip(&self.norms).map(|(b, n)| b / n).collect();
         let a = self.ybar - s.iter().zip(&self.means).map(|(s, m)| s * m).sum::<f64>();
         (a, s)
     }
 
-    /// Standard errors of the intercept and of the slopes.
+    /// Errores típicos de la ordenada en el origen y de las pendientes.
     fn std_errors(&self) -> Vec<f64> {
         let k = self.k();
         let s2 = self.s2();
@@ -778,12 +786,12 @@ impl Ols {
     }
 }
 
-/// How the metrics are chosen.
+/// Cómo se eligen las métricas.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Criterion {
-    /// Bayesian information criterion: the strictest, the best against over-fitting.
+    /// Criterio de información bayesiano: el más estricto, el mejor contra el sobreajuste.
     Bic,
-    /// Akaike's criterion with the correction for few plots.
+    /// Criterio de Akaike con la corrección para pocas parcelas.
     Aicc,
 }
 
@@ -796,13 +804,13 @@ impl Criterion {
     }
 }
 
-/// A transformation of the variables.
+/// Una transformación de las variables.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Transform {
     None,
-    /// The logarithm of the response.
+    /// El logaritmo de la respuesta.
     LogResponse,
-    /// The logarithm of the response and of the metrics (a power law).
+    /// El logaritmo de la respuesta y de las métricas (una ley de potencias).
     LogBoth,
 }
 
@@ -816,7 +824,8 @@ impl Transform {
     }
 }
 
-/// Forward selection with a backward pass: the indices (into `cands`) of the chosen columns.
+/// Selección hacia delante con una pasada hacia atrás: los índices (en `cands`) de las columnas
+/// elegidas.
 fn select(
     cands: &[Vec<f64>],
     pool: &[usize],
@@ -885,10 +894,10 @@ fn select(
     chosen
 }
 
-/// Takes the candidates in order of their correlation with the response and keeps each one only
-/// if its correlation with every one already kept is at most `max_corr`: of a group of metrics
-/// that say the same, the one most related to the response stays. Returns the kept indices (most
-/// related first) and, for each dropped one, the kept one it repeats and their correlation.
+/// Toma los candidatos por orden de su correlación con la respuesta y conserva cada uno solo si su
+/// correlación con todos los ya conservados es como mucho `max_corr`: de un grupo de métricas que
+/// dicen lo mismo, queda la más relacionada con la respuesta. Devuelve los índices conservados (los
+/// más relacionados primero) y, para cada descartado, el conservado que repite y su correlación.
 fn prune(cands: &[Vec<f64>], y: &[f64], max_corr: f64) -> (Vec<usize>, Vec<(usize, usize, f64)>) {
     let mut order: Vec<(usize, f64)> = cands
         .iter()
@@ -916,27 +925,28 @@ fn prune(cands: &[Vec<f64>], y: &[f64], max_corr: f64) -> (Vec<usize>, Vec<(usiz
 }
 
 // ---------------------------------------------------------------------------------------------
-// the model
+// el modelo
 // ---------------------------------------------------------------------------------------------
 
-/// What to fit.
+/// Qué ajustar.
 #[derive(Clone, Debug)]
 pub struct Spec {
     pub transform: Transform,
     pub criterion: Criterion,
-    /// Metrics to use; empty: chosen automatically among all the candidates.
+    /// Métricas que se usan; vacío: elegidas automáticamente entre todos los candidatos.
     pub predictors: Vec<String>,
-    /// Most metrics the automatic choice may keep (0: one per ten plots, from two to five).
+    /// Máximo de métricas que puede conservar la elección automática (0: una por cada diez
+    /// parcelas, de dos a cinco).
     pub max_vars: usize,
-    /// Largest variance inflation factor the automatic choice accepts.
+    /// Mayor factor de inflación de la varianza que acepta la elección automática.
     pub max_vif: f64,
-    /// Metrics the automatic choice may use; empty: all of the table.
+    /// Métricas que puede usar la elección automática; vacío: todas las de la tabla.
     pub candidates: Vec<String>,
-    /// Two candidates correlated more than this (in absolute value) say the same thing: only the
-    /// one more related to the response is kept (1 or more: none is dropped).
+    /// Dos candidatos correlacionados más que esto (en valor absoluto) dicen lo mismo: solo se
+    /// conserva el más relacionado con la respuesta (1 o más: no se descarta ninguno).
     pub max_corr: f64,
-    /// Offer the intensity metrics to the automatic choice (the intensity of most surveys is
-    /// not calibrated between flight lines, so they are left out unless asked for).
+    /// Ofrece las métricas de intensidad a la elección automática (la intensidad de la mayoría de
+    /// los vuelos no está calibrada entre pasadas, así que se dejan fuera salvo que se pidan).
     pub intensity: bool,
 }
 
@@ -955,7 +965,7 @@ impl Default for Spec {
     }
 }
 
-/// One coefficient of the fitted model.
+/// Un coeficiente del modelo ajustado.
 #[derive(Clone, Debug)]
 pub struct Coef {
     pub name: String,
@@ -963,27 +973,28 @@ pub struct Coef {
     pub se: f64,
     pub t: f64,
     pub p: f64,
-    /// NaN for the intercept.
+    /// NaN para la ordenada en el origen.
     pub vif: f64,
 }
 
-/// The fitted model, with what is needed to predict.
+/// El modelo ajustado, con lo necesario para predecir.
 #[derive(Clone)]
 pub struct Model {
     pub response: String,
     pub transform: Transform,
-    /// Names of the metrics, as in the tables.
+    /// Nombres de las métricas, como en las tablas.
     pub vars: Vec<String>,
     pub coefs: Vec<Coef>,
-    /// Range of each metric among the plots.
+    /// Rango de cada métrica entre las parcelas.
     pub ranges: Vec<(f64, f64)>,
     nonneg: bool,
     fit: Ols,
 }
 
 impl Model {
-    /// The estimate and the half-width of its 95 % prediction interval, for the metrics `x` (in
-    /// the order of `vars`, untransformed). None when a metric cannot be used (a log of zero).
+    /// La estimación y la semianchura de su intervalo de predicción del 95 %, para las métricas `x`
+    /// (en el orden de `vars`, sin transformar). None cuando una métrica no se puede usar (un
+    /// logaritmo de cero).
     pub fn predict(&self, x: &[f64]) -> Option<(f64, f64)> {
         let mut v = Vec::with_capacity(x.len());
         for &a in x {
@@ -1005,14 +1016,14 @@ impl Model {
         }
     }
 
-    /// Whether `x` lies inside the range of the plots in every metric.
+    /// Si `x` está dentro del rango de las parcelas en todas las métricas.
     pub fn inside(&self, x: &[f64]) -> bool {
         x.iter()
             .zip(&self.ranges)
             .all(|(a, (lo, hi))| *a >= *lo && *a <= *hi)
     }
 
-    /// The equation as text.
+    /// La ecuación como texto.
     pub fn equation(&self) -> String {
         let mut s = format!("{} = {}", self.response_label(), fmt_g(self.coefs[0].value));
         for c in &self.coefs[1..] {
@@ -1049,11 +1060,11 @@ fn fmt_g(v: f64) -> String {
     }
 }
 
-/// Statistics of the errors of a set of predictions, in the units of the response.
+/// Estadísticos de los errores de un conjunto de predicciones, en las unidades de la respuesta.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Errors {
     pub rmse: f64,
-    /// RMSE as a percentage of the mean of the observations.
+    /// RMSE como porcentaje de la media de las observaciones.
     pub rrmse: f64,
     pub bias: f64,
     pub mae: f64,
@@ -1088,41 +1099,42 @@ fn errors(obs: &[f64], pred: &[f64]) -> Errors {
     }
 }
 
-/// Everything known about one plot after the fit.
+/// Todo lo que se sabe de una parcela tras el ajuste.
 #[derive(Clone, Debug)]
 pub struct PlotRow {
     pub key: String,
     pub observed: f64,
     pub fitted: f64,
-    /// Predicted by the cross-validation: the plot, and its variable choice, left out.
+    /// Predicha por la validación cruzada: la parcela y su elección de variables, dejadas fuera.
     pub cv: f64,
     pub leverage: f64,
-    /// Residual over its own standard error (internally studentized).
+    /// Residuo entre su propio error típico (estudentizado internamente).
     pub student: f64,
     pub cook: f64,
 }
 
-/// The result of a fit.
+/// El resultado de un ajuste.
 pub struct Fitted {
     pub model: Model,
     pub plots: Vec<PlotRow>,
     pub fit_errors: Errors,
     pub cv_errors: Errors,
-    /// Leave-one-out with the variables of the final model kept fixed.
+    /// Dejar uno fuera con las variables del modelo final fijas.
     pub loo_fixed: Errors,
     pub r2_model: f64,
     pub r2_adj: f64,
     pub f_p: f64,
     pub bp_p: f64,
-    /// Ramsey's RESET test of the linearity: p-value.
+    /// Prueba RESET de Ramsey de la linealidad: valor p.
     pub reset_p: f64,
-    /// Shapiro–Wilk W and p-value of the residuals.
+    /// W de Shapiro–Wilk y valor p de los residuos.
     pub resid_normal: (f64, f64),
-    /// The analysis before the fit.
+    /// El análisis previo al ajuste.
     pub screening: Screening,
-    /// For each candidate metric, the share of cross-validation rounds that kept it.
+    /// Para cada métrica candidata, la proporción de rondas de validación cruzada que la
+    /// conservaron.
     pub frequency: Vec<(String, f64)>,
-    /// Share of rounds that ended with exactly the final set of metrics.
+    /// Proporción de rondas que terminaron exactamente con el conjunto final de métricas.
     pub same_model: f64,
     pub n_candidates: usize,
     pub automatic: bool,
@@ -1131,7 +1143,7 @@ pub struct Fitted {
     pub notes: Vec<String>,
 }
 
-/// The data of a fit: plot names, response, and the candidate metrics.
+/// Los datos de un ajuste: nombres de parcelas, respuesta y las métricas candidatas.
 pub struct Data {
     pub response: String,
     pub keys: Vec<String>,
@@ -1148,11 +1160,11 @@ fn back(yt: f64, s2: f64, spec: &Spec) -> f64 {
     }
 }
 
-/// The columns of a fit as the model sees them: the metrics (with their logarithm when asked
-/// for) and the response.
+/// Las columnas de un ajuste tal como las ve el modelo: las métricas (con su logaritmo cuando se
+/// pide) y la respuesta.
 struct Prepared {
     names: Vec<String>,
-    /// The metrics as they are in the table.
+    /// Las métricas tal como están en la tabla.
     raw: Vec<Vec<f64>>,
     cands: Vec<Vec<f64>>,
     yt: Vec<f64>,
@@ -1197,7 +1209,7 @@ fn prepare(data: &Data, spec: &Spec) -> Prepared {
     }
 }
 
-/// How normal a variable is: its moments and the Shapiro–Wilk test.
+/// Cuán normal es una variable: sus momentos y la prueba de Shapiro–Wilk.
 #[derive(Clone, Debug)]
 pub struct Normality {
     pub n: usize,
@@ -1206,7 +1218,7 @@ pub struct Normality {
     pub skew: f64,
     pub kurt: f64,
     pub w: f64,
-    /// p-value of the test; below 0.05 the variable is not normal.
+    /// Valor p de la prueba; por debajo de 0,05 la variable no es normal.
     pub p: f64,
 }
 
@@ -1224,27 +1236,27 @@ fn normality(x: &[f64]) -> Normality {
     }
 }
 
-/// What the screening says about one candidate metric.
+/// Lo que dice el cribado de una métrica candidata.
 #[derive(Clone, Debug)]
 pub struct VarInfo {
     pub name: String,
-    /// Pearson and Spearman correlation with the response.
+    /// Correlación de Pearson y de Spearman con la respuesta.
     pub r: f64,
     pub rho: f64,
-    /// Shapiro–Wilk p-value and skewness of the metric.
+    /// Valor p de Shapiro–Wilk y asimetría de la métrica.
     pub normal_p: f64,
     pub skew: f64,
-    /// When dropped: the metric it repeats and their correlation.
+    /// Cuando se descarta: la métrica que repite y su correlación.
     pub dropped_by: Option<(String, f64)>,
 }
 
-/// The analysis before the fit: is the response normal, and which candidates are worth offering.
+/// El análisis previo al ajuste: si la respuesta es normal y qué candidatos merece la pena ofrecer.
 #[derive(Clone, Debug)]
 pub struct Screening {
     pub response: Normality,
-    /// The logarithm of the response, when it is positive.
+    /// El logaritmo de la respuesta, cuando es positiva.
     pub response_ln: Option<Normality>,
-    /// Candidates, the ones kept first, each group by correlation with the response.
+    /// Candidatos, los conservados primero, cada grupo por correlación con la respuesta.
     pub vars: Vec<VarInfo>,
     pub kept: usize,
     pub max_corr: f64,
@@ -1319,12 +1331,12 @@ fn screen_prepared(data: &Data, spec: &Spec, p: &Prepared) -> Screening {
     }
 }
 
-/// The analysis before the fit, for the user to choose the candidates with.
+/// El análisis previo al ajuste, para que el usuario elija con él los candidatos.
 pub fn screen(data: &Data, spec: &Spec) -> Screening {
     screen_prepared(data, spec, &prepare(data, spec))
 }
 
-/// Fits the model to `data` and judges it.
+/// Ajusta el modelo a `data` y lo juzga.
 pub fn fit(data: &Data, spec: &Spec) -> Result<Fitted> {
     let n = data.y.len();
     if n < 6 {
@@ -1371,7 +1383,7 @@ pub fn fit(data: &Data, spec: &Spec) -> Result<Fitted> {
     }
     let choose = |c: &[Vec<f64>], y: &[f64]| -> Vec<usize> {
         if automatic {
-            // the metrics that repeat another are put aside, in every round of the validation
+            // las métricas que repiten otra se apartan, en cada ronda de la validación
             let (pool, _) = prune(c, y, spec.max_corr);
             select(c, &pool, y, spec.criterion, max_vars, spec.max_vif)
         } else {
@@ -1453,7 +1465,7 @@ pub fn fit(data: &Data, spec: &Spec) -> Result<Fitted> {
         nonneg: data.y.iter().all(|v| *v >= 0.0),
         fit: m.clone(),
     };
-    // fit, residuals and influence
+    // ajuste, residuos e influencia
     let row = |r: usize| -> Vec<f64> { chosen.iter().map(|&j| cands[j][r]).collect() };
     let fitted_t: Vec<f64> = (0..n).map(|r| m.predict(&row(r))).collect();
     let fitted: Vec<f64> = fitted_t.iter().map(|v| back(*v, s2, spec)).collect();
@@ -1467,14 +1479,14 @@ pub fn fit(data: &Data, spec: &Spec) -> Result<Fitted> {
     let cook: Vec<f64> = (0..n)
         .map(|r| student[r].powi(2) * lever[r] / (kk * (1.0 - lever[r]).max(1e-12)))
         .collect();
-    // fixed-variable leave-one-out from the hat matrix
+    // dejar uno fuera con variables fijas, a partir de la matriz sombrero
     let loo_fixed_pred: Vec<f64> = (0..n)
         .map(|r| {
             let e = resid[r] / (1.0 - lever[r]).max(1e-12);
             back(yt[r] - e, s2, spec)
         })
         .collect();
-    // honest cross-validation: the choice of metrics is repeated without each plot
+    // validación cruzada honesta: la elección de métricas se repite sin cada parcela
     let folds: Vec<(f64, Vec<usize>)> = (0..n)
         .into_par_iter()
         .map(|i| {
@@ -1507,7 +1519,7 @@ pub fn fit(data: &Data, spec: &Spec) -> Result<Fitted> {
             }
         })
         .collect();
-    // a response that cannot be negative is not estimated negative (as on the map)
+    // una respuesta que no puede ser negativa no se estima negativa (como en el mapa)
     let floor = data.y.iter().all(|v| *v >= 0.0) && !spec.transform.log_y();
     let cv_pred: Vec<f64> = folds
         .iter()
@@ -1532,7 +1544,7 @@ pub fn fit(data: &Data, spec: &Spec) -> Result<Fitted> {
         })
         .count() as f64
         / n as f64;
-    // tests of the residuals
+    // pruebas de los residuos
     let nf = n as f64;
     let r2_model = if m.sst > 0.0 {
         1.0 - m.sse / m.sst
@@ -1543,7 +1555,7 @@ pub fn fit(data: &Data, spec: &Spec) -> Result<Fitted> {
     let f_stat = (r2_model / k as f64) / ((1.0 - r2_model) / df);
     let f_p = f_pvalue(f_stat, k as f64, df);
     let bp_p = {
-        // Koenker's form: n·R² of the squared residuals on the fitted values
+        // forma de Koenker: n·R² de los residuos al cuadrado sobre los valores ajustados
         let e2: Vec<f64> = resid.iter().map(|e| e * e).collect();
         let (me, mf) = (
             e2.iter().sum::<f64>() / nf,
@@ -1562,8 +1574,8 @@ pub fn fit(data: &Data, spec: &Spec) -> Result<Fitted> {
         };
         erfc((nf * r2).sqrt() / std::f64::consts::SQRT_2)
     };
-    // Ramsey's RESET: the squares and cubes of the fitted values added to the model must not
-    // improve it if the relation is linear
+    // RESET de Ramsey: los cuadrados y cubos de los valores ajustados añadidos al modelo no deben
+    // mejorarlo si la relación es lineal
     let reset_p = {
         let (mf, sf, _, _) = moments(&fitted_t);
         let z: Vec<f64> = fitted_t.iter().map(|v| (v - mf) / sf).collect();
@@ -1631,7 +1643,7 @@ pub fn fit(data: &Data, spec: &Spec) -> Result<Fitted> {
     Ok(result)
 }
 
-/// The analysis before the fit as text.
+/// El análisis previo al ajuste como texto.
 pub fn screening_text(
     sc: &Screening,
     response: &str,
@@ -1720,7 +1732,7 @@ pub fn screening_text(
 }
 
 impl Fitted {
-    /// Warnings the numbers call for.
+    /// Avisos que piden los números.
     pub fn warnings(&self) -> Vec<String> {
         let mut w = self.notes.clone();
         let n = self.plots.len();
@@ -1812,8 +1824,8 @@ impl Fitted {
                 }
             ));
         }
-        // a validation estimate far beyond what the field data ever were: the choice of metrics
-        // changed with that plot, or the plot is unlike the rest
+        // una estimación de validación muy por encima de lo que fueron nunca los datos de campo: la
+        // elección de métricas cambió con esa parcela, o la parcela no se parece al resto
         let (_, sd, _, _) = moments(&self.plots.iter().map(|p| p.observed).collect::<Vec<_>>());
         let wild: Vec<String> = self
             .plots
@@ -1849,7 +1861,7 @@ impl Fitted {
         w
     }
 
-    /// The plot-by-plot table as CSV.
+    /// La tabla parcela por parcela como CSV.
     pub fn plots_csv(&self) -> String {
         let n = self.plots.len() as f64;
         let mut s = String::from(
@@ -1885,7 +1897,7 @@ impl Fitted {
         s
     }
 
-    /// The report of the fit.
+    /// El informe del ajuste.
     pub fn report(&self) -> String {
         let m = &self.model;
         let n = self.plots.len();
@@ -2117,21 +2129,22 @@ impl Fitted {
 }
 
 // ---------------------------------------------------------------------------------------------
-// data
+// datos
 // ---------------------------------------------------------------------------------------------
 
-/// Joins the metrics of the plots with the field table into the data of a fit; the second value
-/// is a note on plots that did not match.
-/// Which columns of the two tables to join, and which metrics may be candidates.
+/// Une las métricas de las parcelas con la tabla de campo en los datos de un ajuste; el segundo
+/// valor es una nota sobre las parcelas que no coincidieron. Qué columnas de las dos tablas unir y
+/// qué métricas pueden ser candidatas.
 pub struct JoinSpec<'a> {
     pub plot_key: &'a str,
     pub field_key: &'a str,
     pub response: &'a str,
-    /// Metrics asked for; empty: every candidate column.
+    /// Métricas pedidas; vacío: toda columna candidata.
     pub wanted: &'a [String],
-    /// Columns of the cell table: with it, only the metrics it also has are candidates.
+    /// Columnas de la tabla de celdas: con ella, solo son candidatas las métricas que también
+    /// tiene.
     pub available: Option<&'a [String]>,
-    /// Metrics the automatic choice may use; empty: all.
+    /// Métricas que puede usar la elección automática; vacío: todas.
     pub candidates: &'a [String],
     pub intensity: bool,
 }
@@ -2280,7 +2293,7 @@ pub fn join(plots: &Table, field: &Table, j: &JoinSpec) -> Result<(Data, Vec<Str
             }
             let col = take(c);
             if col.iter().any(|v| v.is_nan()) {
-                // a column of text, or with empty plots
+                // una columna de texto, o con parcelas vacías
                 if col.iter().any(|v| !v.is_nan()) {
                     gone_missing += 1;
                 }
@@ -2363,16 +2376,16 @@ pub fn join(plots: &Table, field: &Table, j: &JoinSpec) -> Result<(Data, Vec<Str
 }
 
 // ---------------------------------------------------------------------------------------------
-// the map
+// el mapa
 // ---------------------------------------------------------------------------------------------
 
-/// What `predict_map` found.
+/// Lo que halló `predict_map`.
 #[derive(Clone, Debug, Default)]
 pub struct MapStats {
     pub cells: usize,
     pub estimated: usize,
     pub outside_range: usize,
-    /// Cells outside the range of the plots, by metric (of the cells with every metric).
+    /// Celdas fuera del rango de las parcelas, por métrica (de las celdas con todas las métricas).
     pub outside_by_metric: Vec<(String, usize)>,
     pub incomplete: usize,
     pub clamped: usize,
@@ -2381,10 +2394,10 @@ pub struct MapStats {
     pub cell: f64,
 }
 
-/// Applies the model to the cell metrics table (the text output of the stand metrics tool) and
-/// writes the estimate as a GeoTIFF, and optionally the half-width of the 95 % prediction
-/// interval. Cells with a metric outside the range of the plots are left empty when
-/// `mask_extrapolation` is on.
+/// Aplica el modelo a la tabla de métricas de las celdas (la salida de texto de la herramienta de
+/// métricas de rodal) y escribe la estimación como GeoTIFF y, opcionalmente, la semianchura del
+/// intervalo de predicción del 95 %. Las celdas con una métrica fuera del rango de las parcelas se
+/// dejan vacías cuando `mask_extrapolation` está activado.
 pub fn predict_map(
     model: &Model,
     cells_csv: &[PathBuf],
@@ -2539,30 +2552,32 @@ pub fn predict_map(
 }
 
 // ---------------------------------------------------------------------------------------------
-// the job
+// el trabajo
 // ---------------------------------------------------------------------------------------------
 
-/// A model from files.
+/// Un modelo a partir de archivos.
 #[derive(Clone, Debug)]
 pub struct AbaJob {
-    /// Metrics of the plots: the layer (`.shp`) or the text table of the plots tool.
+    /// Métricas de las parcelas: la capa (`.shp`) o la tabla de texto de la herramienta de
+    /// parcelas.
     pub plots: PathBuf,
-    /// Field table: `.csv`, `.txt` or `.xlsx`, one row per plot.
+    /// Tabla de campo: `.csv`, `.txt` o `.xlsx`, una fila por parcela.
     pub field: PathBuf,
     pub response: String,
     pub plot_key: String,
     pub field_key: String,
     pub spec: Spec,
-    /// Metrics of every cell (text output of the stand metrics tool): to write the map.
+    /// Métricas de cada celda (salida de texto de la herramienta de métricas de rodal): para
+    /// escribir el mapa.
     pub cells: Vec<PathBuf>,
-    /// The map (GeoTIFF); the report and the plot table are written next to it.
+    /// El mapa (GeoTIFF); el informe y la tabla de parcelas se escriben junto a él.
     pub output: PathBuf,
     pub interval_map: bool,
     pub mask_extrapolation: bool,
     pub epsg: Option<u16>,
 }
 
-/// The files a model writes next to its map, as `(suffix, extension)`.
+/// Los archivos que escribe un modelo junto a su mapa, como `(sufijo, extensión)`.
 pub const COMPANIONS: &[(&str, &str)] = &[
     ("modelo", "txt"),
     ("muestras", "csv"),
@@ -2591,8 +2606,8 @@ impl AbaJob {
     }
 }
 
-/// The analysis before the fit (normality of the response, which metrics to offer) for the files
-/// of a job, with the notes about what could not be used.
+/// El análisis previo al ajuste (normalidad de la respuesta, qué métricas ofrecer) para los
+/// archivos de un trabajo, con las notas sobre lo que no se pudo usar.
 pub fn analyze(job: &AbaJob) -> Result<(Screening, Vec<String>)> {
     let plots = Table::read(&job.plots)?;
     let field = Table::read(&job.field)?;
@@ -2619,12 +2634,12 @@ pub fn analyze(job: &AbaJob) -> Result<(Screening, Vec<String>)> {
     Ok((screen(&data, &job.spec), notes))
 }
 
-/// Fits, judges and (when cell metrics are given) maps. Returns the report.
+/// Ajusta, juzga y (cuando se dan las métricas de las celdas) hace el mapa. Devuelve el informe.
 pub fn run(job: &AbaJob) -> Result<String> {
     crate::check_cancel()?;
     let plots = Table::read(&job.plots)?;
     let field = Table::read(&job.field)?;
-    // with a map to make, only the metrics the cell table also has can be used
+    // con un mapa que hacer, solo se pueden usar las métricas que también tiene la tabla de celdas
     let available = match job.cells.first() {
         Some(c) => Some(header_of(c)?),
         None => None,
@@ -2643,7 +2658,7 @@ pub fn run(job: &AbaJob) -> Result<String> {
         },
     )?;
     let mut fitted = fit(&data, &job.spec)?;
-    // notes about the join come first
+    // las notas sobre la unión van primero
     let mut all = notes;
     all.append(&mut fitted.notes);
     fitted.notes = all;
@@ -2670,7 +2685,7 @@ pub fn run(job: &AbaJob) -> Result<String> {
             Ok(s) => s,
             Err(e @ Error::Cancelled) => return Err(e),
             Err(e) => {
-                // the fit is still worth keeping: the report goes out with the reason
+                // el ajuste merece conservarse igualmente: el informe sale con el motivo
                 let _ = writeln!(text, "\nMAPA\n  No se pudo hacer: {e}");
                 std::fs::write(job.report_path(), &text)?;
                 return Err(Error::Param(text));
@@ -2757,7 +2772,7 @@ mod tests {
         Error::Param("sin resultado".into())
     }
 
-    /// A reproducible stream of numbers in [0, 1).
+    /// Una secuencia reproducible de números en [0, 1).
     struct Lcg(u64);
 
     impl Lcg {
@@ -2863,7 +2878,7 @@ mod tests {
         v.sort();
         assert_eq!(v, vec!["m0".to_string(), "m1".to_string()]);
         assert!(f.fit_errors.r2 > 0.95);
-        // the honest error is not below the fitted one, and is close to the noise
+        // el error honesto no es menor que el ajustado y está cerca del ruido
         assert!(f.cv_errors.rmse >= f.fit_errors.rmse * 0.99);
         assert!(f.cv_errors.rmse < 8.0);
         assert!(f.same_model > 0.9);
@@ -2977,7 +2992,7 @@ mod tests {
             },
         )?;
         assert_eq!(data.y.len(), 8);
-        // the count and the area are not candidates
+        // el recuento y el área no son candidatos
         assert_eq!(
             data.names,
             vec!["Elev P95".to_string(), "Elev mean".to_string()]
@@ -3020,12 +3035,12 @@ mod tests {
         )?;
         let out = dir.join("v.tif");
         let st = predict_map(&f.model, &[cells], &out, None, true, Some(25830))?;
-        // 10, 20, 20, 30: 30 is above the largest height of the plots (at most 25)
+        // 10, 20, 20, 30: 30 está por encima de la mayor altura de las parcelas (como mucho 25)
         assert_eq!(st.cell, 10.0);
         assert!(st.estimated >= 3);
         let g = Grid::read(&out)?;
         assert_eq!((g.cols, g.rows), (2, 2));
-        // the north-west cell has 10 m: 4·10 + 1
+        // la celda del noroeste tiene 10 m: 4·10 + 1
         assert!((f64::from(g.data[0]) - 41.0).abs() < 1e-3, "{}", g.data[0]);
         let _ = std::fs::remove_dir_all(&dir);
         Ok(())
@@ -3034,19 +3049,19 @@ mod tests {
     fn normal_quantiles_and_shapiro_wilk_match_known_values() -> Result<()> {
         assert!((norm_inv(0.975) - 1.959_964).abs() < 1e-5);
         assert!((norm_inv(0.5)).abs() < 1e-9 && (norm_inv(0.001) + 3.090_232).abs() < 1e-4);
-        // the example of the original paper (11 weights): W = 0.79, p < 0.01
+        // el ejemplo del artículo original (11 pesos): W = 0,79, p < 0,01
         let x = [
             148.0, 154.0, 158.0, 160.0, 161.0, 162.0, 166.0, 170.0, 182.0, 195.0, 236.0,
         ];
         let (w, p) = shapiro_wilk(&x).ok_or_else(none)?;
         assert!((w - 0.79).abs() < 0.01 && p > 0.002 && p < 0.015, "{w} {p}");
-        // values at the normal quantiles are as normal as it gets
+        // los valores en los cuantiles normales son tan normales como es posible
         let q: Vec<f64> = (1..=30)
             .map(|i| norm_inv((f64::from(i) - 0.5) / 30.0))
             .collect();
         let (w, p) = shapiro_wilk(&q).ok_or_else(none)?;
         assert!(w > 0.98 && p > 0.5, "{w} {p}");
-        // a strongly skewed sample is rejected, at any size
+        // una muestra muy asimétrica se rechaza, sea cual sea su tamaño
         let mut g = Lcg(4);
         for n in [8usize, 25, 200] {
             let s: Vec<f64> = (0..n).map(|_| (3.0 * g.normal()).exp()).collect();
@@ -3063,7 +3078,7 @@ mod tests {
         let n = 40;
         let base: Vec<f64> = (0..n).map(|_| 10.0 * g.next()).collect();
         let y: Vec<f64> = base.iter().map(|b| 3.0 * b + g.normal()).collect();
-        // five near copies of `base`, and one unrelated metric
+        // cinco copias casi iguales de `base` y una métrica sin relación
         let mut cands: Vec<Vec<f64>> = (0..5)
             .map(|k| {
                 base.iter()
@@ -3080,7 +3095,7 @@ mod tests {
                 .iter()
                 .all(|d| kept.contains(&d.1) && d.2.abs() > 0.8)
         );
-        // with no limit nothing is dropped
+        // sin límite no se descarta ninguna
         assert_eq!(prune(&cands, &y, 1.0).0.len(), 6);
         Ok(())
     }
@@ -3088,7 +3103,8 @@ mod tests {
     #[test]
     fn many_copies_of_the_same_metric_do_not_break_the_fit() -> Result<()> {
         let mut d = synthetic(60, 5.0, 3, 17);
-        // forty almost identical copies of m0 and m1: the collinearity that made fitting all fail
+        // cuarenta copias casi idénticas de m0 y m1: la colinealidad que hacía fallar todo el
+        // ajuste
         for k in 0..40 {
             let src = d.x[k % 2].clone();
             let mut g = Lcg(100 + k as u64);
@@ -3107,7 +3123,7 @@ mod tests {
         let mut g = Lcg(8);
         let n = 60;
         let h: Vec<f64> = (0..n).map(|_| 5.0 + 20.0 * g.next()).collect();
-        // a log-normal response: skewed as it is, normal in logarithms
+        // una respuesta lognormal: asimétrica tal como es, normal en logaritmos
         let d = Data {
             response: "Vol".into(),
             keys: (0..n).map(|i| i.to_string()).collect(),

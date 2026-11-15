@@ -1,17 +1,25 @@
-//! What the app remembers between sessions: the folder files were last opened from (where every
-//! file dialog starts) and the files opened most recently. Kept in a small text file in the
-//! user's configuration folder; if it cannot be read or written the app works as before.
+//! Lo que la aplicación recuerda entre sesiones: la carpeta de la que se abrieron los últimos
+//! archivos (donde empieza cada diálogo de archivos) y los archivos abiertos más recientemente. Se
+//! guarda en un pequeño archivo de texto en la carpeta de configuración del usuario; si no se puede
+//! leer o escribir, la aplicación funciona como antes.
 
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
-/// How many recent files are kept.
+/// Cuántos archivos recientes se conservan.
 const RECENT: usize = 10;
 
 struct Prefs {
     dir: Option<PathBuf>,
     recent: Vec<PathBuf>,
+    /// La carpeta de la caché de detalle que eligió el usuario (ninguna: la de por defecto).
+    cache_dir: Option<PathBuf>,
+    /// Los gigabytes que guarda como máximo la caché de detalle.
+    cache_gb: u64,
 }
+
+/// Gigabytes que guarda la caché cuando el usuario no ha dicho nada.
+pub const DEFAULT_CACHE_GB: u64 = 20;
 
 static PREFS: RwLock<Option<Prefs>> = RwLock::new(None);
 
@@ -23,6 +31,12 @@ fn file() -> Option<PathBuf> {
     Some(base.join("HIPSO").join("preferencias.txt"))
 }
 
+/// El archivo donde se conserva entre sesiones el flujo que se está construyendo.
+pub fn draft() -> Option<PathBuf> {
+    let f = file()?;
+    Some(f.parent()?.join("flujo_actual.model.json"))
+}
+
 fn load() -> Prefs {
     let text = file()
         .and_then(|f| std::fs::read_to_string(f).ok())
@@ -30,14 +44,21 @@ fn load() -> Prefs {
     let mut p = Prefs {
         dir: None,
         recent: Vec::new(),
+        cache_dir: None,
+        cache_gb: DEFAULT_CACHE_GB,
     };
     for line in text.lines() {
         if let Some(d) = line.strip_prefix("carpeta=") {
             p.dir = Some(PathBuf::from(d)).filter(|d| d.is_dir());
         } else if let Some(f) = line.strip_prefix("reciente=") {
             p.recent.push(PathBuf::from(f));
+        } else if let Some(d) = line.strip_prefix("cache_carpeta=") {
+            p.cache_dir = Some(PathBuf::from(d)).filter(|d| !d.as_os_str().is_empty());
+        } else if let Some(g) = line.strip_prefix("cache_gb=") {
+            p.cache_gb = g.trim().parse().ok().filter(|g| *g > 0).unwrap_or(DEFAULT_CACHE_GB);
         }
     }
+    apply_cache(&p);
     p
 }
 
@@ -50,10 +71,41 @@ fn save(p: &Prefs) {
     for r in &p.recent {
         text.push_str(&format!("reciente={}\n", r.display()));
     }
+    if let Some(d) = &p.cache_dir {
+        text.push_str(&format!("cache_carpeta={}\n", d.display()));
+    }
+    text.push_str(&format!("cache_gb={}\n", p.cache_gb));
     if let Some(parent) = f.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     let _ = std::fs::write(f, text);
+}
+
+/// Entrega los ajustes de la caché a la biblioteca que los usa.
+fn apply_cache(p: &Prefs) {
+    hipso_core::copc_cache::set_dir(p.cache_dir.clone());
+    hipso_core::copc_cache::set_limit(p.cache_gb << 30);
+}
+
+/// Lee ahora las preferencias, para que los ajustes de la caché estén en vigor antes de que nada la
+/// use.
+pub fn init() {
+    let _ = with(|_| ());
+}
+
+/// La carpeta de la caché de detalle que eligió el usuario y los gigabytes que guarda como máximo.
+pub fn cache() -> (Option<PathBuf>, u64) {
+    with(|p| (p.cache_dir.clone(), p.cache_gb)).unwrap_or((None, DEFAULT_CACHE_GB))
+}
+
+/// Cambia la carpeta de la caché de detalle (`None`: la de por defecto) y los gigabytes que guarda.
+pub fn set_cache(dir: Option<PathBuf>, gb: u64) {
+    let _ = with(|p| {
+        p.cache_dir = dir;
+        p.cache_gb = gb.max(1);
+        apply_cache(p);
+        save(p);
+    });
 }
 
 fn with<T>(f: impl FnOnce(&mut Prefs) -> T) -> Option<T> {
@@ -62,8 +114,8 @@ fn with<T>(f: impl FnOnce(&mut Prefs) -> T) -> Option<T> {
     Some(f(p))
 }
 
-/// Notes files just opened: their folder is the next dialogs' and they go first in the recent
-/// list.
+/// Anota los archivos recién abiertos: su carpeta es la de los siguientes diálogos y pasan al
+/// principio de la lista de recientes.
 pub fn opened(files: &[PathBuf]) {
     let _ = with(|p| {
         if let Some(d) = files.last().and_then(|f| f.parent()).filter(|d| d.is_dir()) {
@@ -78,12 +130,12 @@ pub fn opened(files: &[PathBuf]) {
     });
 }
 
-/// The files opened most recently that still exist, newest first.
+/// Los archivos abiertos más recientemente que todavía existen, los más nuevos primero.
 pub fn recent() -> Vec<PathBuf> {
     with(|p| p.recent.iter().filter(|f| f.exists()).cloned().collect()).unwrap_or_default()
 }
 
-/// Forgets the recent files.
+/// Olvida los archivos recientes.
 pub fn clear_recent() {
     let _ = with(|p| {
         p.recent.clear();
@@ -91,7 +143,7 @@ pub fn clear_recent() {
     });
 }
 
-/// A file dialog that starts in the folder files were last opened from.
+/// Un diálogo de archivos que empieza en la carpeta de la que se abrieron los últimos archivos.
 pub fn dialog() -> rfd::FileDialog {
     let d = rfd::FileDialog::new();
     match with(|p| p.dir.clone()).flatten() {
@@ -100,7 +152,7 @@ pub fn dialog() -> rfd::FileDialog {
     }
 }
 
-/// The name a recent file is shown with: the file and its folder.
+/// El nombre con que se muestra un archivo reciente: el archivo y su carpeta.
 pub fn label(p: &Path) -> String {
     let name = p
         .file_name()

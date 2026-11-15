@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "apps/*"]
 
 [workspace.package]
-version = "0.7.6"
+version = "0.8.0"
 edition = "2024"
 license = "LicenseRef-HIPSO-Freeware"
 rust-version = "1.90"
@@ -37,7 +37,7 @@ expect_used = "deny"
 panic = "deny"
 todo = "deny"
 unreachable = "deny"
-# `!(x > 0.0)` is how parameters reject NaN as well as non-positive values.
+# `!(x > 0.0)` es como los parámetros rechazan NaN además de los valores no positivos.
 neg_cmp_op_on_partial_ord = "allow"
 
 [profile.release]

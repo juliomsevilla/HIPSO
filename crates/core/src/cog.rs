@@ -1,11 +1,13 @@
-//! Cloud Optimized GeoTIFF: the same raster in 512 x 512 tiles, with reduced copies (overviews),
-//! and every directory of the file at its start, so that a viewer or a server can read a window
-//! or a coarse view with a few range requests instead of the whole file.
+//! Cloud Optimized GeoTIFF: el mismo ráster en teselas de 512 x 512, con copias reducidas (vistas
+//! reducidas) y todos los directorios del archivo al principio, de modo que un visor o un servidor
+//! pueda leer una ventana o una vista gruesa con unas pocas peticiones por rango en lugar del
+//! archivo entero.
 //!
-//! The layout follows the usual one: header, then the directories of the full image and of each
-//! overview (full resolution first), then the tiles of the smallest overview up to those of the
-//! full image. Tiles are compressed with deflate. Samples are 32-bit floats; empty cells (NaN)
-//! are written as the nodata value of [`Grid::write_tiff`].
+//! La disposición sigue la habitual: cabecera, luego los directorios de la imagen completa y de
+//! cada vista reducida (la resolución completa primero) y luego las teselas desde la vista reducida
+//! más pequeña hasta las de la imagen completa. Las teselas se comprimen con deflate. Las muestras
+//! son decimales de 32 bits; las celdas vacías (NaN) se escriben como el valor nodata de
+//! [`Grid::write_tiff`].
 
 use std::io::Write;
 use std::path::Path;
@@ -17,15 +19,15 @@ use crate::{Error, Result, check_cancel};
 
 const TILE: usize = 512;
 
-/// One level: its size and its samples (NaN for no data).
+/// Un nivel: su tamaño y sus muestras (NaN para sin datos).
 struct Level {
     cols: usize,
     rows: usize,
     data: Vec<f32>,
 }
 
-/// Half-size copy: each cell is the mean of the valid ones of the 2 x 2 below it (or the first of
-/// them, with `nearest`, for classes and identifiers).
+/// Copia a la mitad de tamaño: cada celda es la media de las válidas de las 2 x 2 de debajo (o la
+/// primera de ellas, con `nearest`, para clases e identificadores).
 fn reduce(l: &Level, nearest: bool) -> Level {
     let (cols, rows) = (l.cols.div_ceil(2), l.rows.div_ceil(2));
     let mut data = vec![f32::NAN; cols * rows];
@@ -65,7 +67,7 @@ fn deflate(raw: &[u8]) -> Result<Vec<u8>> {
     Ok(z.finish()?)
 }
 
-/// The compressed tiles of a level, in row-major order of tiles.
+/// Las teselas comprimidas de un nivel, en orden de filas de teselas.
 fn tiles(l: &Level) -> Result<Vec<Vec<u8>>> {
     let (tc, tr) = (l.cols.div_ceil(TILE), l.rows.div_ceil(TILE));
     (0..tc * tr)
@@ -88,7 +90,8 @@ fn tiles(l: &Level) -> Result<Vec<Vec<u8>>> {
         .collect()
 }
 
-/// One entry of a directory: tag, type (3 short, 4 long, 12 double, 2 ascii), count, bytes.
+/// Una entrada de un directorio: etiqueta, tipo (3 corto, 4 largo, 12 doble, 2 ascii), recuento,
+/// bytes.
 struct Entry {
     tag: u16,
     kind: u16,
@@ -123,7 +126,8 @@ fn longs(tag: u16, v: &[u32]) -> Entry {
     }
 }
 
-/// The bytes of a directory placed at `at`, followed by the values that do not fit in its entries.
+/// Los bytes de un directorio colocado en `at`, seguidos de los valores que no caben en sus
+/// entradas.
 fn directory(mut entries: Vec<Entry>, at: u32) -> Vec<u8> {
     entries.sort_by_key(|e| e.tag);
     let table = 2 + 12 * entries.len() + 4;
@@ -147,14 +151,15 @@ fn directory(mut entries: Vec<Entry>, at: u32) -> Vec<u8> {
             }
         }
     }
-    // no next directory here; the caller patches it
+    // aquí no hay directorio siguiente; quien llama lo corrige
     out.extend(0u32.to_le_bytes());
     out.extend(outside);
     out
 }
 
-/// Writes `g` as a Cloud Optimized GeoTIFF with overviews down to one tile. `nearest` reduces by
-/// taking a cell instead of averaging (for classes). `epsg` is the projected system, if known.
+/// Escribe `g` como Cloud Optimized GeoTIFF con vistas reducidas hasta una tesela. `nearest` reduce
+/// tomando una celda en lugar de promediar (para clases). `epsg` es el sistema proyectado, si se
+/// conoce.
 pub fn write(g: &Grid, path: &Path, epsg: Option<u16>, nearest: bool) -> Result<()> {
     let mut levels = vec![Level {
         cols: g.cols,
@@ -178,8 +183,8 @@ pub fn write(g: &Grid, path: &Path, epsg: Option<u16>, nearest: bool) -> Result<
     }
     let doubles = |v: &[f64]| -> Vec<u8> { v.iter().flat_map(|x| x.to_le_bytes()).collect() };
     let nodata = format!("{NODATA}\0");
-    // the entries of each level's directory, without the tile offsets (their positions are not
-    // known until the sizes of the directories are)
+    // las entradas del directorio de cada nivel, sin los desplazamientos de teselas (sus posiciones
+    // no se conocen hasta que se conocen los tamaños de los directorios)
     let entries = |k: usize, offsets: &[u32]| -> Vec<Entry> {
         let l = &levels[k];
         let counts: Vec<u32> = packed[k].iter().map(|t| t.len() as u32).collect();
@@ -228,12 +233,12 @@ pub fn write(g: &Grid, path: &Path, epsg: Option<u16>, nearest: bool) -> Result<
                 data: nodata.clone().into_bytes(),
             });
         } else {
-            // a reduced copy of the image above
+            // una copia reducida de la imagen de arriba
             e.push(long(254, 1));
         }
         e
     };
-    // sizes of the directories, then where each starts
+    // tamaños de los directorios y luego dónde empieza cada uno
     let zero = |k: usize| vec![0u32; packed[k].len()];
     let sizes: Vec<usize> = (0..levels.len())
         .map(|k| directory(entries(k, &zero(k)), 0).len())
@@ -244,7 +249,7 @@ pub fn write(g: &Grid, path: &Path, epsg: Option<u16>, nearest: bool) -> Result<
         dir_at.push(pos);
         pos += s + (s % 2);
     }
-    // the tiles: the smallest overview first
+    // las teselas: la vista reducida más pequeña primero
     let mut offsets: Vec<Vec<u32>> = vec![Vec::new(); levels.len()];
     for k in (0..levels.len()).rev() {
         for t in &packed[k] {
@@ -260,7 +265,7 @@ pub fn write(g: &Grid, path: &Path, epsg: Option<u16>, nearest: bool) -> Result<
     file.write_all(&(dir_at[0] as u32).to_le_bytes())?;
     for k in 0..levels.len() {
         let mut d = directory(entries(k, &offsets[k]), dir_at[k] as u32);
-        // the link to the next directory sits right after the entries
+        // el enlace al directorio siguiente está justo después de las entradas
         let entries_len = 2 + 12 * u16::from_le_bytes([d[0], d[1]]) as usize;
         let next = dir_at.get(k + 1).map_or(0, |a| *a as u32);
         d[entries_len..entries_len + 4].copy_from_slice(&next.to_le_bytes());
@@ -285,7 +290,7 @@ mod tests {
 
     #[test]
     fn a_cog_reads_back_and_has_its_overviews_up_front() -> Result<()> {
-        // 1300 x 700: 3 x 2 tiles, two overviews (650 x 350, then 325 x 175)
+        // 1300 x 700: 3 x 2 teselas, dos vistas reducidas (650 x 350 y luego 325 x 175)
         let mut g = Grid::new(500_000.0, 4_000_000.0, 2.0, 1300, 700)?;
         for (i, v) in g.data.iter_mut().enumerate() {
             let (c, r) = (i % 1300, i / 1300);
@@ -297,7 +302,7 @@ mod tests {
         }
         let path = std::env::temp_dir().join(format!("rl_cog_{}.tif", std::process::id()));
         write(&g, &path, Some(25830), false)?;
-        // the full image reads like any GeoTIFF
+        // la imagen completa se lee como cualquier GeoTIFF
         let back = Grid::read_tiff(&path)?;
         assert_eq!((back.cols, back.rows, back.cell), (1300, 700, 2.0));
         assert_eq!((back.x0, back.y0), (500_000.0, 4_000_000.0));
@@ -309,7 +314,7 @@ mod tests {
                 "{i}: {a} {b}"
             );
         }
-        // the overviews are in the file, and every directory comes before the first tile
+        // las vistas reducidas están en el archivo, y todo directorio va antes de la primera tesela
         let mut d = Decoder::new(std::io::BufReader::new(std::fs::File::open(&path)?))
             .map(|d| d.with_limits(tiff::decoder::Limits::unlimited()))
             .map_err(|e| Error::Format(e.to_string()))?;
@@ -319,7 +324,8 @@ mod tests {
             sizes.push(d.dimensions().map_err(|e| Error::Format(e.to_string()))?);
         }
         assert_eq!(sizes, vec![(1300, 700), (650, 350), (325, 175)]);
-        // the smallest overview is a mean of 4 x 4 cells of the full image (away from the hole)
+        // la vista reducida más pequeña es una media de 4 x 4 celdas de la imagen completa (lejos
+        // del hueco)
         d.seek_to_image(2)
             .map_err(|e| Error::Format(e.to_string()))?;
         let DecodingResult::F32(small) =
@@ -333,7 +339,7 @@ mod tests {
             .sum::<f32>()
             / 16.0;
         assert!((at(10, 20) - mean).abs() < 1e-3, "{} {mean}", at(10, 20));
-        // header first: where the first tile starts is after the last directory
+        // la cabecera primero: donde empieza la primera tesela está tras el último directorio
         let bytes = std::fs::read(&path)?;
         let first_dir = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize;
         assert_eq!(first_dir, 8);

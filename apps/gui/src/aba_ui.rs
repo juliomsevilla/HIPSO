@@ -1,5 +1,5 @@
-//! Modelos lineales (Inventario de la vegetación): regression of a field variable on the metrics of
-//! the plots, its validation, and the map of the variable.
+//! Modelos lineales (Inventario de la vegetación): regresión de una variable de campo sobre las
+//! métricas de las parcelas, su validación y el mapa de la variable.
 
 use super::*;
 use crate::numfield::NumField;
@@ -10,7 +10,7 @@ use crate::aba_plots::Diag;
 
 pub struct ModelTool {
     pub open: bool,
-    /// Diagnostic graphics of the last model, and the model that is being waited for.
+    /// Gráficos de diagnóstico del último modelo y el modelo que se está esperando.
     diag: Option<Diag>,
     diag_open: bool,
     diag_pending: Option<(PathBuf, String, std::time::SystemTime)>,
@@ -28,7 +28,7 @@ pub struct ModelTool {
     max_vif: f64,
     max_corr: f64,
     intensity: bool,
-    /// The analysis before the fit, the candidates in it and which are ticked.
+    /// El análisis previo al ajuste, los candidatos que hay en él y cuáles están marcados.
     screening: Option<(String, aba::Screening)>,
     cand_on: Vec<bool>,
     screen_msg: String,
@@ -38,12 +38,12 @@ pub struct ModelTool {
     extrapolate: bool,
     out: String,
     out_manual: bool,
-    /// Fits by itself once the form is complete (for screenshots).
+    /// Se ajusta solo una vez que el formulario está completo (para capturas de pantalla).
     autorun: bool,
 }
 
 impl ModelTool {
-    /// Opens the window with the tables and the variable already chosen, and fits at once.
+    /// Abre la ventana con las tablas y la variable ya elegidas, y ajusta de inmediato.
     pub fn preset(&mut self, plots: &str, field: &str, response: &str) {
         self.open = true;
         self.plots = plots.to_string();
@@ -94,7 +94,7 @@ const TRANSFORMS: [&str; 3] = [
     "Logaritmo de la variable y de las métricas (relación potencial)",
 ];
 
-/// The columns of a table, read again only when the path changes.
+/// Las columnas de una tabla, leídas de nuevo solo cuando cambia la ruta.
 fn refresh(slot: &mut (String, Vec<String>), path: &str) {
     if slot.0 == path {
         return;
@@ -107,7 +107,7 @@ fn refresh(slot: &mut (String, Vec<String>), path: &str) {
     };
 }
 
-/// The column that most likely names the plot.
+/// La columna que más probablemente nombra la parcela.
 fn guess_key(cols: &[String]) -> String {
     cols.iter()
         .find(|c| {
@@ -151,19 +151,19 @@ fn column_combo(ui: &mut egui::Ui, id: &str, value: &mut String, cols: &[String]
 }
 
 impl ModelTool {
-    /// The job with the settings of the window.
+    /// El trabajo con los ajustes de la ventana.
     fn job(&self) -> AbaJob {
         let output = if self.map {
             PathBuf::from(self.out.trim())
         } else {
-            // without a map the report goes next to the plots table
+            // sin un mapa el informe va junto a la tabla de parcelas
             let p = PathBuf::from(self.plots.trim());
             paths::unique_with(
                 &paths::product(&p, "modelo", "tif"),
                 hipso_core::aba::COMPANIONS,
             )
         };
-        // the metrics ticked in the table are the model's
+        // las métricas marcadas en la tabla son las del modelo
         let predictors: Vec<String> = match &self.screening {
             Some((_, sc)) if self.manual => sc
                 .vars
@@ -203,7 +203,7 @@ impl ModelTool {
         }
     }
 
-    /// What the analysis depends on: if it changes, the analysis is out of date.
+    /// De qué depende el análisis: si cambia, el análisis está desactualizado.
     fn screening_key(&self) -> String {
         format!(
             "{}|{}|{}|{}|{}|{}|{}|{}|{}",
@@ -236,7 +236,7 @@ impl App {
             })
             .map(|r| (r.name.clone(), r.path.clone()))
             .collect();
-        // a model that has just finished: its graphics open by themselves
+        // un modelo que acaba de terminar: sus gráficos se abren solos
         if self.running.is_none()
             && let Some((path, response, since)) = self.mo.diag_pending.clone()
             && std::fs::metadata(&path)
@@ -249,7 +249,7 @@ impl App {
                 self.mo.diag_open = true;
             }
         } else if self.running.is_none() {
-            // it did not finish well: nothing to wait for
+            // no terminó bien: nada que esperar
             self.mo.diag_pending = None;
         }
         let weak = self.tokens().weak;
@@ -263,7 +263,7 @@ impl App {
                 crate::tools::output_row(ui, &mut self.tools.out_dir);
                 ui.separator();
                 let t = &mut self.mo;
-                // the button stays on top, whatever the form below is like
+                // el botón se queda arriba, sea como sea el formulario de debajo
                 let missing = if t.plots.trim().is_empty() {
                     "Falta la capa de unidades de muestreo con métricas"
                 } else if t.field.trim().is_empty() {
@@ -408,7 +408,7 @@ impl App {
                         let ready = !t.plots.trim().is_empty() && !t.field.trim().is_empty() && !t.response.is_empty();
                         if ui.add_enabled(ready, egui::Button::new("Elegir variables…")).on_hover_text("Analiza la normalidad de la variable y las métricas, y las muestra para marcar las del modelo").clicked() {
                             let key = t.screening_key();
-                            // the table of an earlier analysis must not limit this one
+                            // la tabla de un análisis anterior no debe limitar a este
                             t.screening = None;
                             match aba::analyze(&t.job()) {
                                 Ok((sc, notes)) => {
@@ -427,7 +427,7 @@ impl App {
                     if !t.screen_msg.is_empty() {
                         ui.label(egui::RichText::new(t.screen_msg.clone()).color(weak).size(11.0));
                     }
-                    // an analysis of other settings is stale
+                    // un análisis de otros ajustes está desactualizado
                     let key = t.screening_key();
                     if t.screening.as_ref().is_some_and(|(k, _)| *k != key) {
                         t.screening = None;

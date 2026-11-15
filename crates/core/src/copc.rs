@@ -1,14 +1,14 @@
-//! Cloud Optimized Point Clouds (COPC): a LAZ 1.4 file whose chunks are the nodes of an octree,
-//! with the tree stored in the file. A query by area reads and decompresses only the nodes that
-//! touch it; a coarse view reads only the first levels. A COPC file is still a valid LAZ, so
-//! everything that reads LAZ reads it whole; this module is for the cases where reading less is
-//! the point.
+//! Nubes de puntos optimizadas para la nube (COPC): un archivo LAZ 1.4 cuyos fragmentos son los
+//! nodos de un octree, con el árbol guardado en el archivo. Una consulta por área lee y descomprime
+//! solo los nodos que la tocan; una vista gruesa lee solo los primeros niveles. Un archivo COPC
+//! sigue siendo un LAZ válido, de modo que todo lo que lee LAZ lo lee entero; este módulo es para
+//! los casos en que leer menos es lo importante.
 //!
-//! Layout used (from the format's specification): a `copc` record (160 bytes: the root cube, the
-//! spacing and where the hierarchy is) and the `laszip` record among the headers, and the hierarchy
-//! in an extended record at the end. A hierarchy page is a list of 32-byte entries: the node's key
-//! (level, x, y, z), where its compressed chunk starts, how many bytes it has and how many points;
-//! an entry with -1 points is a link to another page.
+//! Disposición usada (de la especificación del formato): un registro `copc` (160 bytes: el cubo
+//! raíz, el espaciado y dónde está la jerarquía) y el registro `laszip` entre las cabeceras, y la
+//! jerarquía en un registro extendido al final. Una página de jerarquía es una lista de entradas de
+//! 32 bytes: la clave del nodo (nivel, x, y, z), dónde empieza su fragmento comprimido, cuántos
+//! bytes tiene y cuántos puntos; una entrada con -1 puntos es un enlace a otra página.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -17,14 +17,14 @@ use std::path::{Path, PathBuf};
 use crate::las::{Point, Reader};
 use crate::{Error, Result, check_cancel};
 
-/// One node of the octree.
+/// Un nodo del octree.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Node {
     pub level: i32,
     pub x: i32,
     pub y: i32,
     pub z: i32,
-    /// Where its compressed chunk starts in the file, and its length.
+    /// Dónde empieza su fragmento comprimido en el archivo, y su longitud.
     pub offset: u64,
     pub bytes: u32,
     pub points: u32,
@@ -40,10 +40,10 @@ pub struct Copc {
     root: (u64, u64),
 }
 
-/// Most bytes of a hierarchy page we are willing to read, and of pages followed.
+/// Máximo de bytes de una página de jerarquía que estamos dispuestos a leer, y de páginas seguidas.
 const MAX_PAGE: u64 = 256 << 20;
 const MAX_PAGES: usize = 1 << 20;
-/// A batch of nodes decompressed together: at most this many points.
+/// Un lote de nodos descomprimidos juntos: como mucho tantos puntos.
 const BATCH_POINTS: u64 = 1 << 22;
 
 fn u16_at(b: &[u8], at: usize) -> Option<u16> {
@@ -64,7 +64,7 @@ fn bad(what: &str) -> Error {
 }
 
 impl Copc {
-    /// Opens a COPC file; `None` when the file is not one (a plain LAS or LAZ).
+    /// Abre un archivo COPC; `None` cuando el archivo no lo es (un LAS o LAZ normal).
     pub fn open(path: &Path) -> Result<Option<Self>> {
         let mut f = File::open(path)?;
         let mut head = vec![0u8; 375];
@@ -75,7 +75,7 @@ impl Copc {
         let header_size = u64::from(u16_at(&head, 94).unwrap_or(0));
         let n_vlrs = u32_at(&head, 100).unwrap_or(0);
         let end = u64::from(u32_at(&head, 96).unwrap_or(0));
-        // the records among the headers
+        // los registros entre las cabeceras
         let (mut info, mut laszip) = (None, None);
         let mut pos = header_size;
         for _ in 0..n_vlrs.min(1000) {
@@ -111,9 +111,9 @@ impl Copc {
         if info.len() < 48 {
             return Err(bad("el registro copc es demasiado corto"));
         }
-        // A file made from a COPC one (a classified copy, a clip) may still carry its COPC record
-        // although it is a plain LAZ now: the hierarchy the record points to must be there, and
-        // start with the root node, or the file is not a COPC.
+        // Un archivo hecho a partir de uno COPC (una copia clasificada, un recorte) puede seguir
+        // llevando su registro COPC aunque ahora sea un LAZ normal: la jerarquía a la que apunta el
+        // registro debe estar allí y empezar con el nodo raíz, o el archivo no es un COPC.
         let (ro, rs) = (
             u64_at(&info, 40).unwrap_or(0),
             u64_at(&info, 48).unwrap_or(0),
@@ -168,12 +168,12 @@ impl Copc {
         &self.reader.header
     }
 
-    /// Distance between points at the root level; it halves at each level.
+    /// Distancia entre puntos en el nivel raíz; se reduce a la mitad en cada nivel.
     pub fn spacing(&self) -> f64 {
         self.spacing
     }
 
-    /// The cube of a node: min x, min y, min z, max x, max y, max z.
+    /// El cubo de un nodo: x mínima, y mínima, z mínima, x máxima, y máxima, z máxima.
     pub fn cube(&self, level: i32, x: i32, y: i32, z: i32) -> [f64; 6] {
         let side = 2.0 * self.halfsize / f64::from(2u32.pow(level.clamp(0, 30) as u32));
         let low = |c: f64, i: i32| c - self.halfsize + f64::from(i) * side;
@@ -185,8 +185,8 @@ impl Copc {
         [x0, y0, z0, x0 + side, y0 + side, z0 + side]
     }
 
-    /// The nodes with points whose cube touches `bbox` (min x, min y, max x, max y; everything when
-    /// `None`) down to `max_level` (all levels when `None`), in order of level.
+    /// Los nodos con puntos cuyo cubo toca `bbox` (x mínima, y mínima, x máxima, y máxima; todo
+    /// cuando `None`) hasta `max_level` (todos los niveles cuando `None`), en orden de nivel.
     pub fn nodes(&self, bbox: Option<[f64; 4]>, max_level: Option<i32>) -> Result<Vec<Node>> {
         let touches = |level: i32, x: i32, y: i32, z: i32| {
             let c = self.cube(level, x, y, z);
@@ -238,8 +238,8 @@ impl Copc {
         Ok(out)
     }
 
-    /// The first levels of the tree that hold at most `budget` points together: a uniform sample of
-    /// the whole cloud, for a quick view. At least the root level is returned.
+    /// Los primeros niveles del árbol que contienen como mucho `budget` puntos en total: una
+    /// muestra uniforme de toda la nube, para una vista rápida. Se devuelve al menos el nivel raíz.
     pub fn overview(&self, budget: u64) -> Result<Vec<Node>> {
         let all = self.nodes(None, None)?;
         let mut taken = 0u64;
@@ -262,8 +262,8 @@ impl Copc {
         Ok(out)
     }
 
-    /// Hands the raw records of `nodes` to `f`, a batch of nodes at a time, in the order given.
-    /// Returns how many points were read.
+    /// Entrega los registros en bruto de `nodes` a `f`, un lote de nodos cada vez, en el orden
+    /// dado. Devuelve cuántos puntos se leyeron.
     pub fn read_raw(&self, nodes: &[Node], mut f: impl FnMut(&[u8]) -> Result<()>) -> Result<u64> {
         let rec = self.vlr.items_size() as usize;
         let mut file = File::open(&self.path)?;
@@ -271,7 +271,8 @@ impl Copc {
         let mut i = 0;
         while i < nodes.len() {
             check_cancel()?;
-            // a batch: nodes in file order so that the reads are mostly sequential
+            // un lote: nodos en el orden del archivo para que las lecturas sean en su mayoría
+            // secuenciales
             let mut j = i;
             let mut points = 0u64;
             while j < nodes.len() && (j == i || points + u64::from(nodes[j].points) <= BATCH_POINTS)
@@ -309,8 +310,8 @@ impl Copc {
         Ok(total)
     }
 
-    /// Decoded points of the nodes that touch `bbox`, down to `max_level`, keeping those inside
-    /// the box (a node reaches past the edges of the query).
+    /// Puntos decodificados de los nodos que tocan `bbox`, hasta `max_level`, conservando los que
+    /// están dentro de la caja (un nodo llega más allá de los bordes de la consulta).
     pub fn scan_in(
         &self,
         bbox: [f64; 4],
@@ -337,7 +338,7 @@ impl Copc {
         Ok(kept)
     }
 
-    /// Like [`Copc::scan_in`], handing over the raw records of the points inside the box.
+    /// Como [`Copc::scan_in`], entregando los registros en bruto de los puntos dentro de la caja.
     pub fn scan_raw_in(
         &self,
         bbox: [f64; 4],
@@ -371,8 +372,8 @@ pub(crate) mod tests {
     use super::*;
     use std::io::Cursor;
 
-    /// A COPC file made by hand: 400 points in a 100 m cube, 1/4 of them at the root and the rest
-    /// in the octants of level 1.
+    /// Un archivo COPC hecho a mano: 400 puntos en un cubo de 100 m, 1/4 de ellos en la raíz y el
+    /// resto en los octantes del nivel 1.
     pub(crate) fn build(path: &Path) -> Result<Vec<[f64; 3]>> {
         let mut pts: Vec<[f64; 3]> = Vec::new();
         let mut s = 12345u64;
@@ -395,7 +396,7 @@ pub(crate) mod tests {
             r[16] = 2;
             r
         };
-        // nodes: the root takes every fourth point; the others go to the octant they lie in
+        // nodos: la raíz toma uno de cada cuatro puntos; los demás van al octante en que están
         let mut root: Vec<u8> = Vec::new();
         let mut octants: Vec<Vec<u8>> = vec![Vec::new(); 8];
         for (i, p) in pts.iter().enumerate() {
@@ -434,7 +435,8 @@ pub(crate) mod tests {
         let mut block = cursor.into_inner();
         let table = laz::laszip::ChunkTable::read_from(&mut Cursor::new(&block[..]), &vlr)
             .map_err(|e| bad(&e.to_string()))?;
-        // the offset to the chunk table is absolute in a file: the block starts after the headers
+        // el desplazamiento a la tabla de fragmentos es absoluto en un archivo: el bloque empieza
+        // tras las cabeceras
         let relative = i64::from_le_bytes(block[..8].try_into().unwrap_or([0; 8]));
         let point_start = 375 + 54 + 160 + 54 + {
             let mut v = Vec::new();
@@ -444,7 +446,7 @@ pub(crate) mod tests {
         block[..8].copy_from_slice(&(relative + point_start as i64).to_le_bytes());
         let mut vlr_bytes = Vec::new();
         vlr.write_to(&mut vlr_bytes)?;
-        // the headers
+        // las cabeceras
         let mut info = vec![0u8; 160];
         let hier_len = (chunks.len() * 32) as u64;
         let vlr_total = 54 + 160 + 54 + vlr_bytes.len();
@@ -493,7 +495,7 @@ pub(crate) mod tests {
         file.extend(vlr_header("laszip encoded", 22204, vlr_bytes.len()));
         file.extend(&vlr_bytes);
         file.extend(&block);
-        // the extended record with the hierarchy
+        // el registro extendido con la jerarquía
         let mut evlr = vec![0u8; 60];
         evlr[2..6].copy_from_slice(b"copc");
         evlr[18..20].copy_from_slice(&1000u16.to_le_bytes());
@@ -518,7 +520,7 @@ pub(crate) mod tests {
     fn a_query_reads_only_the_nodes_it_touches() -> Result<()> {
         let path = std::env::temp_dir().join(format!("rl_copc_{}.copc.laz", std::process::id()));
         let pts = build(&path)?;
-        // a plain LAZ is not COPC
+        // un LAZ normal no es COPC
         let copc = Copc::open(&path)?.ok_or_else(|| bad("el archivo de prueba no se reconoce"))?;
         assert_eq!(copc.nodes(None, None)?.len(), 9);
         assert_eq!(copc.nodes(None, Some(0))?.len(), 1);
@@ -526,7 +528,8 @@ pub(crate) mod tests {
         let mut all = 0;
         let n = copc.scan_in([-1.0, -1.0, 101.0, 101.0], None, |_| all += 1)?;
         assert_eq!((n, all), (400, 400));
-        // a window in the lower-left corner touches the root and one octant of each z only
+        // una ventana en la esquina inferior izquierda toca la raíz y un octante de cada z
+        // solamente
         let bbox = [10.0, 10.0, 30.0, 30.0];
         let expected = pts
             .iter()
@@ -548,14 +551,15 @@ pub(crate) mod tests {
             .map(|p| p[2])
             .sum();
         assert!((z_sum - expected_z).abs() < 0.02 * expected as f64);
-        // raw records of the same window
+        // registros en bruto de la misma ventana
         let mut raw = 0usize;
         let n = copc.scan_raw_in(bbox, None, |b| {
             raw += b.len() / 30;
             Ok(())
         })?;
         assert_eq!((n as usize, raw), (expected as usize, expected as usize));
-        // the overview: the root alone fits a budget of 100 points, both levels one of 400
+        // la vista general: la raíz sola cabe en un presupuesto de 100 puntos, ambos niveles en uno
+        // de 400
         assert_eq!(copc.overview(100)?.len(), 1);
         assert_eq!(copc.overview(1000)?.len(), 9);
         let _ = std::fs::remove_file(&path);

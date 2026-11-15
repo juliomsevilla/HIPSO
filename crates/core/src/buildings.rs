@@ -1,13 +1,16 @@
-//! Building and vegetation classification, for cleaner ground models in built-up areas.
+//! Clasificación de edificios y vegetación, para modelos del terreno más limpios en zonas
+//! construidas.
 //!
-//! A terrain reference is built from the lowest point of each cell by a morphological opening
-//! wider than any building, which removes roofs whatever the ground filter decided about them.
-//! Cells standing more than `offset` above it form candidate regions; a region is a building
-//! when it is large enough, smooth (roofs are planar, crowns are rugged) and bounded by sharp
-//! steps (roof edges, unlike the gentle sides of a hill). Points of building cells above the
-//! offset become buildings (class 6), even those the ground filter had kept as ground; other
-//! non-ground points above the offset become high vegetation (class 5). Works in memory: run
-//! it on tiles with a buffer of at least half the window.
+//! Se construye una referencia del terreno a partir del punto más bajo de cada celda mediante una
+//! apertura morfológica más ancha que cualquier edificio, que elimina los tejados decida lo que
+//! decida el filtro de suelo sobre ellos. Las celdas que quedan a más de `offset` por encima de
+//! ella forman regiones candidatas; una región es un edificio cuando es suficientemente grande,
+//! lisa (los tejados son planos, las copas son rugosas) y está limitada por escalones bruscos
+//! (bordes de tejado, a diferencia de los lados suaves de una colina). Los puntos de las celdas de
+//! edificio por encima del desplazamiento pasan a ser edificios (clase 6), incluso los que el
+//! filtro de suelo había conservado como suelo; los demás puntos que no son suelo por encima del
+//! desplazamiento pasan a ser vegetación alta (clase 5). Funciona en memoria: ejecútese sobre
+//! teselas con un margen de al menos la mitad de la ventana.
 
 use std::collections::VecDeque;
 
@@ -17,33 +20,33 @@ use crate::las::Point;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingParams {
-    /// Cell size of the analysis grids.
+    /// Tamaño de celda de las rejillas de análisis.
     pub cell: f64,
-    /// Height above the terrain from which points can be buildings or trees.
+    /// Altura sobre el terreno a partir de la cual los puntos pueden ser edificios o árboles.
     pub offset: f64,
-    /// Widest building expected: the window of the terrain opening.
+    /// El edificio más ancho esperado: la ventana de la apertura del terreno.
     pub window: f64,
-    /// Smallest building footprint, in square units.
+    /// Menor huella de edificio, en unidades cuadradas.
     pub min_area: f64,
-    /// Roughness (m: standard deviation of the distance of the neighbours to their best plane) up
-    /// to which a point can be roof.
+    /// Rugosidad (m: desviación típica de la distancia de los vecinos a su mejor plano) hasta la
+    /// cual un punto puede ser tejado.
     pub planar: f64,
-    /// Share of the echoes of a cell that went through something (first of several, or
-    /// intermediate) above which the cell is vegetation, not a roof: a roof stops the pulse.
+    /// Proporción de los ecos de una celda que atravesó algo (primero de varios, o intermedio) por
+    /// encima de la cual la celda es vegetación y no un tejado: un tejado detiene el pulso.
     pub penetrating: f64,
-    /// Height (m) above the lowest surface of a roof cell up to which a point is the roof; what is
-    /// above it (a crown over the roof) is vegetation.
+    /// Altura (m) sobre la superficie más baja de una celda de tejado hasta la cual un punto es el
+    /// tejado; lo que está por encima (una copa sobre el tejado) es vegetación.
     pub roof_depth: f64,
-    /// Radius (m) of the neighbourhood that says whether a point lies on a plane.
+    /// Radio (m) del entorno que dice si un punto está sobre un plano.
     pub radius: f64,
-    /// Planarity (0 to 1) a roof seed needs in its neighbourhood.
+    /// Planaridad (0 a 1) que necesita una semilla de tejado en su entorno.
     pub seed_planarity: f64,
-    /// Roof seeds a cell needs to be the core of a roof.
+    /// Semillas de tejado que necesita una celda para ser el núcleo de un tejado.
     pub seeds_per_cell: u32,
-    /// Cells the building grows into around its roof (eaves and walls).
+    /// Celdas en las que crece el edificio alrededor de su tejado (aleros y paredes).
     pub eaves: usize,
-    /// Share (0 to 1) of the sides of a roof that must step down sharply to the terrain around
-    /// it: a roof ends in a wall, a hillside does not.
+    /// Proporción (0 a 1) de los lados de un tejado que deben bajar bruscamente al terreno de
+    /// alrededor: un tejado termina en una pared, una ladera no.
     pub sharp: f64,
 }
 
@@ -69,15 +72,17 @@ impl Default for BuildingParams {
 pub const BUILDING: u8 = 6;
 pub const HIGH_VEGETATION: u8 = 5;
 
-/// The new class of each point, if any: [`BUILDING`] or [`HIGH_VEGETATION`]. `ground` says
-/// which points the ground filter kept (the roofs it kept are still found and reclassified).
+/// La clase nueva de cada punto, si la hay: [`BUILDING`] o [`HIGH_VEGETATION`]. `ground` dice qué
+/// puntos conservó el filtro de suelo (los tejados que conservó se siguen encontrando y
+/// reclasificando).
 ///
-/// Roof points are found one by one, not on a raster of the lowest surface: a point above the
-/// terrain is a roof seed when the points around it lie on a plane (planarity and roughness of its
-/// neighbourhood) and its echo went no further (a roof stops the pulse; a crown lets it through).
-/// Cells with enough seeds, joined across the ridge of a pitched roof, make the regions that are
-/// large and have steep sides; a region and the cells around it (the eaves and walls) are building
-/// up to `roof_depth` above the roof, and what is above that is vegetation.
+/// Los puntos de tejado se hallan uno a uno, no sobre un ráster de la superficie más baja: un punto
+/// por encima del terreno es una semilla de tejado cuando los puntos a su alrededor están sobre un
+/// plano (planaridad y rugosidad de su entorno) y su eco no pasó más allá (un tejado detiene el
+/// pulso; una copa lo deja pasar). Las celdas con suficientes semillas, unidas a través de la
+/// cumbrera de un tejado a dos aguas, forman las regiones que son grandes y tienen lados empinados;
+/// una región y las celdas a su alrededor (los aleros y las paredes) son edificio hasta
+/// `roof_depth` por encima del tejado, y lo que está por encima es vegetación.
 pub fn classify(pts: &[Point], ground: &[bool], p: &BuildingParams) -> Vec<Option<u8>> {
     let mut out = vec![None; pts.len()];
     let valid: Vec<&Point> = pts.iter().filter(|q| !q.is_noise()).collect();
@@ -111,9 +116,10 @@ pub fn classify(pts: &[Point], ground: &[bool], p: &BuildingParams) -> Vec<Optio
 
     let cell_of = |q: &Point| low.index(q.x, q.y);
     let through = |q: &Point| q.number_of_returns > 1 && q.return_number < q.number_of_returns;
-    // Points that can be roof or crown: above the terrain. The ones the ground filter kept are
-    // looked at apart, and held to a stricter test: on a steep hillside the terrain estimate is
-    // too low and ground is above it, but a roof the filter took for ground has sharp edges.
+    // Puntos que pueden ser tejado o copa: por encima del terreno. Los que conservó el filtro de
+    // suelo se miran aparte y se someten a una prueba más estricta: en una ladera empinada la
+    // estimación del terreno es demasiado baja y el suelo queda por encima de ella, pero un tejado
+    // que el filtro tomó por suelo tiene bordes marcados.
     let above: Vec<bool> = pts
         .iter()
         .map(|q| {
@@ -123,14 +129,16 @@ pub fn classify(pts: &[Point], ground: &[bool], p: &BuildingParams) -> Vec<Optio
     let is_ground = |k: usize| ground.get(k).copied().unwrap_or(false);
     let free: Vec<bool> = (0..pts.len()).map(|k| above[k] && !is_ground(k)).collect();
     let kept: Vec<bool> = (0..pts.len()).map(|k| above[k] && is_ground(k)).collect();
-    // Cells whose lowest return is well above the terrain: a roof or a crown with no way through.
+    // Celdas cuyo retorno más bajo está muy por encima del terreno: un tejado o una copa sin paso a
+    // través.
     let raised: Vec<bool> = (0..n)
         .map(|i| low.data[i] - terrain[i] > p.offset as f32)
         .collect();
     let min_cells = (p.min_area / (p.cell * p.cell)).ceil() as usize;
 
-    // The building cells among the points of `mask` (of which `sharp_share` of the sides of a region
-    // must step down sharply to what is around it), and the highest roof seed of each cell.
+    // Las celdas de edificio entre los puntos de `mask` (de las cuales `sharp_share` de los lados
+    // de una región deben bajar bruscamente a lo que hay alrededor) y la semilla de tejado más alta
+    // de cada celda.
     let detect = |mask: &[bool], sharp_share: f64| -> (Vec<bool>, Vec<f32>) {
         let mut building = vec![false; n];
         let mut seed_top = vec![f32::NEG_INFINITY; n];
@@ -164,8 +172,8 @@ pub fn classify(pts: &[Point], ground: &[bool], p: &BuildingParams) -> Vec<Optio
         let core: Vec<bool> = (0..n)
             .map(|i| solid[i] && seeds[i] >= p.seeds_per_cell)
             .collect();
-        // The ridge of a pitched roof has no planar neighbourhood: close gaps of a cell or two
-        // between core cells, inside solid cells only.
+        // La cumbrera de un tejado a dos aguas no tiene un entorno plano: se cierran huecos de una
+        // celda o dos entre celdas núcleo, solo dentro de celdas sólidas.
         let dilated: Vec<bool> = (0..n)
             .map(|i| core[i] || neighbours8(i, cols, rows).any(|j| core[j]))
             .collect();
@@ -192,7 +200,8 @@ pub fn classify(pts: &[Point], ground: &[bool], p: &BuildingParams) -> Vec<Optio
                     }
                 }
             }
-            // The eaves are not planar: the area counts the ring of solid cells around the region.
+            // Los aleros no son planos: el área cuenta el anillo de celdas sólidas alrededor de la
+            // región.
             let mut ring: Vec<usize> = region
                 .iter()
                 .flat_map(|&i| neighbours8(i, cols, rows))
@@ -203,8 +212,8 @@ pub fn classify(pts: &[Point], ground: &[bool], p: &BuildingParams) -> Vec<Optio
             if region.len() + ring.len() < min_cells {
                 continue;
             }
-            // Steps down to the terrain around the region and its eaves: sharp at roof edges, gentle
-            // on hillsides.
+            // Escalones hacia el terreno alrededor de la región y sus aleros: marcados en los
+            // bordes del tejado, suaves en las laderas.
             let inside: std::collections::HashSet<usize> =
                 region.iter().chain(ring.iter()).copied().collect();
             let mut roof_low: Vec<f32> = region.iter().map(|&i| low.data[i]).collect();
@@ -232,7 +241,8 @@ pub fn classify(pts: &[Point], ground: &[bool], p: &BuildingParams) -> Vec<Optio
                 }
             }
         }
-        // Eaves and walls: the solid cells around a building, `eaves` cells deep.
+        // Aleros y paredes: las celdas sólidas alrededor de un edificio, de `eaves` celdas de
+        // profundidad.
         for _ in 0..p.eaves {
             let grown: Vec<usize> = (0..n)
                 .filter(|&i| {
@@ -288,19 +298,20 @@ fn neighbours4(i: usize, cols: usize, rows: usize) -> impl Iterator<Item = usize
         .map(move |(nc, nr)| nr as usize * cols + nc as usize)
 }
 
-/// Grey opening (erosion then dilation) with a square window of `k` cells.
+/// Apertura gris (erosión y luego dilatación) con una ventana cuadrada de `k` celdas.
 pub(crate) fn opening(g: &Grid, k: usize) -> Vec<f32> {
     let e = filter2(&g.data, g.cols, g.rows, k, f32::min);
     filter2(&e, g.cols, g.rows, k, f32::max)
 }
 
-/// A separable running min or max over a `k` x `k` window (windows clipped at the edges).
+/// Un mínimo o máximo móvil separable sobre una ventana de `k` x `k` (ventanas recortadas en los
+/// bordes).
 fn filter2(v: &[f32], cols: usize, rows: usize, k: usize, f: fn(f32, f32) -> f32) -> Vec<f32> {
     let h = run(v, cols, rows, k, f, true);
     run(&h, cols, rows, k, f, false)
 }
 
-/// One direction of the running filter, with a monotonic queue: O(1) per cell.
+/// Una dirección del filtro móvil, con una cola monótona: O(1) por celda.
 fn run(
     v: &[f32],
     cols: usize,
@@ -323,7 +334,7 @@ fn run(
             pos * cols + line
         }
     };
-    // f(a, b) == a means a is at least as good as b.
+    // f(a, b) == a significa que a es al menos tan bueno como b.
     let better = |a: f32, b: f32| f(a, b) == a;
     let mut q: VecDeque<usize> = VecDeque::new();
     for line in 0..lines {
@@ -378,8 +389,8 @@ mod tests {
         }
     }
 
-    /// A smooth hill rising 6 m to the east, with `roofs`: (x0, x1, y0, y1, height of the ridge or
-    /// roof above the ground, pitched). Points every half metre.
+    /// Una colina suave que sube 6 m hacia el este, con `roofs`: (x0, x1, y0, y1, altura de la
+    /// cumbrera o del tejado sobre el suelo, a dos aguas). Puntos cada medio metro.
     fn scene(roofs: &[(f64, f64, f64, f64, f64, bool)]) -> Vec<Point> {
         let mut pts = Vec::new();
         for i in 0..240 {
@@ -389,7 +400,8 @@ mod tests {
                 let mut z = ground;
                 for &(x0, x1, y0, y1, h, pitched) in roofs {
                     if (x0..x1).contains(&x) && (y0..y1).contains(&y) {
-                        // a pitched roof rises from the eaves to the ridge along x
+                        // un tejado a dos aguas sube desde los aleros hasta la cumbrera a lo largo
+                        // de x
                         let rise = if pitched {
                             h * (1.0 - ((x - (x0 + x1) / 2.0).abs() / ((x1 - x0) / 2.0)))
                         } else {
@@ -420,7 +432,7 @@ mod tests {
             .collect();
         let hit = roof.iter().filter(|(_, c)| **c == Some(BUILDING)).count();
         assert!(hit * 100 >= roof.len() * 95, "{hit} of {} roof points", roof.len());
-        // nothing outside the roof and its eaves is a building
+        // nada fuera del tejado y sus aleros es un edificio
         let wrong = pts
             .iter()
             .zip(&cls)
@@ -431,7 +443,8 @@ mod tests {
 
     #[test]
     fn a_pitched_roof_with_a_ridge_is_one_building() {
-        // 12 m wide, 20 m long, pitched along x: two planes meeting at a ridge
+        // 12 m de ancho, 20 m de largo, a dos aguas a lo largo de x: dos planos que se juntan en
+        // una cumbrera
         let pts = scene(&[(30.0, 42.0, 50.0, 70.0, 3.0, true)]);
         let ground: Vec<bool> = pts.iter().map(|_| true).collect();
         let cls = classify(&pts, &ground, &BuildingParams::default());
@@ -446,7 +459,7 @@ mod tests {
 
     #[test]
     fn a_crown_is_vegetation_not_a_building() {
-        // a 12 x 12 m crown 9 m up: rough, and its echoes are first of several
+        // una copa de 12 x 12 m a 9 m de altura: rugosa, y sus ecos son primeros de varios
         let mut pts = scene(&[]);
         let mut s = 99u64;
         let mut next = || {
@@ -474,7 +487,8 @@ mod tests {
             s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
             ((s >> 33) as f64) / f64::from(1u32 << 31)
         };
-        // crown points 4 to 7 m above the roof, first of several echoes, over a corner of it
+        // puntos de copa a 4 a 7 m por encima del tejado, primeros de varios ecos, sobre una
+        // esquina de él
         let mut crown = Vec::new();
         for q in &pts {
             if in_box(q, (30.0, 36.0, 60.0, 66.0)) {

@@ -1,10 +1,12 @@
-//! Editing the points of a cloud like features in a GIS: select them with regions (rectangle,
-//! polygon, circle, lasso; in plan or in a profile) and attributes, combine selections (new, add,
-//! subtract, intersect, invert), then delete them or change their class, with undo and redo.
+//! Edición de los puntos de una nube como elementos en un SIG: se seleccionan con regiones
+//! (rectángulo, polígono, círculo, lazo; en planta o en un perfil) y con atributos, se combinan las
+//! selecciones (nueva, añadir, restar, intersecar, invertir) y luego se eliminan o se les cambia la
+//! clase, con deshacer y rehacer.
 //!
-//! Edits are rules, not rewritten points. The viewer applies them at once to the decimated points
-//! it shows; saving applies the same rules to every point of the file in one streaming pass, so
-//! the result is exact whatever the decimation and memory stays flat.
+//! Las ediciones son reglas, no puntos reescritos. El visor las aplica de inmediato a los puntos
+//! diezmados que muestra; al guardar se aplican las mismas reglas a todos los puntos del archivo en
+//! una pasada en flujo, de modo que el resultado es exacto sea cual sea el diezmado y la memoria se
+//! mantiene plana.
 
 use std::path::Path;
 
@@ -16,25 +18,26 @@ use crate::vector::Polygon;
 use crate::view::{Orbit, PointStore, ProfileBox, Projector, return_bit};
 use crate::{Error, Result};
 
-/// Where a selection operation looks.
+/// Dónde mira una operación de selección.
 #[derive(Clone, Debug)]
 pub enum Region {
-    /// The whole cloud (selection by attributes alone).
+    /// La nube entera (selección solo por atributos).
     All,
-    /// A polygon in map coordinates, whatever the elevation.
+    /// Un polígono en coordenadas del mapa, sea cual sea la elevación.
     Plan(Polygon),
-    /// A polygon in a profile: x is the distance along the box, y the elevation; only points
-    /// inside the box count.
+    /// Un polígono en un perfil: x es la distancia a lo largo de la caja, y la elevación; solo
+    /// cuentan los puntos dentro de la caja.
     Profile { bx: ProfileBox, poly: Polygon },
-    /// A shape drawn on the 3D view, whatever lies in front of or behind the points.
+    /// Una forma dibujada en la vista 3D, sea lo que sea lo que haya delante o detrás de los
+    /// puntos.
     View(ViewCut),
-    /// A brush stroke in map coordinates, whatever the elevation.
+    /// Un trazo de pincel en coordenadas del mapa, sea cual sea la elevación.
     PlanBrush(Brush),
-    /// A brush stroke in a profile (distance along the box, elevation); only points inside the
-    /// box count.
+    /// Un trazo de pincel en un perfil (distancia a lo largo de la caja, elevación); solo cuentan
+    /// los puntos dentro de la caja.
     ProfileBrush { bx: ProfileBox, brush: Brush },
-    /// Everything above (or below) a line drawn in a profile, along the length of the line;
-    /// only points inside the box count.
+    /// Todo lo que está por encima (o por debajo) de una línea dibujada en un perfil, a lo largo de
+    /// la línea; solo cuentan los puntos dentro de la caja.
     Side {
         bx: ProfileBox,
         a: [f64; 2],
@@ -43,10 +46,11 @@ pub enum Region {
     },
 }
 
-/// A brush stroke: the points within `half` of a path (round brush) or inside a square of side
-/// `2 half` dragged along it (square brush). The path is stamped every half a brush radius and
-/// the stamps are kept in a grid, so asking whether a point is painted does not depend on how
-/// long the stroke is, and the viewer and the saved file give the same answer.
+/// Un trazo de pincel: los puntos a menos de `half` de un camino (pincel redondo) o dentro de un
+/// cuadrado de lado `2 half` arrastrado a lo largo de él (pincel cuadrado). El camino se estampa
+/// cada medio radio de pincel y las estampas se guardan en una rejilla, de modo que preguntar si un
+/// punto está pintado no depende de lo largo que sea el trazo, y el visor y el archivo guardado dan
+/// la misma respuesta.
 #[derive(Clone, Debug)]
 pub struct Brush {
     pub half: f64,
@@ -120,15 +124,15 @@ impl Brush {
     }
 }
 
-/// Whether `(u, z)` is above (or below) the segment from `a` to `b`, within the span of the
-/// segment along `u`.
+/// Si `(u, z)` está por encima (o por debajo) del segmento de `a` a `b`, dentro del alcance del
+/// segmento a lo largo de `u`.
 pub fn beside_line(a: [f64; 2], b: [f64; 2], above: bool, u: f64, z: f64) -> bool {
     let (u0, u1) = (a[0].min(b[0]), a[0].max(b[0]));
     if u < u0 || u > u1 {
         return false;
     }
     let zl = if (b[0] - a[0]).abs() < 1e-12 {
-        // a vertical line: the span is a point, and so is what is above it
+        // una línea vertical: el alcance es un punto, y también lo es lo que hay encima de ella
         a[1].max(b[1])
     } else {
         a[1] + (b[1] - a[1]) * (u - a[0]) / (b[0] - a[0])
@@ -136,9 +140,9 @@ pub fn beside_line(a: [f64; 2], b: [f64; 2], above: bool, u: f64, z: f64) -> boo
     if above { z > zl } else { z < zl }
 }
 
-/// A polygon drawn in pixels on a 3D view, with the camera that showed it and, optionally, the
-/// range of distances from the camera plane that count (a slab through the scene). It is
-/// geometric, so it picks the same points in the decimated viewer and in the whole file.
+/// Un polígono dibujado en píxeles en una vista 3D, con la cámara que lo mostró y, opcionalmente,
+/// el rango de distancias al plano de la cámara que cuentan (una rebanada a través de la escena).
+/// Es geométrico, así que elige los mismos puntos en el visor diezmado y en el archivo entero.
 #[derive(Clone, Debug)]
 pub struct ViewCut {
     cam: Projector,
@@ -165,7 +169,8 @@ impl ViewCut {
     }
 }
 
-/// The attributes of a point a selection can be made on (the histograms of the editor).
+/// Los atributos de un punto sobre los que se puede hacer una selección (los histogramas del
+/// editor).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AttrKind {
     Z,
@@ -173,9 +178,9 @@ pub enum AttrKind {
     ReturnNumber,
     NumReturns,
     Class,
-    /// Flight line (point source ID).
+    /// Pasada (ID de fuente del punto).
     Source,
-    /// Scan angle in degrees.
+    /// Ángulo de barrido en grados.
     ScanAngle,
 }
 
@@ -202,7 +207,7 @@ impl AttrKind {
         }
     }
 
-    /// Whole-number attributes: a histogram gets one bar per value.
+    /// Atributos de números enteros: un histograma recibe una barra por valor.
     pub fn is_integer(self) -> bool {
         !matches!(self, AttrKind::Z | AttrKind::ScanAngle)
     }
@@ -220,23 +225,23 @@ impl AttrKind {
     }
 }
 
-/// A point passes when the attribute lies in any of the intervals `[lo, hi)` (the bars picked
-/// in a histogram, or the tails of its odd values).
+/// Un punto pasa cuando el atributo está en alguno de los intervalos `[lo, hi)` (las barras
+/// elegidas en un histograma o las colas de sus valores atípicos).
 #[derive(Clone, Debug, PartialEq)]
 pub struct RangeSel {
     pub kind: AttrKind,
     pub bins: Vec<(f64, f64)>,
 }
 
-/// What a point must be to be picked, besides lying in the region.
+/// Lo que debe ser un punto para ser elegido, además de estar en la región.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Attr {
     pub classes: ClassSet,
-    /// Bits: 1 first, 2 intermediate, 4 last, 8 single returns.
+    /// Bits: se dibujan los retornos 1 primero, 2 intermedio, 4 último, 8 único.
     pub returns: u8,
     pub z: Option<(f64, f64)>,
     pub intensity: Option<(u16, u16)>,
-    /// Every one of these must hold (the histogram selections).
+    /// Debe cumplirse cada una de estas (las selecciones de histograma).
     pub ranges: Vec<RangeSel>,
 }
 
@@ -258,11 +263,11 @@ pub enum Mode {
     Add,
     Subtract,
     Intersect,
-    /// Flips the selection; the region and attributes are ignored.
+    /// Invierte la selección; la región y los atributos se ignoran.
     Invert,
 }
 
-/// One step of building a selection.
+/// Un paso de la construcción de una selección.
 #[derive(Clone, Debug)]
 pub struct SelOp {
     pub mode: Mode,
@@ -276,14 +281,14 @@ pub enum Action {
     Reclassify(u8),
 }
 
-/// A selection and what is done to it.
+/// Una selección y lo que se hace con ella.
 #[derive(Clone, Debug)]
 pub struct Edit {
     pub sel: Vec<SelOp>,
     pub action: Action,
     pub label: String,
-    /// A step the user has switched off stays in the history but does nothing: the others
-    /// are applied as if it had never been made.
+    /// Un paso que el usuario ha desactivado se queda en el historial pero no hace nada: los demás
+    /// se aplican como si nunca se hubiera hecho.
     pub enabled: bool,
 }
 
@@ -298,7 +303,7 @@ impl Edit {
     }
 }
 
-/// The values of a point a selection looks at.
+/// Los valores de un punto que mira una selección.
 #[derive(Clone, Copy, Debug)]
 pub struct Sample {
     pub x: f64,
@@ -306,10 +311,10 @@ pub struct Sample {
     pub z: f64,
     pub class: u8,
     pub intensity: u16,
-    /// Return number in the low nibble, number of returns in the high one.
+    /// Número de retorno en el cuarteto bajo y número de retornos en el alto.
     pub ret: u8,
     pub src: u16,
-    /// Scan angle in degrees.
+    /// Ángulo de barrido en grados.
     pub scan: f32,
 }
 
@@ -352,7 +357,7 @@ impl SelOp {
     }
 }
 
-/// Whether the selection built by `ops` includes the point.
+/// Si la selección construida por `ops` incluye el punto.
 pub fn selected(ops: &[SelOp], p: &Sample) -> bool {
     let mut state = false;
     for op in ops {
@@ -381,17 +386,18 @@ fn sample_of(s: &PointStore, i: usize) -> Sample {
     }
 }
 
-/// The value of an attribute of point `i` of the store.
+/// El valor de un atributo del punto `i` del almacén.
 pub fn value_of(s: &PointStore, i: usize, kind: AttrKind) -> f64 {
     kind.value(&sample_of(s, i))
 }
 
-/// Whether a selection looks at fields that are read from the record beyond the point.
+/// Si una selección mira campos que se leen del registro más allá del punto.
 fn needs_extra(ops: &[SelOp]) -> bool {
     ops.iter().any(|o| !o.attr.ranges.is_empty())
 }
 
-/// The values of a decoded record; the source and scan angle only when a rule needs them.
+/// Los valores de un registro decodificado; la fuente y el ángulo de barrido solo cuando una regla
+/// los necesita.
 fn sample_of_record(r: &Reader, rec: &[u8], p: &las::Point, extra: bool) -> Sample {
     let (src, scan) = if extra {
         let e = r.decode_extra(rec);
@@ -411,7 +417,8 @@ fn sample_of_record(r: &Reader, rec: &[u8], p: &las::Point, extra: bool) -> Samp
     }
 }
 
-/// The selection `ops` makes over the points of the store (deleted points are never selected).
+/// La selección que hace `ops` sobre los puntos del almacén (los puntos eliminados nunca se
+/// seleccionan).
 pub fn selection(s: &PointStore, ops: &[SelOp]) -> Vec<bool> {
     if ops.is_empty() {
         return Vec::new();
@@ -433,7 +440,7 @@ pub fn circle(cx: f64, cy: f64, r: f64) -> Polygon {
     Polygon::new(vec![ring])
 }
 
-/// A rectangle as a polygon.
+/// Un rectángulo como polígono.
 pub fn rectangle(a: [f64; 2], b: [f64; 2]) -> Polygon {
     Polygon::new(vec![vec![
         [a[0], a[1]],
@@ -443,8 +450,8 @@ pub fn rectangle(a: [f64; 2], b: [f64; 2]) -> Polygon {
     ]])
 }
 
-/// The editing session over the points in the viewer: the original classes, the edits made and
-/// those undone.
+/// La sesión de edición sobre los puntos del visor: las clases originales, las ediciones hechas y
+/// las deshechas.
 #[derive(Clone, Debug, Default)]
 pub struct Session {
     orig_class: Vec<u8>,
@@ -490,7 +497,7 @@ impl Session {
         n
     }
 
-    /// Applies an edit to the store; how many displayed points it touched.
+    /// Aplica una edición al almacén; cuántos puntos mostrados tocó.
     pub fn apply(&mut self, s: &mut PointStore, e: Edit) -> usize {
         let n = Self::run(s, &e);
         self.edits.push(e);
@@ -506,8 +513,8 @@ impl Session {
         }
     }
 
-    /// Switches the edit `k` off or on again, leaving the others as they are; whether it
-    /// exists. A later edit that selects by class sees the points as they now are.
+    /// Desactiva o vuelve a activar la edición `k`, dejando las demás como están; si existe. Una
+    /// edición posterior que selecciona por clase ve los puntos tal como están ahora.
     pub fn toggle(&mut self, s: &mut PointStore, k: usize) -> bool {
         let Some(e) = self.edits.get_mut(k) else {
             return false;
@@ -517,15 +524,15 @@ impl Session {
         true
     }
 
-    /// Applies the edits that count to another store of the same clouds (a region read at
-    /// full density), so it shows what the store of the session shows.
+    /// Aplica las ediciones que cuentan a otro almacén de las mismas nubes (una región leída con
+    /// toda la densidad), de modo que muestre lo que muestra el almacén de la sesión.
     pub fn apply_to(&self, s: &mut PointStore) {
         for e in &self.edits {
             Self::run(s, e);
         }
     }
 
-    /// The edits that count when saving.
+    /// Las ediciones que cuentan al guardar.
     pub fn active(&self) -> Vec<Edit> {
         self.edits.iter().filter(|e| e.enabled).cloned().collect()
     }
@@ -548,7 +555,7 @@ impl Session {
         true
     }
 
-    /// Back to the file as it was read.
+    /// De vuelta al archivo tal como se leyó.
     pub fn discard(&mut self, s: &mut PointStore) {
         self.edits.clear();
         self.undone.clear();
@@ -564,8 +571,8 @@ pub struct SaveReport {
     pub reclassified: u64,
 }
 
-/// Applies the edits to every point of `input` and writes the rest to `output` (LAS, or LAZ by
-/// extension), one streaming pass in batches processed on all cores.
+/// Aplica las ediciones a todos los puntos de `input` y escribe el resto en `output` (LAS, o LAZ
+/// según la extensión), en una pasada en flujo con lotes procesados en todos los núcleos.
 pub fn save(input: &Path, output: &Path, edits: &[Edit]) -> Result<SaveReport> {
     let active: Vec<Edit> = edits.iter().filter(|e| e.enabled).cloned().collect();
     let edits = &active[..];
@@ -576,7 +583,8 @@ pub fn save(input: &Path, output: &Path, edits: &[Edit]) -> Result<SaveReport> {
     }
     crate::paths::ensure_parent(output)?;
     let r = Reader::open(input)?;
-    // classes above 31 need a full class byte: legacy files are written as LAS 1.4
+    // las clases por encima de 31 necesitan un byte de clase completo: los archivos antiguos se
+    // escriben como LAS 1.4
     let big = edits
         .iter()
         .any(|e| matches!(e.action, Action::Reclassify(c) if c > 31));
@@ -599,7 +607,7 @@ pub fn save(input: &Path, output: &Path, edits: &[Edit]) -> Result<SaveReport> {
     let mut conv = Vec::new();
     r.scan_raw(|bytes| {
         let recs: Vec<&[u8]> = bytes.chunks_exact(rec_len).collect();
-        // per record: removed, or its new class when changed
+        // por registro: eliminado, o su clase nueva cuando se cambió
         let out: Vec<(bool, Option<u8>)> = recs
             .par_iter()
             .map(|rec| {
@@ -652,8 +660,9 @@ pub fn save(input: &Path, output: &Path, edits: &[Edit]) -> Result<SaveReport> {
     Ok(rep)
 }
 
-/// Writes to `output` only the points of `input` the selection `ops` picks (a new LAS or LAZ, one
-/// streaming pass); how many. The processing tools run on this when a selection is active.
+/// Escribe en `output` solo los puntos de `input` que elige la selección `ops` (un LAS o LAZ nuevo,
+/// en una pasada en flujo); cuántos. Las herramientas de proceso se ejecutan sobre esto cuando hay
+/// una selección activa.
 pub fn extract_selected(input: &Path, ops: &[SelOp], output: &Path) -> Result<u64> {
     if input == output {
         return Err(Error::Param(
@@ -748,10 +757,10 @@ mod tests {
             classes: ClassSet::from_bits(1 << 5),
             ..Attr::default()
         };
-        // inside the rectangle and class 5
+        // dentro del rectángulo y de clase 5
         let both = [near.clone(), op(Mode::Intersect, Region::All, veg.clone())];
         assert_eq!(selection(&s, &both), [false, true, false, false, false]);
-        // all vegetation minus the rectangle
+        // toda la vegetación menos el rectángulo
         let rest = [
             op(Mode::New, Region::All, veg),
             op(Mode::Subtract, near.region.clone(), Attr::default()),
@@ -785,7 +794,7 @@ mod tests {
         );
         assert_eq!(s.class, [2, 7, 7, 1, 2]);
         assert_eq!(s.deleted, [false, false, false, true, false]);
-        // the first goes off: vegetation is back, the deletion stays
+        // la primera se apaga: la vegetación vuelve, la eliminación se queda
         assert!(ses.toggle(&mut s, 0));
         assert_eq!(s.class, [2, 5, 5, 1, 2]);
         assert_eq!(s.deleted, [false, false, false, true, false]);
@@ -798,18 +807,19 @@ mod tests {
     #[test]
     fn a_brush_stroke_picks_what_lies_along_its_path() {
         let s = store();
-        // a stroke along y = 1 from x = 0 to x = 10, 1.5 m either side: all but the point at (8, 8)
+        // un trazo a lo largo de y = 1 de x = 0 a x = 10, 1,5 m a cada lado: todos menos el punto
+        // en (8, 8)
         let path = [[0.0, 1.0], [5.0, 1.0], [10.0, 1.0]];
         let round = Region::PlanBrush(Brush::new(&path, 1.5, false));
         let sel = [op(Mode::New, round, Attr::default())];
         assert_eq!(selection(&s, &sel), [true, true, false, true, true]);
-        // a point just inside and just outside the round end of a stroke
+        // un punto justo dentro y justo fuera del extremo redondo de un trazo
         let b = Brush::new(&[[0.0, 0.0]], 1.0, false);
         assert!(b.contains(0.99, 0.0) && !b.contains(1.01, 0.0));
-        // the square brush reaches its corners, the round one does not
+        // el pincel cuadrado llega a sus esquinas, el redondo no
         let sq = Brush::new(&[[0.0, 0.0]], 1.0, true);
         assert!(sq.contains(0.95, 0.95) && !b.contains(0.95, 0.95));
-        // a slanted stroke has no gaps along it
+        // un trazo inclinado no tiene huecos a lo largo
         let slant = Brush::new(&[[0.0, 0.0], [10.0, 10.0]], 0.5, false);
         assert!((0..=100).all(|k| slant.contains(k as f64 / 10.0, k as f64 / 10.0)));
     }
@@ -822,7 +832,7 @@ mod tests {
             b: [10.0, 1.0],
             width: 2.0,
         };
-        // a line at 5 m from the start to the end of the box
+        // una línea a 5 m desde el principio hasta el final de la caja
         let side = |above| {
             vec![op(
                 Mode::New,
@@ -835,17 +845,18 @@ mod tests {
                 Attr::default(),
             )]
         };
-        // the box takes the points within 1 m of the axis (y = 1): all but the one at y = 8
+        // la caja toma los puntos a menos de 1 m del eje (y = 1): todos menos el de y = 8
         let up = selection(&s, &side(true));
         let down = selection(&s, &side(false));
-        // a point is in at most one of the two, and the box (y within 1 of the axis) limits them
+        // un punto está como mucho en uno de los dos, y la caja (y a menos de 1 del eje) los limita
         assert!(up.iter().zip(&down).all(|(a, b)| !(*a && *b)));
         assert_eq!(up, [false, true, false, true, false]);
         assert_eq!(down, [true, false, false, false, true]);
-        // along the line only: a line spanning half the box leaves the other half alone
+        // solo a lo largo de la línea: una línea que abarca la mitad de la caja deja en paz a la
+        // otra mitad
         assert!(beside_line([0.0, 5.0], [5.0, 5.0], true, 3.0, 6.0));
         assert!(!beside_line([0.0, 5.0], [5.0, 5.0], true, 7.0, 6.0));
-        // a slanted line: above is relative to the line at that distance
+        // una línea inclinada: por encima es relativo a la línea a esa distancia
         assert!(beside_line([0.0, 0.0], [10.0, 10.0], true, 2.0, 3.0));
         assert!(!beside_line([0.0, 0.0], [10.0, 10.0], true, 8.0, 3.0));
     }
@@ -858,7 +869,7 @@ mod tests {
             b: [10.0, 1.0],
             width: 2.0,
         };
-        // above 10 m in the profile: only the point at z = 20
+        // por encima de 10 m en el perfil: solo el punto en z = 20
         let sel = [op(
             Mode::New,
             Region::Profile {
@@ -895,7 +906,8 @@ mod tests {
             2
         );
         assert_eq!(s.class, [2, 7, 7, 1, 2]);
-        // the class filter now sees class 7: the next selection of class 5 finds nothing
+        // el filtro de clase ve ahora la clase 7: la siguiente selección de clase 5 no encuentra
+        // nada
         assert_eq!(
             ses.apply(
                 &mut s,
@@ -935,7 +947,8 @@ mod tests {
         assert_eq!(s.class, [2, 5, 5, 1, 2]);
     }
 
-    /// A LAS 1.2 file of point format 1 with (scan angle in degrees, point source id) per point.
+    /// Un archivo LAS 1.2 de formato de punto 1 con (ángulo de barrido en grados, identificador de
+    /// fuente del punto) por punto.
     fn las_with(points: &[(i8, u16)]) -> Vec<u8> {
         let mut h = vec![0u8; 227];
         h[..4].copy_from_slice(b"LASF");
@@ -973,7 +986,7 @@ mod tests {
 
     #[test]
     fn saving_applies_range_rules_on_fields_read_from_the_record() -> Result<()> {
-        // scan angles 0, 5, -4, 35, -40, 10 from passes 1, 1, 2, 1, 3, 2
+        // ángulos de barrido 0, 5, -4, 35, -40, 10 de las pasadas 1, 1, 2, 1, 3, 2
         let bytes = las_with(&[(0, 1), (5, 1), (-4, 2), (35, 1), (-40, 3), (10, 2)]);
         let dir = std::env::temp_dir();
         let id = std::process::id();
@@ -992,7 +1005,7 @@ mod tests {
                 },
             }]
         };
-        // the odd angles: beyond ±20°
+        // los ángulos atípicos: más allá de ±20°
         let steep = rule(
             AttrKind::ScanAngle,
             vec![(f64::NEG_INFINITY, -20.0), (20.0, f64::INFINITY)],
@@ -1005,7 +1018,7 @@ mod tests {
             enabled: true,
         };
         let del = save(&input, &out, std::slice::from_ref(&edit))?;
-        // pass 3 only
+        // solo la pasada 3
         let only = Edit {
             sel: rule(AttrKind::Source, vec![(3.0, 4.0)]),
             action: Action::Reclassify(7),
@@ -1034,18 +1047,18 @@ mod tests {
                 },
             )]
         };
-        // z = 1, 9, 3, 20, 1: the bar [0, 2) holds two points
+        // z = 1, 9, 3, 20, 1: la barra [0, 2) contiene dos puntos
         assert_eq!(
             selection(&s, &by(AttrKind::Z, vec![(0.0, 2.0)])),
             [true, false, false, false, true]
         );
-        // the tails of the odd values: below 0.5 or above 10
+        // las colas de los valores atípicos: por debajo de 0,5 o por encima de 10
         let tails = vec![(f64::NEG_INFINITY, 0.5), (10.0, f64::INFINITY)];
         assert_eq!(
             selection(&s, &by(AttrKind::Z, tails)),
             [false, false, false, true, false]
         );
-        // classes 2, 5, 5, 1, 2: bar [5, 6)
+        // clases 2, 5, 5, 1, 2: barra [5, 6)
         assert_eq!(
             selection(&s, &by(AttrKind::Class, vec![(5.0, 6.0)])),
             [false, true, true, false, false]
@@ -1088,14 +1101,16 @@ mod tests {
                 Attr::default(),
             )]
         };
-        // a rectangle of a few pixels around where the first point lands picks only it
+        // un rectángulo de unos pocos píxeles alrededor de donde cae el primer punto solo lo elige
+        // a él
         let (px, py) = cam.project(s.xyz(0), 100, 100).unwrap_or_default();
         let small = rectangle([px - 1.0, py - 1.0], [px + 1.0, py + 1.0]);
         assert_eq!(
             selection(&s, &cut(small, None)),
             [true, false, false, false, false]
         );
-        // looking north the depth is 20 + y: a slab keeps the far points (y 2 and 8)
+        // mirando al norte la profundidad es 20 + y: una rebanada conserva los puntos lejanos (y 2
+        // y 8)
         let all = rectangle([-1e4, -1e4], [1e4, 1e4]);
         assert_eq!(
             selection(&s, &cut(all.clone(), Some((21.5, 30.0)))),

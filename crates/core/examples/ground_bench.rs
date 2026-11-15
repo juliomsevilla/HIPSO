@@ -1,19 +1,22 @@
-//! Ground filter benchmark against a reference classification: `ground_bench FILE... [--size 500]
-//! [--cell 1]`. For each file, takes a square window around the middle of the cloud (the whole
-//! file with `--size 0`), runs every ground filter with its default parameters and reports the
-//! time, the agreement with the file's own class 2 (overall accuracy, kappa, type I and II errors)
-//! and the difference between the DTMs (a TIN of each ground) in metres. `gross II` is the share
-//! of the points a filter calls ground that lie more than 0.5 m above the reference ground: real
-//! vegetation or structures taken for ground, as opposed to low points the reference leaves out.
+//! Prueba de rendimiento de filtros de suelo contra una clasificación de referencia: `ground_bench
+//! ARCHIVO... [--size 500] [--cell 1]`. Para cada archivo, toma una ventana cuadrada alrededor del
+//! medio de la nube (el archivo entero con `--size 0`), ejecuta cada filtro de suelo con sus
+//! parámetros por defecto e informa del tiempo, la concordancia con la propia clase 2 del archivo
+//! (exactitud global, kappa, errores de tipo I y II) y la diferencia entre los MDT (un TIN de cada
+//! suelo) en metros. `gross II` es la proporción de los puntos que un filtro llama suelo que están
+//! a más de 0,5 m por encima del suelo de referencia: vegetación o estructuras reales tomadas por
+//! suelo, a diferencia de los puntos bajos que la referencia deja fuera.
 //!
-//! `--axelsson-flat M` sets Axelsson's tolerance to the sensor noise (default 0.10 m).
-//! `--elm` takes the low noise out first (extended local minimum, 10 m cells, 3 m).
-//! `--spacing S` sets the scales that depend on the point spacing (cells, windows) to S metres,
-//! the same for every sample. `--isprs DIR` runs the ISPRS filter test instead: the `sampNN.txt` reference files of
-//! the test (X Y Z and 0 ground / 1 not), with the average over the samples at the end.
+//! `--axelsson-flat M` fija la tolerancia de Axelsson en el ruido del sensor (por defecto 0,10 m).
+//! `--elm` quita primero el ruido bajo (mínimo local extendido, celdas de 10 m, 3 m). `--spacing S`
+//! fija en S metros las escalas que dependen del espaciado de puntos (celdas, ventanas), igual para
+//! cada muestra. `--isprs DIR` ejecuta en su lugar la prueba de filtros de ISPRS: los archivos de
+//! referencia `sampNN.txt` de la prueba (X Y Z y 0 suelo / 1 no), con el promedio de las muestras
+//! al final.
 //!
-//! The reference is whatever class 2 the file carries (for PNOA sheets, the producer's
-//! classification, itself not free of errors): the numbers measure agreement with it, not truth.
+//! La referencia es la clase 2 que lleve el archivo (para hojas PNOA, la clasificación del
+//! productor, que tampoco está libre de errores): los números miden la concordancia con ella, no la
+//! verdad.
 
 use std::time::Instant;
 
@@ -32,8 +35,8 @@ type Filter = (
     Box<dyn Fn(&Points) -> hipso_core::Result<Vec<bool>>>,
 );
 
-/// The filters, with their default parameters or (`spacing`: the point spacing in metres) with the
-/// scales that depend on it set to it, the same for every sample: no tuning to any one.
+/// Los filtros, con sus parámetros por defecto o (`spacing`: el espaciado de puntos en metros) con
+/// las escalas que dependen de él fijadas en él, igual para cada muestra: sin ajuste a ninguna.
 fn filters(spacing: Option<f64>, axelsson_flat: Option<f64>) -> Vec<Filter> {
     let sp = spacing.unwrap_or(0.0);
     let cell = |d: f64| if sp > 0.0 { sp } else { d };
@@ -203,7 +206,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .iter()
             .map(|q| q.class == 2 && !q.is_noise())
             .collect();
-        // class 12 (overlap between flight lines) carries no ground reference: left out
+        // la clase 12 (solape entre pasadas) no lleva referencia de suelo: se deja fuera
         let valid: Vec<bool> = w
             .pts
             .iter()
@@ -221,7 +224,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for (fi, (label, run)) in list.iter().enumerate() {
             let t = Instant::now();
             let pred = if use_elm {
-                // low noise out first (class 7: the filters leave it out), as the pipeline can
+                // primero el ruido bajo fuera (clase 7: los filtros lo dejan fuera), como puede
+                // hacer la tubería
                 let flags = hipso_core::noise::elm(&w.pts, 10.0, 3.0);
                 let mut clean = Points::new(w.pts.clone());
                 for (q, f) in clean.pts.iter_mut().zip(&flags) {

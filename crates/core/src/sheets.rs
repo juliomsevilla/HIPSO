@@ -1,7 +1,7 @@
-//! Work on a set of loaded sheets (tiles of a flight, delivery blocks): each sheet is processed
-//! on its own and gets its own result, one after another, so a large set never has to fit in
-//! memory at once and one failing sheet stands out. A mosaic of the results is made only when
-//! asked for.
+//! Trabajo sobre un conjunto de hojas cargadas (teselas de un vuelo, bloques de una entrega): cada
+//! hoja se procesa por sí sola y recibe su propio resultado, una tras otra, de modo que un conjunto
+//! grande nunca tiene que caber en memoria a la vez y una hoja que falla destaca. Un mosaico de los
+//! resultados se hace solo cuando se pide.
 
 use std::path::{Path, PathBuf};
 
@@ -9,19 +9,19 @@ use crate::jobs::{self, ChmJob, ClassifyJob, DsmJob, DtmJob, MetricsJob};
 use crate::pipeline::{Steps, Tiling};
 use crate::{Error, Result};
 
-/// How overlapping cells of two sheets are combined in a mosaic.
+/// Cómo se combinan las celdas solapadas de dos hojas en un mosaico.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Overlap {
-    /// The higher value (canopy models).
+    /// El valor mayor (modelos de copas).
     Max,
-    /// The first sheet's value (terrain models).
+    /// El valor de la primera hoja (modelos del terreno).
     First,
 }
 
-/// Joins rasters on the same cell size into one. It is made in strips of rows: only the strip
-/// being written and the sheets that touch it are in memory, so a mosaic of hundreds of sheets
-/// (hundreds of millions of cells) needs no more memory than a few sheets do. Sheets in another
-/// coordinate system are moved to the one of the first before they are joined.
+/// Une rásteres del mismo tamaño de celda en uno. Se hace en franjas de filas: solo están en
+/// memoria la franja que se escribe y las hojas que la tocan, de modo que un mosaico de cientos de
+/// hojas (cientos de millones de celdas) no necesita más memoria que unas pocas hojas. Las hojas en
+/// otro sistema de coordenadas se llevan al de la primera antes de unirlas.
 pub fn mosaic(paths: &[PathBuf], output: &Path, how: Overlap, _epsg: Option<u16>) -> Result<()> {
     use crate::rastertools::{self, RasterJob, Source};
     if paths.is_empty() {
@@ -48,7 +48,8 @@ pub fn mosaic(paths: &[PathBuf], output: &Path, how: Overlap, _epsg: Option<u16>
     Ok(())
 }
 
-/// Joins 8-bit images whose empty pixels are 0 into one, taking the mean where they overlap.
+/// Une imágenes de 8 bits cuyos píxeles vacíos son 0 en una sola, tomando la media donde se
+/// solapan.
 pub fn mosaic_image(paths: &[PathBuf], output: &Path) -> Result<()> {
     use crate::rastertools::{self, Dtype, RasterJob, Source};
     if paths.is_empty() {
@@ -84,10 +85,10 @@ fn check_neighbors(neighbors: f64) -> Result<()> {
     }
 }
 
-/// Finds the ground model of a sheet.
+/// Halla el modelo del suelo de una hoja.
 type GroundFor<'a> = &'a dyn Fn(&Path) -> Result<PathBuf>;
 
-/// A folder of temporary files, deleted with everything in it when dropped.
+/// Una carpeta de archivos temporales, borrada con todo lo que contiene al soltarla.
 struct Scratch(PathBuf);
 
 impl Drop for Scratch {
@@ -96,21 +97,21 @@ impl Drop for Scratch {
     }
 }
 
-/// The headers of the sheets of a run, to tell which sheets are neighbours, and the strips of
-/// each sheet that its neighbours need.
+/// Las cabeceras de las hojas de una ejecución, para saber qué hojas son vecinas, y las franjas de
+/// cada hoja que necesitan sus vecinas.
 struct Block {
     cat: crate::catalog::Catalog,
     entries: std::sync::Arc<Vec<crate::catalog::Entry>>,
-    /// For each sheet, small files with the points of its neighbours within `margin` of it.
+    /// Para cada hoja, archivos pequeños con los puntos de sus vecinas a menos de `margin` de ella.
     strips: Vec<Vec<PathBuf>>,
     _scratch: Option<Scratch>,
 }
 
 impl Block {
-    /// Catalogues the sheets and cuts, from every sheet, the strips its neighbours within
-    /// `margin` metres need, in one pass over each sheet. A sheet then works with a few small
-    /// files of context and not with whole neighbouring sheets, which would have to be read and
-    /// decompressed again for each of its (up to eight) neighbours.
+    /// Cataloga las hojas y corta, de cada hoja, las franjas que necesitan sus vecinas a menos de
+    /// `margin` metros, en una pasada sobre cada hoja. Una hoja trabaja entonces con unos pocos
+    /// archivos pequeños de contexto y no con hojas vecinas enteras, que habría que leer y
+    /// descomprimir de nuevo por cada una de sus (hasta ocho) vecinas.
     fn of(inputs: &[PathBuf], margin: f64) -> Result<Self> {
         let cat = crate::catalog::catalog(inputs)?;
         let entries = std::sync::Arc::new(cat.entries.clone());
@@ -130,7 +131,7 @@ impl Block {
             if near.is_empty() {
                 continue;
             }
-            // a sheet that cannot be read is reported when it is processed, not here
+            // una hoja que no se puede leer se comunica cuando se procesa, no aquí
             let Ok(reader) = crate::las::Reader::open(&e.path) else {
                 continue;
             };
@@ -161,7 +162,7 @@ impl Block {
                 }
                 Ok(())
             });
-            // a truncated sheet gives the strips it gave before it failed
+            // una hoja truncada da las franjas que dio antes de fallar
             if let Err(Error::Cancelled) = cut {
                 return Err(Error::Cancelled);
             }
@@ -180,7 +181,7 @@ impl Block {
         })
     }
 
-    /// The files with the points around sheet `k` that its neighbours hold.
+    /// Los archivos con los puntos alrededor de la hoja `k` que guardan sus vecinas.
     fn context(&self, k: usize) -> Vec<PathBuf> {
         self.strips[k].clone()
     }
@@ -193,9 +194,10 @@ impl Block {
             .ok_or_else(|| Error::Param("la cabecera de la hoja no se pudo leer".into()))
     }
 
-    /// The context of a surface (DSM or CHM) of sheet `input`: the neighbours within `neighbors`
-    /// metres and, when `strip` (the highest-point methods), their points near the sheet instead of
-    /// the whole neighbouring files. `dtm_for` gives the neighbours' ground models for a CHM.
+    /// El contexto de una superficie (MDS o CHM) de la hoja `input`: las vecinas a menos de
+    /// `neighbors` metros y, cuando `strip` (los métodos del punto más alto), sus puntos cerca de
+    /// la hoja en lugar de los archivos vecinos enteros. `dtm_for` da los modelos del suelo de las
+    /// vecinas para un CHM.
     fn surface_context(
         &self,
         input: &Path,
@@ -246,7 +248,7 @@ impl Block {
         }
         let halo =
             crate::catalog::halo_points(&self.context(k), self.entries[k].footprint(), cell)?;
-        // the ground models of the neighbours that have one
+        // los modelos del suelo de las vecinas que tienen uno
         let ground_around = near
             .iter()
             .filter_map(|&j| dtm_for(&self.entries[j].path).ok())
@@ -266,9 +268,10 @@ impl Block {
     }
 }
 
-/// Runs `work` on every sheet. A sheet that fails (a truncated file, say) is noted and the rest
-/// go on, so that hours of work are not lost for one bad file; only a cancel stops the run. Gives
-/// the lines of the sheets that went well and the sheets that failed, with the reason.
+/// Ejecuta `work` sobre cada hoja. Una hoja que falla (un archivo truncado, por ejemplo) se anota y
+/// las demás siguen, de modo que no se pierden horas de trabajo por un mal archivo; solo una
+/// cancelación detiene la ejecución. Da las líneas de las hojas que fueron bien y las hojas que
+/// fallaron, con el motivo.
 fn each_sheet<T>(
     inputs: &[PathBuf],
     mut work: impl FnMut(&Path) -> Result<(String, T)>,
@@ -292,12 +295,12 @@ fn each_sheet<T>(
     Ok((lines, done, failed))
 }
 
-/// The result of a sheet's job; a failure takes away the output it left half written, which would
-/// pass for a good one (and be read by the next step).
+/// El resultado del trabajo de una hoja; un fallo se lleva la salida que dejó a medio escribir, que
+/// pasaría por buena (y la leería el paso siguiente).
 fn or_clean<T>(r: Result<T>, output: &Path) -> Result<T> {
     if r.is_err() {
         let _ = std::fs::remove_file(output);
-        // a shapefile is several files: the rest of this one go too
+        // un shapefile son varios archivos: los demás de este también se van
         if output.extension().is_some_and(|e| e.eq_ignore_ascii_case("shp")) {
             let stem = crate::paths::stem(output);
             for ext in ["dbf", "shx", "prj", "cpg"] {
@@ -309,8 +312,8 @@ fn or_clean<T>(r: Result<T>, output: &Path) -> Result<T> {
     r
 }
 
-/// Ends a run over sheets: the failures, if any, make it an error once everything that could be
-/// done is done.
+/// Termina una ejecución sobre hojas: los fallos, si los hay, la convierten en un error una vez
+/// hecho todo lo que se podía hacer.
 fn close_run(mut lines: Vec<String>, failed: Vec<String>, total: usize) -> Result<String> {
     if failed.is_empty() {
         return Ok(lines.join("\n"));
@@ -324,7 +327,7 @@ fn close_run(mut lines: Vec<String>, failed: Vec<String>, total: usize) -> Resul
     )))
 }
 
-/// The joined raster of the sheets that went well, when asked for and there is more than one.
+/// El ráster unido de las hojas que fueron bien, cuando se pide y hay más de una.
 fn join_done(
     files: &mut Vec<PathBuf>,
     lines: &mut Vec<String>,
@@ -341,11 +344,12 @@ fn join_done(
     Ok(())
 }
 
-/// Classifies every sheet separately; each gets the path `out_for` gives it. With `neighbors`
-/// (metres) the sheets that close to one are read as context: the ground, noise and building
-/// filters see what lies across the edge (a building cut by the edge is not taken for ground),
-/// and only the points of the sheet are classified and written. The tiles' buffer (30 m by
-/// default) is what the filters look across, so `neighbors` need not be more than that.
+/// Clasifica cada hoja por separado; cada una recibe la ruta que le da `out_for`. Con `neighbors`
+/// (metros), las hojas que están a esa distancia de una se leen como contexto: los filtros de
+/// suelo, ruido y edificios ven lo que hay al otro lado del borde (un edificio cortado por el borde
+/// no se toma por suelo), y solo se clasifican y escriben los puntos de la hoja. El margen de las
+/// teselas (30 m por defecto) es lo que miran los filtros al otro lado, así que `neighbors` no
+/// necesita ser mayor que eso.
 pub fn classify_each(
     inputs: &[PathBuf],
     out_for: &dyn Fn(&Path) -> PathBuf,
@@ -382,11 +386,11 @@ pub fn classify_each(
     close_run(lines, failed, inputs.len())
 }
 
-/// One DTM per sheet; with `mosaic_to`, also one joined DTM. Returns the summary and the files.
-/// With `neighbors` (metres), the neighbours within that distance are read as context: the
-/// triangulation sees their points as far as the tiles' buffer reaches, and only the sheet's own
-/// extent is made, so the edges are the ones the whole block would have given and the sheets'
-/// DTMs join without a seam.
+/// Un MDT por hoja; con `mosaic_to`, también un MDT unido. Devuelve el resumen y los archivos. Con
+/// `neighbors` (metros), las vecinas a esa distancia se leen como contexto: la triangulación ve sus
+/// puntos hasta donde llega el margen de las teselas, y solo se hace la propia extensión de la
+/// hoja, de modo que los bordes son los que habría dado todo el bloque y los MDT de las hojas se
+/// unen sin costura.
 pub fn dtm_each(
     inputs: &[PathBuf],
     base: &DtmJob,
@@ -416,11 +420,11 @@ pub fn dtm_each(
     Ok((close_run(lines, failed, inputs.len())?, files))
 }
 
-/// One DSM per sheet; optionally a joined DSM. With `neighbors` (metres) each sheet is made with
-/// the sheets that close to it and cut to its own extent, so the triangulation, the filling of
-/// empty cells and the smoothing have no seam at its edges. The highest point of a cell has no
-/// edge to speak of: with that method and neither filling nor smoothing `neighbors` changes
-/// nothing and is not used.
+/// Un MDS por hoja; opcionalmente un MDS unido. Con `neighbors` (metros) cada hoja se hace con las
+/// hojas que están a esa distancia y se recorta a su propia extensión, de modo que la
+/// triangulación, el relleno de celdas vacías y el suavizado no tienen costura en sus bordes. El
+/// punto más alto de una celda no tiene borde del que hablar: con ese método y sin relleno ni
+/// suavizado `neighbors` no cambia nada y no se usa.
 pub fn dsm_each(
     inputs: &[PathBuf],
     base: &DsmJob,
@@ -452,8 +456,8 @@ pub fn dsm_each(
     Ok((close_run(lines, failed, inputs.len())?, files))
 }
 
-/// One CHM per sheet, each over the DTM `dtm_for` finds for it; optionally a joined CHM. With
-/// `neighbors`, as [`dsm_each`], and the neighbours' DTMs give the ground under their points.
+/// Un CHM por hoja, cada uno sobre el MDT que le halla `dtm_for`; opcionalmente un CHM unido. Con
+/// `neighbors`, como [`dsm_each`], y los MDT de las vecinas dan el suelo bajo sus puntos.
 pub fn chm_each(
     inputs: &[PathBuf],
     base: &ChmJob,
@@ -490,12 +494,13 @@ pub fn chm_each(
     Ok((close_run(lines, failed, inputs.len())?, files))
 }
 
-/// Metrics by cell, one result per sheet. The cells are aligned to multiples of the cell size, so
-/// the edge of a sheet usually falls in the middle of a cell, and without `neighbors` that cell is
-/// in the tables of both sheets with half its points each. With `neighbors` (a distance in metres,
-/// at least one cell is used) each sheet takes the points of its neighbours into the cells at its
-/// edge and writes only the cells it owns (see [`crate::catalog::owner_of`]): every cell of the
-/// block comes out once, as if the block were one file.
+/// Métricas por celda, un resultado por hoja. Las celdas se alinean a múltiplos del tamaño de
+/// celda, de modo que el borde de una hoja suele caer en medio de una celda, y sin `neighbors` esa
+/// celda está en las tablas de ambas hojas con la mitad de sus puntos cada una. Con `neighbors`
+/// (una distancia en metros; se usa al menos una celda) cada hoja toma los puntos de sus vecinas en
+/// las celdas de su borde y escribe solo las celdas que le pertenecen (véase
+/// [`crate::catalog::owner_of`]): cada celda del bloque sale una vez, como si el bloque fuera un
+/// solo archivo.
 pub fn metrics_each(
     inputs: &[PathBuf],
     base: &MetricsJob,
@@ -571,7 +576,7 @@ mod tests {
         assert!(failed[0].contains("bad.laz") && failed[0].contains("[2/3]"));
         let e = close_run(lines, failed, 3).unwrap_err().to_string();
         assert!(e.contains("1 de 3") && e.contains("bad.laz"), "{e}");
-        // a cancel does stop the run
+        // una cancelación sí detiene la ejecución
         let r = each_sheet(&inputs, |_| -> Result<(String, ())> { Err(Error::Cancelled) });
         assert!(matches!(r, Err(Error::Cancelled)));
     }

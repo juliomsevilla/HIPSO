@@ -1,6 +1,6 @@
-//! A small JSON reader for the files HIPSO meets (GeoJSON layers): objects, arrays, numbers,
-//! strings with their escapes, booleans and null. Nesting is limited, so a hostile file cannot
-//! exhaust the stack.
+//! Un pequeño lector de JSON para los archivos que encuentra HIPSO (capas GeoJSON): objetos,
+//! matrices, números, cadenas con sus escapes, booleanos y nulo. El anidamiento está limitado, de
+//! modo que un archivo hostil no puede agotar la pila.
 
 use crate::{Error, Result};
 
@@ -11,7 +11,7 @@ pub enum Json {
     Num(f64),
     Str(String),
     Arr(Vec<Json>),
-    /// Members in file order.
+    /// Miembros en el orden del archivo.
     Obj(Vec<(String, Json)>),
 }
 
@@ -227,7 +227,7 @@ impl Parser<'_> {
     }
 }
 
-/// `s` as a JSON string, quotes included.
+/// `s` como cadena JSON, comillas incluidas.
 pub fn quote(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');

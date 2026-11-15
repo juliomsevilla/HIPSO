@@ -1,6 +1,6 @@
-//! The common raster formats that are not GeoTIFF or JPEG 2000: PNG and JPEG with a world file,
-//! ENVI and ESRI binary rasters with their `.hdr`, and SRTM `.hgt` elevation tiles. They are read
-//! whole into memory (they are small next to an aerial orthophoto) and served as an [`Image`].
+//! Los formatos ráster habituales que no son GeoTIFF ni JPEG 2000: PNG y JPEG con archivo de
+//! coordenadas, rásteres binarios ENVI y ESRI con su `.hdr` y teselas de elevación SRTM `.hgt`. Se
+//! leen enteros en memoria (son pequeños frente a una ortofoto aérea) y se sirven como [`Image`].
 
 use std::fs::File;
 use std::io::{BufReader, Cursor, Read};
@@ -9,11 +9,11 @@ use std::path::{Path, PathBuf};
 use crate::raster::Image;
 use crate::{Error, Result};
 
-/// A raster read into memory with what the file says about its system.
+/// Un ráster leído en memoria con lo que dice el archivo de su sistema.
 pub struct Loaded {
     pub image: Image,
     pub epsg: Option<u16>,
-    /// Bits of each sample.
+    /// Bits de cada muestra.
     pub bits: u8,
 }
 
@@ -27,13 +27,13 @@ fn ext_of(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// What kind of file this is, by its first bytes and its name.
+/// De qué tipo es un archivo, por sus primeros bytes y su nombre.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
     Png,
     Jpeg,
     Hgt,
-    /// A flat binary raster whose `.hdr` describes it (ENVI or ESRI).
+    /// Un ráster binario plano que describe su `.hdr` (ENVI o ESRI).
     Binary,
 }
 
@@ -69,7 +69,7 @@ fn header_of(path: &Path) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// Reads the raster if it is one of these formats; `None` when it is not.
+/// Lee el ráster si es de uno de estos formatos; `None` cuando no lo es.
 pub fn load(path: &Path) -> Result<Option<Loaded>> {
     Ok(Some(match kind_of(path) {
         Some(Kind::Png) => load_png(path)?,
@@ -80,9 +80,11 @@ pub fn load(path: &Path) -> Result<Option<Loaded>> {
     }))
 }
 
-// ------------------------------------------------------------------------------------ world file
+// ------------------------------------------------------------------------------------ archivo de
+// coordenadas
 
-/// The pixel grid a world file gives: west edge, north edge and cell size.
+/// La rejilla de píxeles que da un archivo de coordenadas: borde oeste, borde norte y tamaño de
+/// celda.
 fn world_file(path: &Path, exts: &[&str]) -> Result<(f64, f64, f64)> {
     let file = exts
         .iter()
@@ -120,7 +122,7 @@ fn world_file(path: &Path, exts: &[&str]) -> Result<(f64, f64, f64)> {
             e.abs()
         )));
     }
-    // the file gives the centre of the upper-left pixel
+    // el archivo da el centro del píxel superior izquierdo
     Ok((c - a.abs() / 2.0, f + e.abs() / 2.0, a.abs()))
 }
 
@@ -148,7 +150,7 @@ fn image_from(
     }
 }
 
-/// Splits interleaved samples into one vector per band.
+/// Divide las muestras entrelazadas en un vector por banda.
 fn deinterleave(raw: impl Iterator<Item = f32>, n: usize, nb: usize) -> Vec<Vec<f32>> {
     let mut bands = vec![Vec::with_capacity(n); nb];
     for (i, v) in raw.enumerate() {
@@ -177,7 +179,7 @@ fn load_png(path: &Path) -> Result<Loaded> {
     let (color, depth) = reader.output_color_type();
     let (cols, rows) = (info.width as usize, info.height as usize);
     let nb_all = color.samples();
-    // an alpha channel is not a band
+    // un canal alfa no es una banda
     let nb = match color {
         png::ColorType::GrayscaleAlpha => 1,
         png::ColorType::Rgba => 3,
@@ -237,8 +239,8 @@ fn load_jpeg(path: &Path) -> Result<Loaded> {
 
 // ------------------------------------------------------------------------------------------ HGT
 
-/// SRTM tiles: big-endian 16-bit metres, 1201 or 3601 samples a side, the name giving the
-/// south-west corner (`N37W006.hgt`).
+/// Teselas SRTM: metros de 16 bits big-endian, 1201 o 3601 muestras por lado, con el nombre dando
+/// la esquina suroeste (`N37W006.hgt`).
 fn load_hgt(path: &Path) -> Result<Loaded> {
     let data = std::fs::read(path)?;
     let side = match data.len() {
@@ -278,7 +280,8 @@ fn load_hgt(path: &Path) -> Result<Loaded> {
         1.0
     };
     let (west, south) = (lon_sign * lon, lat_sign * lat);
-    // samples sit on the degree lines: the tile spans one degree between the first and last
+    // las muestras están sobre las líneas de grado: la tesela abarca un grado entre la primera y la
+    // última
     let cell = 1.0 / (side - 1) as f64;
     let band: Vec<f32> = data
         .as_chunks::<2>()
@@ -310,13 +313,13 @@ struct Header {
     cols: usize,
     rows: usize,
     bands: usize,
-    /// ENVI data type code.
+    /// Código de tipo de datos de ENVI.
     dtype: u32,
     interleave: String,
     big_endian: bool,
     offset: usize,
     nodata: Option<f64>,
-    /// West edge, north edge, cell size.
+    /// Borde oeste, borde norte, tamaño de celda.
     grid: Option<(f64, f64, f64)>,
     epsg: Option<u16>,
 }
@@ -329,7 +332,7 @@ fn parse_header(path: &Path) -> Result<Header> {
         ..Header::default()
     };
     let esri = !text.trim_start().to_ascii_uppercase().starts_with("ENVI");
-    // `key = value`; a value in braces may run over several lines
+    // `clave = valor`; un valor entre llaves puede ocupar varias líneas
     let mut pairs: Vec<(String, String)> = Vec::new();
     let mut lines = text.lines();
     while let Some(line) = lines.next() {
@@ -404,7 +407,7 @@ fn parse_header(path: &Path) -> Result<Header> {
                 if (px - py).abs() > 1e-6 * px {
                     return Err(Error::Unsupported("ENVI: píxeles no cuadrados".into()));
                 }
-                // the reference pixel is 1-based and its corner is meant
+                // el píxel de referencia empieza en 1 y se refiere a su esquina
                 h.grid = Some((ex - (rx - 1.0) * px, ny + (ry - 1.0) * px, px));
                 let kind = f
                     .first()
@@ -605,7 +608,7 @@ mod tests {
     fn envi_bil_with_map_info() -> Result<()> {
         let dir = scratch("envi");
         let p = dir.join("a.bil");
-        // 2 columns, 2 rows, 2 bands, 16-bit little-endian, line-interleaved
+        // 2 columnas, 2 filas, 2 bandas, 16 bits little-endian, entrelazado por líneas
         let vals: [i16; 8] = [1, 2, 10, 20, 3, 4, 30, 40];
         std::fs::write(
             &p,

@@ -1,0 +1,69 @@
+{
+ "hipso_modelo": 1,
+ "results": "",
+ "nodes": [
+  {
+   "id": "n1",
+   "label": "Nube del emplazamiento",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n2",
+   "label": "Superficie",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "dsm",
+   "args": {
+    "cell": [
+     "0.5"
+    ]
+   }
+  },
+  {
+   "id": "n3",
+   "label": "Contornos de las pilas",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n4",
+   "label": "Volúmenes",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "piles",
+   "args": {
+    "base": [
+     "lowest"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": "n1",
+   "to": "n2",
+   "port": "inputs"
+  },
+  {
+   "from": "n2",
+   "to": "n4",
+   "port": "surface"
+  },
+  {
+   "from": "n3",
+   "to": "n4",
+   "port": "piles"
+  }
+ ]
+}

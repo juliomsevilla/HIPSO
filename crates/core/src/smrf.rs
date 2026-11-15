@@ -1,28 +1,30 @@
-//! Simple Morphological Filter for ground points (Pingel, Clarke & McBride 2013, "An improved
-//! simple morphological filter for the terrain classification of airborne LIDAR data").
+//! Filtro morfológico simple para puntos de suelo (Pingel, Clarke y McBride 2013, «An improved
+//! simple morphological filter for the terrain classification of airborne LIDAR data»).
 //!
-//! On a grid of the lowest point per cell, openings with windows that grow one cell at a time
-//! flag the cells that drop by more than the terrain slope allows for that window: they are
-//! objects (trees, buildings, cars). The rest, filled where empty, is a provisional ground
-//! surface, and a point is ground when it lies within a threshold of it, a threshold that grows
-//! with the slope of the surface. Every opening costs O(cells), whatever the window. Works in
-//! memory: run it on tiles.
+//! Sobre una rejilla del punto más bajo por celda, las aperturas con ventanas que crecen una celda
+//! cada vez marcan las celdas que bajan más de lo que permite la pendiente del terreno para esa
+//! ventana: son objetos (árboles, edificios, coches). El resto, rellenado donde está vacío, es una
+//! superficie provisional de suelo, y un punto es suelo cuando está a menos de un umbral de ella,
+//! un umbral que crece con la pendiente de la superficie. Cada apertura cuesta O(celdas), sea cual
+//! sea la ventana. Funciona en memoria: ejecútese sobre teselas.
 
 use crate::grid::Grid;
 use crate::las::Point;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SmrfParams {
-    /// Cell of the surfaces, in map units (about the point spacing of the lowest returns).
+    /// Celda de las superficies, en unidades del mapa (aproximadamente el espaciado de los retornos
+    /// más bajos).
     pub cell: f64,
-    /// Largest window radius in map units: bigger than the biggest building.
+    /// Mayor radio de ventana en unidades del mapa: mayor que el edificio más grande.
     pub max_window: f64,
-    /// The steepest slope (rise over run) of the terrain: how much a cell may drop between the
-    /// surface and its opening before it counts as an object.
+    /// La pendiente más empinada (subida sobre recorrido) del terreno: cuánto puede bajar una celda
+    /// entre la superficie y su apertura antes de contar como objeto.
     pub slope: f64,
-    /// Elevation threshold between a point and the provisional surface, in map units.
+    /// Umbral de elevación entre un punto y la superficie provisional, en unidades del mapa.
     pub threshold: f64,
-    /// Added to the threshold per unit of slope of the surface (the paper's elevation scalar).
+    /// Se suma al umbral por unidad de pendiente de la superficie (el escalar de elevación del
+    /// artículo).
     pub scalar: f64,
 }
 
@@ -38,8 +40,8 @@ impl Default for SmrfParams {
     }
 }
 
-/// The minimum or maximum of the window of `2 r + 1` cells around each cell, along rows, by the
-/// van Herk / Gil-Werman algorithm: O(cells) whatever `r`.
+/// El mínimo o máximo de la ventana de `2 r + 1` celdas alrededor de cada celda, a lo largo de las
+/// filas, por el algoritmo de van Herk / Gil-Werman: O(celdas) sea cual sea `r`.
 fn running(data: &[f32], cols: usize, rows: usize, r: usize, max: bool, out: &mut [f32]) {
     let w = 2 * r + 1;
     let pick = |a: f32, b: f32| if max { a.max(b) } else { a.min(b) };
@@ -48,7 +50,7 @@ fn running(data: &[f32], cols: usize, rows: usize, r: usize, max: bool, out: &mu
     for row in 0..rows {
         let line = &data[row * cols..(row + 1) * cols];
         let n = cols + 2 * r;
-        // the line padded by r cells of its edge value at each end
+        // la línea rellenada con `r` celdas de su valor de borde en cada extremo
         let at = |i: usize| line[i.saturating_sub(r).min(cols - 1)];
         g.resize(n.div_ceil(w) * w, 0.0);
         h.resize(g.len(), 0.0);
@@ -65,7 +67,7 @@ fn running(data: &[f32], cols: usize, rows: usize, r: usize, max: bool, out: &mu
             };
         }
         for x in 0..cols {
-            // window of padded cells x ..= x + 2 r
+            // ventana de celdas rellenadas x ..= x + 2 r
             out[row * cols + x] = pick(h[x], g[x + 2 * r]);
         }
     }
@@ -81,7 +83,7 @@ fn transpose(data: &[f32], cols: usize, rows: usize) -> Vec<f32> {
     t
 }
 
-/// A square window of radius `r` cells, the minimum (erosion) or the maximum (dilation).
+/// Una ventana cuadrada de radio `r` celdas, el mínimo (erosión) o el máximo (dilatación).
 fn window(data: &[f32], cols: usize, rows: usize, r: usize, max: bool) -> Vec<f32> {
     let mut a = vec![0f32; data.len()];
     running(data, cols, rows, r, max, &mut a);
@@ -91,8 +93,8 @@ fn window(data: &[f32], cols: usize, rows: usize, r: usize, max: bool) -> Vec<f3
     transpose(&b, rows, cols)
 }
 
-/// Fills the empty (NaN) cells with the value of the nearest valued cell, by two sweeps over the
-/// grid: O(cells).
+/// Rellena las celdas vacías (NaN) con el valor de la celda con valor más cercana, con dos barridos
+/// sobre la rejilla: O(celdas).
 fn fill_nearest(v: &mut [f32], cols: usize, rows: usize) {
     if v.iter().all(|x| x.is_nan()) {
         return;
@@ -133,7 +135,7 @@ fn fill_nearest(v: &mut [f32], cols: usize, rows: usize) {
     }
 }
 
-/// Cells where progressively larger openings of `z` drop by more than the slope allows.
+/// Celdas donde aperturas progresivamente mayores de `z` bajan más de lo que permite la pendiente.
 fn objects(
     z: &[f32],
     cols: usize,
@@ -167,7 +169,8 @@ fn objects(
     obj
 }
 
-/// The slope (rise over run) of a surface at each cell, by central differences.
+/// La pendiente (subida sobre recorrido) de una superficie en cada celda, por diferencias
+/// centrales.
 fn slope_of(z: &[f32], cols: usize, rows: usize, cell: f64) -> Vec<f32> {
     let mut out = vec![0f32; z.len()];
     let at = |r: usize, c: usize| z[r * cols + c];
@@ -183,7 +186,7 @@ fn slope_of(z: &[f32], cols: usize, rows: usize, cell: f64) -> Vec<f32> {
     out
 }
 
-/// Which points are ground. Noise and withheld points are never ground and take no part.
+/// Qué puntos son suelo. El ruido y los puntos retenidos nunca son suelo y no participan.
 pub fn ground(pts: &[Point], p: &SmrfParams) -> Vec<bool> {
     let none = vec![false; pts.len()];
     if !(p.cell > 0.0) || !(p.max_window > 0.0) || pts.is_empty() {
@@ -202,7 +205,7 @@ pub fn ground(pts: &[Point], p: &SmrfParams) -> Vec<bool> {
         return none;
     };
     let (cols, rows) = (base.cols, base.rows);
-    // the lowest point of each cell (rows run north to south in a Grid, as here)
+    // el punto más bajo de cada celda (las filas van de norte a sur en una Grid, como aquí)
     let mut zmin = vec![f32::NAN; cols * rows];
     let cell_of: Vec<Option<usize>> = pts
         .iter()
@@ -224,11 +227,13 @@ pub fn ground(pts: &[Point], p: &SmrfParams) -> Vec<bool> {
     }
     let mut z = zmin.clone();
     fill_nearest(&mut z, cols, rows);
-    // low outliers: a single cell far below its neighbours, found on the inverted surface
+    // valores atípicos bajos: una sola celda muy por debajo de sus vecinas, hallada en la
+    // superficie invertida
     let neg: Vec<f32> = z.iter().map(|v| -v).collect();
     let low = objects(&neg, cols, rows, p.cell, 5.0, p.cell);
     let obj = objects(&z, cols, rows, p.cell, p.slope, p.max_window);
-    // the provisional surface: the minimum surface without objects and low outliers, filled
+    // la superficie provisional: la superficie mínima sin objetos ni valores atípicos bajos,
+    // rellenada
     let mut prov = zmin;
     for k in 0..prov.len() {
         if obj[k] || low[k] {
@@ -264,8 +269,8 @@ mod tests {
         }
     }
 
-    /// A 120 m square on a 10 % slope, a 20 x 20 m building 8 m high, a 3 m tree, a low spike,
-    /// and no ground points under the building.
+    /// Un cuadrado de 120 m en una pendiente del 10 %, un edificio de 20 x 20 m de 8 m de alto, un
+    /// árbol de 3 m, un pico bajo y ningún punto de suelo bajo el edificio.
     fn scene() -> (Vec<Point>, Vec<&'static str>) {
         let mut pts = Vec::new();
         let mut what = Vec::new();
@@ -302,16 +307,16 @@ mod tests {
                 .count()
         };
         let total = |kind: &str| what.iter().filter(|w| **w == kind).count();
-        // nearly all the ground is found (the edge of the building may cost a few cells)
+        // casi todo el suelo se encuentra (el borde del edificio puede costar unas pocas celdas)
         assert!(
             count("ground", true) as f64 > 0.99 * total("ground") as f64,
             "{}",
             count("ground", true)
         );
-        // the building and the tree are not ground
+        // el edificio y el árbol no son suelo
         assert_eq!(count("building", true), 0);
         assert_eq!(count("tree", true), 0);
-        // nor is the low spike
+        // tampoco lo es el pico bajo
         assert_eq!(count("spike", true), 0);
     }
 

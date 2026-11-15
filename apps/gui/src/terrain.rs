@@ -1,5 +1,5 @@
-//! Terrain analysis (Superficies): slope, aspect, hillshade, curvatures, roughness, TRI, TPI,
-//! depressions, flow accumulation, wetness, streams, subbasins and viewshed of a DTM.
+//! Análisis del terreno (Superficies): pendiente, orientación, sombreado, curvaturas, rugosidad,
+//! TRI, TPI, depresiones, flujo acumulado, humedad, cauces, subcuencas y cuenca visual de un MDT.
 
 use super::*;
 use crate::numfield::NumField;
@@ -15,7 +15,7 @@ pub struct TerrainTool {
     pub azimuth: f64,
     pub altitude: f64,
     pub radius: f64,
-    /// Drained area that makes a stream, hectares.
+    /// Superficie drenada que forma un cauce, hectáreas.
     pub threshold_ha: f64,
     pub observer_x: String,
     pub observer_y: String,
@@ -26,7 +26,7 @@ pub struct TerrainTool {
 }
 
 impl TerrainTool {
-    /// The window of one product, with its own settings.
+    /// La ventana de un producto, con sus propios ajustes.
     pub fn new(product: Product) -> Self {
         Self {
             open: false,
@@ -91,7 +91,7 @@ fn help(p: Product) -> &'static str {
 }
 
 impl App {
-    /// The windows of the terrain products: each one opens its own.
+    /// Las ventanas de los productos del terreno: cada una abre la suya.
     pub fn terrain_windows(&mut self, ctx: &egui::Context) {
         for i in 0..self.tt.len() {
             self.terrain_window(ctx, i);

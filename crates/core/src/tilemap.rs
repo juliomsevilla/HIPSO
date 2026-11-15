@@ -1,16 +1,17 @@
-//! The arithmetic of web map tiles (the XYZ scheme of OpenStreetMap, the IGN and most other
-//! providers): which tiles cover an area, and where each one lies in Web Mercator metres.
+//! La aritmética de las teselas de mapa web (el esquema XYZ de OpenStreetMap, el IGN y la mayoría
+//! de los demás proveedores): qué teselas cubren un área y dónde está cada una en metros de Web
+//! Mercator.
 
-/// Half the width of the world in Web Mercator (EPSG:3857) metres.
+/// La mitad del ancho del mundo en metros de Web Mercator (EPSG:3857).
 pub const HALF_WORLD: f64 = 20_037_508.342_789_244;
 
-/// The side of a tile in pixels.
+/// El lado de una tesela en píxeles.
 pub const TILE_PX: f64 = 256.0;
 
-/// A tile: zoom, column from the west, row from the north.
+/// Una tesela: zoom, columna desde el oeste, fila desde el norte.
 pub type Tile = (u8, u32, u32);
 
-/// The tile extent in Web Mercator metres: min x, min y, max x, max y.
+/// La extensión de la tesela en metros de Web Mercator: x mínima, y mínima, x máxima, y máxima.
 pub fn extent(z: u8, x: u32, y: u32) -> [f64; 4] {
     let n = f64::from(1u32 << z.min(30));
     let side = 2.0 * HALF_WORLD / n;
@@ -21,9 +22,9 @@ pub fn extent(z: u8, x: u32, y: u32) -> [f64; 4] {
     [x0, y1 - side, x0 + side, y1]
 }
 
-/// The zoom whose tiles have about one pixel per screen pixel when the view shows
-/// `metres_per_pixel` Web Mercator metres in each, never beyond `max_zoom`. A little coarser is
-/// preferred to a little finer: fewer tiles, and the screen scales them down well.
+/// El zoom cuyas teselas tienen aproximadamente un píxel por píxel de pantalla cuando la vista
+/// muestra `metres_per_pixel` metros de Web Mercator en cada uno, nunca más allá de `max_zoom`. Se
+/// prefiere algo más grueso a algo más fino: menos teselas, y la pantalla las reduce bien.
 pub fn zoom_for(metres_per_pixel: f64, max_zoom: u8) -> u8 {
     if !(metres_per_pixel > 0.0) || !metres_per_pixel.is_finite() {
         return 0;
@@ -33,8 +34,9 @@ pub fn zoom_for(metres_per_pixel: f64, max_zoom: u8) -> u8 {
     z.clamp(0.0, f64::from(max_zoom)) as u8
 }
 
-/// The tiles of zoom `z` that touch `bounds` (Web Mercator metres: min x, min y, max x, max y),
-/// west to east and north to south. Empty when the bounds are not on the map.
+/// Las teselas de zoom `z` que tocan `bounds` (metros de Web Mercator: x mínima, y mínima, x
+/// máxima, y máxima), de oeste a este y de norte a sur. Vacío cuando los límites no están en el
+/// mapa.
 pub fn tiles_in(bounds: [f64; 4], z: u8) -> Vec<Tile> {
     let n = 1u32 << z.min(30);
     let side = 2.0 * HALF_WORLD / f64::from(n);
@@ -60,7 +62,7 @@ pub fn tiles_in(bounds: [f64; 4], z: u8) -> Vec<Tile> {
     out
 }
 
-/// The URL of a tile from a template with `{z}`, `{x}` and `{y}`.
+/// La URL de una tesela a partir de una plantilla con `{z}`, `{x}` y `{y}`.
 pub fn url(template: &str, z: u8, x: u32, y: u32) -> String {
     template
         .replace("{z}", &z.to_string())
@@ -72,7 +74,7 @@ pub fn url(template: &str, z: u8, x: u32, y: u32) -> String {
 mod tests {
     use super::*;
 
-    /// Web Mercator metres of a longitude and latitude.
+    /// Metros de Web Mercator de una longitud y una latitud.
     fn merc(lon: f64, lat: f64) -> (f64, f64) {
         let x = lon.to_radians() * 6_378_137.0;
         let y = (std::f64::consts::FRAC_PI_4 + lat.to_radians() / 2.0)
@@ -84,8 +86,8 @@ mod tests {
 
     #[test]
     fn madrid_is_in_the_tile_every_map_says() {
-        // the Puerta del Sol on the slippy-map scheme (the formula of the OSM wiki, worked out
-        // apart in Python): z12, x 2005, y 1544; the IGN serves a real tile there
+        // la Puerta del Sol en el esquema de mapa deslizante (la fórmula de la wiki de OSM,
+        // calculada aparte en Python): z12, x 2005, y 1544; el IGN sirve allí una tesela real
         let (x, y) = merc(-3.7038, 40.4168);
         let t = tiles_in([x, y, x, y], 12);
         assert_eq!(t, vec![(12, 2005, 1544)]);
@@ -105,7 +107,7 @@ mod tests {
     fn neighbours_share_an_edge_and_zoom_follows_resolution() {
         let (a, b) = (extent(8, 100, 90), extent(8, 101, 90));
         assert!((a[2] - b[0]).abs() < 1e-6 && (a[1] - b[1]).abs() < 1e-6);
-        // zoom 0 has 156543 m per pixel; each zoom halves it
+        // el zoom 0 tiene 156543 m por píxel; cada zoom lo divide a la mitad
         assert_eq!(zoom_for(156_543.03, 19), 0);
         assert_eq!(zoom_for(1.194, 19), 17);
         assert_eq!(zoom_for(0.001, 19), 19);

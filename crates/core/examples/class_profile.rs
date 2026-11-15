@@ -1,7 +1,7 @@
-//! What the points of each class of a file look like: `class_profile [--size 500] [--step 10]
-//! FILE...`. For every class prints percentiles of intensity, roughness, planarity, slope and the
-//! scan angle, and the share of single returns, taking one of every `--step` points (features
-//! from a 1 m neighbourhood of all the points).
+//! Qué aspecto tienen los puntos de cada clase de un archivo: `class_profile [--size 500] [--step
+//! 10] ARCHIVO...`. Para cada clase imprime percentiles de intensidad, rugosidad, planaridad,
+//! pendiente y ángulo de barrido, y la proporción de retornos únicos, tomando uno de cada `--step`
+//! puntos (características de un entorno de 1 m de todos los puntos).
 
 use std::collections::BTreeMap;
 

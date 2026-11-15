@@ -1,6 +1,6 @@
-//! The tools that work sheet by sheet (classify, DTM, CHM, metrics), the coordinate-system tool
-//! and the plot tool. Each loaded cloud is a sheet: it is processed on its own and gets its own
-//! result; a mosaic of the results is made only when asked for.
+//! Las herramientas que trabajan hoja a hoja (clasificar, MDT, CHM, métricas), la herramienta de
+//! sistema de coordenadas y la de parcelas. Cada nube cargada es una hoja: se procesa por sí sola y
+//! recibe su propio resultado; un mosaico de los resultados se hace solo cuando se pide.
 
 use std::collections::HashMap;
 
@@ -21,16 +21,16 @@ pub struct State {
     pub dtm_smooth: f64,
     pub dtm_smoothing: Smoothing,
     pub mosaic_dtm: bool,
-    /// Metres within which neighbouring sheets are used as context (0: each sheet alone).
+    /// Metros dentro de los cuales se usan hojas vecinas como contexto (0: cada hoja sola).
     pub neighbors: f64,
-    /// Shapefile of breaklines for the DTM (empty: none).
+    /// Shapefile de líneas de ruptura para el MDT (vacío: ninguno).
     pub dtm_breaklines: String,
     pub chm_smooth: f64,
     pub chm_smoothing: Smoothing,
     pub mosaic_chm: bool,
-    /// 0 TIN, 1 highest per cell, 2 IDW, 3 pit-free (the last only with a DTM).
+    /// 0 TIN, 1 más alto por celda, 2 IDW, 3 sin picos (el último solo con un MDT).
     pub surf_method: usize,
-    /// Subtract the DTM (a CHM) or keep absolute elevations (a DSM).
+    /// Resta el MDT (un CHM) o conserva las elevaciones absolutas (un MDS).
     pub surf_dtm: bool,
     pub crs_from_file: bool,
     pub crs_file: String,
@@ -54,17 +54,17 @@ pub struct State {
     pub dx: f64,
     pub dy: f64,
     pub limit: String,
-    /// 0: no clouds, 1: one per plot, 2: one with all the plots.
+    /// 0: sin nubes, 1: una por parcela, 2: una con todas las parcelas.
     pub clouds: u8,
     pub vector: bool,
     pub exclusive: bool,
-    /// Split multipart features into one unit per part.
+    /// Divide los elementos de varias partes en una unidad por parte.
     pub split_parts: bool,
-    /// Metrics to write; all of them when `metrics_all`.
+    /// Métricas que escribir; todas cuando `metrics_all`.
     pub metrics_all: bool,
     pub metrics_pick: Vec<String>,
     pub metrics_find: String,
-    /// The user pressed Stop in a tool window.
+    /// El usuario pulsó Detener en una ventana de herramienta.
     pub stop: bool,
     pub sel_note: Option<String>,
 }
@@ -116,7 +116,8 @@ impl Default for State {
     }
 }
 
-/// The files that belong to a result: a shapefile's companions, a metrics table's field list.
+/// Los archivos que pertenecen a un resultado: los acompañantes de un shapefile, la lista de campos
+/// de una tabla de métricas.
 pub fn related(p: &Path) -> Vec<PathBuf> {
     let mut v = vec![p.to_path_buf()];
     let stem = paths::stem(p);
@@ -180,7 +181,8 @@ impl Tools {
         }
     }
 
-    /// Only the ground method: a DTM is made from ground points, so no noise or building steps.
+    /// Solo el método de suelo: un MDT se hace con puntos de suelo, así que sin pasos de ruido ni
+    /// de edificios.
     fn ground_only(&mut self, ui: &mut egui::Ui) {
         let names = [
             (
@@ -262,8 +264,8 @@ impl Tools {
         }
     }
 
-    /// The distance within which the neighbouring sheets are read as context, so that the edges of
-    /// a sheet come out as they would from the whole block.
+    /// La distancia dentro de la cual se leen las hojas vecinas como contexto, para que los bordes
+    /// de una hoja salgan como saldrían de todo el bloque.
     fn neighbors_row(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf]) {
         if inputs.len() < 2 {
             return;
@@ -350,7 +352,7 @@ impl Tools {
         );
     }
 
-    /// Whether the surface tool subtracts the DTM: asked for, and every sheet has one.
+    /// Si la herramienta de superficie resta el MDT: se pide y cada hoja tiene uno.
     pub fn surface_with_dtm(&self, inputs: &[PathBuf]) -> bool {
         self.s2.surf_dtm && inputs.iter().all(|p| paths::find_dtm(p).is_some())
     }
@@ -795,7 +797,7 @@ impl Tools {
         });
     }
 
-    /// Which metrics of each sampling unit are written: all, or the ones ticked.
+    /// Qué métricas de cada unidad de muestreo se escriben: todas o las marcadas.
     fn metrics_picker(&mut self, ui: &mut egui::Ui) {
         let s = &mut self.s2;
         egui::CollapsingHeader::new(if s.metrics_all {
@@ -924,7 +926,7 @@ impl Tools {
                     paths::unique(&paths::product(&first, &format!("mosaico_{tag}"), "tif"))
                 });
                 let mut steps = self.steps();
-                // a DTM is made from ground points only
+                // un MDT se hace solo con puntos de suelo
                 steps.noise = None;
                 steps.buildings = None;
                 let base = jobs::DtmJob {
@@ -1125,7 +1127,8 @@ impl Tools {
         })
     }
 
-    /// The plot job: gets or generates the plots, saves where they are, and cuts the clouds.
+    /// El trabajo de parcelas: obtiene o genera las parcelas, guarda dónde están y recorta las
+    /// nubes.
     pub fn build_clip(
         &mut self,
         inputs: &[PathBuf],

@@ -1,11 +1,22 @@
-//! The tooltip of every button of the ribbon and of the side panels, in one place. A button
-//! finds its text by its label, so a new button only needs a line here. In debug builds a
-//! button with no text says so once in the terminal.
+//! La ayuda emergente de cada botón de la cinta y de los paneles laterales, en un solo sitio. Un
+//! botón encuentra su texto por su etiqueta, así que un botón nuevo solo necesita una línea aquí.
+//! En las compilaciones de depuración un botón sin texto lo dice una vez en el terminal.
 
-/// What the button called `label` does (and its shortcut), if it has a text.
+/// Lo que hace el botón llamado `label` (y su atajo), si tiene un texto.
 pub fn tip(label: &str) -> Option<&'static str> {
     let key = label.replace('\n', " ");
     let t = match key.as_str() {
+        "Extraer valores" => "Añade a una capa un campo por banda de uno o varios rásteres, con el valor bajo cada elemento (por ejemplo el CHM en cada parcela o árbol).",
+        "Unir tabla" => "Une a una capa las columnas de una tabla (csv, texto o Excel) por un campo clave, como el inventario de campo a las parcelas.",
+        "Combinar capas" => "Junta varias capas del mismo tipo de geometría en una; los campos son la unión de los de todas.",
+        "Dividir por campo" => "Escribe una capa por cada valor distinto de un campo (un archivo por rodal, por especie…).",
+        "Recortar capa" => "Recorta una capa de puntos, líneas o polígonos con los polígonos de otra, o borra de ella lo que cubren.",
+        "Cercanía" => "Añade a cada elemento la distancia al elemento más cercano de otra capa, su número de orden y, si se pide, uno de sus campos.",
+        "Resumen estadístico" => "Recuento, suma, media, mínimo, máximo y desviación de campos numéricos de una capa o tabla, por grupos de un campo.",
+        "Rasterizar" => "Convierte una capa vectorial en ráster: cada celda recibe el valor de un campo del último elemento que la cubre.",
+        "Filtro focal" => "Media, mediana, mínimo, máximo, suma, rango, desviación, mayoría o gaussiano de cada celda sobre una ventana a su alrededor.",
+        "Estadísticas ráster" => "Recuento, mínimo, máximo, media, desviación, mediana, percentiles e histograma de un ráster.",
+        "Tabular áreas" => "Área de cada clase de un ráster dentro de cada zona de otro, como tabla CSV.",
         // Inicio
         "Abrir" => {
             "Abre nubes de puntos (LAS/LAZ), rásteres, imágenes y capas vectoriales; se añaden a lo que ya está abierto (Ctrl+O)."
@@ -16,6 +27,13 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Restablecer" => "Vuelve el brillo, el contraste y el gamma a sus valores iniciales.",
         "Percentiles 2–98 %" => "Ajusta el rango de colores a los percentiles 2 y 98 de los valores, sin contar los extremos.",
         "Mín–máx" => "Ajusta el rango de colores al valor mínimo y al máximo.",
+        "Ajustar a bordes" => "Al digitalizar o mover vértices, el punto salta al borde más cercano de cualquier capa visible, aunque no haya un vértice allí.",
+        "Reformar" => "Con la herramienta de digitalizar sobre polígonos, un trazo que cruza el contorno al menos dos veces sustituye el tramo más corto del borde por el trazo (corta una esquina o añade un saliente).",
+        "Transformar selección" => "Mueve, gira y escala los elementos seleccionados alrededor del centro de la selección.",
+        "Copiar" => "Copia los elementos seleccionados para pegarlos en otra capa del mismo tipo de geometría.",
+        "Pegar" => "Pega en la capa activa los elementos copiados; los campos se emparejan por nombre.",
+        "Pegar como capa" => "Crea una capa nueva con los elementos copiados.",
+        "Comprobar topología" => "Lista los polígonos que se solapan, los huecos entre ellos y los contornos que se cruzan; en líneas, los cabos sueltos.",
         "Unir seleccionados" => "Une los polígonos seleccionados en uno solo, con los atributos del primero; el límite entre los que se tocan desaparece.",
         "Separar partes" => "Convierte cada parte de un elemento de varias partes en un elemento propio, con los mismos atributos.",
         "Agrupar en multiparte" => "Junta los elementos seleccionados en uno solo con varias partes, sin unir la geometría.",
@@ -226,7 +244,7 @@ pub fn tip(label: &str) -> Option<&'static str> {
 mod tests {
     use super::tip;
 
-    /// The string literals of the arguments of the call whose `(` is at `open`.
+    /// Los literales de cadena de los argumentos de la llamada cuyo `(` está en `open`.
     fn literals(src: &str, open: usize) -> Vec<String> {
         let b = src.as_bytes();
         let (mut depth, mut i, mut out) = (0usize, open, Vec::new());

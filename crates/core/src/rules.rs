@@ -1,21 +1,21 @@
-//! Classification by rules: the cheap criteria that say a lot. A rule changes the class of the
-//! points that are of certain classes and meet every condition it names:
+//! Clasificación por reglas: los criterios baratos que dicen mucho. Una regla cambia la clase de
+//! los puntos que son de ciertas clases y cumplen todas las condiciones que nombra:
 //!
-//! * the **echo** (`S` single, `F` first of several, `I` intermediate, `L` last of several; or
-//!   return numbers `1` to `9`): first returns of pulses that gave several are canopy and edges,
-//!   the last ones are what reached the ground;
-//! * the **scan angle**: points scanned at a steep angle are less accurate;
-//! * the **height above the ground** (`height`), measured over the mean of the ground points in
-//!   cells of 1 m: a rule `from=1;height=0.5..2;to=4` is TerraScan's classification by height from
-//!   ground, and any strata can be made with several;
-//! * the **intensity** (`intensity`);
-//! * the shape of the **neighbourhood** within `radius` (default 1 m): `slope` (degrees of the
-//!   local plane from the horizontal), `planarity`, `linearity`, `sphericity`, `roughness` (m) and
-//!   `neighbours` (how many points), the geometric features of [`crate::features`].
+//! * el **eco** (`S` único, `F` primero de varios, `I` intermedio, `L` último de varios; o números
+//!   de retorno `1` a `9`): los primeros retornos de pulsos que dieron varios son copa y bordes,
+//!   los últimos son lo que llegó al suelo;
+//! * el **ángulo de barrido**: los puntos escaneados con un ángulo pronunciado son menos precisos;
+//! * la **altura sobre el suelo** (`height`), medida sobre la media de los puntos de suelo en
+//!   celdas de 1 m: una regla `from=1;height=0.5..2;to=4` es la clasificación por altura sobre el
+//!   suelo de TerraScan, y se pueden hacer estratos cualesquiera con varias;
+//! * la **intensidad** (`intensity`);
+//! * la forma del **entorno** dentro de `radius` (por defecto 1 m): `slope` (grados del plano local
+//!   respecto a la horizontal), `planarity`, `linearity`, `sphericity`, `roughness` (m) y
+//!   `neighbours` (cuántos puntos), las características geométricas de [`crate::features`].
 //!
-//! Rules are applied in order, so a later one sees what an earlier one made. A rule that asks for
-//! neighbourhood features makes them for the points that pass its other conditions only, and the
-//! pass costs nothing when no rule asks.
+//! Las reglas se aplican en orden, así que una posterior ve lo que hizo una anterior. Una regla que
+//! pide características del entorno las calcula solo para los puntos que pasan sus otras
+//! condiciones, y la pasada no cuesta nada cuando ninguna regla las pide.
 
 use crate::classes::ClassSet;
 use crate::features::{self, Features};
@@ -23,13 +23,13 @@ use crate::filter::{ClassSel, ReturnKind, ReturnSel};
 use crate::las::Point;
 use crate::{Error, Result};
 
-/// The class of ground, as the ground filters label it.
+/// La clase del suelo, como la etiquetan los filtros de suelo.
 const GROUND: u8 = 2;
 
-/// Cell of the ground surface heights are measured over (m).
+/// Celda de la superficie del suelo sobre la que se miden las alturas (m).
 const SURFACE_CELL: f64 = 1.0;
 
-/// A closed range of values; an open end is infinite.
+/// Un rango cerrado de valores; un extremo abierto es infinito.
 pub type Range = (f64, f64);
 
 fn within(r: Option<Range>, v: f64) -> bool {
@@ -38,31 +38,31 @@ fn within(r: Option<Range>, v: f64) -> bool {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClassRule {
-    /// Only points of these classes are looked at. Noise (7, 18) is left alone by default.
+    /// Solo se miran los puntos de estas clases. El ruido (7, 18) se deja en paz por defecto.
     pub from: ClassSet,
-    /// Which echoes of the pulse.
+    /// Qué ecos del pulso.
     pub returns: ReturnSel,
-    /// Absolute scan angle (degrees) from and to, both included; None: any angle.
+    /// Ángulo de barrido absoluto (grados) desde y hasta, ambos incluidos; None: cualquier ángulo.
     pub angle: Option<(f64, f64)>,
-    /// Height above the ground (m); a point with no ground around it never matches.
+    /// Altura sobre el suelo (m); un punto sin suelo a su alrededor nunca coincide.
     pub height: Option<Range>,
     pub intensity: Option<Range>,
-    /// Slope of the local plane (degrees from the horizontal).
+    /// Pendiente del plano local (grados respecto a la horizontal).
     pub slope: Option<Range>,
     pub planarity: Option<Range>,
     pub linearity: Option<Range>,
     pub sphericity: Option<Range>,
-    /// Standard deviation of the distance to the local plane (m).
+    /// Desviación típica de la distancia al plano local (m).
     pub roughness: Option<Range>,
-    /// Points within `radius`, the point itself included.
+    /// Puntos dentro de `radius`, incluido el propio punto.
     pub neighbours: Option<Range>,
-    /// Radius of the neighbourhood the shape conditions look at (m).
+    /// Radio del entorno que miran las condiciones de forma (m).
     pub radius: f64,
     pub to: u8,
 }
 
 impl ClassRule {
-    /// A rule that sends every point that is not noise to class `to`.
+    /// Una regla que envía a la clase `to` todo punto que no es ruido.
     pub fn new(to: u8) -> Self {
         let mut from = ClassSet::all();
         from.set(7, false);
@@ -84,7 +84,7 @@ impl ClassRule {
         }
     }
 
-    /// Whether the rule takes a point that is now of class `class`, by class, echo and angle.
+    /// Si la regla toma un punto que ahora es de clase `class`, por clase, eco y ángulo.
     pub fn takes(&self, p: &Point, class: u8) -> bool {
         self.from.contains(class) && self.echo_and_angle(p)
     }
@@ -97,15 +97,15 @@ impl ClassRule {
             })
     }
 
-    /// The conditions that do not depend on the class or on the neighbourhood: echo, angle,
-    /// height above the ground (NaN: unknown) and intensity.
+    /// Las condiciones que no dependen de la clase ni del entorno: eco, ángulo, altura sobre el
+    /// suelo (NaN: desconocida) e intensidad.
     fn cheap(&self, p: &Point, height: f64) -> bool {
         self.echo_and_angle(p)
             && (self.height.is_none() || (!height.is_nan() && within(self.height, height)))
             && within(self.intensity, f64::from(p.intensity))
     }
 
-    /// Whether the rule looks at the shape of the neighbourhood.
+    /// Si la regla mira la forma del entorno.
     pub fn needs_features(&self) -> bool {
         self.slope.is_some()
             || self.planarity.is_some()
@@ -128,12 +128,12 @@ impl ClassRule {
             && within(self.neighbours, f64::from(f.count))
     }
 
-    /// Reads a rule from text: `to=12` and any of `from=1,2` (or `~7`), `returns=F` (`S`, `F`,
-    /// `I`, `L`, `A`, or numbers: `FL` is first or last of several), `angle=25..90` (or
-    /// `angle=25` for 25 and over), `height=0.5..2` (m above the ground; also `intensity`,
-    /// `slope`, `planarity`, `linearity`, `sphericity`, `roughness` and `neighbours`, with the
-    /// same ranges: `..2` is up to 2, `0.5` or `0.5..` is 0.5 and over) and `radius=1` (m, for the
-    /// shape conditions), separated by `;`.
+    /// Lee una regla de texto: `to=12` y cualquiera de `from=1,2` (o `~7`), `returns=F` (`S`, `F`,
+    /// `I`, `L`, `A` o números: `FL` es primero o último de varios), `angle=25..90` (o `angle=25`
+    /// para 25 o más), `height=0.5..2` (m sobre el suelo; también `intensity`, `slope`,
+    /// `planarity`, `linearity`, `sphericity`, `roughness` y `neighbours`, con los mismos rangos:
+    /// `..2` es hasta 2, `0.5` o `0.5..` es 0,5 o más) y `radius=1` (m, para las condiciones de
+    /// forma), separados por `;`.
     pub fn parse(text: &str) -> Result<Self> {
         let mut rule = Self::new(0);
         let mut has_to = false;
@@ -191,8 +191,8 @@ impl ClassRule {
         Ok(rule)
     }
 
-    /// The rule written the way `parse` reads it back (and `--rule` takes it), so that a recipe
-    /// can hold it.
+    /// La regla escrita como la lee de vuelta `parse` (y la toma `--rule`), de modo que una receta
+    /// pueda contenerla.
     pub fn to_arg(&self) -> String {
         let mut parts = vec![format!("to={}", self.to)];
         let mut default_from = ClassSet::all();
@@ -253,7 +253,7 @@ impl ClassRule {
         parts.join(";")
     }
 
-    /// The rule as `parse` reads it, to show it.
+    /// La regla como la lee `parse`, para mostrarla.
     pub fn text(&self) -> String {
         let mut parts = Vec::new();
         if let Some((lo, hi)) = self.angle {
@@ -296,7 +296,7 @@ fn num(what: &str, t: &str) -> Result<f64> {
         .ok_or_else(|| Error::Param(format!("{what}: '{t}' no es un número")))
 }
 
-/// `a..b`, `a..` or `a` (a and over), `..b` (up to b).
+/// `a..b`, `a..` o `a` (a y más), `..b` (hasta b).
 fn parse_range(what: &str, text: &str) -> Result<Range> {
     if text.trim().is_empty() {
         return Err(Error::Param(format!("{what}: falta el valor")));
@@ -323,7 +323,7 @@ fn parse_range(what: &str, text: &str) -> Result<Range> {
     Ok((lo, hi))
 }
 
-/// The echoes of a rule from text: `S`, `F`, `I`, `L`, `A` or return numbers `1` to `9`.
+/// Los ecos de una regla a partir de texto: `S`, `F`, `I`, `L`, `A` o números de retorno `1` a `9`.
 fn parse_returns(text: &str) -> Result<ReturnSel> {
     let mut sel = ReturnSel {
         kinds: [false; 4],
@@ -348,10 +348,10 @@ fn parse_returns(text: &str) -> Result<ReturnSel> {
     Ok(sel)
 }
 
-/// The command-line arguments a recipe file stands for: one or more per line, separated by
-/// spaces (a value with spaces goes in double quotes); empty lines and lines starting with `#`
-/// are skipped. A recipe is a classification written down once and run on any number of sheets:
-/// `hipso classify sheet.laz --recipe forest.txt`.
+/// Los argumentos de línea de comandos que representa un archivo de receta: uno o varios por línea,
+/// separados por espacios (un valor con espacios va entre comillas dobles); las líneas vacías y las
+/// que empiezan por `#` se omiten. Una receta es una clasificación escrita una vez y ejecutada en
+/// cualquier número de hojas: `hipso classify hoja.laz --recipe bosque.txt`.
 pub fn recipe_args(text: &str) -> Result<Vec<String>> {
     let mut args = Vec::new();
     for (n, line) in text.lines().enumerate() {
@@ -391,9 +391,9 @@ pub fn recipe_args(text: &str) -> Result<Vec<String>> {
     Ok(args)
 }
 
-/// Applies the rules, in order, to the points of a tile. `class` holds the class a step has
-/// already decided (None: the point keeps its own); `ground` follows it. Returns, for each point,
-/// whether a rule changed its class.
+/// Aplica las reglas, en orden, a los puntos de una tesela. `class` guarda la clase que un paso ya
+/// ha decidido (None: el punto conserva la suya); `ground` la sigue. Devuelve, para cada punto, si
+/// una regla cambió su clase.
 pub fn apply(
     pts: &[Point],
     class: &mut [Option<u8>],
@@ -404,7 +404,8 @@ pub fn apply(
     if rules.is_empty() {
         return changed;
     }
-    // heights above the ground, once, from the ground the steps before the rules found
+    // alturas sobre el suelo, una vez, a partir del suelo que hallaron los pasos anteriores a las
+    // reglas
     let height: Vec<f32> = if rules.iter().any(|r| r.height.is_some()) {
         match crate::extras::ground_surface(pts, ground, SURFACE_CELL) {
             Some(s) => pts
@@ -417,7 +418,8 @@ pub fn apply(
         Vec::new()
     };
     let h = |k: usize| height.get(k).map_or(f64::NAN, |v| f64::from(*v));
-    // shape features, one pass per radius, for the points some rule of that radius may take
+    // características de forma, una pasada por radio, para los puntos que pueda tomar alguna regla
+    // de ese radio
     let mut radii: Vec<f64> = Vec::new();
     for r in rules.iter().filter(|r| r.needs_features()) {
         if !radii.contains(&r.radius) {
@@ -442,7 +444,7 @@ pub fn apply(
         .collect();
     let feature_set = |r: &ClassRule| radii.iter().position(|x| *x == r.radius);
     for (k, q) in pts.iter().enumerate() {
-        // points set aside (overlap) are left as they are
+        // los puntos apartados (solape) se dejan como están
         if q.withheld {
             continue;
         }
@@ -487,11 +489,11 @@ mod tests {
 
     #[test]
     fn a_rule_takes_by_class_echo_and_absolute_angle() -> Result<()> {
-        // first returns of several, at 25° or more to either side, to class 12
+        // primeros retornos de varios, a 25° o más a cualquier lado, a clase 12
         let rule = ClassRule::parse("from=1,2;returns=F;angle=25..90;to=12")?;
         assert!(rule.takes(&pt(1, 1, 3, 30.0), 1));
         assert!(rule.takes(&pt(2, 1, 3, -30.0), 2));
-        // the last of several, a single return, class 5, or a gentle angle: not taken
+        // el último de varios, un retorno único, clase 5 o un ángulo suave: no se toma
         assert!(!rule.takes(&pt(1, 3, 3, 30.0), 1));
         assert!(
             !rule.takes(&pt(1, 1, 1, 30.0), 1),
@@ -500,7 +502,7 @@ mod tests {
         assert!(ClassRule::parse("returns=SL;to=5")?.takes(&pt(1, 1, 1, 0.0), 1));
         assert!(!rule.takes(&pt(5, 1, 3, 30.0), 5));
         assert!(!rule.takes(&pt(1, 1, 3, 10.0), 1));
-        // an angle with no upper limit
+        // un ángulo sin límite superior
         assert!(ClassRule::parse("angle=25;to=1")?.takes(&pt(2, 1, 1, -80.0), 2));
         Ok(())
     }
@@ -526,14 +528,15 @@ mod tests {
     #[test]
     fn rules_apply_in_order_and_ground_follows() -> Result<()> {
         let pts = [
-            pt(2, 1, 1, 40.0), // ground at a steep angle
-            pt(2, 1, 1, 5.0),  // ground at a gentle angle
-            pt(1, 1, 3, 5.0),  // first of several
-            pt(7, 1, 1, 40.0), // noise
+            pt(2, 1, 1, 40.0), // suelo con ángulo pronunciado
+            pt(2, 1, 1, 5.0),  // suelo con ángulo suave
+            pt(1, 1, 3, 5.0),  // primero de varios
+            pt(7, 1, 1, 40.0), // ruido
         ];
         let rules = [
             ClassRule::parse("angle=30;to=12")?,
-            // sees what the rule before made: class 12 points that are first returns go to 5
+            // ve lo que hizo la regla anterior: los puntos de clase 12 que son primeros retornos
+            // pasan a 5
             ClassRule::parse("from=12;returns=S;to=5")?,
             ClassRule::parse("from=1;returns=F;to=5")?,
         ];
@@ -542,7 +545,7 @@ mod tests {
         let changed = apply(&pts, &mut class, &mut ground, &rules);
         assert_eq!(class, [Some(5), None, Some(5), None]);
         assert_eq!(changed, [true, false, true, false]);
-        // the steep ground point is no longer ground
+        // el punto de suelo empinado ya no es suelo
         assert_eq!(ground, [false, true, false, false]);
         Ok(())
     }
@@ -574,7 +577,7 @@ mod tests {
                 "{bad}"
             );
         }
-        // the old angle syntax still reads the same
+        // la sintaxis antigua del ángulo se lee igual
         assert_eq!(ClassRule::parse("angle=25;to=1")?.angle, Some((25.0, 180.0)));
         assert_eq!(ClassRule::parse("angle=25..90;to=1")?.angle, Some((25.0, 90.0)));
         let text = ClassRule::parse("height=0.5..2;slope=45;to=4")?.text();
@@ -584,7 +587,7 @@ mod tests {
 
     #[test]
     fn height_rules_make_strata_over_the_ground() -> Result<()> {
-        // a flat ground on a 1 m lattice, and points 0.3, 1, 3 m above it
+        // un suelo llano en un retículo de 1 m y puntos a 0,3, 1 y 3 m sobre él
         let mut pts = Vec::new();
         for i in 0..10 {
             for j in 0..10 {
@@ -604,7 +607,7 @@ mod tests {
         let mut ground: Vec<bool> = pts.iter().map(|q| q.class == 2).collect();
         let changed = apply(&pts, &mut class, &mut ground, &rules);
         assert_eq!(&class[100..], [Some(3), Some(4), Some(5)]);
-        // the ground is left alone
+        // el suelo se deja en paz
         assert!(class[..100].iter().all(Option::is_none));
         assert_eq!(changed.iter().filter(|c| **c).count(), 3);
         Ok(())
@@ -626,8 +629,8 @@ mod tests {
         for i in 0..60 {
             for j in 0..60 {
                 let (u, v) = (f64::from(i) * 0.1, f64::from(j) * 0.1);
-                pts.push(at(1, u, v, 0.0)); // flat
-                pts.push(at(1, u + 20.0, 0.0, v)); // wall
+                pts.push(at(1, u, v, 0.0)); // plano
+                pts.push(at(1, u + 20.0, 0.0, v)); // pared
             }
         }
         let n = pts.len();
@@ -649,7 +652,7 @@ mod tests {
             fn_ += 1;
             f2 += usize::from(class[k] == Some(2));
         }
-        // away from the edges, where the neighbourhood is whole, the shape decides
+        // lejos de los bordes, donde el entorno está entero, decide la forma
         assert!(w6 * 10 >= wn * 7, "wall points taken: {w6} of {wn}");
         assert!(f2 * 10 >= fn_ * 7, "flat points taken: {f2} of {fn_}");
         assert!(ground.iter().filter(|g| **g).count() == f2);
@@ -696,7 +699,7 @@ mod tests {
 
     #[test]
     fn high_noise_can_be_told_from_low_noise_with_a_rule() -> Result<()> {
-        // ground at 100 m on a 1 m lattice; noise 30 m above it and 8 m below it
+        // suelo a 100 m en un retículo de 1 m; ruido a 30 m por encima y a 8 m por debajo
         let mut pts = Vec::new();
         for i in 0..10 {
             for j in 0..10 {
@@ -707,7 +710,7 @@ mod tests {
         pts.push(at(7, 5.0, 5.0, 92.0));
         let mut ground: Vec<bool> = pts.iter().map(|q| q.class == 2).collect();
         let mut class = vec![None; pts.len()];
-        // ASPRS: 7 is low noise and 18 high noise
+        // ASPRS: 7 es ruido bajo y 18 ruido alto
         let rules = [ClassRule::parse("from=7;height=5..;to=18")?];
         apply(&pts, &mut class, &mut ground, &rules);
         assert_eq!(&class[100..], [Some(18), None]);

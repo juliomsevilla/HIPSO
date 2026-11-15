@@ -1,27 +1,27 @@
-//! Breaklines in a ground model: lines where the terrain changes slope sharply (the edge of a
-//! road, a ditch, a bank, the shore of a lake), which the ground points alone round off. Each
-//! line is densified to vertices half a cell apart that join the ground points of the
-//! triangulation, and the ground points next to the line are left out, so the triangles follow
-//! the line instead of crossing it.
+//! Líneas de ruptura en un modelo del suelo: líneas donde el terreno cambia bruscamente de
+//! pendiente (el borde de una carretera, una zanja, un talud, la orilla de un lago), que los puntos
+//! de suelo solos redondean. Cada línea se densifica en vértices separados media celda que se unen
+//! a los puntos de suelo de la triangulación, y los puntos de suelo junto a la línea se dejan
+//! fuera, de modo que los triángulos siguen la línea en lugar de cruzarla.
 //!
-//! Lines with elevations (PolylineZ, PolygonZ) give their own heights: they are hard lines. Lines
-//! without them (a stream, a ditch drawn on the orthophoto) take, at every vertex, the lowest
-//! ground point within a cell of it, which carves the channel into the model.
+//! Las líneas con elevaciones (PolylineZ, PolygonZ) dan sus propias alturas: son líneas duras. Las
+//! líneas sin ellas (un arroyo, una zanja dibujada en la ortofoto) toman, en cada vértice, el punto
+//! de suelo más bajo a menos de una celda de él, lo que excava el cauce en el modelo.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::{Error, Result};
 
-/// The breaklines of a job, read once.
+/// Las líneas de ruptura de un trabajo, leídas una vez.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Breaklines {
-    /// Each line as vertices (x, y, z); z is NaN for lines without elevations.
+    /// Cada línea como vértices (x, y, z); z es NaN para las líneas sin elevaciones.
     pub lines: Vec<Vec<[f64; 3]>>,
 }
 
 impl Breaklines {
-    /// Reads the lines (and polygon rings) of a shapefile.
+    /// Lee las líneas (y los anillos de polígonos) de un shapefile.
     pub fn read(path: &Path) -> Result<Self> {
         crate::check_vector_format(path)?;
         let d = crate::vector::read_drawing(path)?;
@@ -44,13 +44,13 @@ impl Breaklines {
         self.lines.is_empty()
     }
 
-    /// Whether every line carries its own elevations.
+    /// Si todas las líneas llevan sus propias elevaciones.
     pub fn has_z(&self) -> bool {
         self.lines.iter().flatten().all(|p| p[2].is_finite())
     }
 
-    /// The vertices of the lines inside `area` (west, south, east, north), no more than `step`
-    /// apart.
+    /// Los vértices de las líneas dentro de `area` (oeste, sur, este, norte), a no más de `step`
+    /// unos de otros.
     fn vertices(&self, area: [f64; 4], step: f64) -> Vec<[f64; 3]> {
         let mut out = Vec::new();
         let inside =
@@ -58,7 +58,7 @@ impl Breaklines {
         for line in &self.lines {
             for w in line.windows(2) {
                 let (a, b) = (w[0], w[1]);
-                // a segment wholly outside the area on one side is skipped
+                // un segmento enteramente fuera del área por un lado se salta
                 if (a[0] < area[0] && b[0] < area[0])
                     || (a[0] > area[2] && b[0] > area[2])
                     || (a[1] < area[1] && b[1] < area[1])
@@ -89,9 +89,9 @@ impl Breaklines {
         out
     }
 
-    /// Adds the lines to the ground points of an area for a model of cell `cell`: their vertices
-    /// join the points and the points within half a cell of a line leave. Returns how many
-    /// vertices were added.
+    /// Añade las líneas a los puntos de suelo de un área para un modelo de celda `cell`: sus
+    /// vértices se unen a los puntos y los puntos a menos de media celda de una línea se van.
+    /// Devuelve cuántos vértices se añadieron.
     pub fn apply(&self, ground: &mut Vec<[f64; 3]>, area: [f64; 4], cell: f64) -> usize {
         let step = (cell / 2.0).max(0.05);
         let mut verts = self.vertices(area, step);
@@ -99,7 +99,7 @@ impl Breaklines {
             return 0;
         }
         let key = |x: f64, y: f64, s: f64| ((x / s).floor() as i64, (y / s).floor() as i64);
-        // lines without elevations: the lowest ground point within a cell of each vertex
+        // líneas sin elevaciones: el punto de suelo más bajo a menos de una celda de cada vértice
         if verts.iter().any(|v| !v[2].is_finite()) {
             let mut low: HashMap<(i64, i64), f64> = HashMap::new();
             for p in ground.iter() {
@@ -121,7 +121,7 @@ impl Breaklines {
             }
             verts.retain(|v| v[2].is_finite());
         }
-        // the ground points next to a line give way to it
+        // los puntos de suelo junto a una línea le dejan paso
         let near: HashSet<(i64, i64)> = verts.iter().map(|v| key(v[0], v[1], step)).collect();
         ground.retain(|p| !near.contains(&key(p[0], p[1], step)));
         let n = verts.len();
@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn a_3d_line_sets_the_heights_along_it() -> Result<()> {
-        // flat ground at 100 m on a 1 m grid; a road edge at 103 m across it
+        // suelo llano a 100 m en una rejilla de 1 m; un borde de carretera a 103 m a través de él
         let mut ground: Vec<[f64; 3]> = (0..50)
             .flat_map(|i| (0..50).map(move |j| [f64::from(i) + 0.3, f64::from(j) + 0.3, 100.0]))
             .collect();
@@ -147,7 +147,7 @@ mod tests {
         assert!(n >= 100, "{n}");
         let mut g = crate::grid::Grid::new(0.0, 0.0, 1.0, 50, 50)?;
         crate::tin::rasterize(&ground, &mut g);
-        // the cells the line runs through are at its height; far away the ground is untouched
+        // las celdas por las que pasa la línea están a su altura; lejos el suelo no se toca
         let at = |x: f64, y: f64| g.sample(x, y).unwrap_or(f32::NAN);
         assert!((at(20.5, 25.5) - 103.0).abs() < 1e-3, "{}", at(20.5, 25.5));
         assert!((at(20.0, 5.0) - 100.0).abs() < 1e-3);
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn a_2d_line_takes_the_lowest_ground_near_it() {
-        // a ditch: ground at 100 m except a narrow trench at 98 m along y = 10
+        // una zanja: suelo a 100 m salvo una trinchera estrecha a 98 m a lo largo de y = 10
         let mut ground: Vec<[f64; 3]> = (0..20)
             .flat_map(|i| {
                 (0..20).map(move |j| {

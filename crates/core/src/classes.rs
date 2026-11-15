@@ -1,7 +1,8 @@
-//! Point classes. LAS 1.4 stores a class in a byte; the ASPRS table (R15, 2019) defines 0–22,
-//! reserves 23–63 and leaves 64–255 to the user. A [`ClassSet`] holds any subset of the 256.
+//! Clases de puntos. LAS 1.4 guarda una clase en un byte; la tabla ASPRS (R15, 2019) define 0–22,
+//! reserva 23–63 y deja 64–255 al usuario. Un [`ClassSet`] contiene cualquier subconjunto de las
+//! 256.
 
-/// A set of classes, one bit per code 0–255.
+/// Un conjunto de clases, un bit por código 0–255.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ClassSet([u64; 4]);
 
@@ -14,7 +15,7 @@ impl ClassSet {
         Self([0; 4])
     }
 
-    /// The classes whose bit is set in `bits` (codes 0–31).
+    /// Las clases cuyo bit está activado en `bits` (códigos 0–31).
     pub const fn from_bits(bits: u32) -> Self {
         Self([bits as u64, 0, 0, 0])
     }
@@ -37,14 +38,14 @@ impl ClassSet {
         self.0[(class >> 6) as usize] ^= 1 << (class & 63);
     }
 
-    /// The only class `c`.
+    /// La única clase `c`.
     pub fn only(c: u8) -> Self {
         let mut s = Self::none();
         s.set(c, true);
         s
     }
 
-    /// Every class but those in `self`.
+    /// Toda clase salvo las de `self`.
     pub fn inverted(&self) -> Self {
         Self(self.0.map(|w| !w))
     }
@@ -56,7 +57,7 @@ impl Default for ClassSet {
     }
 }
 
-/// The ASPRS name of a class code (LAS 1.4 R15).
+/// El nombre ASPRS de un código de clase (LAS 1.4 R15).
 pub fn name(class: u8) -> &'static str {
     match class {
         0 => "Creado, nunca clasificado",
@@ -87,17 +88,17 @@ pub fn name(class: u8) -> &'static str {
     }
 }
 
-/// Codes the ASPRS table gives a meaning to.
+/// Códigos a los que la tabla ASPRS da un significado.
 pub const DEFINED: std::ops::RangeInclusive<u8> = 0..=22;
 
-/// First code left to the user.
+/// Primer código dejado al usuario.
 pub const USER_FIRST: u8 = 64;
 
-/// The classes the TLS tool gives to the points of the stems and to those of the branches.
+/// Las clases que la herramienta TLS da a los puntos de los troncos y a los de las ramas.
 pub const STEM: u8 = 64;
 pub const BRANCH: u8 = 65;
 
-/// The colour a class is painted in unless the user changes it.
+/// El color con que se pinta una clase salvo que el usuario lo cambie.
 pub fn default_color(class: u8) -> [u8; 3] {
     match class {
         0 => [200, 200, 200],
@@ -129,7 +130,7 @@ pub fn default_color(class: u8) -> [u8; 3] {
     }
 }
 
-/// Distinct colours for the codes without one: the golden angle spreads neighbours apart.
+/// Colores distintos para los códigos sin uno: el ángulo áureo separa a los vecinos.
 fn hue(c: u8) -> [u8; 3] {
     let h = (f32::from(c) * 137.508) % 360.0 / 60.0;
     let (s, v) = (0.65f32, 0.9f32);
@@ -146,7 +147,7 @@ fn hue(c: u8) -> [u8; 3] {
     [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8]
 }
 
-/// The colours of all 256 classes.
+/// Los colores de las 256 clases.
 pub fn default_colors() -> [[u8; 3]; 256] {
     let mut c = [[0u8; 3]; 256];
     for (k, e) in c.iter_mut().enumerate() {

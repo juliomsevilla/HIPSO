@@ -1,10 +1,11 @@
-//! Audit of the ground filters on synthetic scenes whose ground is known: `ground_audit [--size 200]`.
+//! Auditoría de los filtros de suelo sobre escenas sintéticas cuyo suelo se conoce: `ground_audit
+//! [--size 200]`.
 //!
-//! For each filter (default parameters) and scene, prints the ground missed (type I) and the
-//! non-ground taken (type II), the type I along the edge of the cloud (a strip of 10 m) against the
-//! interior, and how many points change class when the same cloud is moved to UTM-sized
-//! coordinates or its points are shuffled: a filter must not depend on where the cloud is or on
-//! the order of its points.
+//! Para cada filtro (parámetros por defecto) y escena, imprime el suelo omitido (tipo I) y lo que
+//! no es suelo tomado por suelo (tipo II), el tipo I a lo largo del borde de la nube (una franja de
+//! 10 m) frente al interior, y cuántos puntos cambian de clase cuando la misma nube se lleva a
+//! coordenadas del tamaño de UTM o se barajan sus puntos: un filtro no debe depender de dónde está
+//! la nube ni del orden de sus puntos.
 
 use hipso_core::axelsson::{self, AxelssonParams};
 use hipso_core::buildings::{self, BuildingParams};
@@ -30,7 +31,7 @@ impl Rng {
     }
 }
 
-/// A scene: points and whether each is ground.
+/// Una escena: puntos y si cada uno es suelo.
 fn scene(kind: &str, size: f64, step: f64) -> (Vec<Point>, Vec<bool>) {
     let mut rng = Rng(42);
     let terrain: Box<dyn Fn(f64, f64) -> f64> = match kind {
@@ -58,7 +59,7 @@ fn scene(kind: &str, size: f64, step: f64) -> (Vec<Point>, Vec<bool>) {
     let n = (size / step) as usize;
     for i in 0..=n {
         for j in 0..=n {
-            // a jittered lattice, as a scanner gives
+            // un retículo con ruido, como da un escáner
             let x = i as f64 * step + (rng.next() - 0.5) * step * 0.8;
             let y = j as f64 * step + (rng.next() - 0.5) * step * 0.8;
             let g = terrain(x, y) + rng.gauss() * 0.03;
@@ -79,7 +80,7 @@ fn scene(kind: &str, size: f64, step: f64) -> (Vec<Point>, Vec<bool>) {
                     }
                 }
                 "forest" => {
-                    // crowns every ~8 m: 70 % of the cells under a tree give a canopy hit
+                    // copas cada ~8 m: el 70 % de las celdas bajo un árbol dan un impacto de dosel
                     let (cx, cy) = ((x / 8.0).round() * 8.0, (y / 8.0).round() * 8.0);
                     let under = (x - cx).hypot(y - cy) < 3.0;
                     if under && rng.next() < 0.7 {
@@ -139,7 +140,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(p) = args.iter().position(|a| a == "--size") {
         size = args.get(p + 1).ok_or("--size needs a value")?.parse()?;
     }
-    let (ux, uy) = (512_345.0, 4_410_678.0); // UTM-sized offsets
+    let (ux, uy) = (512_345.0, 4_410_678.0); // desplazamientos del tamaño de UTM
     let dump = args
         .iter()
         .position(|a| a == "--dump")
@@ -161,7 +162,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .collect(),
         );
-        // the same points in another order
+        // los mismos puntos en otro orden
         let mut order: Vec<usize> = (0..pts.len()).collect();
         let mut rng = Rng(7);
         for i in (1..order.len()).rev() {
@@ -229,8 +230,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::fs::write(format!("{dir}/scene_{kind}.txt"), text)?;
         }
     }
-    // Buildings: on the cities, the share of roof points called building; on the forests, the share
-    // of crown points called building (it should be none). With the true ground and with SMRF's.
+    // Edificios: en las ciudades, la proporción de puntos de tejado llamados edificio; en los
+    // bosques, la proporción de puntos de copa llamados edificio (no debería haber ninguno). Con el
+    // suelo verdadero y con el de SMRF.
     println!();
     println!(
         "| buildings | ground from | roofs/crowns called building % | ground called building % |"
@@ -260,7 +262,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             if std::env::var("HIPSO_DIAG").is_ok() && kind == "forest" && label == "truth" {
-                // where the ground called building lies, by distance to the nearest tree centre
+                // dónde está el suelo llamado edificio, por distancia al centro de árbol más
+                // cercano
                 let mut hist = [0u64; 8];
                 let mut inter = 0u64;
                 for (k, c) in out.iter().enumerate() {

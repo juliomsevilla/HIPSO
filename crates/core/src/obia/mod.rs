@@ -1,14 +1,15 @@
-//! Object-based analysis of LiDAR products: the cells of several co-registered layers (canopy
-//! height, intensity, returns…) are grouped into objects, each object gets attributes, and the
-//! objects are classified and written as polygons.
+//! Análisis basado en objetos de productos LiDAR: las celdas de varias capas corregistradas (altura
+//! de copas, intensidad, retornos…) se agrupan en objetos, cada objeto recibe atributos, y los
+//! objetos se clasifican y se escriben como polígonos.
 //!
-//! Everything works on one lattice shared by all layers (the same cells, cell for cell), is
-//! linear in the number of cells, and keeps each stage's result in plain vectors indexed by
-//! object number, so no stage allocates per cell or per object.
+//! Todo funciona sobre un retículo compartido por todas las capas (las mismas celdas, celda a
+//! celda), es lineal en el número de celdas y guarda el resultado de cada etapa en vectores simples
+//! indexados por número de objeto, de modo que ninguna etapa reserva memoria por celda ni por
+//! objeto.
 //!
-//! The methods follow the literature: the multiresolution merging of Baatz & Schäpe (2000, in
-//! the local mutual best fitting form), the random forests of Breiman (2001) and the
-//! classification accuracy measures of Congalton (1991).
+//! Los métodos siguen la literatura: la fusión multirresolución de Baatz y Schäpe (2000, en su
+//! forma de mejor ajuste mutuo local), los bosques aleatorios de Breiman (2001) y las medidas de
+//! exactitud de clasificación de Congalton (1991).
 
 pub mod attributes;
 pub mod classify;
@@ -28,12 +29,13 @@ use tiff::tags::Tag;
 use crate::grid::Grid;
 use crate::{Error, Result};
 
-/// The cells every layer of an analysis shares: north-up, square, row 0 the northernmost.
+/// Las celdas que comparte toda capa de un análisis: orientado al norte, cuadradas, la fila 0 la
+/// más al norte.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Lattice {
-    /// West edge.
+    /// Borde oeste.
     pub x0: f64,
-    /// South edge.
+    /// Borde sur.
     pub y0: f64,
     pub cell: f64,
     pub cols: usize,
@@ -59,7 +61,7 @@ impl Lattice {
         self.len() == 0
     }
 
-    /// Whether two lattices are the same cells (to a millionth of a cell).
+    /// Si dos retículos son las mismas celdas (hasta una millonésima de celda).
     pub fn same(&self, o: &Self) -> bool {
         self.cols == o.cols
             && self.rows == o.rows
@@ -68,7 +70,7 @@ impl Lattice {
             && (self.y0 - o.y0).abs() <= self.cell * 1e-6
     }
 
-    /// The index of the cell holding a point, if inside.
+    /// El índice de la celda que contiene un punto, si está dentro.
     #[inline]
     pub fn index(&self, x: f64, y: f64) -> Option<usize> {
         let c = ((x - self.x0) / self.cell).floor();
@@ -79,8 +81,8 @@ impl Lattice {
         Some((self.rows - 1 - r as usize) * self.cols + c as usize)
     }
 
-    /// The map coordinates of the corner `(col, row)` of the lattice (the cell's north-west
-    /// corner; `col` may run to `cols` and `row` to `rows`).
+    /// Las coordenadas del mapa de la esquina `(col, row)` del retículo (la esquina noroeste de la
+    /// celda; `col` puede llegar hasta `cols` y `row` hasta `rows`).
     #[inline]
     pub fn corner(&self, col: usize, row: usize) -> [f64; 2] {
         [
@@ -89,7 +91,7 @@ impl Lattice {
         ]
     }
 
-    /// A grid on this lattice holding `data`.
+    /// Una rejilla sobre este retículo que contiene `data`.
     pub fn grid(&self, data: Vec<f32>) -> Grid {
         Grid {
             x0: self.x0,
@@ -102,14 +104,14 @@ impl Lattice {
     }
 }
 
-/// One named band of values on the lattice; NaN marks a cell without data.
+/// Una banda de valores con nombre sobre el retículo; NaN marca una celda sin datos.
 #[derive(Clone, Debug)]
 pub struct Layer {
     pub name: String,
     pub data: Vec<f32>,
 }
 
-/// The layers of an analysis, all on one lattice.
+/// Las capas de un análisis, todas sobre un retículo.
 #[derive(Clone, Debug)]
 pub struct LayerStack {
     pub lat: Lattice,
@@ -126,7 +128,7 @@ impl LayerStack {
         }
     }
 
-    /// Adds a layer; its length must be the lattice's.
+    /// Añade una capa; su longitud debe ser la del retículo.
     pub fn push(&mut self, name: &str, data: Vec<f32>) -> Result<()> {
         if data.len() != self.lat.len() {
             return Err(Error::Param(format!(
@@ -146,7 +148,7 @@ impl LayerStack {
         Ok(())
     }
 
-    /// Adds a raster that must lie on the stack's lattice.
+    /// Añade un ráster que debe estar sobre el retículo de la pila.
     pub fn push_grid(&mut self, name: &str, g: &Grid) -> Result<()> {
         if !self.lat.same(&Lattice::of(g)) {
             return Err(Error::Param(format!(
@@ -156,8 +158,8 @@ impl LayerStack {
         self.push(name, g.data.clone())
     }
 
-    /// Adds every band of a multiband image as a layer named `<name>_b1`, `<name>_b2`…; the image
-    /// must lie on the stack's lattice.
+    /// Añade cada banda de una imagen multibanda como una capa llamada `<nombre>_b1`,
+    /// `<nombre>_b2`…; la imagen debe estar sobre el retículo de la pila.
     pub fn push_image(&mut self, name: &str, img: &crate::raster::Image) -> Result<()> {
         let lat = Lattice {
             x0: img.x0,
@@ -184,7 +186,7 @@ impl LayerStack {
     }
 }
 
-/// A label per cell: 0 where there is no object, else the object number `1..=count`.
+/// Una etiqueta por celda: 0 donde no hay objeto, si no el número de objeto `1..=count`.
 #[derive(Clone, Debug)]
 pub struct Labels {
     pub lat: Lattice,
@@ -192,7 +194,7 @@ pub struct Labels {
     pub count: u32,
 }
 
-/// The tags that place a raster on the map, as [`Grid::write_tiff`] writes them.
+/// Las etiquetas que sitúan un ráster en el mapa, como las escribe [`Grid::write_tiff`].
 fn write_int<C>(
     path: &Path,
     lat: &Lattice,
@@ -238,13 +240,13 @@ where
 }
 
 impl Labels {
-    /// Writes the object numbers as an integer GeoTIFF (0 is "no object"), which keeps every
-    /// number exact, unlike a float raster beyond 16 million objects.
+    /// Escribe los números de objeto como GeoTIFF entero (0 es «sin objeto»), que conserva exacto
+    /// cada número, a diferencia de un ráster decimal más allá de 16 millones de objetos.
     pub fn write_tiff(&self, path: &Path, epsg: Option<u16>) -> Result<()> {
         write_int::<colortype::Gray32>(path, &self.lat, epsg, &self.ids, "0")
     }
 
-    /// Reads an integer (or whole-valued float) GeoTIFF of object numbers.
+    /// Lee un GeoTIFF entero (o decimal de valores enteros) de números de objeto.
     pub fn read_tiff(path: &Path) -> Result<Self> {
         use tiff::decoder::{Decoder, DecodingResult};
         let tiff_err = |e: tiff::TiffError| Error::Format(format!("TIFF: {e}"));
@@ -303,7 +305,7 @@ impl Labels {
     }
 }
 
-/// Writes a class per cell as a 16-bit integer GeoTIFF (0 is "no class").
+/// Escribe una clase por celda como GeoTIFF entero de 16 bits (0 es «sin clase»).
 pub fn write_classes_tiff(
     path: &Path,
     lat: &Lattice,
@@ -330,7 +332,7 @@ mod tests {
     #[test]
     fn lattice_indexes_north_up() {
         let l = lat();
-        // the north-west cell is index 0, the south-east one the last
+        // la celda noroeste es el índice 0, la sureste la última
         assert_eq!(l.index(100.1, 201.4), Some(0));
         assert_eq!(l.index(101.9, 200.1), Some(11));
         assert_eq!(l.index(99.9, 200.1), None);

@@ -1,13 +1,13 @@
-//! The `+key=value` parameters of a PROJ string.
+//! Los parámetros `+clave=valor` de una cadena PROJ.
 
-/// The parameters of a PROJ string, in order.
+/// Los parámetros de una cadena PROJ, en orden.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Params {
     items: Vec<(String, Option<String>)>,
 }
 
 impl Params {
-    /// Parses `+proj=utm +zone=33 +south` (the `+` signs are optional).
+    /// Analiza `+proj=utm +zone=33 +south` (los signos `+` son opcionales).
     pub fn parse(s: &str) -> Self {
         let items = s
             .split_whitespace()
@@ -21,17 +21,17 @@ impl Params {
         Self { items }
     }
 
-    /// Whether the parameter is present.
+    /// Si el parámetro está presente.
     pub fn has(&self, key: &str) -> bool {
         self.items.iter().any(|(k, _)| k == key)
     }
 
-    /// The parameters' names, in order.
+    /// Los nombres de los parámetros, en orden.
     pub fn keys(&self) -> impl Iterator<Item = &str> {
         self.items.iter().map(|(k, _)| k.as_str())
     }
 
-    /// The parameter's value.
+    /// El valor del parámetro.
     pub fn str(&self, key: &str) -> Option<&str> {
         self.items
             .iter()
@@ -39,24 +39,24 @@ impl Params {
             .and_then(|(_, v)| v.as_deref())
     }
 
-    /// The parameter's numeric value.
+    /// El valor numérico del parámetro.
     pub fn f64(&self, key: &str) -> Option<f64> {
         self.str(key).and_then(|v| v.trim().parse().ok())
     }
 
-    /// The parameter as an angle, in radians: decimal degrees or PROJ's DMS (`40d30'15"N`).
+    /// El parámetro como ángulo, en radianes: grados decimales o DMS de PROJ (`40d30'15"N`).
     pub fn angle(&self, key: &str) -> Option<f64> {
         self.str(key).and_then(parse_dms).map(f64::to_radians)
     }
 
-    /// The parameter as a comma-separated list of numbers.
+    /// El parámetro como lista de números separados por comas.
     pub fn list(&self, key: &str) -> Option<Vec<f64>> {
         self.str(key)
             .map(|v| v.split(',').filter_map(|x| x.trim().parse().ok()).collect())
     }
 }
 
-/// Parses decimal degrees or PROJ's DMS notation into degrees.
+/// Analiza grados decimales o la notación DMS de PROJ en grados.
 fn parse_dms(s: &str) -> Option<f64> {
     let s = s.trim();
     if let Ok(v) = s.parse() {

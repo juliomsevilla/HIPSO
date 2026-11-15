@@ -1,10 +1,11 @@
-//! PLY point clouds (ASCII and binary, either byte order) turned into LAS/LAZ, so that every tool
-//! reads them. The scanners and photogrammetry programs that write PLY give positions, often a
-//! colour and sometimes an intensity; normals and other properties are left out.
+//! Nubes de puntos PLY (ASCII y binario, con cualquier orden de bytes) convertidas a LAS/LAZ, para
+//! que todas las herramientas las lean. Los escáneres y los programas de fotogrametría que escriben
+//! PLY dan posiciones, a menudo un color y a veces una intensidad; las normales y otras propiedades
+//! se dejan fuera.
 //!
-//! The conversion reads the file twice (the first time for the extent, which sets the offset of
-//! the integer coordinates) and writes in a stream, so memory does not depend on the number of
-//! points.
+//! La conversión lee el archivo dos veces (la primera para la extensión, que fija el desplazamiento
+//! de las coordenadas enteras) y escribe en flujo, de modo que la memoria no depende del número de
+//! puntos.
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -171,7 +172,7 @@ fn read_header<R: BufRead>(r: &mut R) -> Result<Header> {
     })
 }
 
-/// One vertex: position, intensity (as it is in the file) and colour (as in the file).
+/// Un vértice: posición, intensidad (como está en el archivo) y color (como en el archivo).
 struct Vertex {
     x: f64,
     y: f64,
@@ -219,7 +220,7 @@ impl Columns {
     }
 }
 
-/// Calls `f` on each vertex, in file order.
+/// Llama a `f` en cada vértice, en el orden del archivo.
 fn each_vertex<R: BufRead>(
     r: &mut R,
     h: &Header,
@@ -283,17 +284,17 @@ fn each_vertex<R: BufRead>(
     Ok(())
 }
 
-/// What a conversion did.
+/// Lo que hizo una conversión.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlyReport {
     pub points: u64,
     pub colour: bool,
     pub intensity: bool,
-    /// Points left out for not having finite coordinates.
+    /// Puntos que se dejan fuera por no tener coordenadas finitas.
     pub skipped: u64,
 }
 
-/// A header-only LAS file to take the layout of the output from.
+/// Un archivo LAS solo con cabecera del que tomar la disposición de la salida.
 pub(crate) fn template(
     dir: &Path,
     format: u8,
@@ -338,13 +339,13 @@ pub(crate) fn template(
     })
 }
 
-/// Converts a PLY file to LAS or LAZ (by the output's extension). `epsg` is the coordinate system
-/// the points are in, which a PLY does not say.
+/// Convierte un archivo PLY a LAS o LAZ (según la extensión de la salida). `epsg` es el sistema de
+/// coordenadas en el que están los puntos, que un PLY no dice.
 pub fn convert(input: &Path, output: &Path, epsg: Option<u16>) -> Result<PlyReport> {
     let mut r = BufReader::with_capacity(1 << 20, File::open(input)?);
     let header = read_header(&mut r)?;
     let cols = Columns::of(&header);
-    // pass 1: the extent
+    // pasada 1: la extensión
     let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
     let mut finite = 0u64;
     each_vertex(&mut r, &header, &cols, |v| {
@@ -360,7 +361,7 @@ pub fn convert(input: &Path, output: &Path, epsg: Option<u16>) -> Result<PlyRepo
     if finite == 0 {
         return Err(bad("no hay ningún vértice con coordenadas"));
     }
-    // millimetres, unless the cloud is so big that they would not fit the integers
+    // milímetros, salvo que la nube sea tan grande que no cabrían en los enteros
     let span = (0..3).map(|k| hi[k] - lo[k]).fold(0.0, f64::max);
     let scale = if span < 2.0e6 { 0.001 } else { 0.01 };
     if span / scale > 2.0e9 {
@@ -375,14 +376,14 @@ pub fn convert(input: &Path, output: &Path, epsg: Option<u16>) -> Result<PlyRepo
     crate::paths::ensure_parent(output)?;
     let tpl = template(&dir, if colour { 2 } else { 0 }, scale, offset, epsg)?;
     let mut w = Writer::create_with(output, &tpl, &WriterOptions::default())?;
-    // how the intensity and colour are scaled to 16 bits
+    // cómo se escalan la intensidad y el color a 16 bits
     let (int_kind, rgb_kind) = (
         cols.intensity.map(|k| header.props[k].kind),
         cols.rgb.map(|c| header.props[c[0]].kind),
     );
     let mut r = BufReader::with_capacity(1 << 20, File::open(input)?);
     let _ = read_header(&mut r)?;
-    // intensity in 0..1 floats becomes 0..65535; integers are kept (clamped)
+    // la intensidad en decimales de 0..1 pasa a 0..65535; los enteros se conservan (limitados)
     let int_scale = if int_kind.is_some_and(Kind::is_float) {
         65535.0
     } else {
@@ -404,7 +405,7 @@ pub fn convert(input: &Path, output: &Path, epsg: Option<u16>) -> Result<PlyRepo
             .map_or(0.0, |i| (i * int_scale).clamp(0.0, 65535.0));
         max_int = max_int.max(i);
         rec[12..14].copy_from_slice(&(i.round() as u16).to_le_bytes());
-        // first of one return, unclassified
+        // primero de un retorno, sin clasificar
         rec[14] = 0x09;
         rec[15] = 1;
         if let Some(c) = v.rgb {
@@ -431,12 +432,12 @@ pub fn convert(input: &Path, output: &Path, epsg: Option<u16>) -> Result<PlyRepo
     })
 }
 
-/// The path of a conversion made for opening: `<name>.laz` in the folder given.
+/// La ruta de una conversión hecha para abrir: `<nombre>.laz` en la carpeta dada.
 pub fn converted_path(input: &Path, dir: &Path) -> PathBuf {
     dir.join(format!("{}.laz", crate::paths::stem(input)))
 }
 
-/// A short text for the report of a conversion.
+/// Un texto corto para el informe de una conversión.
 pub fn describe(r: &PlyReport, output: &Path) -> String {
     let mut s = format!("{} puntos", r.points);
     if r.colour {
@@ -462,7 +463,7 @@ mod tests {
         std::env::temp_dir().join(format!("rl_ply_{}_{name}", std::process::id()))
     }
 
-    /// x, y, z, intensity and colour of a point read back.
+    /// x, y, z, intensidad y color de un punto leído de vuelta.
     type Back = (f64, f64, f64, u16, Option<[u16; 3]>);
 
     fn read_back(path: &Path) -> Result<Vec<Back>> {
@@ -492,7 +493,7 @@ mod tests {
             (576_010.123, 4_828_020.456, 301.789, 200, 10, 20, 30),
             (576_011.5, 4_828_021.25, 302.0, 250, 255, 0, 128),
         ];
-        // ASCII, with an intensity and normals that are left out
+        // ASCII, con una intensidad y normales que se dejan fuera
         let mut text = String::from(
             "ply\nformat ascii 1.0\ncomment hecho a mano\nelement vertex 2\nproperty double x\nproperty double y\nproperty double z\nproperty float nx\nproperty uchar intensity\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nelement face 0\nproperty list uchar int vertex_indices\nend_header\n",
         );
@@ -504,7 +505,7 @@ mod tests {
         }
         let ascii = temp("a.ply");
         std::fs::write(&ascii, &text)?;
-        // binary in both byte orders
+        // binario en ambos órdenes de bytes
         let mut files = vec![ascii.clone()];
         for (name, big) in [("l.ply", false), ("b.ply", true)] {
             let mut bytes = format!(
@@ -546,7 +547,7 @@ mod tests {
             assert!((r[0].0 - 576_010.123).abs() < 1e-3 && (r[0].1 - 4_828_020.456).abs() < 1e-3);
             assert!((r[0].2 - 301.789).abs() < 1e-3);
             assert_eq!(r[1].3, 250);
-            // 8-bit colours become 16-bit (×257)
+            // los colores de 8 bits pasan a 16 bits (×257)
             assert_eq!(r[1].4, Some([255 * 257, 0, 128 * 257]));
         }
         assert_eq!(results[0], results[1]);

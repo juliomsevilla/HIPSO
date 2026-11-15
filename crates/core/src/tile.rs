@@ -1,7 +1,7 @@
-//! Tiling with a buffer: one pass spreads the points of any number of files over square tiles
-//! (each point also goes to the neighbouring tiles whose buffer it falls in), kept in temporary
-//! files; tiles are then loaded one per thread and processed in parallel. Memory is the
-//! threads times a tile, whatever the size of the cloud.
+//! División en teselas con margen: una pasada reparte los puntos de cualquier número de archivos en
+//! teselas cuadradas (cada punto va también a las teselas vecinas en cuyo margen cae), guardadas en
+//! archivos temporales; después se carga una tesela por hilo y se procesan en paralelo. La memoria
+//! son los hilos por una tesela, sea cual sea el tamaño de la nube.
 
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, Read, Write};
@@ -12,7 +12,7 @@ use rayon::prelude::*;
 use crate::las::{Header, Points, Reader};
 use crate::{Error, Result};
 
-/// Square tiles of `size` from `(x0, y0)`, each read with `buffer` around it.
+/// Teselas cuadradas de `size` desde `(x0, y0)`, cada una leída con `buffer` a su alrededor.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Layout {
     pub x0: f64,
@@ -24,8 +24,9 @@ pub struct Layout {
 }
 
 impl Layout {
-    /// Tiles covering `[min x, min y, max x, max y]`, aligned on multiples of `align` (the
-    /// output cell size, so tiles share one raster lattice).
+    /// Teselas que cubren `[x mínima, y mínima, x máxima, y máxima]`, alineadas en múltiplos de
+    /// `align` (el tamaño de celda de salida, de modo que las teselas comparten un retículo
+    /// ráster).
     pub fn new(b: [f64; 4], size: f64, buffer: f64, align: f64) -> Result<Self> {
         if !(size > 0.0) || !(buffer >= 0.0) || !(align > 0.0) {
             return Err(Error::Param(
@@ -60,21 +61,22 @@ impl Layout {
         self.len() == 0
     }
 
-    /// The tile's own extent `[min x, min y, max x, max y]` (tile 0 is the south-west one).
+    /// La extensión propia de la tesela `[x mínima, y mínima, x máxima, y máxima]` (la tesela 0 es
+    /// la suroeste).
     pub fn core(&self, t: usize) -> [f64; 4] {
         let (c, r) = ((t % self.cols) as f64, (t / self.cols) as f64);
         let (x, y) = (self.x0 + c * self.size, self.y0 + r * self.size);
         [x, y, x + self.size, y + self.size]
     }
 
-    /// The tile a point belongs to.
+    /// La tesela a la que pertenece un punto.
     fn home(&self, x: f64, y: f64) -> (usize, usize) {
         let c = (((x - self.x0) / self.size).floor().max(0.0) as usize).min(self.cols - 1);
         let r = (((y - self.y0) / self.size).floor().max(0.0) as usize).min(self.rows - 1);
         (c, r)
     }
 
-    /// Calls `f(tile, is_home)` for every tile whose buffered extent holds the point.
+    /// Llama a `f(tesela, es_propia)` para cada tesela cuya extensión con margen contiene el punto.
     fn visit(&self, x: f64, y: f64, mut f: impl FnMut(usize, bool)) {
         let (hc, hr) = self.home(x, y);
         for r in hr.saturating_sub(1)..=(hr + 1).min(self.rows - 1) {
@@ -91,7 +93,7 @@ impl Layout {
     }
 }
 
-/// A temporary folder, deleted with everything in it when dropped.
+/// Una carpeta temporal, borrada con todo lo que contiene al soltarla.
 struct TempDir(PathBuf);
 
 impl Drop for TempDir {
@@ -100,7 +102,8 @@ impl Drop for TempDir {
     }
 }
 
-/// One loaded tile: its points (all, buffer included), their raw records, and which are its own.
+/// Una tesela cargada: sus puntos (todos, margen incluido), sus registros en bruto y cuáles son
+/// propios.
 pub struct Tile {
     pub index: usize,
     pub core: [f64; 4],
@@ -109,31 +112,33 @@ pub struct Tile {
     pub own: Vec<bool>,
 }
 
-/// Points spread over tiles, in temporary files.
+/// Puntos repartidos en teselas, en archivos temporales.
 pub struct Tiled {
     pub layout: Layout,
     pub header: Header,
     counts: Vec<u64>,
     dir: TempDir,
-    /// Whether loaded tiles keep their raw records (needed only to write points out).
+    /// Si las teselas cargadas conservan sus registros en bruto (solo hacen falta para escribir
+    /// puntos).
     pub keep_records: bool,
 }
 
-/// Bytes of spooled records held, over all tiles, before they are appended to their files.
+/// Bytes de registros volcados retenidos, entre todas las teselas, antes de añadirse a sus
+/// archivos.
 const SPOOL_BUDGET: usize = 64 << 20;
 
 impl Tiled {
-    /// Spreads the points of `inputs` over the tiles of `layout`, in one pass. All inputs must
-    /// share the first one's point format and record length; coordinates are converted to the
-    /// first one's scale and offset.
+    /// Reparte los puntos de `inputs` entre las teselas de `layout`, en una pasada. Todas las
+    /// entradas deben compartir el formato de punto y la longitud de registro de la primera; las
+    /// coordenadas se convierten a la escala y el desplazamiento de la primera.
     pub fn spool(inputs: &[Reader], layout: Layout) -> Result<Self> {
         Self::spool_with_context(inputs, &[], layout)
     }
 
-    /// [`Tiled::spool`] with `context`: files whose points only help to decide about the points of
-    /// `inputs` (the neighbouring sheets of a block). Their points are kept in the tiles they
-    /// reach, but none of them is a tile's own, so none is written out; the ones beyond the
-    /// buffer of the layout are left out.
+    /// [`Tiled::spool`] con `context`: archivos cuyos puntos solo ayudan a decidir sobre los puntos
+    /// de `inputs` (las hojas vecinas de un bloque). Sus puntos se guardan en las teselas a las que
+    /// llegan, pero ninguno es propio de una tesela, así que no se escribe ninguno; los que están
+    /// más allá del margen del trazado se dejan fuera.
     pub fn spool_with_context(
         inputs: &[Reader],
         context: &[Reader],
@@ -144,8 +149,8 @@ impl Tiled {
             .ok_or_else(|| Error::Param("no hay archivos de entrada".into()))?;
         let header = first.header.clone();
         let rec_len = usize::from(header.record_len);
-        // the clock of some systems ticks in microseconds: a counter keeps two spools started
-        // together apart
+        // el reloj de algunos sistemas avanza en microsegundos: un contador mantiene separados dos
+        // volcados iniciados a la vez
         static SPOOLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
             "hipso-tiles-{}-{}-{}",
@@ -161,7 +166,8 @@ impl Tiled {
         let flush_at = (SPOOL_BUDGET / n.max(1)).clamp(64 << 10, 8 << 20);
         let mut bufs: Vec<Vec<u8>> = vec![Vec::new(); n];
         let mut counts = vec![0u64; n];
-        // reading and spreading the points is about half of the work, processing the tiles the rest
+        // leer y repartir los puntos es aproximadamente la mitad del trabajo, procesar las teselas
+        // el resto
         crate::progress::begin(
             2 * inputs
                 .iter()
@@ -169,7 +175,7 @@ impl Tiled {
                 .map(|r| r.header.count)
                 .sum::<u64>(),
         );
-        // where the points of the context still matter: the layout and its buffer
+        // donde los puntos del contexto todavía importan: el trazado y su margen
         let reach = [
             layout.x0 - layout.buffer,
             layout.y0 - layout.buffer,
@@ -248,7 +254,7 @@ impl Tiled {
         })
     }
 
-    /// The tiles holding points, in order.
+    /// Las teselas que contienen puntos, en orden.
     pub fn tiles(&self) -> Vec<usize> {
         (0..self.counts.len())
             .filter(|&t| self.counts[t] > 0)
@@ -259,11 +265,12 @@ impl Tiled {
         self.dir.0.join(format!("{t}.bin"))
     }
 
-    /// Loads one tile, and deletes its file.
+    /// Carga una tesela y borra su archivo.
     pub fn load(&self, t: usize) -> Result<Tile> {
         let rec_len = usize::from(self.header.record_len);
         let n = self.counts.get(t).copied().unwrap_or(0) as usize;
-        // Read in blocks, so the file's bytes and the decoded points are never held together.
+        // Leído por bloques, de modo que los bytes del archivo y los puntos decodificados nunca
+        // están a la vez.
         let mut file = BufReader::new(File::open(self.path(t))?);
         let mut raw = vec![0u8; (rec_len + 1) * 65536];
         let mut records = Vec::with_capacity(if self.keep_records { n * rec_len } else { 0 });
@@ -299,8 +306,8 @@ impl Tiled {
         })
     }
 
-    /// Runs `f` on every tile, `threads` at a time (0: one per core), handing each batch's
-    /// results to `sink` in tile order before the next batch is loaded.
+    /// Ejecuta `f` sobre cada tesela, `threads` a la vez (0: uno por núcleo), entregando los
+    /// resultados de cada lote a `sink` en orden de tesela antes de cargar el siguiente.
     pub fn process<R: Send>(
         &self,
         threads: usize,

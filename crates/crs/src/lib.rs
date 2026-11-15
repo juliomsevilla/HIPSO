@@ -1,9 +1,9 @@
-//! Coordinate reference systems and reprojection for HIPSO.
+//! Sistemas de referencia de coordenadas y reproyección para HIPSO.
 //!
-//! The transformation engine (projections, EPSG/ESRI tables, WKT and PROJ strings, datum shift
-//! grids) is adapted from the `terrio` project (MIT, Qiusheng Wu), itself ported from PROJ (MIT).
-//! The Spanish IGN and ICGC grids and the EGM08-REDNAP geoid are built in (CC-BY 4.0): see
-//! [`spain`]. Credits are in the repository's `NOTICE`.
+//! El motor de transformación (proyecciones, tablas EPSG/ESRI, WKT y cadenas PROJ, rejillas de
+//! ajuste de datum) está adaptado del proyecto `terrio` (MIT, Qiusheng Wu), a su vez portado de
+//! PROJ (MIT). Las rejillas del IGN y del ICGC y el geoide EGM08-REDNAP están incorporados (CC-BY
+//! 4.0): véase [`spain`]. Los créditos están en el `NOTICE` del repositorio.
 
 #![allow(dead_code, unused_imports)]
 
@@ -12,14 +12,15 @@ pub mod spain;
 
 pub use crs::*;
 
-/// Errors of this crate.
+/// Errores de este crate.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0}")]
     Crs(String),
     #[error("{0}")]
     Param(String),
-    /// A point's transformation was refused by the [`Policy`] (a ballpark or a lesser operation).
+    /// La [`Policy`] rechazó la transformación de un punto (una aproximación o una operación
+    /// inferior).
     #[error("{0}")]
     Policy(String),
 }

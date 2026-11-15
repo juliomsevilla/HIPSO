@@ -1,17 +1,17 @@
-//! Tiled GeoTIFF of any number of bands, written as a stream and laid out as a Cloud Optimized
-//! GeoTIFF: 512 x 512 tiles, halved copies (overviews) down to one tile, and every directory at
-//! the start of the file followed by the tiles of the smallest overview up to those of the full
-//! image.
+//! GeoTIFF por teselas de cualquier número de bandas, escrito como flujo y dispuesto como Cloud
+//! Optimized GeoTIFF: teselas de 512 x 512, copias reducidas a la mitad (vistas reducidas) hasta
+//! una tesela y todos los directorios al principio del archivo seguidos de las teselas de la vista
+//! reducida más pequeña hasta las de la imagen completa.
 //!
-//! Rows arrive in order and are kept only until a band of 512 rows is complete: its tiles are
-//! compressed in parallel and appended to a temporary file per level, and the band, halved, feeds
-//! the next level. At the end the directories are written and the levels copied after them, so
-//! memory follows one band of rows per level, never the image, and the disk holds the result
-//! twice for a moment.
+//! Las filas llegan en orden y se guardan solo hasta que una banda de 512 filas está completa: sus
+//! teselas se comprimen en paralelo y se añaden a un archivo temporal por nivel, y la banda,
+//! reducida a la mitad, alimenta el nivel siguiente. Al final se escriben los directorios y los
+//! niveles se copian tras ellos, de modo que la memoria sigue a una banda de filas por nivel, nunca
+//! a la imagen, y el disco guarda el resultado dos veces por un momento.
 //!
-//! Tiles are compressed with deflate (lossless), or with JPEG for 8-bit images of one or three
-//! bands (photographs): three bands go as YCbCr with the chroma halved, as aerial orthophotos are
-//! usually distributed, about ten times smaller than deflate.
+//! Las teselas se comprimen con deflate (sin pérdidas) o con JPEG para imágenes de 8 bits de una o
+//! tres bandas (fotografías): tres bandas van como YCbCr con el croma reducido a la mitad, como
+//! suelen distribuirse las ortofotos aéreas, unas diez veces más pequeñas que con deflate.
 
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Seek, SeekFrom, Write};
@@ -22,36 +22,37 @@ use rayon::prelude::*;
 use crate::rastertools::Dtype;
 use crate::{Error, Result};
 
-/// Side of the tiles, in pixels.
+/// Lado de las teselas, en píxeles.
 pub const TILE: usize = 512;
 
-/// How the tiles are compressed.
+/// Cómo se comprimen las teselas.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Compression {
     /// Lossless.
     Deflate,
-    /// Lossy, with this quality (1 to 100); only for 8-bit images of one or three bands.
+    /// Con pérdidas, con esta calidad (1 a 100); solo para imágenes de 8 bits de una o tres bandas.
     Jpeg(u8),
 }
 
-/// What is written.
+/// Lo que se escribe.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Spec {
     pub cols: usize,
     pub rows: usize,
     pub bands: usize,
     pub dtype: Dtype,
-    /// Cell size and the corner of the top-left pixel.
+    /// Tamaño de celda y esquina del píxel superior izquierdo.
     pub cell: f64,
     pub x0: f64,
     pub top: f64,
     pub epsg: Option<u16>,
-    /// What empty pixels hold (NaN samples are written as this).
+    /// Lo que contienen los píxeles vacíos (las muestras NaN se escriben con esto).
     pub nodata: f32,
     pub compression: Compression,
-    /// Overviews take the first valid pixel of each 2 x 2 instead of their mean (classes, ids).
+    /// Las vistas reducidas toman el primer píxel válido de cada 2 x 2 en lugar de su media
+    /// (clases, identificadores).
     pub nearest: bool,
-    /// Write BigTIFF even if the file is small (it is used above 4 GB anyway).
+    /// Escribe BigTIFF aunque el archivo sea pequeño (se usa por encima de 4 GB de todos modos).
     pub bigtiff: bool,
 }
 
@@ -65,8 +66,8 @@ impl Spec {
     }
 }
 
-/// The compression for an image when the user has not chosen: JPEG for 8-bit photographs
-/// (three bands), deflate for everything else, which may hold measurements or classes.
+/// La compresión de una imagen cuando el usuario no ha elegido: JPEG para fotografías de 8 bits
+/// (tres bandas), deflate para todo lo demás, que puede contener medidas o clases.
 pub fn auto_compression(dtype: Dtype, bands: usize) -> Compression {
     if dtype == Dtype::U8 && bands == 3 {
         Compression::Jpeg(90)
@@ -75,31 +76,31 @@ pub fn auto_compression(dtype: Dtype, bands: usize) -> Compression {
     }
 }
 
-/// One level of the pyramid while it is written.
+/// Un nivel de la pirámide mientras se escribe.
 struct Level {
     cols: usize,
     rows: usize,
-    /// Rows received and not yet cut into tiles, as samples of the output type.
+    /// Filas recibidas y todavía no cortadas en teselas, como muestras del tipo de salida.
     pending: Vec<u8>,
-    /// Rows already cut into tiles.
+    /// Filas ya cortadas en teselas.
     done: usize,
     tmp_path: PathBuf,
-    /// `None` once the level is closed, so that its file can be removed (Windows does not
-    /// remove a file that is still open).
+    /// `None` una vez cerrado el nivel, para poder borrar su archivo (Windows no borra un archivo
+    /// que sigue abierto).
     tmp: Option<BufWriter<File>>,
-    /// Compressed size of each tile, in the order they were written (row by row).
+    /// Tamaño comprimido de cada tesela, en el orden en que se escribieron (fila a fila).
     sizes: Vec<u64>,
 }
 
-/// A tiled, cloud-optimized GeoTIFF being written. Rows go in with [`TiledWriter::push`];
-/// [`TiledWriter::finish`] writes the file.
+/// Un GeoTIFF por teselas optimizado para la nube que se está escribiendo. Las filas entran con
+/// [`TiledWriter::push`]; [`TiledWriter::finish`] escribe el archivo.
 pub struct TiledWriter {
     spec: Spec,
     path: PathBuf,
     levels: Vec<Level>,
 }
 
-/// Removes the temporary files of the levels when the writer is dropped (finished or not).
+/// Borra los archivos temporales de los niveles cuando se suelta el escritor (terminado o no).
 impl Drop for TiledWriter {
     fn drop(&mut self) {
         for l in &mut self.levels {
@@ -152,7 +153,8 @@ impl TiledWriter {
         })
     }
 
-    /// Adds full rows of interleaved samples (band by band within each pixel); NaN is no data.
+    /// Añade filas completas de muestras entrelazadas (banda a banda dentro de cada píxel); NaN es
+    /// sin datos.
     pub fn push(&mut self, rows: &[f32]) -> Result<()> {
         let width = self.spec.cols * self.spec.bands;
         if !rows.len().is_multiple_of(width) {
@@ -160,7 +162,7 @@ impl TiledWriter {
         }
         let bps = self.spec.bytes_per_sample();
         let (dtype, nodata) = (self.spec.dtype, self.spec.nodata);
-        // converted on all cores: a big strip is hundreds of millions of samples
+        // convertido en todos los núcleos: una franja grande son cientos de millones de muestras
         const CHUNK: usize = 1 << 16;
         let mut bytes = vec![0u8; rows.len() * bps];
         bytes
@@ -176,8 +178,8 @@ impl TiledWriter {
         self.take(0, bytes, false)
     }
 
-    /// Hands `bytes` (whole rows of level `k`) to that level, cutting every complete band of
-    /// rows into tiles; with `last`, the rows left over too.
+    /// Entrega `bytes` (filas enteras del nivel `k`) a ese nivel, cortando en teselas cada banda de
+    /// filas completa; con `last`, también las filas que sobran.
     fn take(&mut self, k: usize, bytes: Vec<u8>, last: bool) -> Result<()> {
         let bps = self.spec.bytes_per_sample();
         let nb = self.spec.bands;
@@ -214,7 +216,7 @@ impl TiledWriter {
         Ok(())
     }
 
-    /// Cuts `rows` rows of level `k` into tiles, compresses them and appends them.
+    /// Corta `rows` filas del nivel `k` en teselas, las comprime y las añade.
     fn write_band(&mut self, k: usize, band: &[u8], rows: usize) -> Result<()> {
         let spec = &self.spec;
         let (cols, nb, bps) = (self.levels[k].cols, spec.bands, spec.bytes_per_sample());
@@ -255,11 +257,12 @@ impl TiledWriter {
         Ok(())
     }
 
-    /// Writes the file: header, the directories of every level, then the tiles from the smallest
-    /// overview to the full image.
+    /// Escribe el archivo: cabecera, los directorios de cada nivel y luego las teselas desde la
+    /// vista reducida más pequeña hasta la imagen completa.
     pub fn finish(mut self) -> Result<()> {
-        // what is left of every level, from the full image down (a level whose rows ended on a
-        // whole band has nothing to hand on, so each one is asked in turn)
+        // lo que queda de cada nivel, desde la imagen completa hacia abajo (un nivel cuyas filas
+        // terminaron en una banda entera no tiene nada que pasar, así que se pregunta a cada uno
+        // por turno)
         for k in 0..self.levels.len() {
             self.take(k, Vec::new(), true)?;
         }
@@ -277,7 +280,7 @@ impl TiledWriter {
         let data: u64 = self.levels.iter().flat_map(|l| &l.sizes).sum();
         let big = self.spec.bigtiff || data > 3_900_000_000;
         let header = if big { 16u64 } else { 8 };
-        // the directories with offsets of the right width, first to measure them
+        // los directorios con desplazamientos del ancho correcto, primero para medirlos
         let dirs = |start: u64| -> Vec<Vec<u8>> {
             let mut at = start;
             let mut base: Vec<u64> = vec![0; self.levels.len()];
@@ -325,7 +328,7 @@ impl TiledWriter {
         }
         w.flush()?;
         drop(w);
-        // the directory chain: each one points at the next
+        // la cadena de directorios: cada uno apunta al siguiente
         let mut f = std::fs::OpenOptions::new().write(true).open(&self.path)?;
         let mut pos = header;
         for (k, d) in dirs.iter().enumerate() {
@@ -349,8 +352,8 @@ impl TiledWriter {
     }
 }
 
-/// Writes rows from `rows_of(r0, r1)` (interleaved, NaN for no data) as a cloud-optimized
-/// GeoTIFF, `step` rows at a time.
+/// Escribe filas de `rows_of(r0, r1)` (entrelazadas, NaN para sin datos) como GeoTIFF optimizado
+/// para la nube, `step` filas cada vez.
 pub fn write(
     path: &Path,
     spec: Spec,
@@ -369,7 +372,7 @@ pub fn write(
     w.finish()
 }
 
-/// A sample in the output type; NaN and infinities become `nodata`.
+/// Una muestra en el tipo de salida; NaN e infinitos pasan a `nodata`.
 fn put(out: &mut Vec<u8>, v: f32, dtype: Dtype, nodata: f32) {
     let v = if v.is_finite() { v } else { nodata };
     match dtype {
@@ -392,8 +395,8 @@ fn get(bytes: &[u8], i: usize, dtype: Dtype) -> f32 {
     }
 }
 
-/// Half-size copy of `rows` rows: each pixel is the mean of the valid pixels of the 2 x 2 below
-/// it (or the first valid one, with `nearest`), band by band; all empty stays empty.
+/// Copia a la mitad de tamaño de `rows` filas: cada píxel es la media de los píxeles válidos de los
+/// 2 x 2 de debajo (o el primer válido, con `nearest`), banda a banda; todo vacío sigue vacío.
 fn halve(
     band: &[u8],
     cols: usize,
@@ -409,7 +412,7 @@ fn halve(
         .map(|r| {
             let mut out = Vec::with_capacity(hc * nb * 4);
             for c in 0..hc {
-                // a pixel is empty when all its bands hold the nodata value
+                // un píxel está vacío cuando todas sus bandas contienen el valor nodata
                 let mut px: Vec<usize> = Vec::with_capacity(4);
                 for dr in 0..2 {
                     for dc in 0..2 {
@@ -463,8 +466,8 @@ fn compress(tile: &[u8], spec: &Spec) -> Result<Vec<u8>> {
     }
 }
 
-/// One entry of a directory: tag, type (2 ascii, 3 short, 4 long, 12 double, 16 long8), count
-/// and the value's bytes.
+/// Una entrada de un directorio: etiqueta, tipo (2 ascii, 3 corto, 4 largo, 12 doble, 16 largo8),
+/// recuento y los bytes del valor.
 struct Entry {
     tag: u16,
     kind: u16,
@@ -503,7 +506,7 @@ fn doubles(tag: u16, v: &[f64]) -> Entry {
     }
 }
 
-/// How many entries a directory written by [`directory`] has.
+/// Cuántas entradas tiene un directorio escrito por [`directory`].
 fn ifd_entries(d: &[u8], big: bool) -> u64 {
     if big {
         d.get(..8)
@@ -516,8 +519,8 @@ fn ifd_entries(d: &[u8], big: bool) -> u64 {
     }
 }
 
-/// The directory of level `k` written at `at`: entries, a zero "next" offset (set later), then
-/// the values that do not fit in their entries.
+/// El directorio del nivel `k` escrito en `at`: entradas, un desplazamiento «siguiente» a cero
+/// (fijado después) y luego los valores que no caben en sus entradas.
 #[allow(clippy::too_many_arguments)]
 fn directory(
     spec: &Spec,
@@ -655,7 +658,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("el_tiled_{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
         let path = dir.join("t.tif");
-        // 1300 x 1100, two bands: band 1 = column, band 2 = row (as u16)
+        // 1300 x 1100, dos bandas: banda 1 = columna, banda 2 = fila (como u16)
         let (cols, rows) = (1300, 1100);
         write(
             &path,
@@ -687,7 +690,7 @@ mod tests {
             assert_eq!(px[(r * cols + c) * 2], c as u16);
             assert_eq!(px[(r * cols + c) * 2 + 1], r as u16);
         }
-        // overviews: 650 x 550, then 325 x 275
+        // vistas reducidas: 650 x 550 y luego 325 x 275
         let mut sizes = Vec::new();
         while d.more_images() {
             d.next_image().map_err(|e| Error::Format(e.to_string()))?;

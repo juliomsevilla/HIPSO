@@ -1,10 +1,11 @@
-//! Progressive Morphological Filter for ground points (Zhang et al. 2003, "A progressive
-//! morphological filter for removing nonground measurements from airborne LIDAR data").
+//! Filtro morfológico progresivo para puntos de suelo (Zhang et al. 2003, «A progressive
+//! morphological filter for removing nonground measurements from airborne LIDAR data»).
 //!
-//! On a grid of the lowest point per cell, openings with windows that grow step by step remove
-//! objects smaller than the window; a point more than the step's height threshold above the
-//! opened surface is non-ground. Thresholds grow with the window by the terrain slope. Each
-//! opening costs O(cells), whatever the window. Works in memory: run it on tiles.
+//! Sobre una rejilla del punto más bajo por celda, las aperturas con ventanas que crecen paso a
+//! paso quitan los objetos menores que la ventana; un punto a más que el umbral de altura del paso
+//! por encima de la superficie abierta no es suelo. Los umbrales crecen con la ventana según la
+//! pendiente del terreno. Cada apertura cuesta O(celdas), sea cual sea la ventana. Funciona en
+//! memoria: ejecútese sobre teselas.
 
 use crate::grid::Grid;
 use crate::las::Point;
@@ -12,11 +13,11 @@ use crate::las::Point;
 #[derive(Clone, Debug, PartialEq)]
 pub struct PmfParams {
     pub cell: f64,
-    /// Largest window, in map units.
+    /// Mayor ventana, en unidades del mapa.
     pub max_window: f64,
-    /// Terrain slope (rise over run) used to raise the threshold with the window.
+    /// Pendiente del terreno (subida sobre recorrido) usada para subir el umbral con la ventana.
     pub slope: f64,
-    /// Threshold of the first window, and the largest threshold.
+    /// Umbral de la primera ventana y mayor umbral.
     pub dh0: f64,
     pub dh_max: f64,
 }
@@ -33,8 +34,8 @@ impl Default for PmfParams {
     }
 }
 
-/// Zhang et al.'s linear window sequence (in cells: 3, 5, 7, … up to the largest) and the
-/// threshold of each.
+/// La secuencia lineal de ventanas de Zhang et al. (en celdas: 3, 5, 7, … hasta la mayor) y el
+/// umbral de cada una.
 pub fn schedule(p: &PmfParams) -> Vec<(usize, f64)> {
     let max = ((p.max_window / p.cell).round() as usize).max(3);
     let mut out = Vec::new();
@@ -57,7 +58,7 @@ pub fn schedule(p: &PmfParams) -> Vec<(usize, f64)> {
     out
 }
 
-/// Which points are ground. Noise and withheld points are never ground and take no part.
+/// Qué puntos son suelo. El ruido y los puntos retenidos nunca son suelo y no participan.
 pub fn ground(pts: &[Point], p: &PmfParams) -> Vec<bool> {
     let mut ground: Vec<bool> = pts.iter().map(|q| !q.is_noise()).collect();
     if !(p.cell > 0.0) || pts.is_empty() {
@@ -76,7 +77,7 @@ pub fn ground(pts: &[Point], p: &PmfParams) -> Vec<bool> {
         return vec![false; pts.len()];
     };
     for (w, dh) in schedule(p) {
-        // The lowest remaining ground candidate per cell.
+        // El candidato a suelo restante más bajo por celda.
         let mut low = base.like();
         for (q, g) in pts.iter().zip(&ground) {
             if *g

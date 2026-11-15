@@ -1,6 +1,6 @@
-//! Raster to polygons: the cells that share a class, fall in a range or in the same band between
-//! cuts become polygons whose boundaries follow the cell edges exactly (or simplified), with the
-//! value as an attribute.
+//! Ráster a polígonos: las celdas que comparten una clase, caen en un rango o en la misma banda
+//! entre cortes pasan a ser polígonos cuyos límites siguen exactamente los bordes de las celdas (o
+//! simplificados), con el valor como atributo.
 
 use std::path::PathBuf;
 
@@ -14,27 +14,28 @@ use crate::paths;
 use crate::view::{Feature, GeomKind, VectorData};
 use crate::{Error, Result};
 
-/// What makes cells belong together.
+/// Qué hace que las celdas vayan juntas.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Mode {
-    /// Equal values (rounded to whole numbers): a classification.
+    /// Valores iguales (redondeados a números enteros): una clasificación.
     Classes,
-    /// Cells with a value from `lo` to `hi`, both included; the rest is left out.
+    /// Celdas con un valor de `lo` a `hi`, ambos incluidos; el resto se deja fuera.
     Range { lo: f64, hi: f64 },
-    /// The band between consecutive cuts (the ones below the first and above the last count too).
+    /// La banda entre cortes consecutivos (los de por debajo del primero y por encima del último
+    /// cuentan también).
     Breaks(Vec<f64>),
 }
 
 pub struct VecJob {
     pub input: PathBuf,
     pub mode: Mode,
-    /// Parts of fewer cells than this are dropped.
+    /// Las partes de menos celdas que esto se descartan.
     pub min_cells: u32,
-    /// Douglas-Peucker tolerance in map units; 0 keeps the stairs of the cells.
+    /// Tolerancia de Douglas-Peucker en unidades del mapa; 0 conserva los escalones de las celdas.
     pub simplify: f64,
-    /// Cells that touch by a corner are one part.
+    /// Las celdas que se tocan por una esquina son una sola parte.
     pub diagonal: bool,
-    /// The layer to write: `.shp` or `.gpkg`.
+    /// La capa que escribir: `.shp` o `.gpkg`.
     pub output: PathBuf,
 }
 
@@ -51,7 +52,7 @@ impl VecJob {
     }
 }
 
-/// The bucket of each cell: `None` where it is left out (empty, or out of the range).
+/// El cubo de cada celda: `None` donde se deja fuera (vacía o fuera del rango).
 fn buckets(g: &Grid, mode: &Mode) -> Vec<Option<i64>> {
     g.data
         .par_iter()
@@ -69,7 +70,7 @@ fn buckets(g: &Grid, mode: &Mode) -> Vec<Option<i64>> {
         .collect()
 }
 
-/// The label grid of the parts, and for each part its bucket and number of cells.
+/// La rejilla de etiquetas de las partes y, para cada parte, su cubo y su número de celdas.
 fn parts(g: &Grid, job: &VecJob) -> Result<(Labels, Vec<(i64, u32)>)> {
     let bucket = buckets(g, &job.mode);
     let (mut ids, count) = label_components(
@@ -87,7 +88,7 @@ fn parts(g: &Grid, job: &VecJob) -> Result<(Labels, Vec<(i64, u32)>)> {
             e.1 += 1;
         }
     }
-    // renumber what is kept, from 1
+    // renumerar lo que se conserva, desde 1
     let mut new = vec![0u32; count as usize + 1];
     let mut kept = Vec::new();
     for l in 1..=count as usize {
@@ -107,7 +108,7 @@ fn parts(g: &Grid, job: &VecJob) -> Result<(Labels, Vec<(i64, u32)>)> {
     Ok((labels, kept))
 }
 
-/// The limits of band `k` between `cuts`: NaN where it has no limit.
+/// Los límites de la banda `k` entre `cuts`: NaN donde no tiene límite.
 fn limits(cuts: &[f64], k: i64) -> (f64, f64) {
     let k = k.max(0) as usize;
     (
@@ -116,7 +117,7 @@ fn limits(cuts: &[f64], k: i64) -> (f64, f64) {
     )
 }
 
-/// The polygons of `g` as a layer.
+/// Los polígonos de `g` como capa.
 pub fn vectorize(g: &Grid, job: &VecJob) -> Result<VectorData> {
     if let Mode::Breaks(c) = &job.mode
         && (c.is_empty() || c.windows(2).any(|w| !(w[0] < w[1])))
@@ -195,14 +196,14 @@ pub fn vectorize(g: &Grid, job: &VecJob) -> Result<VectorData> {
     Ok(d)
 }
 
-/// Vectorizes `job.input` into `job.output`; returns the summary.
+/// Vectoriza `job.input` en `job.output`; devuelve el resumen.
 pub fn run(job: &VecJob) -> Result<String> {
     if let Ok(pyr) = crate::pyramid::Pyramid::open(&job.input)
         && let Some(mem) = crate::copc_cache::total_memory()
     {
         let e = pyr.extent();
         let cells = ((e[2] - e[0]) / pyr.cell) * ((e[3] - e[1]) / pyr.cell);
-        // the raster, the buckets (16 bytes with the option) and the labels
+        // el ráster, los cubos (16 bytes con la opción) y las etiquetas
         let need = cells * 28.0;
         if need > mem as f64 * 0.7 {
             return Err(Error::Param(format!(
@@ -277,7 +278,7 @@ mod tests {
 
     #[test]
     fn an_l_with_a_hole_has_an_inner_ring_and_the_area_is_kept() -> Result<()> {
-        // a 3x3 block with the middle cell empty
+        // un bloque de 3x3 con la celda del medio vacía
         let mut v = vec![1.0f32; 9];
         v[4] = f32::NAN;
         let g = grid(3, 3, &v)?;
@@ -316,7 +317,7 @@ mod tests {
         let g = grid(12, 1, &v)?;
         let d = vectorize(&g, &job(Mode::Breaks(vec![3.0, 6.0, 9.0])))?;
         assert_eq!(d.features.len(), 4);
-        // band 1 is [3, 6)
+        // la banda 1 es [3, 6)
         assert_eq!((d.num[1][3], d.num[1][4]), (3.0, 6.0));
         assert!(d.num[0][3].is_nan() && d.num[0][4] == 3.0);
         assert!(d.num[3][4].is_nan());

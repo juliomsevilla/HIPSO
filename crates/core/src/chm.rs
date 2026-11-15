@@ -1,18 +1,19 @@
-//! Canopy height model, the highest return above the ground in each
-//! cell, in one streaming pass.
+//! Modelo de altura de copas, el retorno más alto sobre el suelo en cada celda, en una pasada en
+//! flujo.
 
 use crate::Result;
 use crate::footprint::Footprint;
 use crate::grid::Grid;
 use crate::las::Reader;
 
-/// The CHM on cells of `cell`: per cell, the highest point height above `dtm` (negative heights
-/// count as 0); empty cells are filled from their neighbours unless `fill` is false.
+/// El CHM en celdas de `cell`: por celda, la altura del punto más alto sobre `dtm` (las alturas
+/// negativas cuentan como 0); las celdas vacías se rellenan desde sus vecinas salvo que `fill` sea
+/// falso.
 pub fn chm(reader: &Reader, dtm: &Grid, cell: f64, fill: bool) -> Result<Grid> {
     chm_in(reader, &[], 0.0, dtm, cell, fill)
 }
 
-/// The extent of the sheet grown by `margin` on every side.
+/// La extensión de la hoja ampliada `margin` por cada lado.
 fn grown(h: &crate::las::Header, margin: f64) -> [f64; 4] {
     [
         h.bounds[0] - margin,
@@ -22,8 +23,9 @@ fn grown(h: &crate::las::Header, margin: f64) -> [f64; 4] {
     ]
 }
 
-/// [`chm`] of a sheet of a block: the grid reaches `margin` beyond the sheet and the points of
-/// its neighbours in `halo` count, so the filling of empty cells at the edge looks across it.
+/// [`chm`] de una hoja de un bloque: la rejilla llega `margin` más allá de la hoja y cuentan los
+/// puntos de sus vecinas en `halo`, de modo que el relleno de celdas vacías en el borde mira a
+/// través de él.
 pub fn chm_in(
     reader: &Reader,
     halo: &[crate::las::Point],
@@ -59,13 +61,13 @@ pub fn chm_in(
     Ok(out)
 }
 
-/// The digital surface model on cells of `cell`: per cell, the highest point, in one streaming
-/// pass; empty cells are filled from their neighbours unless `fill` is false.
+/// El modelo digital de superficie en celdas de `cell`: por celda, el punto más alto, en una pasada
+/// en flujo; las celdas vacías se rellenan desde sus vecinas salvo que `fill` sea falso.
 pub fn dsm(reader: &Reader, cell: f64, fill: bool) -> Result<Grid> {
     dsm_in(reader, &[], 0.0, cell, fill)
 }
 
-/// [`dsm`] of a sheet of a block, as [`chm_in`] is of [`chm`].
+/// [`dsm`] de una hoja de un bloque, como [`chm_in`] lo es de [`chm`].
 pub fn dsm_in(
     reader: &Reader,
     halo: &[crate::las::Point],

@@ -1,4 +1,5 @@
-//! North-up float grids: alignment, sampling, hole filling and GeoTIFF I/O.
+//! Rejillas decimales orientadas al norte: alineación, muestreo, relleno de huecos y lectura y
+//! escritura de GeoTIFF.
 
 use std::collections::VecDeque;
 use std::fs::File;
@@ -10,23 +11,26 @@ use tiff::tags::Tag;
 
 use crate::{Error, Result};
 
-/// The value written for empty cells.
+/// El valor que se escribe para las celdas vacías.
 pub const NODATA: f32 = -9999.0;
 
-/// Most cells one grid may hold (4 bytes each). The memory of the machine sets the real limit
-/// (see [`Grid::new`]): a mosaic of hundreds of sheets has hundreds of millions of cells.
+/// Máximo de celdas que puede contener una rejilla (4 bytes cada una). La memoria del equipo fija
+/// el límite real (véase [`Grid::new`]): un mosaico de cientos de hojas tiene cientos de millones
+/// de celdas.
 const MAX_CELLS: usize = 1 << 32;
 
-/// The share of the machine's memory one grid may take: the tools that read a grid make
-/// others as big (the result, the neighbourhood), so a grid over this would swap the machine.
+/// La parte de la memoria del equipo que puede ocupar una rejilla: las herramientas que leen una
+/// rejilla hacen otras igual de grandes (el resultado, el entorno), así que una rejilla por encima
+/// de esto haría que el equipo recurriera al intercambio con el disco.
 const MEMORY_SHARE: f64 = 0.3;
 
-/// A grid of `cols` x `rows` square cells; row 0 is the northernmost. Empty cells hold NaN.
+/// Una rejilla de `cols` x `rows` celdas cuadradas; la fila 0 es la más al norte. Las celdas vacías
+/// contienen NaN.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Grid {
-    /// West edge.
+    /// Borde oeste.
     pub x0: f64,
-    /// South edge.
+    /// Borde sur.
     pub y0: f64,
     pub cell: f64,
     pub cols: usize,
@@ -35,7 +39,8 @@ pub struct Grid {
 }
 
 impl Grid {
-    /// The grid whose cells, aligned on multiples of `cell`, cover `[min x, min y, max x, max y]`.
+    /// La rejilla cuyas celdas, alineadas en múltiplos de `cell`, cubren `[x mínima, y mínima, x
+    /// máxima, y máxima]`.
     pub fn covering(b: [f64; 4], cell: f64) -> Result<Self> {
         if !(cell > 0.0) || b.iter().any(|v| !v.is_finite()) || b[2] < b[0] || b[3] < b[1] {
             return Err(Error::Param(format!(
@@ -46,7 +51,7 @@ impl Grid {
         Self::new(x0, y0, cell, cols, rows)
     }
 
-    /// The corner and size of [`Grid::covering`], without making the grid.
+    /// La esquina y el tamaño de [`Grid::covering`], sin hacer la rejilla.
     pub fn covering_dims(b: [f64; 4], cell: f64) -> (f64, f64, usize, usize) {
         let x0 = (b[0] / cell).floor() * cell;
         let y0 = (b[1] / cell).floor() * cell;
@@ -85,8 +90,9 @@ impl Grid {
         })
     }
 
-    /// The part of this grid inside `[min x, min y, max x, max y]`, on the same cells (the
-    /// ones of a grid made to cover that extent); cells this grid lacks stay empty.
+    /// La parte de esta rejilla dentro de `[x mínima, y mínima, x máxima, y máxima]`, sobre las
+    /// mismas celdas (las de una rejilla hecha para cubrir esa extensión); las celdas que le faltan
+    /// a esta rejilla quedan vacías.
     pub fn crop(&self, b: [f64; 4]) -> Result<Self> {
         let mut out = Self::covering(b, self.cell)?;
         for r in 0..out.rows {
@@ -100,8 +106,8 @@ impl Grid {
         Ok(out)
     }
 
-    /// The part of this grid that holds data: the smallest block of whole cells containing
-    /// every non-empty cell, on the same cells. `None` when no cell has data.
+    /// La parte de esta rejilla que contiene datos: el menor bloque de celdas enteras que contiene
+    /// cada celda no vacía, sobre las mismas celdas. `None` cuando ninguna celda tiene datos.
     pub fn trimmed(&self) -> Option<Self> {
         let (mut c0, mut c1, mut r0, mut r1) = (usize::MAX, 0, usize::MAX, 0);
         for r in 0..self.rows {
@@ -134,8 +140,8 @@ impl Grid {
         Some(out)
     }
 
-    /// This surface on the cells of `like`: each cell takes the bilinear value at its centre
-    /// ([`Grid::sample`]); cells outside this grid, or where it is empty, stay empty.
+    /// Esta superficie sobre las celdas de `like`: cada celda toma el valor bilineal en su centro
+    /// ([`Grid::sample`]); las celdas fuera de esta rejilla, o donde está vacía, quedan vacías.
     pub fn resampled_onto(&self, like: &Grid) -> Grid {
         let mut out = like.like();
         for r in 0..out.rows {
@@ -151,7 +157,7 @@ impl Grid {
         out
     }
 
-    /// An empty grid with the same cells.
+    /// Una rejilla vacía con las mismas celdas.
     pub fn like(&self) -> Self {
         Self {
             data: vec![f32::NAN; self.data.len()],
@@ -167,7 +173,7 @@ impl Grid {
         self.data.is_empty()
     }
 
-    /// The column and row of a point, if inside.
+    /// La columna y la fila de un punto, si está dentro.
     #[inline]
     pub fn col_row(&self, x: f64, y: f64) -> Option<(usize, usize)> {
         let c = ((x - self.x0) / self.cell).floor();
@@ -183,7 +189,7 @@ impl Grid {
         self.col_row(x, y).map(|(c, r)| r * self.cols + c)
     }
 
-    /// The centre of cell `(col, row)`.
+    /// El centro de la celda `(col, row)`.
     pub fn center(&self, col: usize, row: usize) -> (f64, f64) {
         (
             self.x0 + (col as f64 + 0.5) * self.cell,
@@ -191,8 +197,8 @@ impl Grid {
         )
     }
 
-    /// The surface at `(x, y)`, interpolated between the four nearest cell centres; empty
-    /// neighbours fall back to the cell holding the point.
+    /// La superficie en `(x, y)`, interpolada entre los cuatro centros de celda más cercanos; los
+    /// vecinos vacíos recurren a la celda que contiene el punto.
     pub fn sample(&self, x: f64, y: f64) -> Option<f32> {
         let fx = (x - self.x0) / self.cell - 0.5;
         let fy = (self.y0 + self.rows as f64 * self.cell - y) / self.cell - 0.5;
@@ -224,14 +230,14 @@ impl Grid {
         }
     }
 
-    /// Fills empty cells from the outside in: each takes the mean of its already-valued
-    /// neighbours (8-connected), layer by layer, in one pass over the grid.
+    /// Rellena las celdas vacías de fuera adentro: cada una toma la media de sus vecinas ya con
+    /// valor (conectividad 8), capa a capa, en una pasada sobre la rejilla.
     pub fn fill_holes(&mut self) {
         self.fill_holes_within(usize::MAX);
     }
 
-    /// As [`Grid::fill_holes`], but only up to `layers` cells in from the edge of a hole: a
-    /// larger hole keeps its middle empty (water, a gap in the flight).
+    /// Como [`Grid::fill_holes`], pero solo hasta `layers` celdas desde el borde de un hueco: un
+    /// hueco mayor conserva su centro vacío (agua, un hueco en el vuelo).
     pub fn fill_holes_within(&mut self, layers: usize) {
         let (cols, rows) = (self.cols as isize, self.rows as isize);
         let neighbours = |i: usize| {
@@ -255,7 +261,8 @@ impl Grid {
         let mut done = 0usize;
         while !layer.is_empty() && done < layers {
             done += 1;
-            // Values of this layer come only from earlier layers: computed first, then set.
+            // Los valores de esta capa vienen solo de capas anteriores: se calculan primero y luego
+            // se fijan.
             let values: Vec<f32> = layer
                 .iter()
                 .map(|&i| {
@@ -282,13 +289,14 @@ impl Grid {
         }
     }
 
-    /// Writes a Deflate-compressed 32-bit float GeoTIFF; `epsg` is the projected system.
+    /// Escribe un GeoTIFF de decimales de 32 bits comprimido con Deflate; `epsg` es el sistema
+    /// proyectado.
     pub fn write_tiff(&self, path: &Path, epsg: Option<u16>) -> Result<()> {
         self.write_tiff_vertical(path, epsg, None)
     }
 
-    /// As [`Grid::write_tiff`], also declaring the vertical reference of the values (EPSG code of
-    /// a vertical CRS, GeoKey 4096).
+    /// Como [`Grid::write_tiff`], declarando además la referencia vertical de los valores (código
+    /// EPSG de un sistema vertical, GeoKey 4096).
     pub fn write_tiff_vertical(
         &self,
         path: &Path,
@@ -303,9 +311,9 @@ impl Grid {
         self.write_as::<colortype::Gray32Float>(path, epsg, vertical, &NODATA.to_string(), &out)
     }
 
-    /// Writes an 8-bit grey GeoTIFF (an image): `lo` becomes 1 and `hi` 255, values outside are
-    /// clipped, and empty cells are 0, declared as no data. The same `lo` and `hi` for several
-    /// sheets give them one tone scale, so they join without seams.
+    /// Escribe un GeoTIFF gris de 8 bits (una imagen): `lo` pasa a ser 1 y `hi` 255, los valores
+    /// fuera se recortan y las celdas vacías son 0, declarado como sin datos. Los mismos `lo` y
+    /// `hi` para varias hojas les dan una misma escala de tonos, de modo que se unen sin costuras.
     pub fn write_tiff_u8(&self, path: &Path, epsg: Option<u16>, lo: f32, hi: f32) -> Result<()> {
         let k = if hi > lo { 254.0 / (hi - lo) } else { 0.0 };
         let out: Vec<u8> = self
@@ -351,7 +359,7 @@ impl Grid {
             &[0.0, 0.0, 0.0, self.x0, top, 0.0][..],
         )
         .map_err(tiff_err)?;
-        // Projected, pixel-is-area, and the EPSG code when the cloud gave one.
+        // Proyectado, píxel como área, y el código EPSG cuando la nube lo dio.
         let mut keys: Vec<u16> = vec![1, 1, 0, 2, 1024, 0, 1, 1, 1025, 0, 1, 1];
         if let Some(code) = epsg {
             keys[3] = 3;
@@ -368,7 +376,8 @@ impl Grid {
         Ok(())
     }
 
-    /// Reads a GeoTIFF, or an ESRI ASCII grid (`.asc`, as written by FUSION-compatible tools).
+    /// Lee un GeoTIFF o una rejilla ASCII de ESRI (`.asc`, como la escriben las herramientas
+    /// compatibles con FUSION).
     pub fn read(path: &Path) -> Result<Self> {
         crate::check_raster_format(path)?;
         let asc = path
@@ -388,7 +397,7 @@ impl Grid {
         }
     }
 
-    /// Reads an ESRI ASCII grid.
+    /// Lee una rejilla ASCII de ESRI.
     pub fn read_asc(path: &Path) -> Result<Self> {
         let text = std::fs::read_to_string(path)?;
         let mut words = text.split_ascii_whitespace();
@@ -437,7 +446,7 @@ impl Grid {
         Ok(g)
     }
 
-    /// The EPSG code a GeoTIFF declares (projected, else geographic), if any.
+    /// El código EPSG que declara un GeoTIFF (proyectado o, si no, geográfico), si lo hay.
     pub fn read_epsg(path: &Path) -> Option<u16> {
         use tiff::decoder::Decoder;
         if crate::pyramid::is_jp2_file(path) {
@@ -448,7 +457,8 @@ impl Grid {
         }
         let mut d = Decoder::new(BufReader::new(File::open(path).ok()?)).ok()?;
         let keys = d.get_tag_u32_vec(Tag::GeoKeyDirectoryTag).ok()?;
-        // four numbers of header, then four per key: id, location, count, value
+        // cuatro números de cabecera y luego cuatro por clave: identificador, ubicación, recuento,
+        // valor
         let key = |id: u32| {
             keys.get(4..)?
                 .as_chunks::<4>()
@@ -460,7 +470,7 @@ impl Grid {
         key(3072).or_else(|| key(2048))
     }
 
-    /// The EPSG code of the vertical CRS a GeoTIFF declares (GeoKey 4096), if any.
+    /// El código EPSG del sistema vertical que declara un GeoTIFF (GeoKey 4096), si lo hay.
     pub fn read_vertical_epsg(path: &Path) -> Option<u16> {
         use tiff::decoder::Decoder;
         let mut d = Decoder::new(BufReader::new(File::open(path).ok()?)).ok()?;
@@ -473,8 +483,8 @@ impl Grid {
             .and_then(|e| u16::try_from(e[3]).ok())
     }
 
-    /// The extent `[min x, min y, max x, max y]` and the cell size of a north-up GeoTIFF, from
-    /// its header alone.
+    /// La extensión `[x mínima, y mínima, x máxima, y máxima]` y el tamaño de celda de un GeoTIFF
+    /// orientado al norte, solo a partir de su cabecera.
     pub fn read_extent(path: &Path) -> Result<([f64; 4], f64)> {
         use tiff::decoder::Decoder;
         let mut d = Decoder::new(BufReader::new(crate::open_file(path)?)).map_err(tiff_err)?;
@@ -494,8 +504,8 @@ impl Grid {
         Ok(([tx, ty - f64::from(h) * sy, tx + f64::from(w) * sx, ty], sx))
     }
 
-    /// Copies into the empty cells of this grid the values of `other` that lie on them (each
-    /// cell takes the cell of `other` under its centre).
+    /// Copia en las celdas vacías de esta rejilla los valores de `other` que caen sobre ellas (cada
+    /// celda toma la celda de `other` que hay bajo su centro).
     pub fn fill_from(&mut self, other: &Grid) {
         for r in 0..self.rows {
             for c in 0..self.cols {
@@ -511,7 +521,8 @@ impl Grid {
         }
     }
 
-    /// Reads a north-up 32-bit float GeoTIFF such as [`Grid::write_tiff`] writes.
+    /// Lee un GeoTIFF de decimales de 32 bits orientado al norte como los que escribe
+    /// [`Grid::write_tiff`].
     pub fn read_tiff(path: &Path) -> Result<Self> {
         use tiff::decoder::{Decoder, DecodingResult};
         let mut d = Decoder::new(BufReader::new(crate::open_file(path)?)).map(|d| d.with_limits(tiff::decoder::Limits::unlimited())).map_err(tiff_err)?;
@@ -579,8 +590,8 @@ impl Grid {
     }
 }
 
-/// Accumulates the mean elevation of the points falling in each cell of a grid; sums are kept
-/// relative to a reference height for precision.
+/// Acumula la elevación media de los puntos que caen en cada celda de una rejilla; las sumas se
+/// guardan relativas a una altura de referencia para tener precisión.
 pub struct MeanGrid {
     grid: Grid,
     zref: f64,
@@ -609,7 +620,7 @@ impl MeanGrid {
         }
     }
 
-    /// The grid of means; cells without points stay empty.
+    /// La rejilla de medias; las celdas sin puntos quedan vacías.
     pub fn finish(mut self) -> Grid {
         for ((v, s), n) in self.grid.data.iter_mut().zip(&self.sum).zip(&self.count) {
             if *n > 0 {
@@ -620,7 +631,7 @@ impl MeanGrid {
     }
 }
 
-/// `n` copies of `v`, or an error (not an abort) when the memory is not there.
+/// `n` copias de `v`, o un error (no un aborto) cuando no hay memoria.
 fn filled<T: Copy>(n: usize, v: T) -> Result<Vec<T>> {
     let mut out = Vec::new();
     out.try_reserve_exact(n).map_err(|_| {
@@ -650,7 +661,7 @@ mod tests {
         g.data[0] = 1.0;
         g.data[8] = 1.0;
         g.fill_holes_within(2);
-        // two layers in from each end: the four cells are filled, the middle cell is not
+        // dos capas desde cada extremo: se rellenan las cuatro celdas, la celda del medio no
         assert!(g.data[1..=2].iter().all(|v| !v.is_nan()));
         assert!(g.data[6..=7].iter().all(|v| !v.is_nan()));
         assert!(g.data[3..=5].iter().all(|v| v.is_nan()));
@@ -676,7 +687,7 @@ mod tests {
     #[test]
     fn trimmed_keeps_the_cells_with_data() -> Result<()> {
         let mut g = Grid::new(100.0, 200.0, 2.0, 6, 5)?;
-        // data in column 2..=3 and rows 1..=2 only
+        // datos solo en las columnas 2..=3 y las filas 1..=2
         g.data[6 + 2] = 1.0;
         g.data[2 * 6 + 3] = 4.0;
         let t = g.trimmed().ok_or(Error::Param("vacía".into()))?;
@@ -692,7 +703,7 @@ mod tests {
     fn covering_aligns_and_indexes() -> Result<()> {
         let g = Grid::covering([10.2, 20.7, 13.9, 22.0], 1.0)?;
         assert_eq!((g.x0, g.y0, g.cols, g.rows), (10.0, 20.0, 4, 3));
-        // The southwest point is in the last row.
+        // El punto suroeste está en la última fila.
         assert_eq!(g.col_row(10.2, 20.7), Some((0, 2)));
         assert_eq!(g.col_row(13.9, 22.0), Some((3, 0)));
         assert_eq!(g.col_row(9.9, 21.0), None);
@@ -702,7 +713,8 @@ mod tests {
 
     #[test]
     fn resampling_onto_other_cells() -> Result<()> {
-        // a ramp z = x on 1 m cells, read on 0.5 m cells that start inside and stick out
+        // una rampa z = x en celdas de 1 m, leída en celdas de 0,5 m que empiezan dentro y
+        // sobresalen
         let mut g = Grid::new(0.0, 0.0, 1.0, 4, 2)?;
         for r in 0..2 {
             for c in 0..4 {
@@ -711,9 +723,9 @@ mod tests {
         }
         let like = Grid::new(1.0, 0.0, 0.5, 8, 4)?;
         let out = g.resampled_onto(&like);
-        // the centre of the first cell is x = 1.25: the ramp gives 1.25
+        // el centro de la primera celda es x = 1,25: la rampa da 1,25
         assert!((out.data[0] - 1.25).abs() < 1e-5, "{}", out.data[0]);
-        // beyond x = 4 there is nothing
+        // más allá de x = 4 no hay nada
         assert!(out.data[7].is_nan());
         assert_eq!(out.cols, 8);
         Ok(())

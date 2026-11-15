@@ -1,15 +1,18 @@
-//! Datum shift and geoid grids, read and interpolated as PROJ (<https://proj.org>, MIT licence)
-//! does: NTv2 (`.gsb`), GTX (`.gtx`) and the GeoTIFF grids of PROJ-data (`.tif`, from
-//! <https://cdn.proj.org>), with their subgrids. PROJ's notice is in `NOTICE`.
+//! Rejillas de ajuste de datum y de geoide, leídas e interpoladas como lo hace PROJ
+//! (<https://proj.org>, licencia MIT): NTv2 (`.gsb`), GTX (`.gtx`) y las rejillas GeoTIFF de
+//! PROJ-data (`.tif`, de <https://cdn.proj.org>), con sus subrejillas. El aviso de PROJ está en
+//! `NOTICE`.
 //!
-//! Grids are looked up by name in, in order: grids registered in memory ([`register_grid`]), the
-//! directories of `HIPSO_GRID_DIR`, `PROJ_DATA` and `PROJ_LIB`, PROJ's user directory (where
-//! `projsync` writes), and terrio's download cache. When `HIPSO_NETWORK` (or, when it is not set,
-//! `PROJ_NETWORK`) is `ON`, a grid found nowhere is downloaded from the PROJ CDN
-//! (`HIPSO_CDN_ENDPOINT`, `PROJ_NETWORK_ENDPOINT`, default `https://cdn.proj.org`): read in place
-//! with HTTP range requests, as PROJ reads it, fetching only the header and the blocks of the
-//! points transformed; or, with `HIPSO_GRID_DOWNLOAD=YES`, downloaded whole into the cache
-//! (`HIPSO_GRID_CACHE`, default `~/.cache/terrio/grids`), where later runs find it.
+//! Las rejillas se buscan por nombre, por orden, en: las rejillas registradas en memoria
+//! ([`register_grid`]), los directorios de `HIPSO_GRID_DIR`, `PROJ_DATA` y `PROJ_LIB`, el
+//! directorio del usuario de PROJ (donde escribe `projsync`) y la caché de descargas de terrio.
+//! Cuando `HIPSO_NETWORK` (o, si no está definida, `PROJ_NETWORK`) vale `ON`, una rejilla que no se
+//! encuentra en ninguna parte se descarga de la CDN de PROJ (`HIPSO_CDN_ENDPOINT`,
+//! `PROJ_NETWORK_ENDPOINT`, por defecto `https://cdn.proj.org`): se lee en su sitio con peticiones
+//! HTTP por rango, como la lee PROJ, trayendo solo la cabecera y los bloques de los puntos
+//! transformados; o, con `HIPSO_GRID_DOWNLOAD=YES`, se descarga entera a la caché
+//! (`HIPSO_GRID_CACHE`, por defecto `~/.cache/terrio/grids`), donde la encuentran las ejecuciones
+//! posteriores.
 
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -17,11 +20,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0;
 const SEC_TO_RAD: f64 = DEG_TO_RAD / 3600.0;
-/// PROJ's relative tolerance at grid edges.
+/// La tolerancia relativa de PROJ en los bordes de la rejilla.
 const REL_TOLERANCE: f64 = 1e-5;
 const TWO_PI: f64 = 2.0 * std::f64::consts::PI;
 
-/// The area a grid covers and its resolution, in radians (geographic grids) or metres.
+/// El área que cubre una rejilla y su resolución, en radianes (rejillas geográficas) o en metros.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Extent {
     pub west: f64,
@@ -54,7 +57,7 @@ impl Extent {
         o.west >= self.west && o.east <= self.east && o.south >= self.south && o.north <= self.north
     }
 
-    /// Whether a point is in the extent, as PROJ's `isPointInExtent`.
+    /// Si un punto está dentro de la extensión, como `isPointInExtent` de PROJ.
     fn holds(&self, mut x: f64, y: f64, eps: f64) -> bool {
         if !(y + eps >= self.south && y - eps <= self.north) {
             return false;
@@ -73,17 +76,18 @@ impl Extent {
     }
 }
 
-/// The values of one grid (an NTv2 subfile, a GTX file or a GeoTIFF image).
+/// Los valores de una rejilla (una subrejilla NTv2, un archivo GTX o una imagen GeoTIFF).
 enum Values {
-    /// Samples in memory, each row-major from the southern row, west to east.
+    /// Muestras en memoria, cada fila de izquierda a derecha, empezando por la fila sur, de oeste a
+    /// este.
     Mem(Vec<Vec<f32>>),
-    /// A GeoTIFF image, decoded by block on first use.
+    /// Una imagen GeoTIFF, decodificada por bloques la primera vez que se usa.
     Tiff(TiffImage),
-    /// PROJ's `null` grid: zero everywhere.
+    /// La rejilla `null` de PROJ: cero en todas partes.
     Null,
 }
 
-/// A GeoTIFF image whose blocks are decoded when first read.
+/// Una imagen GeoTIFF cuyos bloques se decodifican cuando se leen por primera vez.
 struct TiffImage {
     file: Arc<TiffFile>,
     ifd: usize,
@@ -93,15 +97,17 @@ struct TiffImage {
     blocks: usize,
     planar: bool,
     bottom_up: bool,
-    /// Decoded blocks, by block id (planes after one another when planar), each decoded when
-    /// first read: reading one afterwards takes no lock, as many threads read them at once.
+    /// Bloques decodificados, por identificador de bloque (los planos uno tras otro cuando es
+    /// planar), cada uno decodificado la primera vez que se lee: leerlo después no toma ningún
+    /// cerrojo, de modo que muchos hilos lo leen a la vez.
     cache: Vec<OnceLock<Block>>,
 }
 
-/// A decoded block: its data width and raw values.
+/// Un bloque decodificado: su ancho de datos y sus valores en bruto.
 type Block = (usize, Vec<f64>);
 
-/// Where a GeoTIFF grid's bytes are read from: memory, or a remote file read by range.
+/// De dónde se leen los bytes de una rejilla GeoTIFF: de memoria o de un archivo remoto leído por
+/// rangos.
 enum GridReader {
     Bytes(Cursor<Arc<[u8]>>),
     #[cfg(remote)]
@@ -128,25 +134,27 @@ impl std::io::Seek for GridReader {
     }
 }
 
-/// A TIFF decoder over a grid file.
+/// Un decodificador TIFF sobre un archivo de rejilla.
 type TiffDecoder = tiff::decoder::Decoder<GridReader>;
 
 struct TiffFile {
-    /// The decoder and the image it is on.
+    /// El decodificador y la imagen en la que está.
     decoder: Mutex<(TiffDecoder, usize)>,
 }
 
-/// One grid with its metadata.
+/// Una rejilla con sus metadatos.
 struct Source {
     values: Values,
     width: usize,
     height: usize,
     samples: usize,
-    /// GDAL metadata items by (sample, name); sample -1 for the dataset's.
+    /// Elementos de metadatos de GDAL por (muestra, nombre); muestra -1 para los del conjunto de
+    /// datos.
     meta: HashMap<(i32, String), String>,
     nodata: Option<f32>,
     scale_offset: Vec<(f64, f64)>,
-    /// The file's first grid, whose metadata a grid without `TYPE` inherits (generic grids).
+    /// La primera rejilla del archivo, cuyos metadatos hereda una rejilla sin `TYPE` (rejillas
+    /// genéricas).
     first: Option<Arc<Source>>,
     subfile_type: u32,
     format: Format,
@@ -172,8 +180,8 @@ impl Source {
         }
     }
 
-    /// The value of a sample at a column and a row counted from the south, scaled as GDAL's
-    /// metadata says unless it is nodata (PROJ's `GTiffGrid::valueAt`).
+    /// El valor de una muestra en una columna y una fila contadas desde el sur, escalado como dicen
+    /// los metadatos de GDAL salvo que sea nodata (`GTiffGrid::valueAt` de PROJ).
     fn value(&self, sample: usize, x: usize, y: usize) -> Option<f32> {
         if x >= self.width || y >= self.height || sample >= self.samples {
             return None;
@@ -240,17 +248,17 @@ impl TiffImage {
             };
             (w as usize, values)
         };
-        // A block decoded by two threads at once keeps the first.
+        // Un bloque decodificado por dos hilos a la vez conserva el primero.
         Some(slot.get_or_init(|| decoded))
     }
 }
 
-/// How a grid is read by the step that uses it.
+/// Cómo lee una rejilla el paso que la usa.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Use {
-    /// Horizontal shifts (`hgridshift`): the samples of the latitude and longitude offsets, the
-    /// factor to radians, whether longitudes are positive east, and NTv2's west-positive
-    /// longitudes.
+    /// Desplazamientos horizontales (`hgridshift`): las muestras de los desfases de latitud y
+    /// longitud, el factor a radianes, si las longitudes son positivas al este y las longitudes
+    /// positivas al oeste de NTv2.
     H {
         lat: usize,
         lon: usize,
@@ -258,13 +266,13 @@ enum Use {
         east: bool,
         ntv2: bool,
     },
-    /// Vertical offsets (`vgridshift`): the sample.
+    /// Desfases verticales (`vgridshift`): la muestra.
     V { sample: usize },
-    /// Any other grid (`gridshift`, `xyzgridshift`, `deformation`).
+    /// Cualquier otra rejilla (`gridshift`, `xyzgridshift`, `deformation`).
     Generic,
 }
 
-/// A grid with its subgrids, as PROJ nests them.
+/// Una rejilla con sus subrejillas, como las anida PROJ.
 #[derive(Clone)]
 pub(crate) struct Grid {
     pub ext: Extent,
@@ -286,12 +294,12 @@ impl Grid {
         self.src.format == Format::Null
     }
 
-    /// The type of a generic grid (`HORIZONTAL_OFFSET`, `GEOGRAPHIC_3D_OFFSET`...).
+    /// El tipo de una rejilla genérica (`HORIZONTAL_OFFSET`, `GEOGRAPHIC_3D_OFFSET`...).
     fn grid_type(&self) -> &str {
         self.src.meta("TYPE", -1)
     }
 
-    /// The most refined grid holding a point.
+    /// La rejilla más refinada que contiene un punto.
     fn at(&self, x: f64, y: f64, horizontal: bool) -> &Grid {
         for c in &self.children {
             let eps = if horizontal {
@@ -306,8 +314,8 @@ impl Grid {
         self
     }
 
-    /// The horizontal shift (longitude, latitude) in radians at a node, as PROJ's `valueAt` of
-    /// horizontal grids (single precision, longitudes positive east).
+    /// El desplazamiento horizontal (longitud, latitud) en radianes en un nodo, como `valueAt` de
+    /// PROJ para rejillas horizontales (precisión simple, longitudes positivas al este).
     fn hshift(&self, x: usize, y: usize) -> Option<(f32, f32)> {
         if self.is_null() {
             return Some((0.0, 0.0));
@@ -333,7 +341,7 @@ impl Grid {
     }
 }
 
-/// The grids of one file, as a step uses them.
+/// Las rejillas de un archivo, tal como las usa un paso.
 pub(crate) struct GridSet {
     grids: Vec<Grid>,
 }
@@ -373,12 +381,12 @@ impl GridSet {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Reading grid files.
+// Lectura de archivos de rejillas.
 
-/// A grid file read: its format and grids in file order.
+/// Un archivo de rejillas leído: su formato y sus rejillas en el orden del archivo.
 struct GridFile {
-    /// Each grid's extent and values, with its name and its parent's name (NTv2 subfile names,
-    /// or GDAL metadata's `grid_name` and `parent_grid_name`).
+    /// La extensión y los valores de cada rejilla, con su nombre y el de su padre (nombres de las
+    /// subrejillas de NTv2, o `grid_name` y `parent_grid_name` de los metadatos de GDAL).
     sources: Vec<(Extent, Arc<Source>, String, String)>,
     format: Format,
 }
@@ -429,7 +437,7 @@ fn f32_at(b: &[u8], off: usize, le: bool) -> Option<f32> {
     })
 }
 
-/// Reads an NTv2 file (`GS_TYPE=SECONDS`), as PROJ's `NTv2GridSet::open`.
+/// Lee un archivo NTv2 (`GS_TYPE=SECONDS`), como `NTv2GridSet::open` de PROJ.
 fn read_ntv2(b: &[u8]) -> Option<GridFile> {
     if b.get(56..63)? != b"SECONDS" {
         return None;
@@ -469,7 +477,7 @@ fn read_ntv2(b: &[u8]) -> Option<GridFile> {
         let (mut lat, mut lon) = (vec![0f32; cols * rows], vec![0f32; cols * rows]);
         for y in 0..rows {
             for x in 0..cols {
-                // Rows run east to west.
+                // Las filas van de este a oeste.
                 let off = data + 16 * (y * cols + (cols - 1 - x));
                 lat[y * cols + x] = f32_at(b, off, le)?;
                 lon[y * cols + x] = f32_at(b, off + 4, le)?;
@@ -496,7 +504,7 @@ fn read_ntv2(b: &[u8]) -> Option<GridFile> {
     })
 }
 
-/// Reads a GTX vertical grid, as PROJ's `GTXVerticalShiftGrid::open`.
+/// Lee una rejilla vertical GTX, como `GTXVerticalShiftGrid::open` de PROJ.
 fn read_gtx(b: &[u8]) -> Option<GridFile> {
     let (yo, mut xo, ys, xs) = (
         f64_at(b, 0, false)?,
@@ -542,7 +550,7 @@ fn read_gtx(b: &[u8]) -> Option<GridFile> {
     })
 }
 
-/// Parses the items of a `GDAL_METADATA` tag as PROJ does.
+/// Analiza los elementos de una etiqueta `GDAL_METADATA` como lo hace PROJ.
 fn parse_gdal_metadata(text: &str) -> HashMap<(i32, String), String> {
     let mut out = HashMap::new();
     let mut rest = text;
@@ -572,7 +580,7 @@ fn parse_gdal_metadata(text: &str) -> HashMap<(i32, String), String> {
     out
 }
 
-/// Reads the images of a PROJ GeoTIFF grid, as PROJ's `GTiffDataset::nextGrid`.
+/// Lee las imágenes de una rejilla GeoTIFF de PROJ, como `GTiffDataset::nextGrid` de PROJ.
 fn read_tiff(reader: GridReader) -> Option<GridFile> {
     use tiff::decoder::{Decoder, Limits};
     use tiff::tags::Tag;
@@ -683,8 +691,8 @@ fn read_tiff(reader: GridReader) -> Option<GridFile> {
         }
         let blocks_per_row = width.div_ceil(block_w.max(1));
         let blocks = blocks_per_row * height.div_ceil(block_h.max(1));
-        // The chunks the file has: no more blocks than these can be decoded, whatever its size
-        // tags say.
+        // Los fragmentos que tiene el archivo: no se pueden decodificar más bloques que estos,
+        // digan lo que digan sus etiquetas de tamaño.
         let offsets = if dec.get_chunk_type() == tiff::decoder::ChunkType::Tile {
             Tag::TileOffsets
         } else {
@@ -797,7 +805,7 @@ fn read_tiff(reader: GridReader) -> Option<GridFile> {
     })
 }
 
-/// The value of the `GDAL_METADATA` item of a sample with a role (`scale`, `offset`).
+/// El valor del elemento `GDAL_METADATA` de una muestra con un papel (`scale`, `offset`).
 fn role_value(text: &str, sample: i32, role: &str) -> Option<f64> {
     let mut rest = text;
     while let Some(start) = rest.find("<Item ") {
@@ -836,9 +844,9 @@ fn read_file(name: &str, bytes: Arc<[u8]>) -> Option<GridFile> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Finding grids.
+// Búsqueda de rejillas.
 
-/// The search paths and network setting set by the API, overriding the environment.
+/// Las rutas de búsqueda y el ajuste de red fijados por la API, que sustituyen a los del entorno.
 #[derive(Default)]
 struct Config {
     paths: Option<Vec<std::path::PathBuf>>,
@@ -850,10 +858,10 @@ fn config() -> &'static Mutex<Config> {
     C.get_or_init(|| Mutex::new(Config::default()))
 }
 
-/// Sets the directories datum shift and geoid grids are looked up in, in order, instead of those
-/// of the environment (`HIPSO_GRID_DIR`, `PROJ_DATA`, `PROJ_LIB`, PROJ's user directory and
-/// terrio's download cache); `None` goes back to the environment's. As PROJ's
-/// `proj_context_set_search_paths`. Transformers created afterwards use them.
+/// Fija los directorios en los que se buscan las rejillas de ajuste de datum y de geoide, por
+/// orden, en lugar de los del entorno (`HIPSO_GRID_DIR`, `PROJ_DATA`, `PROJ_LIB`, el directorio del
+/// usuario de PROJ y la caché de descargas de terrio); `None` vuelve a los del entorno. Como
+/// `proj_context_set_search_paths` de PROJ. Los transformadores creados después los usan.
 pub fn set_grid_search_paths(paths: Option<Vec<std::path::PathBuf>>) {
     if let Ok(mut c) = config().lock() {
         c.paths = paths;
@@ -861,9 +869,9 @@ pub fn set_grid_search_paths(paths: Option<Vec<std::path::PathBuf>>) {
     reset_grid_cache();
 }
 
-/// Enables or disables downloading grids from the PROJ CDN, instead of following the
-/// `HIPSO_NETWORK` (or `PROJ_NETWORK`) environment variable; `None` goes back to it. As PROJ's
-/// `proj_context_set_enable_network`.
+/// Activa o desactiva la descarga de rejillas de la CDN de PROJ, en lugar de seguir la variable de
+/// entorno `HIPSO_NETWORK` (o `PROJ_NETWORK`); `None` vuelve a ella. Como
+/// `proj_context_set_enable_network` de PROJ.
 pub fn set_network_enabled(enabled: Option<bool>) {
     if let Ok(mut c) = config().lock() {
         c.network = enabled;
@@ -871,20 +879,21 @@ pub fn set_network_enabled(enabled: Option<bool>) {
     reset_grid_cache();
 }
 
-/// Grids registered in memory, by name.
+/// Rejillas registradas en memoria, por nombre.
 fn registered() -> &'static Mutex<HashMap<String, Arc<[u8]>>> {
     static R: OnceLock<Mutex<HashMap<String, Arc<[u8]>>>> = OnceLock::new();
     R.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Files read, by name (`None` when not found or not readable).
+/// Archivos leídos, por nombre (`None` cuando no se encuentran o no se pueden leer).
 fn files() -> &'static Mutex<HashMap<String, Option<Arc<GridFile>>>> {
     static F: OnceLock<Mutex<HashMap<String, Option<Arc<GridFile>>>>> = OnceLock::new();
     F.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Makes a grid file available under a name (such as `us_noaa_conus.tif`), from its bytes: for
-/// WebAssembly, where there is no file system, or to use a grid without installing it.
+/// Pone un archivo de rejillas a disposición bajo un nombre (como `us_noaa_conus.tif`), a partir de
+/// sus bytes: para WebAssembly, donde no hay sistema de archivos, o para usar una rejilla sin
+/// instalarla.
 pub fn register_grid(name: &str, bytes: Vec<u8>) {
     if let Ok(mut r) = registered().lock() {
         r.insert(name.to_string(), Arc::from(bytes));
@@ -897,12 +906,13 @@ pub fn register_grid(name: &str, bytes: Vec<u8>) {
     }
 }
 
-/// Old names of PROJ-data grids (before PROJ 7), by current name, from the EPSG table.
+/// Nombres antiguos de las rejillas de PROJ-data (anteriores a PROJ 7), por nombre actual, de la
+/// tabla EPSG.
 fn old_names(name: &str) -> Vec<String> {
     super::epsg::grid_alternatives(name)
 }
 
-/// Whether network access to the PROJ CDN is enabled.
+/// Si el acceso de red a la CDN de PROJ está activado.
 pub(crate) fn network_enabled() -> bool {
     if let Some(n) = config().lock().ok().and_then(|c| c.network) {
         return n;
@@ -933,7 +943,7 @@ fn home() -> Option<std::path::PathBuf> {
         .map(Into::into)
 }
 
-/// The directory downloaded grids are kept in.
+/// El directorio en el que se guardan las rejillas descargadas.
 #[cfg(not(target_family = "wasm"))]
 pub(crate) fn cache_dir() -> Option<std::path::PathBuf> {
     if let Some(d) = std::env::var_os("HIPSO_GRID_CACHE") {
@@ -950,15 +960,16 @@ pub(crate) fn cache_dir() -> Option<std::path::PathBuf> {
     home().map(|h| h.join(".cache").join("terrio").join("grids"))
 }
 
-/// The directories grids are looked up in.
+/// Los directorios en los que se buscan las rejillas.
 #[cfg(not(target_family = "wasm"))]
 fn search_dirs() -> Vec<std::path::PathBuf> {
     if let Some(p) = config().lock().ok().and_then(|c| c.paths.clone()) {
         return p;
     }
-    // Unit tests do not see the grids installed on the machine (PROJ's directories, terrio's
-    // download cache), which change the transformations PROJ and terrio pick: their results are
-    // those of a machine without grids. Tests needing grids set the search paths or register them.
+    // Las pruebas unitarias no ven las rejillas instaladas en el equipo (directorios de PROJ, caché
+    // de descargas de terrio), que cambian las transformaciones que eligen PROJ y terrio: sus
+    // resultados son los de un equipo sin rejillas. Las pruebas que necesitan rejillas fijan las
+    // rutas de búsqueda o las registran.
     if cfg!(test) {
         std::env::var_os("HIPSO_GRID_DIR")
             .map(|v| std::env::split_paths(&v).collect())
@@ -968,8 +979,8 @@ fn search_dirs() -> Vec<std::path::PathBuf> {
     }
 }
 
-/// The directories grids are looked up in by default: those of `HIPSO_GRID_DIR`, `PROJ_DATA`
-/// and `PROJ_LIB`, PROJ's user directory and terrio's download cache.
+/// Los directorios en los que se buscan las rejillas por defecto: los de `HIPSO_GRID_DIR`,
+/// `PROJ_DATA` y `PROJ_LIB`, el directorio del usuario de PROJ y la caché de descargas de terrio.
 #[cfg(not(target_family = "wasm"))]
 fn machine_search_dirs() -> Vec<std::path::PathBuf> {
     let mut dirs = Vec::new();
@@ -978,7 +989,8 @@ fn machine_search_dirs() -> Vec<std::path::PathBuf> {
             dirs.extend(std::env::split_paths(&v));
         }
     }
-    // PROJ's user writable directory, where projsync and PROJ's network cache put grids.
+    // El directorio del usuario de PROJ con permiso de escritura, donde projsync y la caché de red
+    // de PROJ ponen las rejillas.
     if let Some(d) = std::env::var_os("XDG_DATA_HOME") {
         dirs.push(std::path::PathBuf::from(d).join("proj"));
     } else if cfg!(windows) {
@@ -996,7 +1008,7 @@ fn machine_search_dirs() -> Vec<std::path::PathBuf> {
     dirs
 }
 
-/// The bytes of a grid file, by name or path, from memory or the local directories.
+/// Los bytes de un archivo de rejillas, por nombre o ruta, de memoria o de los directorios locales.
 fn find_local(name: &str) -> Option<Arc<[u8]>> {
     if let Some(b) = registered().lock().ok()?.get(name) {
         return Some(b.clone());
@@ -1017,7 +1029,7 @@ fn find_local(name: &str) -> Option<Arc<[u8]>> {
     None
 }
 
-/// Whether a grid file is present locally (by its name or an old name).
+/// Si un archivo de rejillas está presente en local (por su nombre o un nombre antiguo).
 fn present_locally(name: &str) -> bool {
     if registered().lock().is_ok_and(|r| r.contains_key(name)) {
         return true;
@@ -1039,7 +1051,7 @@ fn present_locally(name: &str) -> bool {
     false
 }
 
-/// The URL of a grid on the PROJ CDN.
+/// La URL de una rejilla en la CDN de PROJ.
 #[cfg(remote)]
 fn cdn_url(name: &str) -> Option<String> {
     if name.contains(['/', '\\']) || !name.ends_with(".tif") {
@@ -1051,8 +1063,8 @@ fn cdn_url(name: &str) -> Option<String> {
     Some(format!("{}/{name}", endpoint.trim_end_matches('/')))
 }
 
-/// Whether grids from the CDN are downloaded whole (`HIPSO_GRID_DOWNLOAD=YES`) rather than read
-/// by range.
+/// Si las rejillas de la CDN se descargan enteras (`HIPSO_GRID_DOWNLOAD=YES`) en lugar de leerse
+/// por rangos.
 #[cfg(remote)]
 fn download_whole() -> bool {
     std::env::var("HIPSO_GRID_DOWNLOAD").is_ok_and(|v| {
@@ -1063,8 +1075,9 @@ fn download_whole() -> bool {
     })
 }
 
-/// A GeoTIFF grid on the PROJ CDN, read in place by HTTP range requests. `Err(true)` when the
-/// CDN does not have it (status 404), `Err(false)` when it could not be read in place.
+/// Una rejilla GeoTIFF de la CDN de PROJ, leída en su sitio con peticiones HTTP por rango.
+/// `Err(true)` cuando la CDN no la tiene (estado 404), `Err(false)` cuando no se pudo leer en su
+/// sitio.
 #[cfg(remote)]
 fn open_remote(name: &str) -> Result<GridFile, bool> {
     let url = cdn_url(name).ok_or(true)?;
@@ -1088,7 +1101,7 @@ fn download(name: &str) -> Option<Arc<[u8]>> {
     std::fs::read(path).ok().map(Arc::from)
 }
 
-/// The grid file of a name, read once.
+/// El archivo de rejillas de un nombre, leído una sola vez.
 fn load(name: &str) -> Option<Arc<GridFile>> {
     if name == "null" {
         static NULL: OnceLock<Arc<GridFile>> = OnceLock::new();
@@ -1107,8 +1120,8 @@ fn load(name: &str) -> Option<Arc<GridFile>> {
             }
         }
     }
-    // Read in place; a grid that cannot be read so (a server without range requests, a failed
-    // request) is downloaded instead, unless the CDN does not have it.
+    // Leída en su sitio; una rejilla que no se puede leer así (un servidor sin peticiones por
+    // rango, una petición fallida) se descarga en su lugar, salvo que la CDN no la tenga.
     #[cfg(remote)]
     if bytes.is_none() && network_enabled() && !download_whole() {
         match open_remote(name) {
@@ -1143,8 +1156,8 @@ fn availability() -> &'static Mutex<HashMap<String, bool>> {
     A.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Whether a grid can be used: present locally, or (with network access enabled) on the PROJ
-/// CDN. This is what makes PROJ consider an operation needing it.
+/// Si se puede usar una rejilla: presente en local o (con el acceso de red activado) en la CDN de
+/// PROJ. Es lo que hace que PROJ considere una operación que la necesita.
 pub(crate) fn available(name: &str) -> bool {
     if name == "null" {
         return true;
@@ -1164,8 +1177,8 @@ pub(crate) fn available(name: &str) -> bool {
     a
 }
 
-/// Forgets which grids were found, so that the next lookups search again (after the grid
-/// directories or network setting change).
+/// Olvida qué rejillas se encontraron, para que las búsquedas siguientes vuelvan a buscar (después
+/// de cambiar los directorios de rejillas o el ajuste de red).
 pub fn reset_grid_cache() {
     if let Ok(mut a) = availability().lock() {
         a.clear();
@@ -1179,7 +1192,7 @@ pub fn reset_grid_cache() {
         .clear();
 }
 
-/// The names of a step's `grids=` list, with whether each is optional (`@` prefix).
+/// Los nombres de la lista `grids=` de un paso, con si cada uno es opcional (prefijo `@`).
 pub(crate) fn grid_names(spec: &str) -> Vec<(String, bool)> {
     spec.split(',')
         .map(str::trim)
@@ -1191,14 +1204,14 @@ pub(crate) fn grid_names(spec: &str) -> Vec<(String, bool)> {
         .collect()
 }
 
-/// Builds the nesting of a file's grids as PROJ's `insertIntoHierarchy` (and, for NTv2, its
-/// parent names) does.
+/// Construye el anidamiento de las rejillas de un archivo como lo hace `insertIntoHierarchy` de
+/// PROJ (y, para NTv2, sus nombres de padre).
 fn hierarchy(file: &GridFile, keep: impl Fn(&Source, usize) -> Option<Use>) -> Vec<Grid> {
-    // Grids in an arena: each with its children's indices.
+    // Rejillas en una arena: cada una con los índices de sus hijas.
     let mut nodes: Vec<(Grid, Vec<usize>)> = Vec::new();
     let mut top: Vec<usize> = Vec::new();
     let mut named: HashMap<String, usize> = HashMap::new();
-    // Inserts a grid under node `at` or one of its descendants whose extent holds it.
+    // Inserta una rejilla bajo el nodo `at` o uno de sus descendientes cuya extensión la contiene.
     fn insert_under(nodes: &mut Vec<(Grid, Vec<usize>)>, at: usize, new: usize) {
         let ext = nodes[new].0.ext;
         let children = nodes[at].1.clone();
@@ -1247,7 +1260,7 @@ fn hierarchy(file: &GridFile, keep: impl Fn(&Source, usize) -> Option<Use>) -> V
             top.push(id);
             continue;
         }
-        // By extents.
+        // Por extensiones.
         let kind = src.meta("TYPE", -1).to_string();
         let parent = top.iter().copied().find(|&t| {
             (kind.is_empty() || nodes[t].0.src.meta("TYPE", -1) == kind)
@@ -1266,7 +1279,7 @@ fn hierarchy(file: &GridFile, keep: impl Fn(&Source, usize) -> Option<Use>) -> V
     top.iter().map(|&t| build(&nodes, t)).collect()
 }
 
-/// Grid sets built, by grid name and use.
+/// Conjuntos de rejillas construidos, por nombre y uso de la rejilla.
 type SetsCache = Mutex<HashMap<(String, char), Arc<GridSet>>>;
 
 fn sets_cache() -> &'static SetsCache {
@@ -1301,8 +1314,8 @@ where
     Some(out)
 }
 
-/// The horizontal shift grids of a `grids=` list (PROJ's `pj_hgrid_init`), `None` when a
-/// required one is missing.
+/// Las rejillas de desplazamiento horizontal de una lista `grids=` (`pj_hgrid_init` de PROJ),
+/// `None` cuando falta una obligatoria.
 pub(crate) fn hgrids(spec: &str) -> Option<Vec<Arc<GridSet>>> {
     sets(spec, 'h', |f| {
         if f.format == Format::Null {
@@ -1322,7 +1335,7 @@ pub(crate) fn hgrids(spec: &str) -> Option<Vec<Arc<GridSet>>> {
         if f.format != Format::Tiff {
             return None;
         }
-        // Defaults carry over from one image to the next, as in PROJ.
+        // Los valores por defecto pasan de una imagen a la siguiente, como en PROJ.
         let state = std::cell::Cell::new((0usize, 1usize, SEC_TO_RAD, true));
         let ok = std::cell::Cell::new(true);
         let grids = hierarchy(f, |src, ifd| {
@@ -1397,7 +1410,7 @@ pub(crate) fn hgrids(spec: &str) -> Option<Vec<Arc<GridSet>>> {
     })
 }
 
-/// The vertical shift grids of a `grids=` list (PROJ's `pj_vgrid_init`).
+/// Las rejillas de desplazamiento vertical de una lista `grids=` (`pj_vgrid_init` de PROJ).
 pub(crate) fn vgrids(spec: &str) -> Option<Vec<Arc<GridSet>>> {
     sets(spec, 'v', |f| match f.format {
         Format::Null => Some(hierarchy(f, |_, _| Some(Use::V { sample: 0 }))),
@@ -1438,7 +1451,7 @@ pub(crate) fn vgrids(spec: &str) -> Option<Vec<Arc<GridSet>>> {
     })
 }
 
-/// The generic grids of a `grids=` list (PROJ's `pj_generic_grid_init`).
+/// Las rejillas genéricas de una lista `grids=` (`pj_generic_grid_init` de PROJ).
 pub(crate) fn generic_grids(spec: &str) -> Option<Vec<Arc<GridSet>>> {
     sets(spec, 'g', |f| match f.format {
         Format::Tiff | Format::Null => Some(hierarchy(f, |_, _| Some(Use::Generic))),
@@ -1447,14 +1460,14 @@ pub(crate) fn generic_grids(spec: &str) -> Option<Vec<Arc<GridSet>>> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Interpolation, after PROJ's grids.cpp and transformations/*.cpp.
+// Interpolación, según grids.cpp y transformations/*.cpp de PROJ.
 
 fn find_hgrid(sets: &[Arc<GridSet>], lon: f64, lat: f64) -> Option<(&Grid, &GridSet)> {
     sets.iter()
         .find_map(|s| s.at(lon, lat, true).map(|g| (g, s.as_ref())))
 }
 
-/// PROJ's `pj_hgrid_interpolate`: the shift at a point relative to the grid's origin.
+/// `pj_hgrid_interpolate` de PROJ: el desplazamiento en un punto relativo al origen de la rejilla.
 fn hgrid_interpolate(t: (f64, f64), g: &Grid) -> Option<(f64, f64)> {
     let ext = &g.ext;
     let (tl, tp) = (t.0 / ext.res_x, t.1 / ext.res_y);
@@ -1523,8 +1536,8 @@ fn adjlon(mut lon: f64) -> f64 {
     lon - std::f64::consts::PI
 }
 
-/// Applies horizontal shift grids to a point in radians (PROJ's `pj_hgrid_apply`). `None`
-/// outside the grids.
+/// Aplica rejillas de desplazamiento horizontal a un punto en radianes (`pj_hgrid_apply` de PROJ).
+/// `None` fuera de las rejillas.
 pub(crate) fn hgrid_apply(
     sets: &[Arc<GridSet>],
     lon: f64,
@@ -1562,7 +1575,8 @@ pub(crate) fn hgrid_apply(
         let (dl, dp) = match del {
             Some(d) => d,
             None => {
-                // The iteration can leave the grid: try the grid holding the new guess.
+                // La iteración puede salirse de la rejilla: se prueba la rejilla que contiene la
+                // nueva estimación.
                 let lp = (t.0 + grid.ext.west, t.1 + grid.ext.south);
                 match find_hgrid(sets, lp.0, lp.1) {
                     Some((g, _)) if !std::ptr::eq(g, grid) && !g.is_null() => {
@@ -1592,7 +1606,7 @@ pub(crate) fn hgrid_apply(
     Some((adjlon(t.0 + grid.ext.west), t.1 + grid.ext.south))
 }
 
-/// The vertical offset at a point in radians, times `multiplier` (PROJ's `read_vgrid_value`).
+/// El desfase vertical en un punto en radianes, por `multiplier` (`read_vgrid_value` de PROJ).
 pub(crate) fn vgrid_value(
     sets: &[Arc<GridSet>],
     lon: f64,
@@ -1679,14 +1693,15 @@ pub(crate) fn vgrid_value(
     Some(value * multiplier)
 }
 
-/// The grid of a generic grid list holding a point (PROJ's `pj_find_generic_grid`).
+/// La rejilla de una lista de rejillas genéricas que contiene un punto (`pj_find_generic_grid` de
+/// PROJ).
 fn find_generic(sets: &[Arc<GridSet>], lon: f64, lat: f64) -> Option<&Grid> {
     sets.iter().find_map(|s| s.at(lon, lat, false))
 }
 
-/// The bilinear interpolation of three samples (PROJ's
-/// `pj_bilinear_interpolation_three_samples`), for `xyzgridshift` and `deformation`.
-/// `names` gives the samples' descriptions, with the default sample of each.
+/// La interpolación bilineal de tres muestras (`pj_bilinear_interpolation_three_samples` de PROJ),
+/// para `xyzgridshift` y `deformation`. `names` da las descripciones de las muestras, con la
+/// muestra por defecto de cada una.
 pub(crate) fn bilinear3(
     sets: &[Arc<GridSet>],
     lon: f64,
@@ -1754,7 +1769,8 @@ pub(crate) fn bilinear3(
     Some(out)
 }
 
-/// What a `gridshift` step's grids hold, from their types (PROJ's `checkGridTypes`).
+/// Lo que contienen las rejillas de un paso `gridshift`, según sus tipos (`checkGridTypes` de
+/// PROJ).
 #[derive(Debug, Clone)]
 pub(crate) struct GridShiftKinds {
     main: &'static str,
@@ -1764,7 +1780,7 @@ pub(crate) struct GridShiftKinds {
     offset: (f64, f64),
 }
 
-/// The kinds of a `gridshift` step's grids, `None` for an unsupported mix.
+/// Los tipos de las rejillas de un paso `gridshift`, `None` para una mezcla no admitida.
 pub(crate) fn gridshift_kinds(sets: &[Arc<GridSet>]) -> Option<GridShiftKinds> {
     let (mut h, mut g3, mut eh, mut vv, mut gv) = (false, false, false, false, false);
     let mut count = 0;
@@ -1848,8 +1864,8 @@ pub(crate) fn gridshift_kinds(sets: &[Arc<GridSet>]) -> Option<GridShiftKinds> {
     })
 }
 
-/// PROJ's `gridshiftData::grid_interpolate`: the (x, y, z) shift at a point, and whether the
-/// interpolation was biquadratic.
+/// `gridshiftData::grid_interpolate` de PROJ: el desplazamiento (x, y, z) en un punto y si la
+/// interpolación fue bicuadrática.
 fn gridshift_interpolate(
     kind: &str,
     x: f64,
@@ -1977,7 +1993,8 @@ fn gridshift_interpolate(
             return None;
         }
     }
-    // A sample's values on an n x n block from (x0, y0), checking nodata as PROJ's `valuesAt`.
+    // Los valores de una muestra en un bloque n x n desde (x0, y0), comprobando nodata como
+    // `valuesAt` de PROJ.
     let read = |s: i64, x0: i64, y0: i64, n: i64| -> Option<Vec<f64>> {
         let mut v = Vec::with_capacity((n * n) as usize);
         for yy in 0..n {
@@ -2123,7 +2140,7 @@ fn gridshift_apply_internal<'a>(
     Some([x, guess.1, p[2] - shift[2]])
 }
 
-/// Applies a `gridshift` step (PROJ's `gridshiftData::apply` with the constant offsets).
+/// Aplica un paso `gridshift` (`gridshiftData::apply` de PROJ con los desfases constantes).
 pub(crate) fn gridshift_apply(
     sets: &[Arc<GridSet>],
     kinds: &GridShiftKinds,

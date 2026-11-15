@@ -1,10 +1,12 @@
-//! KML and KMZ layers: read for display and as regions, and written from any vector layer.
+//! Capas KML y KMZ: leídas para mostrar y como regiones, y escritas a partir de cualquier capa
+//! vectorial.
 //!
-//! KML is always longitude/latitude (WGS 84, EPSG:4326), so a layer is read in that system and
-//! the program moves it to the one of the work, as it does with any other layer; on writing the
-//! vertices are moved to EPSG:4326 first. A KMZ is a zip holding a KML (`doc.kml`). Altitudes are
-//! ignored. Placemarks give the features: `name` and `description` become fields of those names,
-//! and `ExtendedData` (`Data` and `SimpleData`) the rest. Styles, folders and overlays are not read.
+//! KML está siempre en longitud/latitud (WGS 84, EPSG:4326), así que una capa se lee en ese sistema
+//! y el programa la lleva al del trabajo, como hace con cualquier otra capa; al escribir, los
+//! vértices se llevan primero a EPSG:4326. Un KMZ es un zip que contiene un KML (`doc.kml`). Las
+//! altitudes se ignoran. Las marcas de lugar dan los elementos: `name` y `description` pasan a ser
+//! campos con esos nombres, y `ExtendedData` (`Data` y `SimpleData`) el resto. Los estilos,
+//! carpetas y superposiciones no se leen.
 
 use std::io::Write;
 use std::path::Path;
@@ -13,14 +15,15 @@ use crate::geojson::{Feat, Layer, orient_rings};
 use crate::view::{GeomKind, VectorData};
 use crate::{Error, Result};
 
-/// Largest KML accepted once inflated from a KMZ (the files are hostile until proven otherwise).
+/// El mayor KML que se acepta una vez descomprimido de un KMZ (los archivos son hostiles mientras
+/// no se demuestre lo contrario).
 const MAX_KML: u64 = 512 << 20;
 
 fn is_kmz(path: &Path) -> bool {
     path.extension().is_some_and(|e| e.eq_ignore_ascii_case("kmz"))
 }
 
-/// The KML text of a `.kml` or `.kmz` file.
+/// El texto KML de un archivo `.kml` o `.kmz`.
 fn text_of_file(path: &Path) -> Result<String> {
     if !is_kmz(path) {
         let bytes = std::fs::read(path)?;
@@ -48,12 +51,13 @@ enum Ev<'a> {
     Text(String),
 }
 
-/// The name of a tag without its namespace prefix.
+/// El nombre de una etiqueta sin su prefijo de espacio de nombres.
 fn local(name: &str) -> &str {
     name.rsplit(':').next().unwrap_or(name)
 }
 
-/// The value of attribute `name` in the text of a start tag (single or double quotes).
+/// El valor del atributo `name` en el texto de una etiqueta de apertura (comillas simples o
+/// dobles).
 fn attr_of(tag: &str, name: &str) -> Option<String> {
     let mut rest = tag;
     while let Some(i) = rest.find(name) {
@@ -70,7 +74,7 @@ fn attr_of(tag: &str, name: &str) -> Option<String> {
     None
 }
 
-/// Walks the tags and texts of an XML document.
+/// Recorre las etiquetas y los textos de un documento XML.
 fn walk<'a>(xml: &'a str, mut f: impl FnMut(Ev<'a>)) {
     let mut rest = xml;
     while !rest.is_empty() {
@@ -98,7 +102,7 @@ fn walk<'a>(xml: &'a str, mut f: impl FnMut(Ev<'a>)) {
             rest = r.get(e + 1..).unwrap_or("");
         } else {
             let r = &rest[1..];
-            // the end of the tag: the first `>` outside quotes
+            // el final de la etiqueta: el primer `>` fuera de comillas
             let mut quote = None;
             let mut end = r.len();
             for (i, c) in r.char_indices() {
@@ -126,7 +130,7 @@ fn walk<'a>(xml: &'a str, mut f: impl FnMut(Ev<'a>)) {
     }
 }
 
-/// The positions of a `coordinates` text: `lon,lat[,alt]` separated by white space.
+/// Las posiciones de un texto `coordinates`: `lon,lat[,alt]` separadas por espacios en blanco.
 fn positions(t: &str) -> Vec<[f64; 2]> {
     t.split_whitespace()
         .filter_map(|c| {
@@ -142,13 +146,13 @@ fn positions(t: &str) -> Vec<[f64; 2]> {
 struct Placemark {
     props: Vec<(String, String)>,
     geoms: Vec<(GeomKind, Vec<Vec<[f64; 2]>>)>,
-    /// The rings of the polygon being read.
+    /// Los anillos del polígono que se lee.
     poly: Option<Vec<Vec<[f64; 2]>>>,
-    /// The field named by the `Data` or `SimpleData` being read.
+    /// El campo que nombra el `Data` o `SimpleData` que se lee.
     data: Option<String>,
 }
 
-/// The layer in a KML text.
+/// La capa de un texto KML.
 fn parse(xml: &str) -> Layer {
     let mut layer = Layer { kind: GeomKind::Point, feats: Vec::new(), epsg: Some(4326), skipped: 0, types: Vec::new() };
     let mut first = true;
@@ -244,8 +248,8 @@ fn parse(xml: &str) -> Layer {
     layer
 }
 
-/// Adds the features of a placemark to the layer: a point per point, one feature for the lines
-/// or the rings. Geometry of another kind than the layer's is left out and counted.
+/// Añade los elementos de una marca de lugar a la capa: un punto por punto, un elemento para las
+/// líneas o los anillos. La geometría de otro tipo que el de la capa se deja fuera y se cuenta.
 fn place(layer: &mut Layer, first: &mut bool, pm: Placemark) {
     let Some(kind) = pm.geoms.first().map(|g| g.0) else {
         layer.skipped += 1;
@@ -283,12 +287,13 @@ pub(crate) fn read_layer(path: &Path) -> Result<Layer> {
     Ok(parse(&text))
 }
 
-/// A KML or KMZ layer for display (always in EPSG:4326), with the number of features left out.
+/// Una capa KML o KMZ para mostrar (siempre en EPSG:4326), con el número de elementos que se
+/// dejaron fuera.
 pub fn read_vector(path: &Path) -> Result<(VectorData, GeomKind, Option<u16>, usize)> {
     Ok(crate::geojson::vector_of(read_layer(path)?))
 }
 
-/// The polygons of a KML or KMZ as regions.
+/// Los polígonos de un KML o KMZ como regiones.
 pub fn read_regions(path: &Path, opts: &crate::vector::ReadOptions) -> Result<Vec<crate::vector::Region>> {
     crate::geojson::regions_of(&read_layer(path)?, opts)
 }
@@ -346,7 +351,7 @@ fn geometry(parts: &[Vec<[f64; 2]>], kind: GeomKind) -> String {
     }
 }
 
-/// The KML text of a layer whose vertices are already longitude and latitude.
+/// El texto KML de una capa cuyos vértices ya son longitud y latitud.
 fn kml_text(d: &VectorData, kind: GeomKind, title: &str) -> String {
     let mut s = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<kml xmlns=\"http://www.opengis.net/kml/2.2\">\n<Document>\n",
@@ -382,7 +387,7 @@ fn kml_text(d: &VectorData, kind: GeomKind, title: &str) -> String {
     s
 }
 
-/// A zip holding one file, deflated.
+/// Un zip que contiene un archivo, comprimido con deflate.
 fn zip_one(name: &str, data: &[u8]) -> Result<Vec<u8>> {
     let mut enc = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
     enc.write_all(data)?;
@@ -392,11 +397,11 @@ fn zip_one(name: &str, data: &[u8]) -> Result<Vec<u8>> {
     let (crc, csize, usize_, nl) = (crc.sum(), packed.len() as u32, data.len() as u32, name.len() as u16);
     let mut z = Vec::new();
     let head = |z: &mut Vec<u8>| {
-        z.extend_from_slice(&20u16.to_le_bytes()); // version needed
-        z.extend_from_slice(&0x0800u16.to_le_bytes()); // names in UTF-8
+        z.extend_from_slice(&20u16.to_le_bytes()); // versión necesaria
+        z.extend_from_slice(&0x0800u16.to_le_bytes()); // nombres en UTF-8
         z.extend_from_slice(&8u16.to_le_bytes()); // deflate
-        z.extend_from_slice(&0u16.to_le_bytes()); // time
-        z.extend_from_slice(&33u16.to_le_bytes()); // date: 1980-01-01
+        z.extend_from_slice(&0u16.to_le_bytes()); // hora
+        z.extend_from_slice(&33u16.to_le_bytes()); // fecha: 1980-01-01
         z.extend_from_slice(&crc.to_le_bytes());
         z.extend_from_slice(&csize.to_le_bytes());
         z.extend_from_slice(&usize_.to_le_bytes());
@@ -409,13 +414,13 @@ fn zip_one(name: &str, data: &[u8]) -> Result<Vec<u8>> {
     z.extend_from_slice(&packed);
     let cd_at = z.len() as u32;
     z.extend_from_slice(&[0x50, 0x4b, 0x01, 0x02]);
-    z.extend_from_slice(&20u16.to_le_bytes()); // version made by
+    z.extend_from_slice(&20u16.to_le_bytes()); // versión con la que se hizo
     head(&mut z);
-    z.extend_from_slice(&0u16.to_le_bytes()); // comment
-    z.extend_from_slice(&0u16.to_le_bytes()); // disk
-    z.extend_from_slice(&0u16.to_le_bytes()); // internal attributes
-    z.extend_from_slice(&0u32.to_le_bytes()); // external attributes
-    z.extend_from_slice(&0u32.to_le_bytes()); // offset of the local header
+    z.extend_from_slice(&0u16.to_le_bytes()); // comentario
+    z.extend_from_slice(&0u16.to_le_bytes()); // disco
+    z.extend_from_slice(&0u16.to_le_bytes()); // atributos internos
+    z.extend_from_slice(&0u32.to_le_bytes()); // atributos externos
+    z.extend_from_slice(&0u32.to_le_bytes()); // desplazamiento de la cabecera local
     z.extend_from_slice(name.as_bytes());
     let cd_size = z.len() as u32 - cd_at;
     z.extend_from_slice(&[0x50, 0x4b, 0x05, 0x06]);
@@ -426,8 +431,8 @@ fn zip_one(name: &str, data: &[u8]) -> Result<Vec<u8>> {
     Ok(z)
 }
 
-/// Writes a layer as KML or KMZ (by the extension). `epsg` is the system of its vertices: they
-/// are moved to longitude/latitude; without it they must already look like that.
+/// Escribe una capa como KML o KMZ (según la extensión). `epsg` es el sistema de sus vértices: se
+/// llevan a longitud/latitud; sin él deben parecerlo ya.
 pub fn write_vector(path: &Path, d: &VectorData, kind: GeomKind, epsg: Option<u16>) -> Result<()> {
     let moved;
     let data = match epsg {
@@ -513,7 +518,7 @@ mod tests {
 <LineString><coordinates>0,0 1,1</coordinates></LineString></MultiGeometry></Placemark>
 </Folder></Document></kml>"#;
         let l = parse(xml);
-        // 1 point + 2 points; the line is of another kind
+        // 1 punto + 2 puntos; la línea es de otro tipo
         assert_eq!(l.feats.len(), 3);
         assert_eq!(l.skipped, 1);
         assert_eq!(l.feats[0].props.iter().find(|p| p.0 == "description").map(|p| p.1.as_str()), Some("<b>hola</b>"));
@@ -523,7 +528,7 @@ mod tests {
 
     #[test]
     fn utm_layers_are_moved_to_longitude_latitude() -> Result<()> {
-        // 30N, near Madrid
+        // 30N, cerca de Madrid
         let d = VectorData {
             features: vec![Feature { parts: vec![vec![[440000.0, 4474000.0]]] }],
             points: true,

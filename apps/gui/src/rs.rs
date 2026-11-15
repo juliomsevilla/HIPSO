@@ -1,6 +1,7 @@
-//! Rasters on the map: multiband images (aerial photos, satellite scenes) read by window from
-//! the pyramid inside the file so that any size is sharp at any zoom, one-band grids with their
-//! symbology (stretch, classes, shaded relief), colour composites and spectral indices.
+//! Rásteres en el mapa: imágenes multibanda (fotos aéreas, escenas de satélite) leídas por ventana
+//! de la pirámide que hay dentro del archivo, de modo que cualquier tamaño se ve nítido a cualquier
+//! zoom, rejillas de una banda con su simbología (estirado, clases, relieve sombreado),
+//! composiciones de color e índices espectrales.
 
 use std::sync::mpsc::{Receiver, channel};
 
@@ -9,17 +10,18 @@ use crate::symbology::ramp_rgb;
 use hipso_core::pyramid::Pyramid;
 use hipso_core::raster::{self, BandStats, Expr, INDICES, Image as BandImage, RgbStyle};
 
-/// How the values of a band are mapped to black and white.
+/// Cómo se asignan los valores de una banda al negro y al blanco.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Stretch {
-    /// The range of the data type (0–255 for photos).
+    /// El rango del tipo de datos (0–255 para fotos).
     None,
     MinMax,
-    /// The 2nd to the 98th percentile.
+    /// Del percentil 2 al 98.
     Percent,
-    /// Mean plus or minus two standard deviations.
+    /// La media más o menos dos desviaciones típicas.
     Sigma,
-    /// The limits typed in, the same for every band shown (Sentinel-2 reflectance: 0 to 3000).
+    /// Los límites escritos, los mismos para cada banda mostrada (reflectancia de Sentinel-2: 0 a
+    /// 3000).
     Manual,
 }
 
@@ -43,7 +45,7 @@ impl Stretch {
     }
 }
 
-/// The picture of a window of the image, at the level that suits the zoom.
+/// La imagen de una ventana de la imagen, al nivel que conviene al zoom.
 pub struct ViewTex {
     tex: egui::TextureHandle,
     /// West, south, east, north.
@@ -60,17 +62,17 @@ struct ViewJob {
     rev: u64,
 }
 
-/// A multiband image layer.
+/// Una capa de imagen multibanda.
 pub struct ImageLayer {
     pub pyr: Arc<Pyramid>,
-    /// The whole image at a reduced resolution: preview, statistics, values and indices.
+    /// La imagen entera a una resolución reducida: vista previa, estadísticos, valores e índices.
     pub work: Arc<BandImage>,
-    /// Pixels of the file per pixel of `work`, along each axis.
+    /// Píxeles del archivo por píxel de `work`, a lo largo de cada eje.
     pub reduction: usize,
     pub stats: Vec<BandStats>,
     pub bands: [usize; 3],
     pub stretch: Stretch,
-    /// Lowest and highest value painted with `Stretch::Manual`.
+    /// El valor más bajo y más alto que se pinta con `Stretch::Manual`.
     pub manual: [f32; 2],
     pub brightness: f32,
     pub contrast: f32,
@@ -81,22 +83,23 @@ pub struct ImageLayer {
     job: Option<ViewJob>,
     last_plan: (f64, f64, f64),
     steady_since: Instant,
-    /// Moves the image's coordinates to the work's system, when they differ.
+    /// Lleva las coordenadas de la imagen al sistema del trabajo, cuando difieren.
     pub warp: Option<Arc<hipso_core::reproject::Transformer>>,
 }
 
-/// An image opened: its pyramid, the reduced whole image and the reduction.
+/// Una imagen abierta: su pirámide, la imagen entera reducida y la reducción.
 type Opened = Result<(Arc<Pyramid>, BandImage, usize), String>;
 
-/// A large image being opened in the background.
+/// Una imagen grande que se está abriendo en segundo plano.
 pub struct ImageJob {
     pub path: PathBuf,
     pub rx: Receiver<Opened>,
     pub started: Instant,
 }
 
-/// The image with one pixel in every `n` along each side, so that it is at most `max` pixels
-/// across (a texture has a limit that depends on the graphics card: 8192 is common).
+/// La imagen con un píxel de cada `n` a lo largo de cada lado, de modo que tenga como mucho `max`
+/// píxeles de ancho (una textura tiene un límite que depende de la tarjeta gráfica: 8192 es
+/// habitual).
 fn reduced(img: &BandImage, max: usize) -> std::borrow::Cow<'_, BandImage> {
     let step = (img.cols.max(img.rows) / max.max(1) + 1).max(1);
     if img.cols.max(img.rows) <= max {
@@ -121,7 +124,7 @@ fn reduced(img: &BandImage, max: usize) -> std::borrow::Cow<'_, BandImage> {
     })
 }
 
-/// The picture of an image, at most 4096 pixels across.
+/// La imagen de una imagen, de como mucho 4096 píxeles de ancho.
 fn picture(ctx: &egui::Context, name: &str, img: &BandImage, st: &RgbStyle) -> egui::TextureHandle {
     let src = reduced(img, 4096);
     let rgba = raster::composite_style(&src, st);
@@ -174,7 +177,7 @@ impl ImageLayer {
         l
     }
 
-    /// The mapping of values to colours, from the stretch and the band choice.
+    /// La asignación de valores a colores, a partir del estirado y de la elección de bandas.
     pub fn style(&self) -> RgbStyle {
         let mut lo = [0.0; 3];
         let mut hi = [1.0; 3];
@@ -202,7 +205,7 @@ impl ImageLayer {
         }
     }
 
-    /// The style changed: the preview is redrawn now and the sharp window is read again.
+    /// El estilo cambió: la vista previa se redibuja ahora y la ventana nítida se vuelve a leer.
     pub fn restyle(&mut self, ctx: &egui::Context, name: &str) {
         self.rev += 1;
         self.view = None;
@@ -210,7 +213,7 @@ impl ImageLayer {
         self.preview = picture(ctx, &format!("img-{name}"), &self.work, &self.style());
     }
 
-    /// The extent in the work's system (min x, min y, max x, max y).
+    /// La extensión en el sistema del trabajo (x mínima, y mínima, x máxima, y máxima).
     pub fn display_extent(&self) -> [f64; 4] {
         let e = self.pyr.extent();
         match &self.warp {
@@ -221,7 +224,7 @@ impl ImageLayer {
         }
     }
 
-    /// The band values at a map point, from the reduced image.
+    /// Los valores de banda en un punto del mapa, a partir de la imagen reducida.
     pub fn values_at(&self, x: f64, y: f64) -> Option<String> {
         if self.warp.is_some() {
             return None;
@@ -242,8 +245,8 @@ impl ImageLayer {
         Some(v.join(" "))
     }
 
-    /// Picks up the window that finished and starts reading the one the view needs, once the
-    /// view has been still for a moment. Returns true while something is pending.
+    /// Recoge la ventana que terminó y empieza a leer la que necesita la vista, una vez que la
+    /// vista ha estado quieta un momento. Devuelve verdadero mientras algo está pendiente.
     pub fn update(&mut self, ctx: &egui::Context, plan: &Plan, w: usize, h: usize) -> bool {
         if self.warp.is_some() {
             return false;
@@ -319,7 +322,7 @@ impl ImageLayer {
             ctx.request_repaint_after(wait);
             return true;
         }
-        // the window: what is seen plus a margin, within what a texture can hold
+        // la ventana: lo que se ve más un margen, dentro de lo que cabe en una textura
         let mut grow = 0.3;
         let window = loop {
             let (dx, dy) = ((vis[2] - vis[0]) * grow, (vis[3] - vis[1]) * grow);
@@ -343,7 +346,7 @@ impl ImageLayer {
             let r = pyr
                 .read(level, window)
                 .map(|full| {
-                    // the window of a picture too big for one texture is read thinned
+                    // la ventana de una imagen demasiado grande para una textura se lee adelgazada
                     let img = reduced(&full, 4096);
                     let extent = [
                         img.x0,
@@ -365,7 +368,7 @@ impl ImageLayer {
         true
     }
 
-    /// Draws the preview over the whole image, and the sharp window over it.
+    /// Dibuja la vista previa sobre toda la imagen y la ventana nítida sobre ella.
     pub fn paint(
         &self,
         painter: &egui::Painter,
@@ -410,7 +413,7 @@ impl ImageLayer {
     }
 }
 
-// ------------------------------------------------------------------------------ grids
+// ------------------------------------------------------------------------------ rejillas
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum GridMode {
@@ -431,7 +434,7 @@ impl GridMode {
     }
 }
 
-/// How a one-band raster is coloured.
+/// Cómo se colorea un ráster de una banda.
 #[derive(Clone, Debug)]
 pub struct GridStyle {
     pub mode: GridMode,
@@ -440,8 +443,8 @@ pub struct GridStyle {
     pub lo: f32,
     pub hi: f32,
     pub classes: usize,
-    /// Sun azimuth and altitude in degrees, vertical exaggeration, and how much of the ramp's
-    /// colour shows through the relief (0 = grey relief).
+    /// Acimut y altitud del sol en grados, exageración vertical y cuánto del color de la rampa se
+    /// ve a través del relieve (0 = relieve gris).
     pub azimuth: f32,
     pub altitude: f32,
     pub zfactor: f32,
@@ -466,7 +469,7 @@ impl GridStyle {
     }
 }
 
-/// The picture of a grid.
+/// La imagen de una rejilla.
 pub fn render_grid(g: &Grid, st: &GridStyle) -> Image {
     use rayon::prelude::{IndexedParallelIterator, ParallelIterator, ParallelSliceMut};
     let mut img = Image {
@@ -534,9 +537,10 @@ pub fn render_grid(g: &Grid, st: &GridStyle) -> Image {
     img
 }
 
-// ------------------------------------------------------------------------------ the app
+// ------------------------------------------------------------------------------ la aplicación
 
-/// Whether a file has more than one band (or is too big to read whole), so that it is an image.
+/// Si un archivo tiene más de una banda (o es demasiado grande para leerlo entero), de modo que es
+/// una imagen.
 fn is_image(p: &Path) -> bool {
     Pyramid::open(p).is_ok_and(|py| {
         py.bands >= 2 || u64::from(py.levels[0].cols) * u64::from(py.levels[0].rows) > 60_000_000
@@ -544,7 +548,7 @@ fn is_image(p: &Path) -> bool {
 }
 
 impl App {
-    /// A raster as a layer: a one-band grid, else an image opened in the background.
+    /// Un ráster como capa: una rejilla de una banda o, si no, una imagen abierta en segundo plano.
     pub fn add_raster(&mut self, ctx: &egui::Context, p: &Path) -> bool {
         let ascii = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("asc"));
         if ascii || !is_image(p) {
@@ -590,7 +594,7 @@ impl App {
         self.add_image(ctx, p)
     }
 
-    /// Adds an image as a layer: opened and reduced in the background.
+    /// Añade una imagen como capa: abierta y reducida en segundo plano.
     pub fn add_image(&mut self, ctx: &egui::Context, p: &Path) -> bool {
         let (tx, rx) = channel();
         let (path, c) = (p.to_path_buf(), ctx.clone());
@@ -612,7 +616,7 @@ impl App {
         true
     }
 
-    /// Collects the images the background threads have finished.
+    /// Recoge las imágenes que han terminado los hilos de segundo plano.
     pub fn poll_images(&mut self, ctx: &egui::Context) {
         let mut done = Vec::new();
         for (k, j) in self.img_jobs.iter().enumerate() {
@@ -682,7 +686,7 @@ impl App {
         }
     }
 
-    /// Reads the windows the image layers need for the current view.
+    /// Lee las ventanas que necesitan las capas de imagen para la vista actual.
     pub fn update_images(&mut self, ctx: &egui::Context, w: usize, h: usize) {
         let plan = self.plan;
         let mut busy = false;
@@ -696,9 +700,9 @@ impl App {
         }
     }
 
-    /// Draws the images and grids (the vectors go over the points, these under).
-    /// Draws the layers whose index is in `range`, bottom to top: pictures and rasters, and the
-    /// vector layers, each in its place of the drawing order.
+    /// Dibuja las imágenes y las rejillas (los vectores van sobre los puntos, estas bajo ellos).
+    /// Dibuja las capas cuyo índice está en `range`, de abajo arriba: imágenes y rásteres, y las
+    /// capas vectoriales, cada una en su lugar del orden de dibujo.
     pub fn paint_layers(
         &self,
         painter: &egui::Painter,
@@ -711,13 +715,13 @@ impl App {
             self.paint_refs(painter, rect, w, h, k..k + 1);
             self.paint_vectors(painter, rect, w, h, k..k + 1);
         }
-        // the labels go over everything, so they are drawn once, with the last range
+        // las etiquetas van sobre todo, así que se dibujan una vez, con el último rango
         if range.end >= self.refs.len() {
             self.paint_vector_labels(painter, rect, w, h, 0..self.refs.len());
         }
     }
 
-    /// Draws the pictures and rasters among the layers in `range`.
+    /// Dibuja las imágenes y los rásteres entre las capas de `range`.
     pub fn paint_refs(
         &self,
         painter: &egui::Painter,
@@ -758,7 +762,7 @@ impl App {
         }
     }
 
-    /// Indices of the image layers in `refs`.
+    /// Índices de las capas de imagen en `refs`.
     fn image_layers(&self) -> Vec<usize> {
         self.refs
             .iter()
@@ -919,16 +923,16 @@ impl App {
 
 const ROLES: [&str; 6] = ["RED", "GREEN", "BLUE", "NIR", "SWIR1", "SWIR2"];
 
-/// State of the indices window.
+/// Estado de la ventana de índices.
 pub struct RsState {
     pub open: bool,
     pub layer: usize,
     pub preset: usize,
     pub expr: String,
-    /// Band (0-based) of RED, GREEN, BLUE, NIR, SWIR1, SWIR2.
+    /// Banda (desde 0) de ROJO, VERDE, AZUL, NIR, SWIR1, SWIR2.
     pub roles: [usize; 6],
     pub last: Option<(String, Grid)>,
-    /// Command line `--ndvi`: compute the first index on start.
+    /// Línea de comandos `--ndvi`: calcula el primer índice al arrancar.
     pub compute_at_start: bool,
 }
 
@@ -950,7 +954,8 @@ impl Default for RsState {
 mod tests {
     use super::*;
 
-    /// A 10980-pixel side (a Sentinel-2 tile) is more than many graphics cards take as a texture.
+    /// Un lado de 10980 píxeles (una tesela de Sentinel-2) es más de lo que muchas tarjetas
+    /// gráficas admiten como textura.
     #[test]
     fn a_picture_too_big_for_a_texture_is_thinned_and_keeps_its_extent() {
         let (cols, rows) = (10980usize, 40usize);
@@ -968,7 +973,7 @@ mod tests {
         assert!((wide(&r) - wide(&img)).abs() < 3.0 * r.cell, "{}", wide(&r));
         assert_eq!(r.bands.len(), 2);
         assert_eq!(r.bands[0].len(), r.cols * r.rows);
-        // a small one is not copied
+        // una pequeña no se copia
         let small = BandImage {
             cols: 10,
             rows: 10,

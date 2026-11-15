@@ -1,19 +1,20 @@
-//! Histograms and statistics of a point attribute, and the limits that tell the odd values from
-//! the rest (Tukey's fences, the robust z-score of the median absolute deviation, standard
-//! deviations, percentiles).
+//! Histogramas y estadísticos de un atributo de puntos, y los límites que distinguen los valores
+//! raros del resto (vallas de Tukey, la puntuación z robusta de la desviación absoluta mediana,
+//! desviaciones típicas, percentiles).
 //!
-//! Everything is computed in a few parallel passes over the values, never by sorting them:
-//! quantiles come from a fine histogram (4096 bins over the range), so they are exact to a
-//! 4096th of the range, which is far below what a histogram bar shows.
+//! Todo se calcula en unas pocas pasadas paralelas sobre los valores, nunca ordenándolos: los
+//! cuantiles salen de un histograma fino (4096 intervalos sobre el rango), de modo que son exactos
+//! hasta una 4096.ª parte del rango, que está muy por debajo de lo que muestra una barra de
+//! histograma.
 
 use rayon::prelude::*;
 
-/// Bins of the fine histogram the quantiles are read from.
+/// Intervalos del histograma fino de los que se leen los cuantiles.
 const FINE: usize = 4096;
 
 #[derive(Clone, Debug)]
 pub struct Histogram {
-    /// Lower edge of the first bar and the width of every bar.
+    /// Borde inferior de la primera barra y anchura de cada barra.
     pub lo: f64,
     pub width: f64,
     pub counts: Vec<u64>,
@@ -25,26 +26,27 @@ pub struct Histogram {
     pub q1: f64,
     pub median: f64,
     pub q3: f64,
-    /// Median absolute deviation from the median.
+    /// Desviación absoluta mediana respecto a la mediana.
     pub mad: f64,
     fine: Vec<u64>,
 }
 
-/// How odd values are told from the rest.
+/// Cómo se distinguen los valores raros del resto.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Method {
-    /// Outside `Q1 - k·IQR … Q3 + k·IQR` (k = 1.5 is Tukey's usual fence, 3 the far one).
+    /// Fuera de `Q1 - k·IQR … Q3 + k·IQR` (k = 1,5 es la valla habitual de Tukey, 3 la lejana).
     Tukey(f64),
-    /// Robust z-score above `k`: `|x - median| > k · 1.4826 · MAD` (3.5 is the usual limit).
+    /// Puntuación z robusta por encima de `k`: `|x - mediana| > k · 1.4826 · MAD` (3,5 es el límite
+    /// habitual).
     Mad(f64),
-    /// More than `k` standard deviations from the mean.
+    /// A más de `k` desviaciones típicas de la media.
     Sigma(f64),
-    /// In the lowest or highest `p` percent.
+    /// En el `p` por ciento más bajo o más alto.
     Percentile(f64),
 }
 
 impl Histogram {
-    /// The value below which a share `p` (0–1) of the values lie.
+    /// El valor por debajo del cual queda una proporción `p` (0–1) de los valores.
     pub fn quantile(&self, p: f64) -> f64 {
         quantile_of(
             &self.fine,
@@ -55,8 +57,9 @@ impl Histogram {
         )
     }
 
-    /// The limits `(low, high)`: values below the first or above the second are odd. None when
-    /// the method cannot tell (most values are equal, so the spread is zero).
+    /// Los límites `(bajo, alto)`: los valores por debajo del primero o por encima del segundo son
+    /// raros. None cuando el método no puede decidir (la mayoría de los valores son iguales, así
+    /// que la dispersión es cero).
     pub fn limits(&self, m: Method) -> Option<(f64, f64)> {
         let ok = |(lo, hi): (f64, f64)| (lo.is_finite() && hi.is_finite()).then_some((lo, hi));
         match m {
@@ -79,14 +82,14 @@ impl Histogram {
         .and_then(ok)
     }
 
-    /// The intervals of the odd values: `[-inf, low)` and `(high, inf)`. Percentiles keep the
-    /// values equal to the limit inside, so a tail never takes more than its share.
+    /// Los intervalos de los valores raros: `[-inf, bajo)` y `(alto, inf)`. Los percentiles dejan
+    /// dentro los valores iguales al límite, de modo que una cola nunca toma más que su parte.
     pub fn tails(&self, m: Method) -> Option<Vec<(f64, f64)>> {
         let (lo, hi) = self.limits(m)?;
         Some(vec![(f64::NEG_INFINITY, lo), (hi.next_up(), f64::INFINITY)])
     }
 
-    /// Edges `[lo, hi)` of bar `i`.
+    /// Bordes `[lo, hi)` de la barra `i`.
     pub fn bar(&self, i: usize) -> (f64, f64) {
         (
             self.lo + i as f64 * self.width,
@@ -94,13 +97,13 @@ impl Histogram {
         )
     }
 
-    /// Bar of a value.
+    /// Barra de un valor.
     pub fn bar_of(&self, v: f64) -> usize {
         (((v - self.lo) / self.width).max(0.0) as usize).min(self.counts.len() - 1)
     }
 
-    /// The intervals the picked bars cover, adjacent ones merged. The last bar takes in its
-    /// upper edge, since the largest value belongs to it.
+    /// Los intervalos que cubren las barras elegidas, con las adyacentes fusionadas. La última
+    /// barra incluye su borde superior, pues el valor mayor le pertenece.
     pub fn ranges(&self, picked: &[bool]) -> Vec<(f64, f64)> {
         let mut out: Vec<(f64, f64)> = Vec::new();
         for (i, on) in picked.iter().enumerate().take(self.counts.len()) {
@@ -119,7 +122,8 @@ impl Histogram {
         out
     }
 
-    /// The bars that hold a value of the intervals (those of [`Histogram::tails`], say).
+    /// Las barras que contienen un valor de los intervalos (los de [`Histogram::tails`], por
+    /// ejemplo).
     pub fn bars_in(&self, ranges: &[(f64, f64)]) -> Vec<bool> {
         (0..self.counts.len())
             .map(|i| {
@@ -129,7 +133,7 @@ impl Histogram {
             .collect()
     }
 
-    /// How many values the picked bars hold.
+    /// Cuántos valores contienen las barras elegidas.
     pub fn picked_count(&self, picked: &[bool]) -> u64 {
         self.counts
             .iter()
@@ -174,8 +178,8 @@ fn add(a: &mut [u64], b: &[u64]) {
     }
 }
 
-/// The histogram of the `n` values `value(i)` (None: the point has none), with `bins` bars, or
-/// one bar per integer when `integer` and the values span less than 256.
+/// El histograma de los `n` valores `value(i)` (None: el punto no tiene), con `bins` barras, o una
+/// barra por entero cuando `integer` y los valores abarcan menos de 256.
 pub fn histogram(
     n: usize,
     value: impl Fn(usize) -> Option<f64> + Sync,
@@ -232,7 +236,7 @@ pub fn histogram(
     let spread = max > min;
     let q = |p| quantile_of(&acc.fine, count, min, fw, p);
     let median = q(0.5);
-    // the median of the distances to the median, from a second fine histogram
+    // la mediana de las distancias a la mediana, a partir de un segundo histograma fino
     let reach = (median - min).max(max - median);
     let dw = fine_width(0.0, reach);
     let devs = vals()
@@ -259,7 +263,7 @@ pub fn histogram(
         max,
         mean,
         std: (acc.ssd / count as f64).sqrt(),
-        // equal values have no spread, whatever the fine bins interpolate
+        // los valores iguales no tienen dispersión, por mucho que interpolen los intervalos finos
         q1: if spread { q(0.25) } else { min },
         median: if spread { median } else { min },
         q3: if spread { q(0.75) } else { min },
@@ -278,7 +282,7 @@ mod tests {
     use crate::{Error, Result};
 
     fn ramp_with_outlier() -> Result<Histogram> {
-        // 0, 1, …, 999 and one far value
+        // 0, 1, …, 999 y un valor lejano
         let mut v: Vec<f64> = (0..1000).map(f64::from).collect();
         v.push(10_000.0);
         histogram(v.len(), |i| v.get(i).copied(), 50, false)
@@ -291,7 +295,7 @@ mod tests {
         assert_eq!(h.n, 1001);
         assert_eq!(h.counts.iter().sum::<u64>(), 1001);
         assert_eq!((h.min, h.max), (0.0, 10_000.0));
-        // the median of the ramp, to a 4096th of the range
+        // la mediana de la rampa, hasta una 4096.ª parte del rango
         assert!(
             (h.median - 500.0).abs() < 10_000.0 / 4096.0 * 2.0,
             "{}",
@@ -313,7 +317,7 @@ mod tests {
                 "{m:?} {lo} {hi}"
             );
         }
-        // the lowest and highest 1 %
+        // el 1 % más bajo y más alto
         let (lo, hi) = h
             .limits(Method::Percentile(1.0))
             .ok_or_else(|| Error::Param("no limits".into()))?;
@@ -344,7 +348,7 @@ mod tests {
         .ok_or_else(|| Error::Param("no histogram".into()))?;
         assert_eq!((h.lo, h.width, h.counts.len()), (2.0, 1.0, 6));
         assert_eq!(h.counts, [3, 0, 0, 2, 1, 1]);
-        // bars for 5, 6 and 7 are adjacent: one interval, and the top edge takes in 7
+        // las barras de 5, 6 y 7 son adyacentes: un intervalo, y el borde superior incluye el 7
         let picked = [false, false, false, true, true, true];
         let r = h.ranges(&picked);
         assert_eq!(r.len(), 1);
@@ -361,7 +365,7 @@ mod tests {
             .tails(Method::Tukey(1.5))
             .ok_or_else(|| Error::Param("no tails".into()))?;
         let bars = h.bars_in(&tails);
-        // the bars of the ramp (0–1000 m) are not odd, the last one holds the far value
+        // las barras de la rampa (0–1000 m) no son raras, la última contiene el valor lejano
         assert!(bars.last().copied().unwrap_or(false));
         assert!(bars.iter().take(5).all(|b| !*b));
         Ok(())

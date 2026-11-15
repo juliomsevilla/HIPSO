@@ -1,31 +1,34 @@
-//! Rasterising a TIN (Delaunay triangulation) of ground points onto a grid, tile by tile,
-//! with memory bounded by the tile, not the cloud.
+//! Rasterización de un TIN (triangulación de Delaunay) de puntos de suelo sobre una rejilla, tesela
+//! a tesela, con la memoria acotada por la tesela, no por la nube.
 
 use crate::grid::Grid;
 
-/// Longest triangle edge interpolated across; larger gaps are left to hole filling.
+/// Arista de triángulo más larga a través de la que se interpola; los huecos mayores se dejan al
+/// relleno de huecos.
 pub const MAX_EDGE: f64 = 50.0;
 
-/// Which point of a cell enters the triangulation.
+/// Qué punto de una celda entra en la triangulación.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Thin {
-    /// The nearest to the cell centre (terrain).
+    /// El más cercano al centro de la celda (terreno).
     Nearest,
-    /// The highest (canopy surfaces).
+    /// El más alto (superficies de dosel).
     Highest,
 }
 
-/// Writes into the empty cells of `grid` the TIN surface through `pts` (x, y, z), thinned to
-/// the point nearest each cell centre so memory and time follow the grid, not the density.
+/// Escribe en las celdas vacías de `grid` la superficie del TIN por `pts` (x, y, z), adelgazados al
+/// punto más cercano al centro de cada celda para que la memoria y el tiempo sigan a la rejilla, no
+/// a la densidad.
 pub fn rasterize(pts: &[[f64; 3]], grid: &mut Grid) {
     rasterize_with(pts, grid, MAX_EDGE, Thin::Nearest);
 }
 
-/// [`rasterize`] with the longest edge interpolated across and the thinning chosen.
+/// [`rasterize`] con la arista más larga a través de la que se interpola y el adelgazamiento
+/// elegidos.
 pub fn rasterize_with(pts: &[[f64; 3]], grid: &mut Grid, max_edge: f64, thin: Thin) {
-    // Thin: one point per cell, on a dense lattice over the points (the tile and its buffer):
-    // 8 bytes a cell, the index of the chosen point and its score. Points outside the grid help
-    // near its edges, so they are kept too.
+    // Adelgazar: un punto por celda, en un retículo denso sobre los puntos (la tesela y su margen):
+    // 8 bytes por celda, el índice del punto elegido y su puntuación. Los puntos fuera de la
+    // rejilla ayudan cerca de sus bordes, así que se conservan también.
     let Some(b) = pts.iter().try_fold(
         [
             f64::INFINITY,
@@ -79,7 +82,7 @@ pub fn rasterize_with(pts: &[[f64; 3]], grid: &mut Grid, max_edge: f64, thin: Th
     if kept.len() < 3 {
         return;
     }
-    // Coordinates relative to the grid keep the triangulation precise.
+    // Las coordenadas relativas a la rejilla mantienen precisa la triangulación.
     let xy: Vec<delaunator::Point> = kept
         .iter()
         .map(|q| delaunator::Point {
@@ -107,13 +110,13 @@ pub fn rasterize_with(pts: &[[f64; 3]], grid: &mut Grid, max_edge: f64, thin: Th
         if det.abs() < 1e-12 {
             continue;
         }
-        // Cells whose centres fall in the triangle's box.
+        // Celdas cuyos centros caen en la caja del triángulo.
         let cell = grid.cell;
         let c0 = (((a.x.min(b.x).min(c.x)) / cell - 0.5).ceil().max(0.0)) as usize;
         let c1 = (((a.x.max(b.x).max(c.x)) / cell - 0.5)
             .floor()
             .min(grid.cols as f64 - 1.0)) as isize;
-        // Rows count from the north; y is from the grid's south edge.
+        // Las filas cuentan desde el norte; y es desde el borde sur de la rejilla.
         let r0 = (((top - a.y.max(b.y).max(c.y)) / cell - 0.5).ceil().max(0.0)) as usize;
         let r1 = (((top - a.y.min(b.y).min(c.y)) / cell - 0.5)
             .floor()
@@ -155,7 +158,7 @@ mod tests {
             })
             .collect();
         rasterize(&pts, &mut g);
-        // Cell (col 3, row 0) is centred at (3.5, 9.5).
+        // La celda (col 3, fila 0) está centrada en (3,5, 9,5).
         assert!((g.data[3] - (5.0 + 1.75 + 2.375)).abs() < 1e-4);
         assert!(g.data.iter().all(|v| !v.is_nan()));
         Ok(())

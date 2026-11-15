@@ -1,11 +1,11 @@
-//! Classification recipes: a whole classification (noise, ground, buildings, vegetation, wires,
-//! poles, rules and tiling) written as a text file and read back.
+//! Recetas de clasificación: una clasificación entera (ruido, suelo, edificios, vegetación, cables,
+//! postes, reglas y teselas) escrita como archivo de texto y leída de vuelta.
 //!
-//! A recipe is the options of `hipso classify`, one or more to a line, so the file can be given to
-//! the command line (`--recipe`) and the classification window can save and load the same file.
-//! Only the options that have a command-line name are written; the advanced parameters that have
-//! none (the heights of the vegetation strata, the cell of the building analysis...) are not, and
-//! [`is_exact`] says whether a recipe loses any.
+//! Una receta son las opciones de `hipso classify`, una o varias por línea, de modo que el archivo
+//! se puede dar a la línea de comandos (`--recipe`) y la ventana de clasificación puede guardar y
+//! cargar el mismo archivo. Solo se escriben las opciones que tienen nombre en la línea de
+//! comandos; los parámetros avanzados que no lo tienen (las alturas de los estratos de vegetación,
+//! la celda del análisis de edificios...) no, y [`is_exact`] dice si una receta pierde alguno.
 
 use std::collections::HashMap;
 
@@ -28,14 +28,14 @@ pub struct Recipe {
     pub tiling: Tiling,
 }
 
-/// A recipe read from text, and the options of the text that classification does not use.
+/// Una receta leída de texto, y las opciones del texto que la clasificación no usa.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Loaded {
     pub recipe: Recipe,
     pub ignored: Vec<String>,
 }
 
-/// Options that stand alone, with no value.
+/// Opciones que van solas, sin valor.
 const SWITCHES: [&str; 7] = [
     "overlap",
     "vegetation",
@@ -64,7 +64,7 @@ fn count<T: std::str::FromStr>(key: &str, value: &str) -> Result<T> {
     })
 }
 
-/// Reads a recipe.
+/// Lee una receta.
 pub fn parse(text: &str) -> Result<Loaded> {
     let tokens = rules::recipe_args(text)?;
     let mut options: HashMap<String, String> = HashMap::new();
@@ -255,7 +255,7 @@ pub fn parse(text: &str) -> Result<Loaded> {
     })
 }
 
-/// Every option a recipe reads.
+/// Toda opción que lee una receta.
 const KNOWN: [&str; 48] = [
     "ground",
     "filter-cell",
@@ -307,7 +307,7 @@ const KNOWN: [&str; 48] = [
     "overlap-cell",
 ];
 
-/// A recipe as text, with a comment line for each step.
+/// Una receta como texto, con una línea de comentario por cada paso.
 pub fn write(r: &Recipe) -> String {
     let s = &r.steps;
     let mut o = String::from(
@@ -401,8 +401,8 @@ pub fn write(r: &Recipe) -> String {
     o
 }
 
-/// Whether writing the recipe and reading it back gives the same recipe: false when a parameter
-/// that has no command-line option has been changed from its default.
+/// Si escribir la receta y leerla de vuelta da la misma receta: falso cuando se ha cambiado de su
+/// valor por defecto un parámetro que no tiene opción de línea de comandos.
 pub fn is_exact(r: &Recipe) -> bool {
     parse(&write(r)).is_ok_and(|l| &l.recipe == r)
 }
@@ -460,7 +460,7 @@ mod tests {
         let l = parse(&write(&r))?;
         assert_eq!(l.recipe, r);
         assert!(l.ignored.is_empty());
-        // every ground method and noise method
+        // todo método de suelo y de ruido
         for ground in [
             Ground::Fusion(GroundParams {
                 tolerance: Some(0.4),

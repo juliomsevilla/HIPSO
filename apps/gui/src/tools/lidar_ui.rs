@@ -1,7 +1,8 @@
-//! The point-cloud tools beyond the forestry chain: thinning, duplicates, comparison of two
-//! clouds, alignment, swath separation, colouring from an image, intensity normalised for range,
-//! clipping with polygons and the extra classifiers.
-//! Each loaded cloud is a sheet and gets its own result, like the other tools.
+//! Las herramientas de nube de puntos más allá de la cadena forestal: adelgazamiento, duplicados,
+//! comparación de dos nubes, alineación, separación entre pasadas, coloreado a partir de una
+//! imagen, intensidad normalizada por la distancia, recorte con polígonos y los clasificadores
+//! adicionales. Cada nube cargada es una hoja y recibe su propio resultado, como las demás
+//! herramientas.
 
 use std::collections::HashMap;
 
@@ -42,19 +43,20 @@ pub struct State {
     pub sw_cell: f64,
     pub sw_returns: usize,
     pub sw_by_cloud: bool,
-    /// Swaths from the gaps in the GPS time (s) when set.
+    /// Pasadas a partir de los saltos del tiempo GPS (s) cuando se fija.
     pub sw_gps: bool,
     pub sw_gap: f64,
     pub fl_gap: f64,
     pub fl_min_points: f64,
-    /// Where the line number goes: 0 nowhere, 1 point source ID, 2 user data.
+    /// Dónde va el número de línea: 0 en ningún sitio, 1 identificador de fuente del punto, 2 datos
+    /// de usuario.
     pub fl_assign: usize,
     pub fl_csv: bool,
     pub fl_vector: bool,
     pub vd_cell: f64,
     pub vd_threshold: f64,
     pub vd_max_area: f64,
-    /// Returns (A, F, L or numbers) and classes (2,5 or ~7,18; empty: all but noise) to measure.
+    /// Retornos (A, F, L o números) y clases (2,5 o ~7,18; vacío: todas menos el ruido) que medir.
     pub vd_returns: String,
     pub vd_classes: String,
     pub vd_pass: bool,
@@ -65,25 +67,25 @@ pub struct State {
     pub dn_mosaic: bool,
     pub dn_fill: f64,
     pub vol_source: usize,
-    /// Rasters chosen by hand (empty: the one found for each cloud).
+    /// Rásteres elegidos a mano (vacío: el que se halla para cada nube).
     pub vol_surface: String,
     pub vol_dtm: String,
     pub vol_level: f64,
     pub vol_min: f64,
-    /// 0 the whole raster, 1 the drawn AOIs, 2 the regions of a vector file.
+    /// 0 todo el ráster, 1 las AOI dibujadas, 2 las regiones de un archivo vectorial.
     pub vol_regions: usize,
     pub vol_file: String,
-    /// The image the points take their colour from, its bands for red, green and blue, and
-    /// whether points outside it keep their colour.
+    /// La imagen de la que los puntos toman su color, sus bandas para rojo, verde y azul y si los
+    /// puntos fuera de ella conservan su color.
     pub col_image: String,
     pub col_bands: [f64; 3],
     pub col_keep: bool,
-    /// Intensity: 0 trajectory, 1 flight altitude; the trajectory file, the altitude, the
-    /// exponent and the reference range (0: the mean range).
+    /// Intensidad: 0 trayectoria, 1 altitud de vuelo; el archivo de trayectoria, la altitud, el
+    /// exponente y la distancia de referencia (0: la distancia media).
     pub int_mode: usize,
     pub int_traj: String,
-    /// Clipping with a polygon layer: the layer, one cloud per polygon, the field that names
-    /// them, the buffer and whether a point goes to the first polygon only.
+    /// Recorte con una capa de polígonos: la capa, una nube por polígono, el campo que las nombra,
+    /// el margen y si un punto va solo al primer polígono.
     pub cp_layer: String,
     pub cp_per_record: bool,
     pub cp_name_field: String,
@@ -902,7 +904,8 @@ impl Tools {
         ui.checkbox(&mut s.vd_csv, "Tabla (CSV)");
     }
 
-    /// A text box for a path with a file picker; empty means "the one found for each cloud".
+    /// Un cuadro de texto para una ruta con un selector de archivos; vacío significa «el que se
+    /// halla para cada nube».
     pub(super) fn raster_row(ui: &mut egui::Ui, label: &str, text: &mut String, exts: &[&str]) {
         ui.horizontal(|ui| {
             ui.label(label);
@@ -1085,8 +1088,8 @@ impl Tools {
                 sheet: paths::stem(p),
             });
         }
-        // polygons from a file get their volumes in the attribute table of a copy of the layer;
-        // drawn areas and the whole raster, in a table
+        // los polígonos de un archivo reciben sus volúmenes en la tabla de atributos de una copia
+        // de la capa; las áreas dibujadas y todo el ráster, en una tabla
         if s.vol_regions == 2 {
             let source = PathBuf::from(s.vol_file.trim());
             let outs: Vec<PathBuf> = inputs
@@ -1442,7 +1445,7 @@ impl Tools {
                     match hipso_core::filter::ClassSel::parse(&s.vd_classes) {
                         Ok(c) => {
                             job.filter.classes = c;
-                            // a class asked for by name is not left out as noise
+                            // una clase pedida por nombre no se deja fuera como ruido
                             job.filter.skip_noise = false;
                         }
                         Err(e) => {
@@ -1512,7 +1515,7 @@ impl Tools {
                 }
                 let task: Task = Box::new(move || {
                     let mut lines = Vec::new();
-                    // every sheet is made first, so that all share one tone scale
+                    // primero se hace cada hoja, para que todas compartan una escala de tonos
                     let mut sheets = Vec::new();
                     for p in &inputs_v {
                         hipso_core::check_cancel()?;

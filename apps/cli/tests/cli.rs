@@ -1,5 +1,5 @@
-//! The command line as a user runs it: the binary on a small synthetic cloud (a sloping ground
-//! with conical trees), checking what it writes, where, and what it says.
+//! La línea de comandos como la ejecuta un usuario: el binario sobre una pequeña nube sintética (un
+//! suelo en pendiente con árboles cónicos), comprobando lo que escribe, dónde y lo que dice.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -10,7 +10,7 @@ fn bin() -> Command {
     Command::new(env!("CARGO_BIN_EXE_hipso"))
 }
 
-/// Runs the binary; returns its standard output and error, and fails the test if it failed.
+/// Ejecuta el binario; devuelve su salida estándar y de error, y hace fallar la prueba si falló.
 fn run(args: &[&str]) -> Result<String> {
     let out = bin().args(args).output()?;
     let text = format!(
@@ -24,7 +24,7 @@ fn run(args: &[&str]) -> Result<String> {
     Ok(text)
 }
 
-/// A temporary folder for one test, removed when dropped.
+/// Una carpeta temporal para una prueba, borrada al soltarla.
 struct Dir(PathBuf);
 
 impl Dir {
@@ -48,9 +48,9 @@ impl Drop for Dir {
     }
 }
 
-/// A LAS 1.2 file of point format 1: 120 x 120 m of ground rising 5 cm per metre to the east,
-/// a point every 0.5 m (ground, class 2), and a grid of conical trees of 12 to 20 m (class 5),
-/// with GPS time and one return per point.
+/// Un archivo LAS 1.2 de formato de punto 1: 120 x 120 m de suelo que sube 5 cm por metro hacia el
+/// este, un punto cada 0,5 m (suelo, clase 2), y una rejilla de árboles cónicos de 12 a 20 m (clase
+/// 5), con tiempo GPS y un retorno por punto.
 fn synthetic_cloud(path: &Path) -> Result<()> {
     let (scale, x0, y0): (f64, f64, f64) = (0.01, 500_000.0, 4_400_000.0);
     let mut pts: Vec<([f64; 3], u8)> = Vec::new();
@@ -175,7 +175,7 @@ fn the_chain_of_products_goes_to_the_results_folder() -> Result<()> {
         .iter()
         .find(|n| n.contains("_mdt_") && n.ends_with(".tif"))
         .ok_or("no DTM")?;
-    // the tools that used to write next to their input now follow --results-dir
+    // las herramientas que antes escribían junto a su entrada ahora siguen --results-dir
     let other = d.join("otros");
     let o = other.display().to_string();
     run(&[
@@ -213,7 +213,7 @@ fn the_chain_of_products_goes_to_the_results_folder() -> Result<()> {
             .any(|n| n.contains("curvas") && n.ends_with(".shp")),
         "{made:?}"
     );
-    // 36 trees were planted
+    // se plantaron 36 árboles
     let trees = run(&[
         "--results-dir",
         &o,
@@ -242,7 +242,7 @@ fn csf_keeps_the_trees_out_of_the_ground() -> Result<()> {
         "csf",
         &d.s("nube.las"),
     ])?;
-    // 57 600 ground points and 32 400 of trees: the ground found is the ground, not the crowns
+    // 57 600 puntos de suelo y 32 400 de árboles: el suelo hallado es el suelo, no las copas
     let ground: u64 = text
         .split(" de suelo")
         .next()
@@ -259,14 +259,14 @@ fn copc_colour_and_intensity_round_trip() -> Result<()> {
     synthetic_cloud(&d.join("nube.las"))?;
     let cloud = d.s("nube.las");
     let res = d.s("res");
-    // COPC: format 1 becomes 6, every point is kept
+    // COPC: el formato 1 pasa a 6, se conserva cada punto
     let c = run(&["--results-dir", &res, "copc", &cloud])?;
     assert!(c.contains("90000 puntos en"), "{c}");
     assert!(c.contains("formato 6"), "{c}");
     let copc = d.join("res").join("nube.copc.laz");
     let info = run(&["info", &copc.display().to_string()])?;
     assert!(info.contains("Puntos: 90000"), "{info}");
-    // an RGB image from the DTM stacked three times, then the colour of the points
+    // una imagen RGB a partir del MDT apilado tres veces, y luego el color de los puntos
     run(&["--results-dir", &res, "dtm", "--cell", "1", &cloud])?;
     let dtm = files(&d.join("res"))?
         .into_iter()
@@ -291,7 +291,7 @@ fn copc_colour_and_intensity_round_trip() -> Result<()> {
     let info = run(&["info", &coloured.display().to_string()])?;
     assert!(info.contains("formato 7"), "{info}");
     assert!(info.contains("Color RGB: sí"), "{info}");
-    // intensity for range, from a flight at 2000 m
+    // intensidad por distancia, de un vuelo a 2000 m
     let int = run(&[
         "--results-dir",
         &res,
@@ -307,7 +307,7 @@ fn copc_colour_and_intensity_round_trip() -> Result<()> {
 #[test]
 fn a_model_names_its_metrics_by_short_or_long_name_and_never_overwrites() -> Result<()> {
     let d = Dir::new("model")?;
-    // twelve plots with two metrics and a field volume that follows the first
+    // doce parcelas con dos métricas y un volumen de campo que sigue a la primera
     let mut plots = String::from("Muestra,Elev P90,Elev mean\n");
     let mut field = String::from("Muestra,VOL\n");
     for k in 1..=12 {
@@ -337,7 +337,7 @@ fn a_model_names_its_metrics_by_short_or_long_name_and_never_overwrites() -> Res
     let made = files(&d.join("res"))?;
     let reports = made.iter().filter(|n| n.ends_with("_modelo.txt")).count();
     assert_eq!(reports, 2, "{made:?}");
-    // a metric that is not there says which ones are
+    // una métrica que no está dice cuáles sí
     let out = bin()
         .args([
             "model",

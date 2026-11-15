@@ -1,9 +1,11 @@
-//! A base map under the layers: web map tiles (OpenStreetMap by default) fetched in the
-//! background, kept on disk for a week, and drawn moved into the work's coordinate system.
+//! Un mapa base bajo las capas: teselas de mapa web (OpenStreetMap por defecto) descargadas en
+//! segundo plano, guardadas en disco una semana y dibujadas llevadas al sistema de coordenadas del
+//! trabajo.
 //!
-//! Tiles come from the providers' servers, so each has terms to keep: a program name in the
-//! request, at most two downloads at a time, tiles reused from the cache rather than asked for
-//! again, and the credit shown on the map. Nothing is fetched while the base map is off.
+//! Las teselas vienen de los servidores de los proveedores, así que cada uno tiene condiciones que
+//! respetar: un nombre de programa en la petición, como mucho dos descargas a la vez, teselas
+//! reutilizadas de la caché en lugar de pedirlas de nuevo y el crédito mostrado en el mapa. No se
+//! descarga nada mientras el mapa base está apagado.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -16,12 +18,12 @@ use hipso_core::reproject::{self, Transformer};
 use hipso_core::tilemap::{self, HALF_WORLD};
 use hipso_core::view::Plan;
 
-/// A source of tiles.
+/// Un origen de teselas.
 pub struct Provider {
     pub name: &'static str,
-    /// The address of a tile, with `{z}`, `{x}` and `{y}`.
+    /// La dirección de una tesela, con `{z}`, `{x}` y `{y}`.
     pub url: &'static str,
-    /// The credit its terms ask to show.
+    /// El crédito que piden sus condiciones que se muestre.
     pub credit: &'static str,
     pub max_zoom: u8,
 }
@@ -47,7 +49,7 @@ pub const PROVIDERS: &[Provider] = &[
     },
 ];
 
-/// The index of the provider whose address the user types.
+/// El índice del proveedor cuya dirección escribe el usuario.
 pub const CUSTOM: usize = PROVIDERS.len();
 
 const USER_AGENT: &str = concat!(
@@ -56,11 +58,11 @@ const USER_AGENT: &str = concat!(
     " (+https://github.com/juliomsevilla/HIPSO)"
 );
 
-/// How long a tile on disk is used without asking the server again.
+/// Cuánto tiempo se usa una tesela del disco sin volver a preguntar al servidor.
 const KEEP: Duration = Duration::from_secs(7 * 24 * 3600);
-/// Downloads at the same time: the most the OpenStreetMap tile policy allows.
+/// Descargas a la vez: lo máximo que permite la política de teselas de OpenStreetMap.
 const WORKERS: usize = 2;
-/// Tiles drawn at most: a view that would need more is drawn at a coarser zoom.
+/// Teselas dibujadas como mucho: una vista que necesitara más se dibuja a un zoom más grueso.
 const MAX_TILES: usize = 60;
 /// Textures kept.
 const KEEP_TEXTURES: usize = 320;
@@ -76,7 +78,7 @@ struct Job {
 #[derive(Default)]
 struct Shared {
     queue: VecDeque<Job>,
-    /// Tiles a worker has taken and not finished.
+    /// Teselas que un trabajador ha tomado y no ha terminado.
     started: HashSet<Key>,
 }
 
@@ -102,7 +104,7 @@ pub struct Basemap {
     tiles: HashMap<Key, Slot>,
     queue: Arc<Queue>,
     done: Receiver<Done>,
-    /// The system the transformers below were made for, and Web Mercator to it.
+    /// El sistema para el que se hicieron los transformadores de abajo, y Web Mercator hacia él.
     mapped: Option<(u16, Arc<Transformer>, Arc<Transformer>)>,
     frame: u64,
 }
@@ -155,7 +157,7 @@ impl Basemap {
         h.finish()
     }
 
-    /// Takes the tiles the workers finished: a texture each.
+    /// Toma las teselas que terminaron los trabajadores: una textura cada una.
     fn collect(&mut self, ctx: &egui::Context) {
         for _ in 0..12 {
             let Ok(d) = self.done.try_recv() else { return };
@@ -176,8 +178,9 @@ impl Basemap {
         ctx.request_repaint();
     }
 
-    /// Draws the tiles under the view; asks for the ones that are missing. `project` is the
-    /// EPSG code of the work's system. Returns what to tell the user when nothing can be drawn.
+    /// Dibuja las teselas bajo la vista; pide las que faltan. `project` es el código EPSG del
+    /// sistema del trabajo. Devuelve lo que hay que decir al usuario cuando no se puede dibujar
+    /// nada.
     #[allow(clippy::too_many_arguments)]
     pub fn paint(
         &mut self,
@@ -213,7 +216,7 @@ impl Basemap {
         }
         let (_, from_map, to_map) = self.mapped.clone()?;
         self.collect(ctx);
-        // what the view shows, in Web Mercator metres
+        // lo que muestra la vista, en metros de Web Mercator
         let (lo, hi) = (
             plan.to_map(0.0, h as f64, w, h),
             plan.to_map(w as f64, 0.0, w, h),
@@ -246,7 +249,8 @@ impl Basemap {
             match self.tiles.get_mut(&key) {
                 Some(Slot::Ready { tex, used }) => {
                     *used = self.frame;
-                    // the tile curves as the two systems differ: more cells where it is big
+                    // la tesela se curva según difieren los dos sistemas: más celdas donde es
+                    // grande
                     crate::warp::paint_warped(
                         painter,
                         tex.id(),
@@ -285,7 +289,7 @@ impl Basemap {
             self.queue.wake.notify_all();
             ctx.request_repaint_after(Duration::from_millis(250));
         }
-        // keep memory bounded: drop the textures least recently on screen
+        // mantener acotada la memoria: se sueltan las texturas menos recientes en pantalla
         if self.tiles.len() > KEEP_TEXTURES {
             let mut used: Vec<(u64, Key)> = self
                 .tiles
@@ -300,7 +304,7 @@ impl Basemap {
                 self.tiles.remove(&k);
             }
         }
-        // the credit the provider asks for
+        // el crédito que pide el proveedor
         if let Some(credit) = self.credit() {
             let font = FontId::proportional(11.0);
             let galley = painter.layout_no_wrap(credit.to_string(), font.clone(), Color32::BLACK);
@@ -324,8 +328,8 @@ impl Basemap {
     }
 }
 
-/// Where a tile is kept: the user's cache folder of the system.
-fn cache_file(provider: u64, key: Key) -> Option<PathBuf> {
+/// La carpeta de las teselas: en la carpeta de caché del sistema.
+pub fn tiles_dir() -> Option<PathBuf> {
     let base = if cfg!(target_os = "macos") {
         PathBuf::from(std::env::var_os("HOME")?).join("Library/Caches")
     } else if cfg!(target_os = "windows") {
@@ -335,14 +339,45 @@ fn cache_file(provider: u64, key: Key) -> Option<PathBuf> {
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))?
     };
+    Some(base.join("HIPSO").join("tiles"))
+}
+
+/// Dónde se guarda una tesela.
+fn cache_file(provider: u64, key: Key) -> Option<PathBuf> {
     Some(
-        base.join("HIPSO")
-            .join("tiles")
+        tiles_dir()?
             .join(format!("{provider:016x}"))
             .join(key.1.to_string())
             .join(key.2.to_string())
             .join(format!("{}.tile", key.3)),
     )
+}
+
+/// Archivos y bytes que ocupan las teselas guardadas.
+pub fn tiles_size() -> (usize, u64) {
+    fn walk(d: &std::path::Path) -> (usize, u64) {
+        let Ok(rd) = std::fs::read_dir(d) else {
+            return (0, 0);
+        };
+        rd.flatten().fold((0, 0), |(n, b), e| match e.metadata() {
+            Ok(m) if m.is_dir() => {
+                let (n2, b2) = walk(&e.path());
+                (n + n2, b + b2)
+            }
+            Ok(m) => (n + 1, b + m.len()),
+            Err(_) => (n, b),
+        })
+    }
+    tiles_dir().map_or((0, 0), |d| walk(&d))
+}
+
+/// Borra las teselas guardadas; se descargan de nuevo cuando el mapa las necesita.
+pub fn clear_tiles() -> (usize, u64) {
+    let done = tiles_size();
+    if let Some(d) = tiles_dir() {
+        let _ = std::fs::remove_dir_all(d);
+    }
+    done
 }
 
 fn worker(queue: Arc<Queue>, tx: Sender<Done>, ctx: egui::Context) {
@@ -384,7 +419,7 @@ fn worker(queue: Arc<Queue>, tx: Sender<Done>, ctx: egui::Context) {
     }
 }
 
-/// The bytes of a tile: from the disk if they are fresh, else from the server (and kept).
+/// Los bytes de una tesela: del disco si están frescos o, si no, del servidor (y se guardan).
 fn fetch(agent: &ureq::Agent, job: &Job) -> Result<Vec<u8>, String> {
     let age = |p: &PathBuf| {
         std::fs::metadata(p)
@@ -413,7 +448,7 @@ fn fetch(agent: &ureq::Agent, job: &Job) -> Result<Vec<u8>, String> {
             }
             Ok(bytes)
         }
-        // without a connection an old tile is better than none
+        // sin conexión, una tesela antigua es mejor que ninguna
         Err(e) => job
             .cache
             .as_ref()
@@ -422,7 +457,7 @@ fn fetch(agent: &ureq::Agent, job: &Job) -> Result<Vec<u8>, String> {
     }
 }
 
-/// A PNG or JPEG tile as RGBA.
+/// Una tesela PNG o JPEG como RGBA.
 pub fn decode(bytes: &[u8]) -> Result<([usize; 2], Vec<u8>), String> {
     if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
         let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
@@ -506,7 +541,8 @@ mod tests {
         }
     }
 
-    /// Needs internet: the real servers answer with images this program can read.
+    /// Necesita internet: los servidores reales responden con imágenes que este programa puede
+    /// leer.
     #[test]
     #[ignore]
     fn real_tiles_download_and_decode() -> Result<(), String> {
@@ -523,7 +559,7 @@ mod tests {
             };
             let ([w, h], rgba) = decode(&fetch(&agent, &job)?)?;
             assert_eq!((w, h), (256, 256), "{}", p.name);
-            // a map is not one flat colour
+            // un mapa no es de un solo color plano
             let first = &rgba[..4];
             assert!(
                 rgba.as_chunks::<4>()

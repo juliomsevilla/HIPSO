@@ -1,9 +1,10 @@
-//! Symbology of the layers, in the manner of a desktop GIS: colour ramps, and for vectors the four
-//! renderers (single symbol, unique values, graduated colours, proportional symbols) and labels.
+//! Simbología de las capas, al estilo de un SIG de escritorio: rampas de color y, para los
+//! vectores, los cuatro visualizadores (símbolo único, valores únicos, colores graduados, símbolos
+//! proporcionales) y las etiquetas.
 
 use hipso_core::view::VectorData;
 
-/// Named colour ramps of five stops, low to high.
+/// Rampas de color con nombre de cinco paradas, de bajo a alto.
 pub const RAMPS: [(&str, [[u8; 3]; 5]); 8] = [
     (
         "Azul–rojo",
@@ -87,7 +88,7 @@ pub const RAMPS: [(&str, [[u8; 3]; 5]); 8] = [
     ),
 ];
 
-/// Distinct colours for categories.
+/// Colores distintos para categorías.
 pub const PALETTE: [[u8; 3]; 12] = [
     [141, 211, 199],
     [255, 255, 179],
@@ -103,7 +104,7 @@ pub const PALETTE: [[u8; 3]; 12] = [
     [217, 217, 217],
 ];
 
-/// The colour of ramp `ramp` at `t` in 0…1 (reversed when `invert`).
+/// El color de la rampa `ramp` en `t` de 0…1 (invertida cuando `invert`).
 pub fn ramp_rgb(ramp: usize, t: f64, invert: bool) -> [u8; 3] {
     let stops = &RAMPS[ramp.min(RAMPS.len() - 1)].1;
     let t = if invert { 1.0 - t } else { t };
@@ -143,7 +144,7 @@ impl SymKind {
     }
 }
 
-/// How the features of a layer are told apart.
+/// Cómo se distinguen los elementos de una capa.
 #[derive(Clone, Debug)]
 pub struct Symbology {
     pub kind: SymKind,
@@ -152,13 +153,13 @@ pub struct Symbology {
     pub invert: bool,
     pub classes: usize,
     pub quantile: bool,
-    /// Graduated: `classes + 1` class limits.
+    /// Graduado: `clases + 1` límites de clase.
     pub breaks: Vec<f64>,
-    /// Graduated: one colour per class. Unique: one per category.
+    /// Graduado: un color por clase. Único: uno por categoría.
     pub colors: Vec<[u8; 3]>,
-    /// Unique: the distinct values, sorted.
+    /// Único: los valores distintos, ordenados.
     pub categories: Vec<String>,
-    /// Proportional: radius in pixels at the smallest and the largest value, and those values.
+    /// Proporcional: radio en píxeles en el menor y el mayor valor, y esos valores.
     pub size: (f32, f32),
     pub range: (f64, f64),
 }
@@ -184,12 +185,12 @@ impl Default for Symbology {
 const GREY: [u8; 3] = [150, 150, 150];
 
 impl Symbology {
-    /// The fields that hold numbers.
+    /// Los campos que contienen números.
     pub fn numeric_fields(data: &VectorData) -> Vec<usize> {
         (0..data.fields.len())
             .filter(|&c| {
-                // numbers and dates (by their day) can be graduated; text cannot, even when its
-                // values look like numbers
+                // los números y las fechas (por su día) se pueden graduar; el texto no, aunque sus
+                // valores parezcan números
                 matches!(
                     data.field_type(c),
                     hipso_core::fieldtype::FieldType::Integer
@@ -215,7 +216,7 @@ impl Symbology {
             .collect()
     }
 
-    /// Works out the classes (limits, categories and their colours) from the data.
+    /// Calcula las clases (límites, categorías y sus colores) a partir de los datos.
     pub fn classify(&mut self, data: &VectorData) {
         self.breaks.clear();
         self.colors.clear();
@@ -281,7 +282,7 @@ impl Symbology {
         }
     }
 
-    /// The colour of feature `i`, or `base` when the symbology does not colour.
+    /// El color del elemento `i`, o `base` cuando la simbología no colorea.
     pub fn color_of(&self, data: &VectorData, i: usize, base: [u8; 3]) -> [u8; 3] {
         let Some(c) = self.field else {
             return base;
@@ -312,7 +313,7 @@ impl Symbology {
         }
     }
 
-    /// The radius of the point of feature `i` (the layer's own unless proportional).
+    /// El radio del punto del elemento `i` (el propio de la capa salvo que sea proporcional).
     pub fn size_of(&self, data: &VectorData, i: usize, base: f32) -> f32 {
         let (Some(c), SymKind::Proportional) = (self.field, self.kind) else {
             return base;
@@ -330,7 +331,7 @@ impl Symbology {
         self.size.0 + (self.size.1 - self.size.0) * t.sqrt() as f32
     }
 
-    /// The legend: a label and a colour per entry.
+    /// La leyenda: una etiqueta y un color por entrada.
     pub fn legend(&self, base: [u8; 3]) -> Vec<(String, [u8; 3])> {
         match self.kind {
             SymKind::Graduated if self.breaks.len() > 1 => self
@@ -372,7 +373,7 @@ fn fmt(v: f64) -> String {
     }
 }
 
-/// How the features are labelled.
+/// Cómo se etiquetan los elementos.
 #[derive(Clone, Debug)]
 pub struct Labels {
     pub field: Option<usize>,

@@ -1,14 +1,14 @@
-//! Datum transformations: the geodetic steps of PROJ pipelines (geocentric conversion, Helmert
-//! with or without rates of change, Molodensky-Badekas, geographic offsets and the grid-based
-//! steps `hgridshift`, `vgridshift`, `gridshift`, `xyzgridshift` and `deformation`), run as PROJ
-//! runs them.
+//! Transformaciones de datum: los pasos geodésicos de las tuberías de PROJ (conversión geocéntrica,
+//! Helmert con o sin tasas de cambio, Molodensky-Badekas, desfases geográficos y los pasos con
+//! rejillas `hgridshift`, `vgridshift`, `gridshift`, `xyzgridshift` y `deformation`), ejecutados
+//! como los ejecuta PROJ.
 
 use super::grid::{self, GridSet, GridShiftKinds};
 use super::math::Ell;
 use super::params::Params;
 use std::sync::{Arc, OnceLock};
 
-/// The grids of a step, by their `grids=` list, loaded when first used.
+/// Las rejillas de un paso, por su lista `grids=`, cargadas la primera vez que se usan.
 #[derive(Debug)]
 pub(crate) struct Grids {
     spec: String,
@@ -43,8 +43,8 @@ impl Grids {
         }
     }
 
-    /// The grids, loaded with `load` (`None` when a required one is missing, which is not
-    /// remembered so that a grid installed later is found).
+    /// Las rejillas, cargadas con `load` (`None` cuando falta una obligatoria, lo que no se
+    /// recuerda para que se encuentre una rejilla instalada más tarde).
     fn get(&self, load: fn(&str) -> Option<Vec<Arc<GridSet>>>) -> Option<&[Arc<GridSet>]> {
         if let Some(s) = self.sets.get() {
             return Some(s);
@@ -54,15 +54,15 @@ impl Grids {
     }
 }
 
-/// The rates of change of a time-dependent Helmert transformation (PROJ's 15-parameter
-/// Helmert), with the parameters at the reference epoch.
+/// Las tasas de cambio de una transformación de Helmert dependiente del tiempo (la Helmert de 15
+/// parámetros de PROJ), con los parámetros en la época de referencia.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Rates {
-    /// Translations (m), rotations (arc-seconds) and scale (ppm) at the epoch.
+    /// Traslaciones (m), rotaciones (segundos de arco) y escala (ppm) en la época.
     t: [f64; 3],
     rot: [f64; 3],
     s: f64,
-    /// Their rates per year.
+    /// Sus tasas por año.
     dt: [f64; 3],
     drot: [f64; 3],
     ds: f64,
@@ -71,13 +71,13 @@ pub(crate) struct Rates {
     exact: bool,
 }
 
-/// One step of a datum transformation.
+/// Un paso de una transformación de datum.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Step {
-    /// Geodetic to geocentric coordinates on an ellipsoid (inverse: geocentric to geodetic).
+    /// De geodésicas a geocéntricas sobre un elipsoide (la inversa: de geocéntricas a geodésicas).
     Cart { ell: Ell, inv: bool },
-    /// A Helmert transformation of geocentric coordinates, about a pivot point for
-    /// Molodensky-Badekas, and with rates of change for a time-dependent one.
+    /// Una transformación de Helmert de coordenadas geocéntricas, alrededor de un punto pivote para
+    /// Molodensky-Badekas y con tasas de cambio para una dependiente del tiempo.
     Helmert {
         t: [f64; 3],
         r: [[f64; 3]; 3],
@@ -86,15 +86,15 @@ pub(crate) enum Step {
         inv: bool,
         rates: Option<Box<Rates>>,
     },
-    /// Offsets in radians added to the longitude and latitude, and in metres to the height.
+    /// Desfases en radianes que se suman a la longitud y la latitud, y en metros a la altura.
     GeogOffset {
         dlon: f64,
         dlat: f64,
         dh: f64,
         inv: bool,
     },
-    /// EPSG's Vertical Offset and Slope (PROJ's `vertoffset`): heights plus an offset varying
-    /// linearly with the distance from an origin, along the meridian and the parallel.
+    /// Desfase y pendiente vertical de EPSG (`vertoffset` de PROJ): las alturas más un desfase que
+    /// varía linealmente con la distancia a un origen, a lo largo del meridiano y del paralelo.
     VertOffset {
         lat0: f64,
         lon0: f64,
@@ -105,16 +105,18 @@ pub(crate) enum Step {
         nu0: f64,
         inv: bool,
     },
-    /// Heights to depths (PROJ's `axisswap order=1,2,-3`), its own inverse.
+    /// De alturas a profundidades (`axisswap order=1,2,-3` de PROJ), su propia inversa.
     ZFlip,
-    /// Horizontal shift grids (NTv2, GeoTIFF), applied between `t_epoch` and `t_final` when set.
+    /// Rejillas de desplazamiento horizontal (NTv2, GeoTIFF), aplicadas entre `t_epoch` y `t_final`
+    /// cuando se fijan.
     HGridShift {
         grids: Grids,
         inv: bool,
         epoch: f64,
         final_epoch: f64,
     },
-    /// Vertical shift grids (geoid models): heights plus `multiplier` times the grid value.
+    /// Rejillas de desplazamiento vertical (modelos de geoide): las alturas más `multiplier` por el
+    /// valor de la rejilla.
     VGridShift {
         grids: Grids,
         multiplier: f64,
@@ -122,14 +124,14 @@ pub(crate) enum Step {
         epoch: f64,
         final_epoch: f64,
     },
-    /// PROJ's generic `gridshift` (NADCON5 and other grids with their own types).
+    /// El `gridshift` genérico de PROJ (NADCON5 y otras rejillas con sus propios tipos).
     GridShift {
         grids: Grids,
         interpolation: Option<String>,
         no_z: bool,
         inv: bool,
     },
-    /// Geocentric translations interpolated in a grid (`xyzgridshift`).
+    /// Traslaciones geocéntricas interpoladas en una rejilla (`xyzgridshift`).
     XyzGridShift {
         grids: Grids,
         ell: Ell,
@@ -137,7 +139,7 @@ pub(crate) enum Step {
         multiplier: f64,
         inv: bool,
     },
-    /// A velocity grid applied over a time span (`deformation`).
+    /// Una rejilla de velocidades aplicada durante un intervalo de tiempo (`deformation`).
     Deformation {
         grids: Grids,
         ell: Ell,
@@ -147,47 +149,50 @@ pub(crate) enum Step {
     },
 }
 
-/// A datum transformation to WGS 84, with the area where it applies and what PROJ ranks it by.
+/// Una transformación de datum a WGS 84, con el área donde se aplica y aquello por lo que PROJ la
+/// ordena.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Op {
-    /// West, south, east and north in degrees. West may exceed east across the antimeridian.
+    /// Oeste, sur, este y norte en grados. El oeste puede superar al este a ambos lados del
+    /// antimeridiano.
     pub bounds: [f64; 4],
-    /// The accuracy in metres, negative when unknown.
+    /// La precisión en metros, negativa cuando se desconoce.
     pub accuracy: f64,
-    /// The accuracy PROJ gives it when it concatenates it with other operations (in chains,
-    /// and with the projections of projected CRSs): the sum of its steps', which differs for a
-    /// concatenation registered with its own.
+    /// La precisión que le da PROJ cuando la concatena con otras operaciones (en cadenas y con las
+    /// proyecciones de los sistemas proyectados): la suma de las de sus pasos, que difiere para una
+    /// concatenación registrada con la suya propia.
     pub chain_accuracy: f64,
-    /// Likewise its area: the intersection of its steps'.
+    /// Igualmente su área: la intersección de las de sus pasos.
     pub chain_bounds: [f64; 4],
-    /// Whether its area is offshore (PROJ only uses those when no other fits).
+    /// Si su área es marítima (PROJ solo las usa cuando no encaja ninguna otra).
     pub offshore: bool,
-    /// Whether its area is named "unknown".
+    /// Si su área se llama «unknown».
     pub unknown_area: bool,
-    /// Whether this is PROJ's "ballpark" transformation (no datum shift, as a last resort).
+    /// Si es la transformación «aproximada» de PROJ (sin ajuste de datum, como último recurso).
     pub ballpark: bool,
-    /// Whether it chains several transformations through intermediate datums.
+    /// Si encadena varias transformaciones a través de datums intermedios.
     pub concatenated: bool,
-    /// Whether PROJ's database registers it between geographic 3D CRSs, which PROJ does not
-    /// chain with transformations between 2D ones.
+    /// Si la base de datos de PROJ la registra entre sistemas geográficos 3D, que PROJ no encadena
+    /// con transformaciones entre sistemas 2D.
     pub between_3d: bool,
-    /// Whether PROJ's database registers it between geocentric CRSs, which PROJ chains otherwise
-    /// than those between geographic CRSs.
+    /// Si la base de datos de PROJ la registra entre sistemas geocéntricos, que PROJ encadena de
+    /// otro modo que las de entre sistemas geográficos.
     pub geocentric: bool,
-    /// Whether PROJ prefers it among those of equal accuracy (NADCON5 NAD83 to NAD83(HARN),
-    /// GDA94 to WGS 84 (1), GDA2020 to WGS 84 (2)).
+    /// Si PROJ la prefiere entre las de igual precisión (NADCON5 NAD83 a NAD83(HARN), GDA94 a WGS
+    /// 84 (1), GDA2020 a WGS 84 (2)).
     pub priority: bool,
-    /// Whether the pipeline keeps heights between 2D CRSs (PROJ's `push v_3` and `pop v_3`).
+    /// Si la tubería conserva las alturas entre sistemas 2D (`push v_3` y `pop v_3` de PROJ).
     pub keeps_height: bool,
     pub steps: Vec<Step>,
-    /// PROJ's name for it, the names of its steps joined by ` + ` (empty for ballparks), by which
-    /// PROJ breaks the last ties when it sorts the chains it makes.
+    /// El nombre que le da PROJ, los nombres de sus pasos unidos con ` + ` (vacío para las
+    /// aproximadas), por el que PROJ deshace los últimos empates cuando ordena las cadenas que
+    /// hace.
     pub name: String,
 }
 
-/// Whether PROJ prefers an operation of this name among those of equal accuracy: one that uses
-/// the NADCON5 NAD83 to NAD83(HARN) transformations, GDA94 to WGS 84 (1) or GDA2020 to WGS 84
-/// (2) (PROJ's `isPriorityOp`, on the operation's whole name).
+/// Si PROJ prefiere una operación de este nombre entre las de igual precisión: una que usa las
+/// transformaciones NADCON5 NAD83 a NAD83(HARN), GDA94 a WGS 84 (1) o GDA2020 a WGS 84 (2)
+/// (`isPriorityOp` de PROJ, sobre el nombre completo de la operación).
 pub(crate) fn is_priority(name: &str) -> bool {
     [
         "NAD83 to NAD83(HARN) (47)",
@@ -202,7 +207,7 @@ pub(crate) fn is_priority(name: &str) -> bool {
 
 const SEC_TO_RAD: f64 = std::f64::consts::PI / 180.0 / 3600.0;
 
-/// The ellipsoid of a step's `ellps=`, `a=`/`rf=`/`b=` or `R=` parameters.
+/// El elipsoide de los parámetros `ellps=`, `a=`/`rf=`/`b=` o `R=` de un paso.
 pub(crate) fn ellipsoid(p: &Params) -> Option<Ell> {
     if let Some(r) = p.f64("R") {
         return Some(Ell::from_a_rf(r, 0.0));
@@ -232,8 +237,9 @@ pub(crate) fn ellipsoid(p: &Params) -> Option<Ell> {
     p.str("ellps").and_then(Ell::named)
 }
 
-/// The rotation matrix of a Helmert transformation (rotations in arc-seconds), as PROJ builds
-/// it: approximate unless `exact`, transposed for the position vector convention.
+/// La matriz de rotación de una transformación de Helmert (rotaciones en segundos de arco), como la
+/// construye PROJ: aproximada salvo que `exact`, transpuesta para la convención del vector de
+/// posición.
 fn rotation(rot: [f64; 3], position_vector: bool, exact: bool) -> [[f64; 3]; 3] {
     let (f, th, p) = (
         rot[0] * SEC_TO_RAD,
@@ -262,7 +268,7 @@ fn rotation(rot: [f64; 3], position_vector: bool, exact: bool) -> [[f64; 3]; 3] 
     r
 }
 
-/// A Helmert step from its seven parameters (metres, arc-seconds and ppm).
+/// Un paso de Helmert a partir de sus siete parámetros (metros, segundos de arco y ppm).
 pub(crate) fn helmert(
     t: [f64; 3],
     rot: [f64; 3],
@@ -281,7 +287,8 @@ pub(crate) fn helmert(
     }
 }
 
-/// The steps of a `+towgs84=` shift (position vector convention) from an ellipsoid to WGS 84.
+/// Los pasos de un desplazamiento `+towgs84=` (convención del vector de posición) de un elipsoide a
+/// WGS 84.
 pub(crate) fn towgs84_steps(ell: Ell, p: &[f64]) -> Vec<Step> {
     let g = |i: usize| p.get(i).copied().unwrap_or(0.0);
     vec![
@@ -301,7 +308,7 @@ pub(crate) fn towgs84_steps(ell: Ell, p: &[f64]) -> Vec<Step> {
     ]
 }
 
-/// The steps of `+nadgrids=` (horizontal grids to WGS 84).
+/// Los pasos de `+nadgrids=` (rejillas horizontales a WGS 84).
 pub(crate) fn nadgrids_steps(spec: &str) -> Vec<Step> {
     vec![Step::HGridShift {
         grids: Grids::new(spec),
@@ -311,7 +318,7 @@ pub(crate) fn nadgrids_steps(spec: &str) -> Vec<Step> {
     }]
 }
 
-/// A `vgridshift` step: heights plus `multiplier` times the grid value.
+/// Un paso `vgridshift`: las alturas más `multiplier` por el valor de la rejilla.
 pub(crate) fn vgridshift_step(spec: &str, multiplier: f64) -> Step {
     Step::VGridShift {
         grids: Grids::new(spec),
@@ -322,7 +329,7 @@ pub(crate) fn vgridshift_step(spec: &str, multiplier: f64) -> Step {
     }
 }
 
-/// Parses the `;`-separated steps of the EPSG table.
+/// Analiza los pasos separados por `;` de la tabla EPSG.
 pub(crate) fn parse_steps(s: &str) -> Option<Vec<Step>> {
     let mut out = Vec::new();
     for part in s.split(';').map(str::trim).filter(|p| !p.is_empty()) {
@@ -393,8 +400,8 @@ pub(crate) fn parse_steps(s: &str) -> Option<Vec<Step>> {
                 Step::ZFlip
             }
             "vertoffset" => {
-                // As PROJ sets it up: slopes in arc-seconds, the radii of curvature at the origin
-                // on the step's ellipsoid (GRS80 by default).
+                // Como lo prepara PROJ: pendientes en segundos de arco, los radios de curvatura en
+                // el origen sobre el elipsoide del paso (GRS80 por defecto).
                 let ell =
                     ellipsoid(&p).unwrap_or_else(|| Ell::from_a_rf(6_378_137.0, 298.257_222_101));
                 let lat0 = p.f64("lat_0").unwrap_or(0.0).to_radians();
@@ -457,7 +464,7 @@ pub(crate) fn parse_steps(s: &str) -> Option<Vec<Step>> {
     Some(out)
 }
 
-/// Geodetic (radians, metres) to geocentric coordinates.
+/// De coordenadas geodésicas (radianes, metros) a geocéntricas.
 fn to_cart(ell: &Ell, lon: f64, lat: f64, h: f64) -> [f64; 3] {
     let (sp, cp) = lat.sin_cos();
     let n = ell.a / (1.0 - ell.es * sp * sp).sqrt();
@@ -468,7 +475,7 @@ fn to_cart(ell: &Ell, lon: f64, lat: f64, h: f64) -> [f64; 3] {
     ]
 }
 
-/// Geocentric to geodetic coordinates, by Bowring's formula as PROJ's `cart` does.
+/// De geocéntricas a geodésicas, por la fórmula de Bowring como hace `cart` de PROJ.
 fn from_cart(ell: &Ell, x: f64, y: f64, z: f64) -> [f64; 3] {
     let a = ell.a;
     let b = a * ell.one_es.sqrt();
@@ -492,7 +499,7 @@ fn from_cart(ell: &Ell, x: f64, y: f64, z: f64) -> [f64; 3] {
     [lon, lat, h]
 }
 
-/// Applies a Helmert transformation (or its inverse, with the transposed rotation).
+/// Aplica una transformación de Helmert (o su inversa, con la rotación transpuesta).
 fn apply_helmert(
     v: [f64; 3],
     t: &[f64; 3],
@@ -520,7 +527,7 @@ fn apply_helmert(
     o
 }
 
-/// Geocentric translations from a grid at a geocentric point (PROJ's `xyzgridshift`).
+/// Traslaciones geocéntricas de una rejilla en un punto geocéntrico (`xyzgridshift` de PROJ).
 fn xyz_values(sets: &[Arc<GridSet>], ell: &Ell, v: [f64; 3], multiplier: f64) -> Option<[f64; 3]> {
     let g = from_cart(ell, v[0], v[1], v[2]);
     let d = grid::bilinear3(
@@ -533,7 +540,8 @@ fn xyz_values(sets: &[Arc<GridSet>], ell: &Ell, v: [f64; 3], multiplier: f64) ->
     Some([d[0] * multiplier, d[1] * multiplier, d[2] * multiplier])
 }
 
-/// The velocity (m/year) of a deformation grid at a geocentric point, in geocentric axes.
+/// La velocidad (m/año) de una rejilla de deformación en un punto geocéntrico, en ejes
+/// geocéntricos.
 fn deformation_shift(sets: &[Arc<GridSet>], ell: &Ell, v: [f64; 3]) -> Option<[f64; 3]> {
     let g = from_cart(ell, v[0], v[1], v[2]);
     let vel = grid::bilinear3(
@@ -553,7 +561,8 @@ fn deformation_shift(sets: &[Arc<GridSet>], ell: &Ell, v: [f64; 3]) -> Option<[f
     ])
 }
 
-/// Whether a time-restricted grid step applies at time `t` (PROJ's `t_epoch`/`t_final`).
+/// Si un paso con rejilla restringido en el tiempo se aplica en el instante `t`
+/// (`t_epoch`/`t_final` de PROJ).
 fn in_time(epoch: f64, final_epoch: f64, t: Option<f64>) -> bool {
     if final_epoch == 0.0 || epoch == 0.0 {
         return true;
@@ -562,9 +571,9 @@ fn in_time(epoch: f64, final_epoch: f64, t: Option<f64>) -> bool {
 }
 
 impl Step {
-    /// Applies the step to `v` (longitude and latitude in radians and height, or geocentric
-    /// coordinates) at time `t` (decimal year, `None` for PROJ's `HUGE_VAL`). `None` when it
-    /// fails (outside its grids, a missing grid or time).
+    /// Aplica el paso a `v` (longitud y latitud en radianes y altura, o coordenadas geocéntricas)
+    /// en el instante `t` (año decimal, `None` para el `HUGE_VAL` de PROJ). `None` cuando falla
+    /// (fuera de sus rejillas, una rejilla o un instante que faltan).
     fn apply(&self, v: [f64; 3], t: Option<f64>, reverse: bool) -> Option<[f64; 3]> {
         match self {
             Step::Cart { ell, inv } => Some(if *inv != reverse {
@@ -583,7 +592,7 @@ impl Step {
                 let inverse = *inv != reverse;
                 match rates {
                     Some(q) if t.is_some_and(|t| t != q.epoch) => {
-                        // PROJ's update_parameters: the parameters at the observation epoch.
+                        // update_parameters de PROJ: los parámetros en la época de observación.
                         let dt = t.unwrap_or(q.epoch) - q.epoch;
                         let tt = [
                             q.t[0] + q.dt[0] * dt,
@@ -695,8 +704,8 @@ impl Step {
                 let sets = grids.get(grid::generic_grids)?;
                 let forward = *inv == reverse;
                 let factor = if forward { 1.0 } else { -1.0 };
-                // The grid is referenced to the input CRS: forward applies it directly, the
-                // inverse iterates (and the other way round for the output CRS).
+                // La rejilla está referida al sistema de entrada: la directa la aplica
+                // directamente, la inversa itera (y al revés para el sistema de salida).
                 if forward == *input_ref {
                     let d = xyz_values(sets, ell, v, *multiplier)?;
                     Some([
@@ -761,7 +770,7 @@ impl Step {
         }
     }
 
-    /// The grids the step needs, with whether each is optional.
+    /// Las rejillas que necesita el paso, con si cada una es opcional.
     pub(crate) fn grid_names(&self) -> Vec<(String, bool)> {
         match self {
             Step::HGridShift { grids, .. }
@@ -775,7 +784,7 @@ impl Step {
 }
 
 impl Op {
-    /// A transformation that applies everywhere.
+    /// Una transformación que se aplica en todas partes.
     pub fn world(steps: Vec<Step>) -> Self {
         Self {
             bounds: [-180.0, -90.0, 180.0, 90.0],
@@ -795,8 +804,8 @@ impl Op {
         }
     }
 
-    /// The transformation as PROJ concatenates it with other operations: with the accuracy and
-    /// area of its steps.
+    /// La transformación como la concatena PROJ con otras operaciones: con la precisión y el área
+    /// de sus pasos.
     pub fn as_concatenated(&self) -> Self {
         let priority = self.priority || is_priority(&self.name);
         Self {
@@ -807,7 +816,7 @@ impl Op {
         }
     }
 
-    /// PROJ's measure of the size of the area, for ranking transformations of equal accuracy.
+    /// La medida del tamaño del área de PROJ, para ordenar transformaciones de igual precisión.
     pub fn pseudo_area(&self) -> f64 {
         let [w, s, mut e, n] = self.bounds;
         if w > e {
@@ -816,7 +825,7 @@ impl Op {
         (e - w) * (n.to_radians().sin() - s.to_radians().sin())
     }
 
-    /// Whether the op's area holds a point in degrees.
+    /// Si el área de la operación contiene un punto en grados.
     pub fn contains(&self, lon: f64, lat: f64) -> bool {
         let [w, s, e, n] = self.bounds;
         if lat < s || lat > n {
@@ -829,17 +838,17 @@ impl Op {
         }
     }
 
-    /// The grids the transformation needs, with whether each is optional.
+    /// Las rejillas que necesita la transformación, con si cada una es opcional.
     pub fn grids(&self) -> Vec<(String, bool)> {
         self.steps.iter().flat_map(Step::grid_names).collect()
     }
 
-    /// Whether it needs grids.
+    /// Si necesita rejillas.
     pub fn needs_grids(&self) -> bool {
         self.steps.iter().any(|s| !s.grid_names().is_empty())
     }
 
-    /// Whether every grid it requires can be used (PROJ's "instantiable").
+    /// Si se puede usar toda rejilla que requiere (la «instanciabilidad» de PROJ).
     pub fn available(&self) -> bool {
         self.grids()
             .iter()
@@ -847,8 +856,8 @@ impl Op {
     }
 }
 
-/// A point being transformed: longitude and latitude in radians, height in metres, and time
-/// (decimal year, `None` for none).
+/// Un punto que se transforma: longitud y latitud en radianes, altura en metros e instante (año
+/// decimal, `None` si no hay).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Point {
     pub lon: f64,
@@ -857,9 +866,10 @@ pub(crate) struct Point {
     pub t: Option<f64>,
 }
 
-/// Runs datum steps on a geodetic point. Heights go through the transformation when `heights`
-/// is set (between 3D CRSs, or for pipelines PROJ runs without `push`/`pop`), and are kept
-/// otherwise. `reverse` runs the inverse transformation. `None` when a step fails.
+/// Ejecuta pasos de datum sobre un punto geodésico. Las alturas pasan por la transformación cuando
+/// `heights` está fijado (entre sistemas 3D, o para tuberías que PROJ ejecuta sin `push`/`pop`) y
+/// se conservan en caso contrario. `reverse` ejecuta la transformación inversa. `None` cuando falla
+/// un paso.
 pub(crate) fn run(steps: &[Step], p: Point, reverse: bool, heights: bool) -> Option<Point> {
     let mut v = [p.lon, p.lat, p.h];
     if reverse {
@@ -882,19 +892,20 @@ pub(crate) fn run(steps: &[Step], p: Point, reverse: bool, heights: bool) -> Opt
     })
 }
 
-/// Runs an op on a point: its heights change unless it keeps them between 2D CRSs.
+/// Ejecuta una operación sobre un punto: sus alturas cambian salvo que las conserve entre sistemas
+/// 2D.
 pub(crate) fn run_op(op: &Op, p: Point, reverse: bool, three_d: bool) -> Option<Point> {
     run(&op.steps, p, reverse, three_d || !op.keeps_height)
 }
 
-/// Whether `op` ranks before `best` for a point both hold, as PROJ's
-/// `pj_get_suggested_operation` compares them.
+/// Si `op` va antes que `best` para un punto que ambos contienen, como los compara
+/// `pj_get_suggested_operation` de PROJ.
 fn better(op: &Op, best: &Op) -> bool {
     better_by(op, op.accuracy, best, best.accuracy)
 }
 
-/// [`better`] with the accuracies given apart: those of the operations as PROJ chains them with
-/// others (a vertical transformation and the horizontal one to its interpolation CRS).
+/// [`better`] con las precisiones dadas aparte: las de las operaciones tal como las encadena PROJ
+/// con otras (una transformación vertical y la horizontal hasta su sistema de interpolación).
 pub(crate) fn better_by(op: &Op, accuracy: f64, best: &Op, best_accuracy: f64) -> bool {
     ((accuracy >= 0.0 && accuracy < best_accuracy)
         || (accuracy == best_accuracy
@@ -904,9 +915,9 @@ pub(crate) fn better_by(op: &Op, accuracy: f64, best: &Op, best_accuracy: f64) -
         && !op.offshore
 }
 
-/// Picks the transformation for a point as PROJ does: among those whose area holds it (as told
-/// by `contains`, given the op and its index), the most accurate, then the one with the smallest
-/// area.
+/// Elige la transformación para un punto como lo hace PROJ: entre aquellas cuya área lo contiene
+/// (según indica `contains`, dados la operación y su índice), la más precisa y luego la de menor
+/// área.
 pub(crate) fn pick_in<T: AsRef<Op>>(
     ops: &[T],
     contains: impl Fn(&Op, usize) -> bool,
@@ -914,7 +925,7 @@ pub(crate) fn pick_in<T: AsRef<Op>>(
     pick_index(ops, &[], contains).map(|i| ops[i].as_ref())
 }
 
-/// The index of the transformation PROJ picks for a point, skipping `excluded`.
+/// El índice de la transformación que PROJ elige para un punto, saltándose `excluded`.
 pub(crate) fn pick_index<T: AsRef<Op>>(
     ops: &[T],
     excluded: &[usize],
@@ -932,9 +943,9 @@ pub(crate) fn pick_index<T: AsRef<Op>>(
     best
 }
 
-/// Transforms a point with the operations of a list as PROJ's `proj_trans` does: the best one
-/// for the point (see [`pick_index`]), and when it fails (outside its grid), the next best, up
-/// to three attempts; then the first operation that needs no grid.
+/// Transforma un punto con las operaciones de una lista como lo hace `proj_trans` de PROJ: la mejor
+/// para el punto (véase [`pick_index`]) y, cuando falla (fuera de su rejilla), la siguiente mejor,
+/// hasta tres intentos; después la primera operación que no necesita rejilla.
 pub(crate) fn transform_with<T: AsRef<Op>>(
     ops: &[T],
     contains: impl Fn(&Op, usize) -> bool,

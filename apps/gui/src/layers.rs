@@ -1,37 +1,37 @@
-//! Layers on the map: vector layers (their geometry, drawing, symbology and labels), the layers
-//! pane, identifying what lies under a click, and the link between the plan and the 3D view.
-//! Editing tools, the attribute table and the contextual ribbon tabs are in `vecedit.rs` and
-//! `layer_tabs.rs`.
+//! Capas en el mapa: capas vectoriales (su geometría, dibujo, simbología y etiquetas), el panel de
+//! capas, la identificación de lo que hay bajo un clic y el vínculo entre la planta y la vista 3D.
+//! Las herramientas de edición, la tabla de atributos y las pestañas contextuales de la cinta están
+//! en `vecedit.rs` y `layer_tabs.rs`.
 
 use super::*;
 use crate::symbology::{Labels, SymKind, Symbology};
 
-/// The triangles of one polygon (outer ring and its holes), for filling it.
+/// Los triángulos de un polígono (anillo exterior y sus huecos), para rellenarlo.
 pub struct Tri {
     pub verts: Vec<[f64; 2]>,
     pub idx: Vec<u32>,
 }
 
-/// What is worked out from the geometry once and reused every frame.
+/// Lo que se calcula una vez a partir de la geometría y se reutiliza en cada fotograma.
 #[derive(Default)]
 pub struct Geom {
     pub bbox: Vec<[f64; 4]>,
-    /// Where the label of each feature goes.
+    /// Dónde va la etiqueta de cada elemento.
     pub anchor: Vec<[f64; 2]>,
-    /// Fill triangles of each feature, worked out the first time it is drawn: a layer of
-    /// millions of vertices would otherwise take minutes and gigabytes to open.
+    /// Triángulos de relleno de cada elemento, calculados la primera vez que se dibuja: una capa de
+    /// millones de vértices tardaría si no minutos y gigabytes en abrirse.
     pub tris: Vec<std::sync::OnceLock<Vec<Tri>>>,
-    /// Which features lie in a window, worked out the first time it is asked for.
+    /// Qué elementos caen en una ventana, calculado la primera vez que se pide.
     pub index: std::sync::OnceLock<hipso_core::rtree::RTree>,
-    /// Vertices of all the features.
+    /// Vértices de todos los elementos.
     pub nverts: usize,
 }
 
-/// A vector layer: its features and attributes, how they are drawn, and the editing state.
+/// Una capa vectorial: sus elementos y atributos, cómo se dibujan y el estado de edición.
 pub struct VecLayer {
     pub data: view::VectorData,
     pub kind: view::GeomKind,
-    /// Outline colour of lines and polygons, colour of points.
+    /// Color del contorno de líneas y polígonos, color de los puntos.
     pub color: [u8; 3],
     pub fill: [u8; 3],
     pub fill_alpha: f32,
@@ -40,24 +40,24 @@ pub struct VecLayer {
     pub sym: Symbology,
     pub labels: Labels,
     pub selected: HashSet<usize>,
-    /// Changed since it was read or saved.
+    /// Cambiada desde que se leyó o se guardó.
     pub dirty: bool,
     pub undo: Vec<view::VectorData>,
     pub redo: Vec<view::VectorData>,
-    /// The data as it was when an editing tool was switched on, and whether `dirty` was set
-    /// then: what discarding the changes of the session goes back to.
+    /// Los datos tal como estaban cuando se activó una herramienta de edición, y si `dirty` estaba
+    /// fijado entonces: a lo que vuelve el descarte de los cambios de la sesión.
     pub edit_base: Option<(view::VectorData, bool)>,
-    /// A change was made since the editing session began.
+    /// Se hizo un cambio desde que empezó la sesión de edición.
     pub edit_touched: bool,
-    /// The table of the GeoPackage the layer was read from: saving writes over that table.
+    /// La tabla del GeoPackage de la que se leyó la capa: al guardar se escribe sobre esa tabla.
     pub table: Option<String>,
-    /// The system the file was in before the layer was moved to the one of the work, which is
-    /// the one it is written back in when it is saved over its own table.
+    /// El sistema en que estaba el archivo antes de llevar la capa al del trabajo, que es en el que
+    /// se vuelve a escribir cuando se guarda sobre su propia tabla.
     pub file_epsg: Option<u16>,
     pub geom: Geom,
-    /// Changes with the geometry: what a picture of the layer is made for.
+    /// Cambia con la geometría: aquello para lo que se hace una imagen de la capa.
     pub rev: u64,
-    /// The picture of a big layer.
+    /// La imagen de una capa grande.
     pub raster: std::sync::Mutex<crate::vecraster::Cache>,
 }
 
@@ -83,7 +83,8 @@ fn ring_area_centroid(r: &[[f64; 2]]) -> ([f64; 2], f64) {
     ([cx / (3.0 * a), cy / (3.0 * a)], a.abs() / 2.0)
 }
 
-/// Triangles for the polygon parts of a feature: rings inside an odd number of others are holes.
+/// Triángulos de las partes poligonales de un elemento: los anillos dentro de un número impar de
+/// otros son huecos.
 fn triangulate(parts: &[Vec<[f64; 2]>]) -> Vec<Tri> {
     let rings: Vec<Vec<[f64; 2]>> = parts
         .iter()
@@ -113,7 +114,7 @@ fn triangulate(parts: &[Vec<[f64; 2]>]) -> Vec<Tri> {
         let mut verts = rings[o].clone();
         let mut holes = Vec::new();
         for h in (0..rings.len()).filter(|&j| depth[j] % 2 == 1) {
-            // the innermost outer ring that contains the hole owns it
+            // el anillo exterior más interno que contiene el hueco es su dueño
             let owner = (0..rings.len())
                 .filter(|&i| {
                     depth[i].is_multiple_of(2) && in_ring(&rings[i], rings[h][0][0], rings[h][0][1])
@@ -168,7 +169,7 @@ impl VecLayer {
         l
     }
 
-    /// The extent, label place and fill triangles of one feature.
+    /// La extensión, el lugar de la etiqueta y los triángulos de relleno de un elemento.
     fn geom_of(&self, f: &view::Feature) -> ([f64; 4], [f64; 2]) {
         let mut b = [
             f64::INFINITY,
@@ -220,7 +221,7 @@ impl VecLayer {
         (b, anchor)
     }
 
-    /// The features whose extent meets the window, in order.
+    /// Los elementos cuya extensión toca la ventana, en orden.
     pub fn in_window(&self, w: [f64; 4]) -> Vec<usize> {
         self.geom
             .index
@@ -228,7 +229,7 @@ impl VecLayer {
             .query(w)
     }
 
-    /// The fill triangles of feature `i`, worked out the first time they are asked for.
+    /// Los triángulos de relleno del elemento `i`, calculados la primera vez que se piden.
     pub fn tris(&self, i: usize) -> &[Tri] {
         if self.kind != view::GeomKind::Polygon {
             return &[];
@@ -236,8 +237,8 @@ impl VecLayer {
         self.geom.tris[i].get_or_init(|| triangulate(&self.data.features[i].parts))
     }
 
-    /// Recomputes what depends on the geometry (extents, label places; the fill triangles wait
-    /// until the feature is drawn).
+    /// Recalcula lo que depende de la geometría (extensiones, lugares de etiqueta; los triángulos
+    /// de relleno esperan a que se dibuje el elemento).
     pub fn rebuild(&mut self) {
         use rayon::prelude::*;
         let per: Vec<([f64; 4], [f64; 2])> = self
@@ -257,7 +258,7 @@ impl VecLayer {
         self.selected.retain(|i| *i < self.data.features.len());
     }
 
-    /// The extent of the layer, from the extents of its features.
+    /// La extensión de la capa, a partir de las extensiones de sus elementos.
     pub fn refresh_bounds(&mut self) {
         self.rev += 1;
         self.geom.nverts = self
@@ -284,7 +285,7 @@ impl VecLayer {
         );
     }
 
-    /// Feature `i` changed its geometry.
+    /// El elemento `i` cambió su geometría.
     pub fn update_feature(&mut self, i: usize) {
         let Some(f) = self.data.features.get(i) else {
             return;
@@ -299,11 +300,11 @@ impl VecLayer {
         self.reclassify_if_data();
     }
 
-    /// Adds a feature whose first field gets a running number; returns its index.
+    /// Añade un elemento cuyo primer campo recibe un número correlativo; devuelve su índice.
     pub fn push_feature(&mut self, parts: Vec<Vec<[f64; 2]>>) -> usize {
         let n = self.data.features.len() + 1;
         self.data.features.push(view::Feature { parts });
-        // the first field gets the running number when it can hold one
+        // el primer campo recibe el número correlativo cuando puede contenerlo
         let first_takes = !self.data.fields.is_empty()
             && matches!(
                 self.data.field_type(0),
@@ -311,7 +312,7 @@ impl VecLayer {
                     | hipso_core::fieldtype::FieldType::Integer
                     | hipso_core::fieldtype::FieldType::Real
             );
-        // fixed before the row exists: the type of an untyped column follows its values
+        // se fija antes de que exista la fila: el tipo de una columna sin tipo sigue a sus valores
         self.data.fix_types();
         let row: Vec<String> = (0..self.data.fields.len())
             .map(|c| if c == 0 && first_takes { n.to_string() } else { String::new() })
@@ -331,7 +332,7 @@ impl VecLayer {
         n - 1
     }
 
-    /// Removes the features at the given indices.
+    /// Quita los elementos de los índices dados.
     pub fn remove_features(&mut self, which: &HashSet<usize>) {
         let mut k = 0;
         self.data.features.retain(|_| {
@@ -354,19 +355,19 @@ impl VecLayer {
         self.reclassify_if_data();
     }
 
-    /// Classes that follow the data are worked out again after it changes.
+    /// Las clases que siguen a los datos se vuelven a calcular después de que estos cambien.
     pub fn reclassify_if_data(&mut self) {
         if self.sym.kind != SymKind::Single {
             self.reclassify();
         }
     }
 
-    /// Re-classifies after the symbology or the data changed.
+    /// Vuelve a clasificar después de que cambie la simbología o los datos.
     pub fn reclassify(&mut self) {
         self.sym.classify(&self.data);
     }
 
-    /// Remembers the data before a change, so that it can be undone.
+    /// Recuerda los datos antes de un cambio, para poder deshacerlo.
     pub fn push_undo(&mut self) {
         self.edit_touched = true;
         let keep = if self.data.features.len() > 50_000 {
@@ -403,11 +404,11 @@ impl VecLayer {
         true
     }
 
-    /// The first feature at a map point (within `tol` for points and lines).
+    /// El primer elemento en un punto del mapa (a menos de `tol` para puntos y líneas).
     pub fn feature_at(&self, x: f64, y: f64, tol: f64) -> Option<usize> {
         let near =
             |b: &[f64; 4]| x >= b[0] - tol && x <= b[2] + tol && y >= b[1] - tol && y <= b[3] + tol;
-        // the last drawn is the one on top
+        // el último dibujado es el que está encima
         self.in_window([x - tol, y - tol, x + tol, y + tol])
             .into_iter()
             .rev()
@@ -473,7 +474,7 @@ pub fn dist_to_segment(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
     (p[0] - (a[0] + t * dx)).hypot(p[1] - (a[1] + t * dy))
 }
 
-/// The dialog that makes a new vector layer.
+/// El diálogo que hace una capa vectorial nueva.
 #[derive(Default)]
 pub struct NewLayerDlg {
     pub name: String,
@@ -487,7 +488,7 @@ fn alpha(c: [u8; 3], a: f32) -> Color32 {
     Color32::from_rgba_unmultiplied(c[0], c[1], c[2], (a.clamp(0.0, 1.0) * 255.0) as u8)
 }
 
-/// Map to screen for one frame.
+/// Del mapa a la pantalla para un fotograma.
 struct Xf {
     plan: Plan,
     w: usize,
@@ -501,7 +502,7 @@ impl Xf {
         Pos2::new(s.0 as f32, s.1 as f32) + self.origin
     }
 
-    /// The polyline on screen, leaving out vertices less than a pixel from the previous one.
+    /// La polilínea en pantalla, omitiendo los vértices a menos de un píxel del anterior.
     fn path(&self, part: &[[f64; 2]], min_d2: f32, heavy: bool) -> Vec<Pos2> {
         let mut out = Vec::with_capacity(part.len().min(1024));
         let mut last = Pos2::new(f32::NAN, f32::NAN);
@@ -513,7 +514,8 @@ impl Xf {
             }
         }
         if heavy && out.len() > 4 {
-            // a small outline needs few points: every triangle sent to the screen costs memory
+            // un contorno pequeño necesita pocos puntos: cada triángulo enviado a la pantalla
+            // cuesta memoria
             let (mut lo, mut hi) = (out[0], out[0]);
             for p in &out {
                 lo = lo.min(*p);
@@ -532,8 +534,8 @@ impl Xf {
     }
 }
 
-/// A polyline as one quad per segment in a mesh (no joins, no anti-aliasing: for the many thin
-/// outlines of a big layer, where a shape per part would take gigabytes).
+/// Una polilínea como un cuadrilátero por segmento en una malla (sin uniones ni suavizado: para los
+/// muchos contornos finos de una capa grande, donde una forma por parte costaría gigabytes).
 fn line_quads(mesh: &mut egui::Mesh, pts: &[Pos2], width: f32, col: Color32) {
     for s in pts.windows(2) {
         let d = s[1] - s[0];
@@ -558,15 +560,15 @@ fn flush(mesh: &mut egui::Mesh, clip: &egui::Painter) {
 }
 
 impl App {
-    /// The system a layer must be moved from and to, when it is not the work's: `(from, to)`.
-    /// A layer opened before any cloud waits in `pending_conform` until the first cloud sets the
-    /// system of the work.
+    /// El sistema del que y al que hay que mover una capa, cuando no es el del trabajo: `(desde,
+    /// hasta)`. Una capa abierta antes que ninguna nube espera en `pending_conform` hasta que la
+    /// primera nube fija el sistema del trabajo.
     pub fn crs_move(&mut self, p: &Path) -> Option<(u16, u16)> {
         let from = self.crs_of(p);
         self.crs_move_from(p, from)
     }
 
-    /// [`Self::crs_move`] for a layer whose system is already known (a table of a GeoPackage).
+    /// [`Self::crs_move`] para una capa cuyo sistema ya se conoce (una tabla de un GeoPackage).
     pub fn crs_move_from(&mut self, _p: &Path, from: Option<u16>) -> Option<(u16, u16)> {
         let from = from?;
         match self.project_crs() {
@@ -577,21 +579,21 @@ impl App {
             }
             Some(_) => None,
             None => {
-                // the first layer sets the system of the work until a cloud says otherwise
+                // la primera capa fija el sistema del trabajo hasta que una nube diga otra cosa
                 self.work_crs = Some(from);
                 None
             }
         }
     }
 
-    /// The systems tried for a cloud that declares none: the UTM zones of ETRS89 (Europe) and
-    /// then those of WGS 84, north and south.
+    /// Los sistemas que se prueban para una nube que no declara ninguno: las zonas UTM de ETRS89
+    /// (Europa) y luego las de WGS 84, norte y sur.
     fn guess_list() -> Vec<u16> {
         (25828..=25838).chain(32601..=32660).chain(32701..=32760).collect()
     }
 
-    /// A cloud that declares no system and a layer that does, and that does not fall where the
-    /// cloud is: the system the cloud is probably in, judged by where the layer would lie.
+    /// Una nube que no declara sistema y una capa que sí lo hace y que no cae donde está la nube:
+    /// el sistema en el que probablemente está la nube, juzgado por dónde caería la capa.
     pub fn assume_move(&mut self, from: Option<u16>, bounds: [f64; 4], cloud: [f64; 6]) -> Option<(u16, u16)> {
         let from = from?;
         if self.clouds.is_empty() || self.project_crs().is_some() {
@@ -603,7 +605,7 @@ impl App {
             .then_some((from, to))
     }
 
-    /// Layers opened before a cloud that declares no system follow the same guess.
+    /// Las capas abiertas antes que una nube que no declara sistema siguen la misma conjetura.
     pub fn conform_to_undeclared_cloud(&mut self, cloud: [f64; 6]) {
         if self.project_crs().is_some() {
             return;
@@ -645,7 +647,7 @@ impl App {
         self.add_vector_table(p, None);
     }
 
-    /// Asks which tables of a GeoPackage to open as layers.
+    /// Pregunta qué tablas de un GeoPackage abrir como capas.
     pub fn gpkg_window(&mut self, ctx: &egui::Context) {
         let Some((path, mut tables)) = self.gpkg_pick.take() else {
             return;
@@ -768,7 +770,7 @@ impl App {
         }
     }
 
-    /// The extent of a layer: min x, min y, max x, max y.
+    /// La extensión de una capa: x mínima, y mínima, x máxima, y máxima.
     pub fn layer_extent(&self, k: usize) -> Option<[f64; 4]> {
         let b = match &self.refs.get(k)?.kind {
             RefKind::Raster { grid, .. } => [
@@ -783,7 +785,7 @@ impl App {
         b.iter().all(|v| v.is_finite()).then_some(b)
     }
 
-    /// The extent of the visible layers.
+    /// La extensión de las capas visibles.
     pub fn refs_bounds(&self) -> Option<[f64; 4]> {
         let mut b = [
             f64::INFINITY,
@@ -804,7 +806,7 @@ impl App {
         b.iter().all(|v| v.is_finite()).then_some(b)
     }
 
-    /// Zooms the plan to an extent (a point gets a window of 40 m).
+    /// Hace zoom de la planta a una extensión (un punto recibe una ventana de 40 m).
     pub fn zoom_to_bounds(&mut self, b: [f64; 4]) {
         let pad = if (b[2] - b[0]).max(b[3] - b[1]) < 1e-6 {
             20.0
@@ -818,7 +820,7 @@ impl App {
             h.max(8),
         );
         self.zoom_to(p);
-        // the 3D view goes where the plan went: with clouds far apart it would show none
+        // la vista 3D va donde fue la planta: con nubes muy separadas no mostraría ninguna
         if let Some(s) = self.store.clone() {
             self.orbit = self
                 .orbit
@@ -827,8 +829,8 @@ impl App {
         }
     }
 
-    /// Zooms to the selected points or, failing that, to the selected features of the active
-    /// vector layer.
+    /// Hace zoom a los puntos seleccionados o, si no hay, a los elementos seleccionados de la capa
+    /// vectorial activa.
     pub fn zoom_selection(&mut self) {
         let mut b = [
             f64::INFINITY,
@@ -871,7 +873,7 @@ impl App {
         }
     }
 
-    /// Frames the 3D view on what the plan shows now, keeping its direction.
+    /// Encuadra la vista 3D en lo que muestra ahora la planta, conservando su dirección.
     pub fn relink_3d(&mut self) {
         let Some(s) = self.store.clone() else { return };
         let (w, h) = (self.plan_px.0.max(8), self.plan_px.1.max(8));
@@ -889,7 +891,7 @@ impl App {
         }
     }
 
-    /// Draws the vector layers in the order of the list.
+    /// Dibuja las capas vectoriales en el orden de la lista.
     pub fn paint_vectors(
         &self,
         painter: &egui::Painter,
@@ -924,14 +926,14 @@ impl App {
                 self.paint_raster(&clip, v, rect, w, h, op);
                 continue;
             }
-            // a feature under a pixel is a dot: its outline and fill would only cost time
+            // un elemento bajo un píxel es un punto: su contorno y su relleno solo costarían tiempo
             let tiny = |i: usize| {
                 let b = &v.geom.bbox[i];
                 (b[2] - b[0]).max(b[3] - b[1]) * self.plan.scale < 1.0
             };
             let visible: Vec<usize> = v.in_window(view);
-            // the more vertices are in view, the coarser they are drawn and the fewer small areas are
-            // filled: millions of them tessellated each frame take seconds and gigabytes
+            // cuantos más vértices hay a la vista, más gruesos se dibujan y menos áreas pequeñas se
+            // rellenan: millones de ellos teselados en cada fotograma tardan segundos y gigabytes
             let nv: usize = visible
                 .iter()
                 .map(|&i| v.data.features[i].parts.iter().map(Vec::len).sum::<usize>())
@@ -942,8 +944,8 @@ impl App {
                 _ => 9.0,
             };
             let scale = self.plan.scale;
-            // the fills share a budget of vertices (their triangles cost memory in the renderer): the
-            // smallest areas lose theirs first
+            // los rellenos comparten un presupuesto de vértices (sus triángulos cuestan memoria en
+            // el renderizador): las áreas más pequeñas pierden el suyo primero
             let fill_min = if v.kind == view::GeomKind::Polygon && nv > 150_000 {
                 const STEPS: [f64; 6] = [1.0, 4.0, 8.0, 16.0, 32.0, 64.0];
                 let mut cost = [0usize; 6];
@@ -966,7 +968,8 @@ impl App {
                 let b = &v.geom.bbox[i];
                 (b[2] - b[0]).max(b[3] - b[1]) * scale < fill_min
             };
-            // the same for outlines: what is too small for its share of segments is drawn as a dot
+            // lo mismo para los contornos: lo que es demasiado pequeño para su parte de segmentos
+            // se dibuja como un punto
             let line_min = if v.kind != view::GeomKind::Point && nv > 150_000 {
                 const STEPS: [f64; 7] = [1.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0];
                 let mut cost = [0usize; 7];
@@ -995,7 +998,7 @@ impl App {
                         v.tris(i);
                     });
             }
-            // areas: fills first, as one mesh
+            // áreas: primero los rellenos, como una sola malla
             if v.kind == view::GeomKind::Polygon {
                 let mut mesh = egui::Mesh::default();
                 for &i in &visible {
@@ -1020,7 +1023,8 @@ impl App {
                 flush(&mut mesh, &clip);
             }
             let mut lines = egui::Mesh::default();
-            // one dot per 3 px square: points that fall on each other cost triangles for nothing
+            // un punto por cuadrado de 3 px: los puntos que caen unos sobre otros cuestan
+            // triángulos para nada
             let mut seen: HashSet<(i32, i32)> = HashSet::new();
             let mut fresh = |p: Pos2| seen.insert(((p.x / 3.0) as i32, (p.y / 3.0) as i32));
             for &i in &visible {
@@ -1052,7 +1056,8 @@ impl App {
                     if v.kind == view::GeomKind::Point || part.len() == 1 {
                         let size = v.sym.size_of(&v.data, i, v.point_size);
                         if visible.len() > 2000 {
-                            // thousands of circles as shapes cost gigabytes: one mesh instead
+                            // miles de círculos como formas cuestan gigabytes: una malla en su
+                            // lugar
                             let p = xf.s(&part[0]);
                             if fresh(p) {
                                 disc(&mut lines, p, size, 6, col);
@@ -1079,7 +1084,8 @@ impl App {
                     }
                     if v.kind != view::GeomKind::Polygon || v.width > 0.0 {
                         if nv > 200_000 {
-                            // a shape per part costs about 5 KB in egui: 200 000 parts are a gigabyte
+                            // una forma por parte cuesta unos 5 KB en egui: 200 000 partes son un
+                            // gigabyte
                             line_quads(&mut lines, &pts, v.width.max(1.0), outline);
                             if lines.vertices.len() > 50_000 {
                                 flush(&mut lines, &clip);
@@ -1094,8 +1100,8 @@ impl App {
         }
     }
 
-    /// Draws the labels of the vector layers in `range`; done after every layer so that no layer
-    /// lying above hides them.
+    /// Dibuja las etiquetas de las capas vectoriales de `range`; se hace tras cada capa para que
+    /// ninguna capa de encima las oculte.
     pub fn paint_vector_labels(
         &self,
         painter: &egui::Painter,
@@ -1134,7 +1140,7 @@ impl App {
         }
     }
 
-    /// Labels without overlaps: a label that would cover one already placed is left out.
+    /// Etiquetas sin solapes: una etiqueta que cubriría otra ya colocada se deja fuera.
     fn paint_labels(
         &self,
         clip: &egui::Painter,
@@ -1187,8 +1193,8 @@ impl App {
         }
     }
 
-    /// What lies at a map point: the attributes of the vector features and the value of the
-    /// rasters, as lines of text.
+    /// Lo que hay en un punto del mapa: los atributos de los elementos vectoriales y el valor de
+    /// los rásteres, como líneas de texto.
     pub fn identify(&self, x: f64, y: f64, tol: f64) -> Vec<String> {
         let mut out = Vec::new();
         for r in self.refs.iter().filter(|r| r.visible) {
@@ -1225,7 +1231,7 @@ impl App {
         out
     }
 
-    /// What is known of every layer that is not a cloud: kind, size, system and extent.
+    /// Lo que se sabe de cada capa que no es una nube: tipo, tamaño, sistema y extensión.
     pub fn layers_report(&mut self) -> String {
         let mut out = Vec::new();
         for k in 0..self.refs.len() {
@@ -1279,7 +1285,8 @@ impl App {
         out.join("\n\n")
     }
 
-    /// Draws the card of what the query tool found on the layers; returns its place.
+    /// Dibuja la ficha de lo que encontró la herramienta de consulta en las capas; devuelve su
+    /// lugar.
     pub fn paint_ident(&self, painter: &egui::Painter, rect: Rect) -> Option<Rect> {
         if self.ident.is_empty() {
             return None;
@@ -1308,7 +1315,8 @@ impl App {
         Some(b)
     }
 
-    /// The polygons of the visible polygon layers, for the tools that cut with polygons.
+    /// Los polígonos de las capas de polígonos visibles, para las herramientas que cortan con
+    /// polígonos.
     pub fn polygon_aois(&self) -> Vec<Aoi> {
         let mut out = Vec::new();
         for r in self.refs.iter().filter(|r| r.visible) {
@@ -1336,10 +1344,10 @@ impl App {
         out
     }
 
-    // ------------------------------------------------------------------------ layers pane
+    // ------------------------------------------------------------------------ panel de capas
 
-    /// The drawing order, from the bottom: the layers under the point clouds, the clouds as one
-    /// item, and the layers over them.
+    /// El orden de dibujo, desde abajo: las capas bajo las nubes de puntos, las nubes como un solo
+    /// elemento y las capas encima.
     pub fn order_items(&self) -> Vec<Item> {
         let n = self.refs.len();
         let slot = self.cloud_slot.min(n);
@@ -1349,8 +1357,8 @@ impl App {
         v
     }
 
-    /// Puts the layers (and the clouds) in the order given, from the bottom; the selection and
-    /// the other indices of layers follow their layer.
+    /// Pone las capas (y las nubes) en el orden dado, desde abajo; la selección y los demás índices
+    /// de capas siguen a su capa.
     pub fn apply_order(&mut self, items: &[Item]) {
         let n = self.refs.len();
         let layers: Vec<usize> = items
@@ -1400,8 +1408,8 @@ impl App {
         }
     }
 
-    /// Adds a layer: a vector goes over everything, a raster or an image under the point
-    /// clouds (a picture of the ground would hide them otherwise). Returns its index.
+    /// Añade una capa: un vector va sobre todo, un ráster o una imagen bajo las nubes de puntos
+    /// (una imagen del terreno las ocultaría si no). Devuelve su índice.
     pub fn add_ref(&mut self, layer: RefLayer, under_clouds: bool) -> usize {
         if !under_clouds {
             self.refs.push(layer);
@@ -1420,7 +1428,7 @@ impl App {
         0
     }
 
-    /// Removes a layer and keeps the indices that point at layers right.
+    /// Quita una capa y mantiene correctos los índices que apuntan a capas.
     pub fn remove_ref(&mut self, k: usize) {
         if k >= self.refs.len() {
             return;
@@ -1449,14 +1457,14 @@ impl App {
         self.dig_draft.clear();
     }
 
-    /// Removes the layers made from a file (it is being loaded again).
+    /// Quita las capas hechas a partir de un archivo (se está cargando de nuevo).
     pub fn remove_paths(&mut self, p: &Path) {
         while let Some(k) = self.refs.iter().position(|r| r.path == p) {
             self.remove_ref(k);
         }
     }
 
-    /// Moves a layer, or the clouds, one place up or down in the drawing order.
+    /// Mueve una capa, o las nubes, un lugar arriba o abajo en el orden de dibujo.
     pub fn step_item(&mut self, item: Item, up: bool) {
         let mut v = self.order_items();
         let Some(at) = v.iter().position(|i| *i == item) else {
@@ -1469,7 +1477,7 @@ impl App {
         }
     }
 
-    /// What the layers selected together can do as a group.
+    /// Lo que pueden hacer como grupo las capas seleccionadas a la vez.
     pub fn group_command(&mut self, c: GroupCmd) {
         let sel: Vec<usize> = self
             .sel_layers
@@ -1496,8 +1504,8 @@ impl App {
                 }
             }
             GroupCmd::Up | GroupCmd::Down => {
-                // the block moves one place, the layers keeping their order among themselves;
-                // a layer that has the edge or another selected layer above it stays
+                // el bloque se mueve un lugar, conservando las capas su orden entre sí; una capa
+                // que tiene el borde u otra capa seleccionada por encima se queda
                 let mut v = self.order_items();
                 let chosen = |i: &Item| matches!(i, Item::Layer(k) if sel.contains(k));
                 if c == GroupCmd::Up {
@@ -1558,7 +1566,7 @@ impl App {
         let _ = ctx;
     }
 
-    /// Whether a vector editing tool is the current one.
+    /// Si una herramienta de edición vectorial es la actual.
     pub fn edit_layer_on(&self) -> bool {
         matches!(
             self.nav,
@@ -1566,8 +1574,8 @@ impl App {
         )
     }
 
-    /// Keeps the plan and the 3D view on the same ground: whichever one was zoomed or panned
-    /// this frame moves the other.
+    /// Mantiene la planta y la vista 3D sobre el mismo terreno: la que se haya ampliado o
+    /// desplazado en este fotograma mueve a la otra.
     pub fn sync_views(&mut self) {
         let has3d = self.layout == Layout::All;
         if !self.follow_plan || !has3d || self.store.is_none() {
@@ -1604,7 +1612,7 @@ impl App {
         ]);
     }
 
-    // ------------------------------------------------------------------------ new layer, save
+    // ------------------------------------------------------------------------ capa nueva, guardar
 
     pub fn new_layer_window(&mut self, ctx: &egui::Context) {
         let Some(mut d) = self.new_layer.take() else {
@@ -1705,7 +1713,7 @@ impl App {
             let k = self.refs.len() - 1;
             self.active = Some(k);
             self.sel_layer = Some(k);
-            // an empty layer has no extent to fit: the view stays where it is
+            // una capa vacía no tiene extensión que ajustar: la vista se queda donde está
             self.plan_fit = self.plan_fit && self.refs.len() > 1;
             self.nav = Nav::Digitize;
             self.side = Side::Edit;
@@ -1718,7 +1726,7 @@ impl App {
         }
     }
 
-    /// The projection of the cloud, else that of an image on the map.
+    /// La proyección de la nube o, si no, la de una imagen del mapa.
     fn work_prj(&self) -> Option<String> {
         self.store.as_ref().and_then(|s| s.prj.clone()).or_else(|| {
             self.refs.iter().find_map(|r| match &r.kind {
@@ -1728,7 +1736,8 @@ impl App {
         })
     }
 
-    /// Writes a layer over its own table of its GeoPackage, in the system the table was in.
+    /// Escribe una capa sobre su propia tabla de su GeoPackage, en el sistema en que estaba la
+    /// tabla.
     pub fn save_gpkg_over(&mut self, k: usize) {
         let (work, prj) = (self.project_crs(), self.work_prj());
         let work = work.or_else(|| prj.as_deref().and_then(hipso_core::vector::epsg_from_prj));
@@ -1761,10 +1770,11 @@ impl App {
         self.log(msg);
     }
 
-    /// Saves a vector layer as a shapefile with the projection of the cloud: in place when it
-    /// already has a file and `ask` is false.
+    /// Guarda una capa vectorial como shapefile con la proyección de la nube: en su sitio cuando ya
+    /// tiene un archivo y `ask` es falso.
     pub fn save_layer(&mut self, k: usize, ask: bool) {
-        // a layer read from a GeoPackage is saved over its own table, keeping the other tables
+        // una capa leída de un GeoPackage se guarda sobre su propia tabla, conservando las otras
+        // tablas
         if !ask
             && let Some(RefLayer { path, kind: RefKind::Vector(v), .. }) = self.refs.get(k)
             && v.table.is_some()
@@ -1824,7 +1834,8 @@ impl App {
                     .file_name()
                     .map_or(r.name.clone(), |n| n.to_string_lossy().into_owned());
                 v.dirty = false;
-                // the file written is the layer's own now: a GeoPackage has the table of that name
+                // el archivo escrito es ahora el de la propia capa: un GeoPackage tiene la tabla
+                // con ese nombre
                 v.table = path
                     .extension()
                     .is_some_and(|e| e.eq_ignore_ascii_case("gpkg"))
@@ -1850,14 +1861,14 @@ impl App {
     }
 }
 
-/// An element of the drawing order: a layer, or the point clouds together.
+/// Un elemento del orden de dibujo: una capa o las nubes de puntos juntas.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Item {
     Layer(usize),
     Clouds,
 }
 
-/// Commands for the layers selected together.
+/// Órdenes para las capas seleccionadas a la vez.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GroupCmd {
     Show,
@@ -1868,7 +1879,7 @@ pub enum GroupCmd {
     Remove,
 }
 
-/// What the layers pane asks of a layer.
+/// Lo que pide el panel de capas a una capa.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayerCmd {
     Select,
@@ -1883,7 +1894,7 @@ pub enum LayerCmd {
     Remove,
 }
 
-/// A filled regular polygon (a dot) as a triangle fan in a mesh.
+/// Un polígono regular relleno (un punto) como abanico de triángulos en una malla.
 fn disc(mesh: &mut egui::Mesh, c: Pos2, r: f32, sides: u32, col: Color32) {
     let base = mesh.vertices.len() as u32;
     mesh.colored_vertex(c, col);
@@ -1929,19 +1940,19 @@ mod order_tests {
         for n in ["a", "b", "c"] {
             a.add_ref(layer(n), false);
         }
-        // clouds under everything, by default (slot 0), layers a b c from the bottom
+        // nubes bajo todo, por defecto (posición 0), capas a b c desde abajo
         assert_eq!(names(&a), ["NUBES", "a", "b", "c"]);
         a.step_item(Item::Clouds, true);
         a.step_item(Item::Clouds, true);
         assert_eq!(names(&a), ["a", "b", "NUBES", "c"]);
         assert_eq!(a.cloud_slot, 2);
-        // a layer crosses the clouds without moving the others
+        // una capa cruza las nubes sin mover las demás
         a.sel_layer = Some(1);
         a.step_item(Item::Layer(1), true);
         assert_eq!(names(&a), ["a", "NUBES", "b", "c"]);
-        // the selection follows its layer
+        // la selección sigue a su capa
         assert_eq!(a.refs[a.sel_layer.unwrap_or(99)].name, "b");
-        // to the top and the bottom
+        // arriba del todo y abajo del todo
         a.step_item(Item::Clouds, true);
         a.step_item(Item::Clouds, true);
         assert_eq!(names(&a), ["a", "b", "c", "NUBES"]);
@@ -1962,12 +1973,12 @@ mod order_tests {
         assert_eq!(vis, [true, false, true, false, true]);
         a.group_command(GroupCmd::Show);
         assert!(a.refs.iter().all(|r| r.visible));
-        // up: the block rises one place, keeping its order; the selection follows its layers
+        // subir: el bloque sube un lugar, conservando su orden; la selección sigue a sus capas
         a.group_command(GroupCmd::Up);
         assert_eq!(names(&a), ["NUBES", "a", "c", "b", "e", "d"]);
         assert_eq!(a.sel_layers.len(), 2);
         assert!(a.sel_layers.iter().all(|k| ["b", "d"].contains(&a.refs[*k].name.as_str())));
-        // at the top a layer stays while the others still rise
+        // arriba del todo una capa se queda mientras las otras todavía suben
         a.group_command(GroupCmd::Up);
         assert_eq!(names(&a), ["NUBES", "a", "c", "e", "b", "d"]);
         a.group_command(GroupCmd::Down);
@@ -1985,7 +1996,7 @@ mod order_tests {
         a.sel_layer = Some(0);
         let k = a.add_ref(layer("ortofoto"), true);
         assert_eq!(k, 0);
-        // the selected vector layer is still the same layer
+        // la capa vectorial seleccionada sigue siendo la misma capa
         assert_eq!(a.refs[a.sel_layer.unwrap_or(99)].name, "v1");
         a.add_ref(layer("v2"), false);
         assert_eq!(names(&a), ["ortofoto", "NUBES", "v1", "v2"]);
@@ -2000,7 +2011,7 @@ mod order_tests {
         assert_eq!(names(&a), ["r2", "r1", "NUBES", "v1"]);
         a.remove_ref(0);
         assert_eq!(names(&a), ["r1", "NUBES", "v1"]);
-        // the whole order at once, as a drag does: v1 to the bottom
+        // todo el orden de una vez, como hace un arrastre: v1 al fondo
         let items = vec![Item::Layer(1), Item::Layer(0), Item::Clouds];
         a.apply_order(&items);
         assert_eq!(names(&a), ["v1", "r1", "NUBES"]);

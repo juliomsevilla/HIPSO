@@ -1,5 +1,5 @@
-//! Sheets of one block: the catalogue reads their headers and finds what is wrong with the
-//! tiling, and a DTM made with the neighbours of each sheet has no seam at its edges.
+//! Hojas de un bloque: el catálogo lee sus cabeceras y encuentra lo que está mal en el teselado, y
+//! un MDT hecho con las vecinas de cada hoja no tiene costura en sus bordes.
 
 mod common;
 
@@ -12,7 +12,7 @@ use hipso_core::pipeline::{Ground, Steps, Surface, Tiling};
 use hipso_core::sheets::dtm_each;
 use std::path::PathBuf;
 
-/// The terrain cut in two sheets at x = 30 (ground class), written to a folder of its own.
+/// El terreno cortado en dos hojas en x = 30 (clase suelo), escrito en una carpeta propia.
 fn two_sheets(tag: &str) -> Result<(PathBuf, PathBuf, PathBuf)> {
     let dir = std::env::temp_dir().join(format!("hipso_seam_{tag}_{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
@@ -53,14 +53,14 @@ fn the_catalogue_reads_headers_and_a_folder() -> Result<()> {
     let c = catalog(std::slice::from_ref(&dir))?;
     assert_eq!(c.entries.len(), 2);
     assert_eq!(c.points(), 120 * 120);
-    // two sheets side by side, no CRS declared: that is all that is wrong
+    // dos hojas lado a lado, sin CRS declarado: eso es lo único que está mal
     let kinds: Vec<Kind> = c.issues(1.0).iter().map(|i| i.kind).collect();
     assert!(kinds.contains(&Kind::NoCrs), "{kinds:?}");
     assert!(
         !kinds.contains(&Kind::Overlap) && !kinds.contains(&Kind::Gap),
         "{kinds:?}"
     );
-    // the same sheet twice is caught
+    // se detecta la misma hoja dos veces
     let twice = catalog(&[west.clone(), east, west])?;
     assert!(twice.issues(1.0).iter().any(|i| i.kind == Kind::Duplicate));
     let _ = std::fs::remove_dir_all(dir);
@@ -84,7 +84,7 @@ fn with_neighbours_the_edge_of_a_sheet_has_the_dtm_of_the_block() -> Result<()> 
     let (dir, west, east) = two_sheets("dtm")?;
     let out_for = |p: &std::path::Path| dir.join(format!("{}_mdt.tif", hipso_core::paths::stem(p)));
     let inputs = [west.clone(), east.clone()];
-    // the block as a whole is the truth
+    // el bloque entero es la verdad
     let whole = DtmJob {
         inputs: inputs.to_vec(),
         output: dir.join("todo.tif"),
@@ -92,19 +92,19 @@ fn with_neighbours_the_edge_of_a_sheet_has_the_dtm_of_the_block() -> Result<()> 
     };
     hipso_core::jobs::dtm(&whole)?;
     let truth = Grid::read(&whole.output)?;
-    // each sheet alone
+    // cada hoja por sí sola
     dtm_each(&inputs, &base(), &out_for, None, 0.0)?;
     let alone = Grid::read(&out_for(&west))?;
-    // each sheet with its neighbour
+    // cada hoja con su vecina
     let buffered_dir = dir.join("con_vecinas");
     std::fs::create_dir_all(&buffered_dir)?;
     let out_b =
         |p: &std::path::Path| buffered_dir.join(format!("{}_mdt.tif", hipso_core::paths::stem(p)));
     dtm_each(&inputs, &base(), &out_b, None, 5.0)?;
     let joined = Grid::read(&out_b(&west))?;
-    // same cells as the sheet's own DTM
+    // las mismas celdas que el MDT propio de la hoja
     assert_eq!((joined.cols, joined.rows), (alone.cols, alone.rows));
-    // how far each is from the block's DTM, over the cells both have
+    // a qué distancia está cada una del MDT del bloque, sobre las celdas que tienen ambos
     let worst = |g: &Grid| {
         let (mut worst, mut checked) = (0.0f32, 0);
         for r in 0..g.rows {
@@ -133,8 +133,8 @@ fn with_neighbours_the_edge_of_a_sheet_has_the_dtm_of_the_block() -> Result<()> 
     Ok(())
 }
 
-/// Points on a half-metre lattice over `[x0, x1) x [0, 40)`, with heights that vary from point to
-/// point (so a cell's statistics tell its points apart).
+/// Puntos en un retículo de medio metro sobre `[x0, x1) x [0, 40)`, con alturas que varían de punto
+/// a punto (para que los estadísticos de una celda distingan sus puntos).
 fn lattice(x0: f64, x1: f64) -> Vec<[f64; 3]> {
     let mut v = Vec::new();
     let mut x = x0;
@@ -150,7 +150,7 @@ fn lattice(x0: f64, x1: f64) -> Vec<[f64; 3]> {
     v
 }
 
-/// The rows of a metrics table by cell centre: `(x, y) -> (points, mean elevation)`.
+/// Las filas de una tabla de métricas por centro de celda: `(x, y) -> (puntos, elevación media)`.
 fn cells(csv: &std::path::Path) -> Result<std::collections::BTreeMap<(i64, i64), (i64, String)>> {
     let text = std::fs::read_to_string(csv)?;
     let mut lines = text.lines();
@@ -169,7 +169,7 @@ fn cells(csv: &std::path::Path) -> Result<std::collections::BTreeMap<(i64, i64),
             f[cx].parse::<f64>().unwrap_or(0.0).round() as i64,
             f[cy].parse::<f64>().unwrap_or(0.0).round() as i64,
         );
-        // a cell with no row of its own twice would overwrite: keep the larger count
+        // una celda sin fila propia dos veces se sobrescribiría: se conserva el mayor recuento
         let count: i64 = f[n].parse().unwrap_or(0);
         if out
             .get(&key)
@@ -193,8 +193,8 @@ fn metrics_cells_on_the_seam_are_written_once_with_all_their_points() -> Result<
     use hipso_core::sheets::metrics_each;
     let dir = std::env::temp_dir().join(format!("hipso_mseam_{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
-    // the block is 60 x 40 m; the sheets are cut at x = 30, which is the middle of the 10 m cell
-    // centred on 30 (cells are centred on multiples of the cell size)
+    // el bloque es de 60 x 40 m; las hojas se cortan en x = 30, que es el medio de la celda de 10 m
+    // centrada en 30 (las celdas están centradas en múltiplos del tamaño de celda)
     let all = lattice(0.0, 60.0);
     let write = |name: &str, pts: &[[f64; 3]]| -> Result<PathBuf> {
         let f = write_las_with(&format!("mseam_{name}"), pts, |_| (1, 0))?;
@@ -205,7 +205,7 @@ fn metrics_cells_on_the_seam_are_written_once_with_all_their_points() -> Result<
     let west = write("oeste", &lattice(0.0, 30.0))?;
     let east = write("este", &lattice(30.0, 60.0))?;
     let block = write("bloque", &all)?;
-    // a flat ground at 0 under everything
+    // un suelo llano a 0 bajo todo
     let mut dtm = Grid::new(-10.0, -10.0, 1.0, 90, 70)?;
     dtm.data.iter_mut().for_each(|v| *v = 0.0);
     let dtm_path = dir.join("mdt.tif");
@@ -228,10 +228,10 @@ fn metrics_cells_on_the_seam_are_written_once_with_all_their_points() -> Result<
     let out_for = |p: &std::path::Path| dir.join(format!("{}_m.csv", hipso_core::paths::stem(p)));
     let dtm_for = |_: &std::path::Path| Ok(dtm_path.clone());
     let inputs = [west.clone(), east.clone()];
-    // the truth: the block as one file
+    // la verdad: el bloque como un solo archivo
     metrics_each(std::slice::from_ref(&block), &base, &out_for, &dtm_for, 0.0)?;
     let truth = cells(&out_for(&block))?;
-    // alone: the cell on the seam is in both tables, with part of its points each
+    // solas: la celda de la costura está en ambas tablas, con parte de sus puntos cada una
     metrics_each(&inputs, &base, &out_for, &dtm_for, 0.0)?;
     let (w, e) = (cells(&out_for(&west))?, cells(&out_for(&east))?);
     let seam = (30, 20);
@@ -244,7 +244,7 @@ fn metrics_cells_on_the_seam_are_written_once_with_all_their_points() -> Result<
     );
     assert_eq!(w[&seam].0 + e[&seam].0, whole);
     assert!(rows(&out_for(&west))? + rows(&out_for(&east))? > truth.len());
-    // with neighbours: every cell once, with the values of the block
+    // con vecinas: cada celda una vez, con los valores del bloque
     metrics_each(&inputs, &base, &out_for, &dtm_for, 10.0)?;
     let (w, e) = (cells(&out_for(&west))?, cells(&out_for(&east))?);
     assert_eq!(rows(&out_for(&west))? + rows(&out_for(&east))?, truth.len());
@@ -261,7 +261,8 @@ fn metrics_cells_on_the_seam_are_written_once_with_all_their_points() -> Result<
 }
 
 fn write_in(dir: &std::path::Path, name: &str, pts: &[[f64; 3]]) -> Result<PathBuf> {
-    // tests run side by side in one process: the temporary name carries the test's folder
+    // pruebas ejecutadas lado a lado en un proceso: el nombre temporal lleva la carpeta de la
+    // prueba
     let tag = dir
         .file_name()
         .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
@@ -288,8 +289,8 @@ fn classifying_with_neighbours_sees_across_the_edge_and_writes_only_the_sheet() 
     use hipso_core::sheets::classify_each;
     let dir = std::env::temp_dir().join(format!("hipso_cseam_{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
-    // a ground at 0 and, 30 m above it across the cut at x = 30, eight points of a bird or a
-    // wire: the noise filter calls isolated what has fewer than five points around it
+    // un suelo a 0 y, 30 m por encima a través del corte en x = 30, ocho puntos de un pájaro o un
+    // cable: el filtro de ruido llama aislado a lo que tiene menos de cinco puntos alrededor
     let flock: Vec<[f64; 3]> = (0..8)
         .map(|i| [28.0 + 0.5 * i as f64, 20.0, 30.0])
         .collect();
@@ -317,11 +318,11 @@ fn classifying_with_neighbours_sees_across_the_edge_and_writes_only_the_sheet() 
     };
     let out_for = |p: &std::path::Path| dir.join(format!("{}_c.las", hipso_core::paths::stem(p)));
     let inputs = [w.clone(), e.clone()];
-    // alone: each half of the flock is four points, and isolated
+    // solas: cada mitad de la bandada son cuatro puntos, y aislados
     classify_each(&inputs, &out_for, &steps, &Tiling::default(), 0.0)?;
     let alone = class_count(&out_for(&w), 7)?.1 + class_count(&out_for(&e), 7)?.1;
     assert_eq!(alone, 8);
-    // with the neighbour: eight points together are not isolated, and each sheet keeps its own
+    // con la vecina: ocho puntos juntos no están aislados, y cada hoja conserva los suyos
     classify_each(&inputs, &out_for, &steps, &Tiling::default(), 10.0)?;
     let (w_all, w_noise) = class_count(&out_for(&w), 7)?;
     let (e_all, e_noise) = class_count(&out_for(&e), 7)?;
@@ -331,7 +332,7 @@ fn classifying_with_neighbours_sees_across_the_edge_and_writes_only_the_sheet() 
     Ok(())
 }
 
-/// How far `g` is from `truth` over the cells both have, and how many that is.
+/// A qué distancia está `g` de `truth` sobre las celdas que tienen ambos, y cuántas son.
 fn worst_vs(g: &Grid, truth: &Grid) -> (f32, usize) {
     let (mut worst, mut n) = (0.0f32, 0);
     for r in 0..g.rows {
@@ -379,7 +380,7 @@ fn surfaces_with_neighbours_have_no_seam_at_the_edge() -> Result<()> {
     let tiling = Tiling::default();
     let out_a = |p: &std::path::Path| dir.join(format!("{}_alone.tif", hipso_core::paths::stem(p)));
     let out_b = |p: &std::path::Path| dir.join(format!("{}_nb.tif", hipso_core::paths::stem(p)));
-    // MDS by triangulation
+    // MDS por triangulación
     let dsm = DsmJob {
         input: PathBuf::new(),
         output: PathBuf::new(),
@@ -405,7 +406,7 @@ fn surfaces_with_neighbours_have_no_seam_at_the_edge() -> Result<()> {
         alone.0 > 10.0 * with.0.max(1e-4),
         "dsm alone {alone:?} with {with:?}"
     );
-    // CHM by pit-free stack over a flat ground at 0
+    // CHM por pila sin picos sobre un suelo llano a 0
     let mut ground = Grid::new(-10.0, -10.0, 1.0, 90, 70)?;
     ground.data.iter_mut().for_each(|v| *v = 0.0);
     let ground_path = dir.join("suelo.tif");
@@ -446,7 +447,8 @@ fn the_highest_point_surface_only_needs_neighbours_to_fill_holes() -> Result<()>
     use hipso_core::sheets::dsm_each;
     let dir = std::env::temp_dir().join(format!("hipso_hseam_{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
-    // a point every 2.5 m: with 1 m cells most cells are empty and have to be filled
+    // un punto cada 2,5 m: con celdas de 1 m la mayoría de las celdas están vacías y hay que
+    // rellenarlas
     let sparse = |x0: f64, x1: f64| -> Vec<[f64; 3]> {
         terrain_points(60.0, 2.5, 5)
             .into_iter()
@@ -475,14 +477,14 @@ fn the_highest_point_surface_only_needs_neighbours_to_fill_holes() -> Result<()>
     dsm_each(&inputs, &job(true, 0.0), &out_a, None, 0.0)?;
     dsm_each(&inputs, &job(true, 0.0), &out_b, None, 8.0)?;
     let on = |g: &Grid| {
-        // the cells within 4 m of the seam, where the filling looks across it
+        // las celdas a menos de 4 m de la costura, donde el relleno mira a través de ella
         let mut worst = 0.0f32;
         for r in 0..g.rows {
             for c in 0..g.cols {
                 let (x, y) = g.center(c, r);
                 let v = g.data[r * g.cols + c];
                 let Some(i) = truth.index(x, y) else { continue };
-                // away from the outer edge of the block, where nothing is looked across
+                // lejos del borde exterior del bloque, donde no se mira a través de nada
                 if (x - 30.0).abs() < 4.0
                     && (8.0..52.0).contains(&y)
                     && v.is_finite()
@@ -497,7 +499,7 @@ fn the_highest_point_surface_only_needs_neighbours_to_fill_holes() -> Result<()>
     let (alone, with) = (on(&Grid::read(&out_a(&w))?), on(&Grid::read(&out_b(&w))?));
     assert!(with < 1e-3, "with neighbours {with}");
     assert!(alone > 0.1, "alone {alone}");
-    // no filling and no smoothing: nothing to look across, the same surface either way
+    // sin relleno ni suavizado: nada que mirar a través, la misma superficie de cualquier manera
     dsm_each(&inputs, &job(false, 0.0), &out_a, None, 0.0)?;
     dsm_each(&inputs, &job(false, 0.0), &out_b, None, 8.0)?;
     assert_eq!(

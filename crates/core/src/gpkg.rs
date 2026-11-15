@@ -1,5 +1,5 @@
-//! GeoPackage vector layers (OGC GeoPackage 1.x): the geometry of each feature in GeoPackage
-//! binary (a small header and standard WKB) and its attributes. Read only.
+//! Capas vectoriales GeoPackage (OGC GeoPackage 1.x): la geometría de cada elemento en binario de
+//! GeoPackage (una pequeña cabecera y WKB estándar) y sus atributos. Solo lectura.
 
 use std::path::Path;
 
@@ -8,7 +8,7 @@ use crate::sqlite::{Db, Value};
 use crate::view::GeomKind;
 use crate::{Error, Result};
 
-/// A feature table of a GeoPackage.
+/// Una tabla de elementos de un GeoPackage.
 #[derive(Clone, Debug)]
 pub struct LayerInfo {
     pub table: String,
@@ -17,7 +17,7 @@ pub struct LayerInfo {
     pub geometry_type: String,
 }
 
-/// The feature tables of a GeoPackage, in the order the file lists them.
+/// Las tablas de elementos de un GeoPackage, en el orden en que las lista el archivo.
 pub fn layers(path: &Path) -> Result<Vec<LayerInfo>> {
     layers_in(&Db::open(path)?)
 }
@@ -43,7 +43,8 @@ fn layers_in(db: &Db) -> Result<Vec<LayerInfo>> {
         .collect())
 }
 
-/// The EPSG code of a GeoPackage spatial reference system id, when it is one.
+/// El código EPSG de un identificador de sistema de referencia espacial de GeoPackage, cuando lo
+/// es.
 fn epsg_of_srs(db: &Db, srs_id: i64) -> Option<u16> {
     match srs_id {
         4326 => return Some(4326),
@@ -62,17 +63,17 @@ fn epsg_of_srs(db: &Db, srs_id: i64) -> Option<u16> {
     {
         return Some(c);
     }
-    // a system with its own id (OpenStreetMap extracts use 100000 for «WGS 84 (CRS84)») is
-    // told by its definition
+    // un sistema con su propio identificador (las extracciones de OpenStreetMap usan 100000 para
+    // «WGS 84 (CRS84)») se distingue por su definición
     let def = t.column("definition").map(|d| row[d].display())?;
     if def.contains("CRS84") || def.starts_with("GEOGCS[\"WGS 84\"") {
         return Some(4326);
     }
-    // the horizontal part of a compound system
+    // la parte horizontal de un sistema compuesto
     crate::las::epsg_from_wkt(&def)
 }
 
-/// The EPSG code the first feature table of a GeoPackage declares.
+/// El código EPSG que declara la primera tabla de elementos de un GeoPackage.
 pub fn epsg_hint(path: &Path) -> Option<u16> {
     let db = Db::open(path).ok()?;
     let first = layers_in(&db).ok()?.into_iter().next()?;
@@ -111,15 +112,16 @@ impl Cursor<'_> {
     }
 }
 
-/// What a geometry adds to a layer: its kind and its parts (a ring or a line per part, a single
-/// vertex per point). `dims` counts the coordinates a vertex has beyond x and y.
+/// Lo que añade una geometría a una capa: su tipo y sus partes (un anillo o una línea por parte, un
+/// solo vértice por punto). `dims` cuenta las coordenadas que tiene un vértice además de x e y.
 fn wkb(c: &mut Cursor, out: &mut Vec<(GeomKind, Vec<Vec<[f64; 2]>>)>, depth: usize) -> Option<()> {
     if depth > 8 {
         return None;
     }
     c.le = *c.take(1)?.first()? == 1;
     let raw = c.u32()?;
-    // ISO codes add 1000 for Z, 2000 for M, 3000 for both; EWKB sets flag bits instead
+    // los códigos ISO suman 1000 para Z, 2000 para M, 3000 para ambos; EWKB fija bits indicadores
+    // en su lugar
     let (flags, iso) = (raw & 0xE000_0000, raw & 0x1FFF_FFFF);
     let dims = usize::from(flags & 0x8000_0000 != 0)
         + usize::from(flags & 0x4000_0000 != 0)
@@ -168,14 +170,15 @@ fn wkb(c: &mut Cursor, out: &mut Vec<(GeomKind, Vec<Vec<[f64; 2]>>)>, depth: usi
     Some(())
 }
 
-/// The parts of a GeoPackage geometry blob; `None` when it is empty or of an unsupported kind.
+/// Las partes del blob de una geometría de GeoPackage; `None` cuando está vacío o es de un tipo no
+/// admitido.
 fn geometry(blob: &[u8]) -> Option<(GeomKind, Vec<Vec<[f64; 2]>>)> {
     if blob.len() < 8 || &blob[..2] != b"GP" {
         return None;
     }
     let flags = blob[3];
     if flags & 0x10 != 0 {
-        return None; // empty
+        return None; // vacío
     }
     let envelope = match (flags >> 1) & 7 {
         0 => 0,
@@ -200,7 +203,7 @@ fn geometry(blob: &[u8]) -> Option<(GeomKind, Vec<Vec<[f64; 2]>>)> {
     Some((kind, all))
 }
 
-/// A feature table as a layer; the first one when `table` is `None`.
+/// Una tabla de elementos como capa; la primera cuando `table` es `None`.
 pub(crate) fn read_layer(path: &Path, table: Option<&str>) -> Result<Layer> {
     let db = Db::open(path)?;
     let all = layers_in(&db)?;
@@ -303,7 +306,8 @@ mod tests {
 
     #[test]
     fn polygon_blob_is_read_with_its_envelope() {
-        // GP, version 0, flags: little endian + envelope XY, srs 25830, envelope, WKB polygon
+        // GP, versión 0, indicadores: little endian + envolvente XY, srs 25830, envolvente,
+        // polígono WKB
         let mut b = vec![b'G', b'P', 0, 0b0000_0011];
         b.extend_from_slice(&25830i32.to_le_bytes());
         for v in [0.0f64, 10.0, 0.0, 10.0] {
@@ -327,7 +331,7 @@ mod tests {
         assert_eq!(kind, GeomKind::Polygon);
         assert_eq!(parts.len(), 1);
         assert_eq!(parts[0].len(), 5);
-        // the exterior ring is clockwise
+        // el anillo exterior va en el sentido de las agujas del reloj
         let a: f64 = parts[0]
             .windows(2)
             .map(|w| w[0][0] * w[1][1] - w[1][0] * w[0][1])
@@ -351,13 +355,14 @@ mod file_tests {
         assert_eq!(l[0].table, "parcelas");
         assert_eq!(epsg_hint(&fixture()), Some(25830));
         let layer = read_layer(&fixture(), None)?;
-        // 800 parcels and the big one, none lost to the b-tree or the overflow pages
+        // 800 parcelas y la grande, ninguna perdida por el árbol B ni por las páginas de
+        // desbordamiento
         assert_eq!(layer.feats.len(), 801);
         assert_eq!(layer.skipped, 0);
         assert_eq!(layer.kind, GeomKind::Polygon);
         let big = layer.feats.last().map(|f| f.parts[0].len());
         assert_eq!(big, Some(3001));
-        // the parcel with a hole has two rings; attributes and accents survive
+        // la parcela con un hueco tiene dos anillos; los atributos y los acentos sobreviven
         assert_eq!(layer.feats[7].parts.len(), 2);
         let props = &layer.feats[3].props;
         assert!(props.iter().any(|(k, v)| k == "nombre" && v == "P0004"));
@@ -388,7 +393,7 @@ mod file_tests {
             }
             _ => return Err(Error::Param("a polygon".into())),
         }
-        // the hole of parcel 8 holds no point, its ring does
+        // el hueco de la parcela 8 no contiene ningún punto, su anillo sí
         if let crate::vector::Shape2::Polygon(p) = &regions[7].shape {
             assert!(!p.contains(500745.0, 4500045.0));
             assert!(p.contains(500710.0, 4500010.0));
@@ -397,12 +402,12 @@ mod file_tests {
     }
 }
 
-/// A feature table as the data the viewer draws; the first one when `table` is `None`.
+/// Una tabla de elementos como los datos que dibuja el visor; la primera cuando `table` es `None`.
 pub fn read_vector(path: &Path, table: Option<&str>) -> Result<crate::view::VectorData> {
     read_layer(path, table).map(|l| crate::geojson::vector_of(l).0)
 }
 
-/// The EPSG code a feature table declares, when it is one.
+/// El código EPSG que declara una tabla de elementos, cuando lo es.
 pub fn epsg_of_table(path: &Path, table: &str) -> Option<u16> {
     let db = Db::open(path).ok()?;
     let l = layers_in(&db)

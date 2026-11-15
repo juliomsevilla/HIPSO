@@ -1,5 +1,5 @@
-//! What the side panel shows for the layer selected in the contents: its editing tools (the
-//! Edición tab) and its symbology and rendering (the Simbología tab).
+//! Lo que muestra el panel lateral para la capa seleccionada en el contenido: sus herramientas de
+//! edición (la pestaña Edición) y su simbología y representación (la pestaña Simbología).
 
 use super::*;
 use crate::layers::VecLayer;
@@ -227,7 +227,8 @@ impl App {
         }
     }
 
-    /// The tools of editing a vector layer, for the side panel: sections of buttons that wrap.
+    /// Las herramientas de edición de una capa vectorial, para el panel lateral: secciones de
+    /// botones que se ajustan.
     fn vector_edit_tab(&mut self, ui: &mut egui::Ui, t: &Tokens, k: usize) {
         self.active = Some(k);
         let mut toggle: Option<Nav> = None;
@@ -266,7 +267,18 @@ impl App {
                     }
                 }
             });
-            ui.checkbox(&mut self.vedit.snap, "Ajustar a vértices");
+            ui.horizontal_wrapped(|ui| {
+                ui.checkbox(&mut self.vedit.snap, "Ajustar a vértices");
+                ui.checkbox(&mut self.vm.snap_edges, "Ajustar a bordes");
+            });
+            ui.horizontal_wrapped(|ui| {
+                if ribbon::small_button_on(ui, t, "@reshape", "Reformar", self.vm.reshape && self.nav == Nav::Digitize, polygons).clicked() {
+                    self.vm.reshape = !self.vm.reshape;
+                    if self.vm.reshape && self.nav != Nav::Digitize {
+                        toggle = Some(Nav::Digitize);
+                    }
+                }
+            });
             ui.horizontal_wrapped(|ui| {
                 if ribbon::small_button_on(ui, t, "@undo", "Deshacer", false, can_undo).clicked() {
                     self.vec_undo(false);
@@ -325,6 +337,22 @@ impl App {
                 if ribbon::small_button_on(ui, t, "@multipart", "Agrupar en multiparte", false, has_sel).clicked() {
                     self.gather_selected();
                 }
+                if ribbon::small_button_on(ui, t, "@transform", "Transformar selección", false, has_sel).clicked() {
+                    self.vm.transform = Some(crate::editmore::TransformDlg::default());
+                }
+                if ribbon::small_button_on(ui, t, "@copy", "Copiar", false, has_sel).clicked() {
+                    self.copy_selected();
+                }
+                let can_paste = self.vm.clip.is_some();
+                if ribbon::small_button_on(ui, t, "@paste", "Pegar", false, can_paste).clicked() {
+                    self.paste_into_active();
+                }
+                if ribbon::small_button_on(ui, t, "@paste", "Pegar como capa", false, can_paste).clicked() {
+                    self.paste_as_layer();
+                }
+                if ribbon::small_button(ui, t, "@topology", "Comprobar topología", self.vm.topo.is_some()).clicked() {
+                    self.vm.topo = Some(crate::editmore::TopoDlg::default());
+                }
                 if ribbon::small_button_on(ui, t, "@trash", "Eliminar seleccionados", false, has_sel).clicked() {
                     self.delete_selected();
                 }
@@ -346,8 +374,8 @@ impl App {
         }
     }
 
-    /// The Edición tab of the side panel: the tools of the layer selected in the contents (a
-    /// vector layer), else those of editing point clouds.
+    /// La pestaña Edición del panel lateral: las herramientas de la capa seleccionada en el
+    /// contenido (una capa vectorial) o, si no, las de edición de nubes de puntos.
     pub fn edit_panel(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let t = self.tokens();
         let Some(k) = self.sel_layer.filter(|k| *k < self.refs.len()) else {
@@ -365,7 +393,7 @@ impl App {
         });
     }
 
-    /// The Simbología tab of the side panel: how the selected layer is drawn.
+    /// La pestaña Simbología del panel lateral: cómo se dibuja la capa seleccionada.
     pub fn symbology_panel(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let t = self.tokens();
         let Some(k) = self.sel_layer.filter(|k| *k < self.refs.len()) else {
@@ -450,7 +478,7 @@ impl App {
                             }
                         });
                     if il.stretch == Stretch::Manual {
-                        // the first time, start from the limits that were showing
+                        // la primera vez, se parte de los límites que se estaban mostrando
                         if was != Stretch::Manual {
                             il.manual = [before.lo[0], before.hi[0]];
                         }

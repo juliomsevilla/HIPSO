@@ -1,18 +1,19 @@
-//! The points the profile draws. The plan and the 3D view show a thinned copy of big clouds,
-//! and a profile cuts a thin slice of it, so few points would be left. The profile instead
-//! reads from the files the points of the region around its box, at full density (up to a
-//! memory cap), in the background; until they arrive it draws the points already in memory.
+//! Los puntos que dibuja el perfil. La planta y la vista 3D muestran una copia adelgazada de las
+//! nubes grandes, y un perfil corta una rebanada fina de ella, así que quedarían pocos puntos. El
+//! perfil lee en cambio de los archivos los puntos de la región alrededor de su caja, a toda la
+//! densidad (hasta un tope de memoria), en segundo plano; hasta que llegan dibuja los puntos que ya
+//! están en memoria.
 
 use super::*;
 use hipso_core::edit;
 use std::sync::mpsc::TryRecvError;
 
-/// Bytes a point takes in the store.
+/// Bytes que ocupa un punto en el almacén.
 const POINT_BYTES: u64 = 24;
 
-/// Most points the profile keeps in memory: an eighth of the memory of the machine (at least
-/// 16 million, about 350 MB). Past it the strip is thinned, which only happens when the box
-/// itself holds more than that.
+/// Máximo de puntos que guarda el perfil en memoria: una octava parte de la memoria del equipo (al
+/// menos 16 millones, unos 350 MB). Más allá se adelgaza la franja, lo que solo ocurre cuando la
+/// propia caja contiene más que eso.
 fn cap() -> usize {
     let mem = hipso_core::copc_cache::total_memory().unwrap_or(8 << 30);
     ((mem / 8 / POINT_BYTES) as usize).clamp(16_000_000, 200_000_000)
@@ -27,16 +28,17 @@ pub struct ProfJob {
 pub struct ProfData {
     clouds_key: u64,
     region: [f64; 4],
-    /// The strip the points were read from; those outside it are not in memory.
+    /// La franja de la que se leyeron los puntos; los de fuera no están en memoria.
     slab: ProfileBox,
     raw: Arc<PointStore>,
-    /// `raw` with the edits and the selection of the session, and what they were made for.
+    /// `raw` con las ediciones y la selección de la sesión, y para qué se hicieron.
     view: Option<((u64, u64), Arc<PointStore>)>,
 }
 
-/// Whether the region in memory (`region` and the one in every `stride` points it keeps) holds
-/// the box `need`, and whether it was thinned to fit the cap while the box now is much smaller:
-/// the points of a small box are all there to be read, `wanted` is the region to read for it.
+/// Si la región en memoria (`region` y el uno de cada `stride` puntos que conserva) contiene la
+/// caja `need`, y si se adelgazó para ajustarse al tope mientras la caja es ahora mucho menor: los
+/// puntos de una caja pequeña están todos ahí para leerlos, `wanted` es la región que leer para
+/// ella.
 fn region_state(held: Option<([f64; 4], u64)>, need: [f64; 4], wanted: [f64; 4]) -> (bool, bool) {
     let area = |r: &[f64; 4]| (r[2] - r[0]).max(0.0) * (r[3] - r[1]).max(0.0);
     let Some((r, stride)) = held else {
@@ -46,7 +48,7 @@ fn region_state(held: Option<([f64; 4], u64)>, need: [f64; 4], wanted: [f64; 4])
     (covered, stride > 1 && area(&r) > 1.5 * area(&wanted))
 }
 
-/// The box widened by `pad` on every side: the strip of the cloud the profile keeps in memory.
+/// La caja ensanchada `pad` por cada lado: la franja de la nube que el perfil guarda en memoria.
 fn slab_of(bx: &ProfileBox, pad: f64) -> ProfileBox {
     let l = bx.length().max(1e-9);
     let (ux, uy) = ((bx.b[0] - bx.a[0]) / l, (bx.b[1] - bx.a[1]) / l);
@@ -57,7 +59,7 @@ fn slab_of(bx: &ProfileBox, pad: f64) -> ProfileBox {
     }
 }
 
-/// Whether the strip `held` holds the whole box `bx`.
+/// Si la franja `held` contiene toda la caja `bx`.
 fn slab_holds(held: &ProfileBox, bx: &ProfileBox) -> bool {
     let l = bx.length().max(1e-9);
     let h = bx.width / 2.0;
@@ -76,7 +78,7 @@ fn slab_holds(held: &ProfileBox, bx: &ProfileBox) -> bool {
     })
 }
 
-/// The map rectangle that holds the box.
+/// El rectángulo del mapa que contiene la caja.
 fn bbox(bx: &ProfileBox) -> [f64; 4] {
     let l = bx.length().max(1e-9);
     let h = bx.width / 2.0;
@@ -89,8 +91,9 @@ fn bbox(bx: &ProfileBox) -> [f64; 4] {
 }
 
 impl App {
-    /// The store the profile draws: the region at full density when it is in memory, else the
-    /// store of the views. Starts reading the region when the box leaves the one in memory.
+    /// El almacén que dibuja el perfil: la región a toda la densidad cuando está en memoria o, si
+    /// no, el almacén de las vistas. Empieza a leer la región cuando la caja sale de la que está en
+    /// memoria.
     pub fn profile_store(
         &mut self,
         ctx: &egui::Context,
@@ -142,9 +145,9 @@ impl App {
             }
         }
         let need = bbox(bx);
-        // a margin, so moving the box a few widths does not read again
-        // a margin of three widths, so that moving the box a few steps does not read again; less
-        // when the cloud is so dense that the margin alone would not fit in memory
+        // un margen, para que mover la caja unas anchuras no vuelva a leer un margen de tres
+        // anchuras, de modo que mover la caja unos pasos no vuelve a leer; menos cuando la nube es
+        // tan densa que el margen solo no cabría en memoria
         let area = if base.area > 0.0 {
             base.area
         } else {
@@ -171,7 +174,7 @@ impl App {
                 .is_some_and(|d| slab_holds(&d.slab, bx));
         if (!covered || thinned) && self.prof_job.is_none() && self.prof_failed.is_none() {
             let region = wanted;
-            // the COPC copies give the nodes the region touches; a plain LAZ is scanned whole
+            // las copias COPC dan los nodos que toca la región; un LAZ normal se recorre entero
             let files = if self.detail_src.is_empty() {
                 self.clouds.clone()
             } else {
@@ -224,7 +227,7 @@ impl App {
         data.view.as_ref().map(|v| v.1.clone())
     }
 
-    /// Whether the region of the profile is being read.
+    /// Si se está leyendo la región del perfil.
     pub fn profile_loading(&self) -> bool {
         self.prof_job.is_some()
     }
@@ -245,7 +248,7 @@ mod tests {
         assert!(slab_holds(&held, &bx));
         assert!(slab_holds(&held, &bx.shifted(10.0)));
         assert!(slab_holds(&held, &bx.shifted(-20.0)));
-        // four widths away is outside the pad of three
+        // a cuatro anchuras de distancia está fuera del relleno de tres
         assert!(!slab_holds(&held, &bx.shifted(40.0)));
     }
 
@@ -254,16 +257,16 @@ mod tests {
         let huge = [0.0, 0.0, 30_000.0, 30_000.0];
         let small = [10_000.0, 10_000.0, 10_600.0, 10_300.0];
         let wanted = [9_997.0, 9_997.0, 10_603.0, 10_303.0];
-        // thinned at the cap, and the box is a sliver of it: read again
+        // adelgazada en el tope, y la caja es una astilla de ella: se vuelve a leer
         assert_eq!(region_state(Some((huge, 56)), small, wanted), (true, true));
-        // all points kept (stride 1): nothing to gain
+        // todos los puntos conservados (stride 1): nada que ganar
         assert_eq!(region_state(Some((huge, 1)), small, wanted), (true, false));
-        // a region already about the size of the box stays, thinned or not
+        // una región ya del tamaño de la caja se queda, adelgazada o no
         assert_eq!(
             region_state(Some((wanted, 3)), small, wanted),
             (true, false)
         );
-        // nothing in memory, or a box outside it
+        // nada en memoria, o una caja fuera de ella
         assert_eq!(region_state(None, small, wanted), (false, false));
         assert_eq!(region_state(Some((small, 1)), huge, huge), (false, false));
     }

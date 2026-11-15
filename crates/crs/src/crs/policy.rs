@@ -1,25 +1,25 @@
-//! What a transformation gave up to produce a value, and the policy that decides whether that is
-//! acceptable.
+//! A qué renunció una transformación para producir un valor, y la política que decide si eso es
+//! aceptable.
 //!
-//! The engine falls back, silently, when the exact operation cannot run: no datum shift at all
-//! (a "ballpark"), heights kept because no geoid model covers the point, or the next-best
-//! operation because a grid is missing or does not cover the point. Each fallback is noted here,
-//! per thread, while a point is transformed; [`crate::Transformer::transform_checked`] reads the
-//! notes and applies a [`Policy`].
+//! El motor recurre, en silencio, a una alternativa cuando la operación exacta no puede ejecutarse:
+//! ningún ajuste de datum (una «aproximación»), alturas conservadas porque ningún modelo de geoide
+//! cubre el punto, o la siguiente mejor operación porque falta una rejilla o no cubre el punto.
+//! Cada alternativa se anota aquí, por hilo, mientras se transforma un punto;
+//! [`crate::Transformer::transform_checked`] lee las notas y aplica una [`Policy`].
 
 use std::cell::Cell;
 
-/// One way a transformation can fall short of the best operation.
+/// Una forma en que una transformación puede quedarse corta respecto a la mejor operación.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Approximation {
-    /// No datum shift was applied: the horizontal coordinates are only moved between projections,
-    /// an error of metres to hundreds of metres.
+    /// No se aplicó ningún ajuste de datum: las coordenadas horizontales solo se mueven entre
+    /// proyecciones, un error de metros a cientos de metros.
     NoDatumShift,
-    /// The best listed operation could not run (grid missing, or point outside it) and a less
-    /// accurate one was used.
+    /// La mejor operación listada no pudo ejecutarse (falta la rejilla o el punto está fuera de
+    /// ella) y se usó una menos precisa.
     NextBestOperation,
-    /// No geoid model or vertical transformation covers the point: the height was kept, only its
-    /// unit changed. The error can be tens of metres.
+    /// Ningún modelo de geoide ni transformación vertical cubre el punto: la altura se conservó y
+    /// solo cambió su unidad. El error puede ser de decenas de metros.
     HeightKept,
 }
 
@@ -38,7 +38,7 @@ impl Approximation {
         }
     }
 
-    /// A sentence for the user.
+    /// Una frase para el usuario.
     pub fn describe(self) -> &'static str {
         match self {
             Approximation::NoDatumShift => {
@@ -54,17 +54,17 @@ impl Approximation {
     }
 }
 
-/// How strict a transformation is about approximations.
+/// Cuán estricta es una transformación con las aproximaciones.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Policy {
-    /// Accept [`Approximation::NoDatumShift`] and [`Approximation::HeightKept`].
+    /// Acepta [`Approximation::NoDatumShift`] y [`Approximation::HeightKept`].
     pub allow_ballpark: bool,
-    /// Refuse [`Approximation::NextBestOperation`]: only the best operation counts.
+    /// Rechaza [`Approximation::NextBestOperation`]: solo cuenta la mejor operación.
     pub only_best: bool,
 }
 
 impl Default for Policy {
-    /// The strict policy: no ballpark, only the best operation.
+    /// La política estricta: sin aproximación, solo la mejor operación.
     fn default() -> Self {
         Policy::STRICT
     }
@@ -80,7 +80,7 @@ impl Policy {
         only_best: false,
     };
 
-    /// Whether `a` is acceptable.
+    /// Si `a` es aceptable.
     pub fn accepts(self, a: Approximation) -> bool {
         match a {
             Approximation::NoDatumShift | Approximation::HeightKept => self.allow_ballpark,
@@ -88,7 +88,7 @@ impl Policy {
         }
     }
 
-    /// The policy from the environment, over the strict defaults: `HIPSO_ALLOW_BALLPARK` and
+    /// La política del entorno, sobre los valores estrictos por defecto: `HIPSO_ALLOW_BALLPARK` y
     /// `HIPSO_ONLY_BEST` (`YES`/`NO`, `1`/`0`, `TRUE`/`FALSE`).
     pub fn from_env() -> Policy {
         let flag = |name: &str, default: bool| match std::env::var(name) {
@@ -106,7 +106,7 @@ impl Policy {
     }
 }
 
-/// The approximations a point went through.
+/// Las aproximaciones por las que pasó un punto.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Approximations(u8);
 
@@ -120,7 +120,7 @@ impl Approximations {
     pub fn iter(self) -> impl Iterator<Item = Approximation> {
         Approximation::ALL.into_iter().filter(move |a| self.contains(*a))
     }
-    /// The first approximation the policy refuses.
+    /// La primera aproximación que rechaza la política.
     pub fn refused_by(self, policy: Policy) -> Option<Approximation> {
         self.iter().find(|a| !policy.accepts(*a))
     }
@@ -133,24 +133,24 @@ thread_local! {
     static NOTES: Cell<u8> = const { Cell::new(0) };
 }
 
-/// Notes an approximation on this thread.
+/// Anota una aproximación en este hilo.
 pub(crate) fn note(a: Approximation) {
     NOTES.with(|n| n.set(n.get() | a.bit()));
 }
 
-/// The notes of this thread, without clearing them.
+/// Las notas de este hilo, sin borrarlas.
 pub(crate) fn peek() -> u8 {
     NOTES.with(Cell::get)
 }
 
-/// Clears the no-datum-shift note unless it was set in `before`.
+/// Borra la nota de ausencia de ajuste de datum salvo que estuviera fijada en `before`.
 pub(crate) fn restore_ballpark(before: u8) {
     if before & Approximation::NoDatumShift.bit() == 0 {
         NOTES.with(|n| n.set(n.get() & !Approximation::NoDatumShift.bit()));
     }
 }
 
-/// Takes (and clears) the notes of this thread.
+/// Toma (y borra) las notas de este hilo.
 pub(crate) fn take() -> Approximations {
     Approximations(NOTES.with(|n| n.replace(0)))
 }
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn outside_geoid_coverage_strict_fails_lenient_warns() {
         let tr = t("EPSG:4937", "EPSG:25831+5782");
-        // Paris: the Spanish geoid does not cover it
+        // París: el geoide español no lo cubre
         let strict = tr.transform_checked(2.3522, 48.8566, 0.0, Policy::STRICT);
         assert!(strict.is_err(), "{strict:?}");
         let ((_, _, h), notes) = tr
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn unknown_datum_is_noted_and_refused_when_strict() {
-        // A CRS defined by its ellipsoid alone has no datum to shift from.
+        // Un sistema definido solo por su elipsoide no tiene datum desde el que desplazar.
         let tr = t("+proj=utm +zone=30 +ellps=intl +units=m +no_defs", "EPSG:25830");
         let (x, y) = (500_000.0, 4_400_000.0);
         let (_, n) = tr.transform_checked(x, y, 0.0, Policy::LENIENT).unwrap();
@@ -222,7 +222,7 @@ mod ellipsoidal {
             .unwrap();
         assert!(n.is_empty());
         assert!((h - 648.89).abs() < 0.02, "{h}");
-        // and back
+        // y de vuelta
         let back = Transformer::with_options(
             &b,
             &a,
@@ -246,7 +246,7 @@ mod canarias {
 
     #[test]
     fn canarias_geoid_is_clean_under_strict_policy() {
-        // Tenerife: EGM08-REDNAP Canarias; ETRS89 and REGCAN95 coincide.
+        // Tenerife: EGM08-REDNAP Canarias; ETRS89 y REGCAN95 coinciden.
         let a = SpatialRef::parse("EPSG:4937").unwrap();
         let b = SpatialRef::parse("EPSG:25828+9398").unwrap();
         let tr = Transformer::new(&a, &b).unwrap();

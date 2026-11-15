@@ -1,6 +1,7 @@
-//! GeoJSON layers: read for display and as regions, and written from any vector layer. Positions
-//! are kept as they are in the file (no reprojection); the coordinate system is the file's `crs`
-//! member when it has one (the form GDAL and QGIS write and read for projected data).
+//! Capas GeoJSON: leídas para mostrar y como regiones, y escritas a partir de cualquier capa
+//! vectorial. Las posiciones se conservan como están en el archivo (sin reproyección); el sistema
+//! de coordenadas es el miembro `crs` del archivo cuando lo tiene (la forma que escriben y leen
+//! GDAL y QGIS para datos proyectados).
 
 use std::io::{BufWriter, Write};
 use std::path::Path;
@@ -10,7 +11,7 @@ use crate::vector::{Polygon, ReadOptions, Region, Shape2};
 use crate::view::{Feature, GeomKind, VectorData};
 use crate::{Error, Result};
 
-/// One feature: its parts (rings, lines or a single point) and its properties as text.
+/// Un elemento: sus partes (anillos, líneas o un solo punto) y sus propiedades como texto.
 pub(crate) struct Feat {
     pub(crate) parts: Vec<Vec<[f64; 2]>>,
     pub(crate) props: Vec<(String, String)>,
@@ -20,10 +21,10 @@ pub(crate) struct Layer {
     pub(crate) kind: GeomKind,
     pub(crate) feats: Vec<Feat>,
     pub(crate) epsg: Option<u16>,
-    /// Features left out because their geometry was of another kind than the layer's.
+    /// Elementos que se dejaron fuera porque su geometría era de otro tipo que la de la capa.
     pub(crate) skipped: usize,
-    /// Types the file declares for some of its fields (by name); the others are typed by
-    /// their values.
+    /// Tipos que declara el archivo para algunos de sus campos (por nombre); los demás se tipifican
+    /// por sus valores.
     pub(crate) types: Vec<(String, crate::fieldtype::FieldType)>,
 }
 
@@ -44,7 +45,8 @@ fn line(j: &Json) -> Option<Vec<[f64; 2]>> {
     j.as_array()?.iter().map(position).collect()
 }
 
-/// The rings of a polygon, the exterior (the first) clockwise and the holes counter-clockwise.
+/// Los anillos de un polígono, el exterior (el primero) en el sentido de las agujas del reloj y los
+/// huecos en sentido contrario.
 pub(crate) fn orient_rings(mut rings: Vec<Vec<[f64; 2]>>) -> Vec<Vec<[f64; 2]>> {
     for (k, ring) in rings.iter_mut().enumerate() {
         if (signed_area(ring) > 0.0) == (k == 0) {
@@ -54,8 +56,9 @@ pub(crate) fn orient_rings(mut rings: Vec<Vec<[f64; 2]>>) -> Vec<Vec<[f64; 2]>> 
     rings
 }
 
-/// The rings of a polygon, the exterior clockwise and the holes counter-clockwise (the shapefile
-/// convention the rest of the program uses; GeoJSON files may have either).
+/// Los anillos de un polígono, el exterior en el sentido de las agujas del reloj y los huecos en
+/// sentido contrario (el convenio del shapefile que usa el resto del programa; los archivos GeoJSON
+/// pueden tener cualquiera).
 fn rings(j: &Json) -> Option<Vec<Vec<[f64; 2]>>> {
     let mut out = Vec::new();
     for (k, r) in j.as_array()?.iter().enumerate() {
@@ -68,7 +71,7 @@ fn rings(j: &Json) -> Option<Vec<Vec<[f64; 2]>>> {
     Some(out)
 }
 
-/// The parts a geometry adds to a layer: for points, one part per point.
+/// Las partes que una geometría añade a una capa: para puntos, una parte por punto.
 fn geometry(g: &Json) -> Option<(GeomKind, Vec<Vec<[f64; 2]>>)> {
     let coords = g.get("coordinates");
     match g.get("type")?.as_str()? {
@@ -118,7 +121,7 @@ fn text_of(v: &Json) -> String {
     }
 }
 
-/// The EPSG code a `crs` member names (`urn:ogc:def:crs:EPSG::25830`, `EPSG:25830`).
+/// El código EPSG que nombra un miembro `crs` (`urn:ogc:def:crs:EPSG::25830`, `EPSG:25830`).
 fn epsg_of_crs(root: &Json) -> Option<u16> {
     let name = root.get("crs")?.get("properties")?.get("name")?.as_str()?;
     let at = name.to_ascii_uppercase().rfind("EPSG")?;
@@ -184,7 +187,7 @@ fn read_layer(path: &Path) -> Result<Layer> {
             continue;
         }
         if kind == GeomKind::Point {
-            // a multi-point is as many features as points
+            // un multipunto son tantos elementos como puntos
             for p in parts {
                 layer.feats.push(Feat {
                     parts: vec![p],
@@ -198,13 +201,13 @@ fn read_layer(path: &Path) -> Result<Layer> {
     Ok(layer)
 }
 
-/// A GeoJSON layer for display, with the number of features left out (another kind of geometry
-/// than the first feature's) and its coordinate system if the file names one.
+/// Una capa GeoJSON para mostrar, con el número de elementos que se dejaron fuera (otro tipo de
+/// geometría que el del primer elemento) y su sistema de coordenadas si el archivo lo nombra.
 pub fn read_vector(path: &Path) -> Result<(VectorData, GeomKind, Option<u16>, usize)> {
     Ok(vector_of(read_layer(path)?))
 }
 
-/// A layer of any origin as the data the viewer draws.
+/// Una capa de cualquier origen como los datos que dibuja el visor.
 pub(crate) fn vector_of(layer: Layer) -> (VectorData, GeomKind, Option<u16>, usize) {
     let mut fields: Vec<String> = Vec::new();
     for f in &layer.feats {
@@ -262,7 +265,7 @@ pub(crate) fn vector_of(layer: Layer) -> (VectorData, GeomKind, Option<u16>, usi
             }
             let values = || v.text.iter().map(|r| r[c].as_str());
             let t = crate::fieldtype::FieldType::infer(values());
-            // a column of ISO dates is a date column
+            // una columna de fechas ISO es una columna de fechas
             let dates = v.text.iter().any(|r| !r[c].trim().is_empty())
                 && values().all(|t| {
                     let t = t.trim();
@@ -275,7 +278,7 @@ pub(crate) fn vector_of(layer: Layer) -> (VectorData, GeomKind, Option<u16>, usi
             }
         })
         .collect();
-    // dates and yes/no carry their number, as the typed table does
+    // las fechas y los sí/no llevan su número, como la tabla tipada
     for (c, t) in v.types.clone().into_iter().enumerate() {
         for (r, row) in v.text.iter().enumerate() {
             match t {
@@ -296,13 +299,13 @@ pub(crate) fn vector_of(layer: Layer) -> (VectorData, GeomKind, Option<u16>, usi
     (v, layer.kind, layer.epsg, layer.skipped)
 }
 
-/// The polygons of a GeoJSON file as regions (and points as circles when a radius is given), named
-/// as `opts` says.
+/// Los polígonos de un archivo GeoJSON como regiones (y los puntos como círculos cuando se da un
+/// radio), nombrados como dice `opts`.
 pub fn read_regions(path: &Path, opts: &ReadOptions) -> Result<Vec<Region>> {
     regions_of(&read_layer(path)?, opts)
 }
 
-/// The regions of a layer of any origin.
+/// Las regiones de una capa de cualquier origen.
 pub(crate) fn regions_of(layer: &Layer, opts: &ReadOptions) -> Result<Vec<Region>> {
     let mut out = Vec::new();
     for (n, f) in layer.feats.iter().enumerate() {
@@ -355,7 +358,7 @@ pub(crate) fn regions_of(layer: &Layer, opts: &ReadOptions) -> Result<Vec<Region
     Ok(out)
 }
 
-/// The coordinate system a GeoJSON file names, looking only at the start of the file.
+/// El sistema de coordenadas que nombra un archivo GeoJSON, mirando solo el principio del archivo.
 pub fn epsg_hint(path: &Path) -> Option<u16> {
     use std::io::Read;
     let mut head = vec![0u8; 8192];
@@ -380,9 +383,9 @@ fn coord_line(l: &[[f64; 2]]) -> String {
     format!("[{}]", l.iter().map(coords).collect::<Vec<_>>().join(","))
 }
 
-/// The rings of a polygon feature grouped by polygon, each ring turned the way RFC 7946 wants: an
-/// exterior (clockwise in a shapefile) opens a polygon, the counter-clockwise ones that follow
-/// are its holes.
+/// Los anillos de un elemento poligonal agrupados por polígono, cada anillo girado como quiere RFC
+/// 7946: un exterior (en el sentido de las agujas del reloj en un shapefile) abre un polígono, los
+/// antihorarios que le siguen son sus huecos.
 pub(crate) fn polygons_of(parts: &[Vec<[f64; 2]>]) -> Vec<Vec<Vec<[f64; 2]>>> {
     let mut polygons: Vec<Vec<Vec<[f64; 2]>>> = Vec::new();
     for r in parts.iter().filter(|r| r.len() >= 3) {
@@ -397,8 +400,9 @@ pub(crate) fn polygons_of(parts: &[Vec<[f64; 2]>]) -> Vec<Vec<Vec<[f64; 2]>>> {
     polygons
 }
 
-/// The geometry of a feature as GeoJSON text. Polygon exteriors come out counter-clockwise and
-/// holes clockwise (RFC 7946); a ring turning the other way than the exterior before it is a hole.
+/// La geometría de un elemento como texto GeoJSON. Los exteriores de los polígonos salen
+/// antihorarios y los huecos horarios (RFC 7946); un anillo que gira al revés que el exterior
+/// anterior es un hueco.
 fn geometry_text(parts: &[Vec<[f64; 2]>], kind: GeomKind) -> String {
     match kind {
         GeomKind::Point => match parts {
@@ -453,8 +457,8 @@ fn geometry_text(parts: &[Vec<[f64; 2]>], kind: GeomKind) -> String {
     }
 }
 
-/// Writes a layer as GeoJSON, one feature per line so that a large file can be read by streaming
-/// tools. `epsg` becomes the `crs` member.
+/// Escribe una capa como GeoJSON, un elemento por línea para que las herramientas de flujo puedan
+/// leer un archivo grande. `epsg` pasa a ser el miembro `crs`.
 pub fn write_vector(path: &Path, d: &VectorData, kind: GeomKind, epsg: Option<u16>) -> Result<()> {
     let mut out = BufWriter::new(std::fs::File::create(path)?);
     write!(out, "{{\"type\":\"FeatureCollection\"")?;
@@ -531,7 +535,7 @@ mod tests {
 
     #[test]
     fn a_polygon_with_a_hole_round_trips() -> Result<()> {
-        // clockwise exterior and counter-clockwise hole, as in a shapefile
+        // exterior horario y hueco antihorario, como en un shapefile
         let outer = vec![
             [0.0, 0.0],
             [0.0, 10.0],
@@ -564,7 +568,7 @@ mod tests {
         assert_eq!(back.features.len(), 1);
         let parts = &back.features[0].parts;
         assert_eq!(parts.len(), 2);
-        // exterior clockwise (negative area), hole counter-clockwise, as the program expects
+        // exterior horario (área negativa), hueco antihorario, como espera el programa
         assert!(signed_area(&parts[0]) < 0.0 && signed_area(&parts[1]) > 0.0);
         assert!((signed_area(&parts[0]) + 100.0).abs() < 1e-9);
         assert_eq!(back.text[0], vec!["a \"b\"".to_string(), "96".to_string()]);
@@ -584,7 +588,7 @@ mod tests {
         )?;
         let (v, kind, epsg, skipped) = read_vector(&path)?;
         let _ = std::fs::remove_file(&path);
-        // two points from the multi-point; the line and the empty feature are left out
+        // dos puntos del multipunto; la línea y el elemento vacío se dejan fuera
         assert_eq!(
             (kind, epsg, skipped, v.features.len()),
             (GeomKind::Point, None, 2, 2)

@@ -1,25 +1,26 @@
-//! Stem measurement and cubing from terrestrial (and mobile or photogrammetric) point clouds of
-//! a forest plot. The steps:
+//! Medición de troncos y cubicación a partir de nubes de puntos terrestres (y móviles o
+//! fotogramétricas) de una parcela forestal. Los pasos:
 //!
-//! 1. The cloud is read as a stream and reduced to one point per voxel, so memory follows the
-//!    occupied voxels and not the number of points.
-//! 2. Heights above ground: the points already classified as ground, a cloth simulation on the
-//!    lowest points, or heights the cloud already carries.
-//! 3. Stems are found in a horizontal stripe (by default 0.7–3.5 m above ground): points whose
-//!    neighbourhood is stretched vertically are kept, grouped, and the groups are peeled of
-//!    branches by repeating the two steps. A principal axis is fitted to each group.
-//! 4. Each stem is followed up and down from the stripe, fitting a circle to a thin horizontal
-//!    slice every few centimetres and predicting the next centre from the last ones, so leaning
-//!    and curved stems are followed. A section counts only if it has enough points, around
-//!    enough of the circumference, and none inside; sections that disagree with their
-//!    neighbours are discarded and short gaps are interpolated.
-//! 5. Logs: from the base height up, a diameter every `log_len` metres, and Smalian's formula
-//!    for the volume of each log, ((A1 + A2) / 2) · L, until the stem is as thin as the top
-//!    diameter (the last log is cut where the diameter reaches it).
-//! 6. Optionally, every point of the cloud is given to its nearest stem axis and written as one
-//!    cloud per tree.
+//! 1. La nube se lee en flujo y se reduce a un punto por vóxel, de modo que la memoria sigue a los
+//!    vóxeles ocupados y no al número de puntos.
+//! 2. Alturas sobre el suelo: los puntos ya clasificados como suelo, una simulación de tela sobre
+//!    los puntos más bajos o las alturas que ya trae la nube.
+//! 3. Los troncos se buscan en una franja horizontal (por defecto de 0,7 a 3,5 m sobre el suelo):
+//!    se conservan los puntos cuyo entorno está estirado en vertical, se agrupan y a los grupos se
+//!    les quitan las ramas repitiendo los dos pasos. A cada grupo se le ajusta un eje principal.
+//! 4. Cada tronco se sigue hacia arriba y hacia abajo desde la franja, ajustando un círculo a una
+//!    rebanada horizontal fina cada pocos centímetros y prediciendo el centro siguiente a partir de
+//!    los últimos, de modo que se siguen los troncos inclinados y curvos. Una sección cuenta solo
+//!    si tiene suficientes puntos, repartidos alrededor de suficiente parte de la circunferencia y
+//!    ninguno dentro; las secciones que no concuerdan con sus vecinas se descartan y los huecos
+//!    cortos se interpolan.
+//! 5. Trozas: desde la altura de la base hacia arriba, un diámetro cada `log_len` metros y la
+//!    fórmula de Smalian para el volumen de cada troza, ((A1 + A2) / 2) · L, hasta que el tronco es
+//!    tan fino como el diámetro de punta (la última troza se corta donde el diámetro lo alcanza).
+//! 6. Opcionalmente, cada punto de la nube se asigna a su eje de tronco más cercano y se escribe
+//!    como una nube por árbol.
 
-// Small fixed-size matrix code reads best with indices.
+// El código de matrices pequeñas de tamaño fijo se lee mejor con índices.
 #![allow(clippy::needless_range_loop)]
 
 use std::collections::HashMap;
@@ -36,56 +37,57 @@ use crate::{Error, Result};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TlsParams {
-    /// Voxel (m) the cloud is reduced to.
+    /// Vóxel (m) al que se reduce la nube.
     pub voxel: f64,
-    /// The cloud's z are already heights above ground.
+    /// Las z de la nube ya son alturas sobre el suelo.
     pub normalized: bool,
-    /// Distance between cloth particles (m) when the ground is simulated.
+    /// Distancia entre las partículas de la tela (m) cuando se simula el suelo.
     pub cloth: f64,
-    /// Stripe where stems are looked for, heights above ground.
+    /// Franja donde se buscan los troncos, alturas sobre el suelo.
     pub stripe: (f64, f64),
-    /// Rounds of vertical filtering and grouping ("peeling off branches").
+    /// Rondas de filtrado vertical y agrupación («quitar ramas»).
     pub peel: usize,
-    /// Radius (m) of the neighbourhood used for verticality.
+    /// Radio (m) del entorno que se usa para la verticalidad.
     pub vert_radius: f64,
-    /// Smallest verticality (0–1) of a stem point.
+    /// Menor verticalidad (0–1) de un punto de tronco.
     pub vert_min: f64,
-    /// Fewest voxels of a stem group in the stripe.
+    /// Menor número de vóxeles de un grupo de tronco en la franja.
     pub min_stem_points: usize,
-    /// Vertical extent (m) a group must have to be a stem.
+    /// Extensión vertical (m) que debe tener un grupo para ser un tronco.
     pub height_range: f64,
-    /// Largest and smallest diameter (m) of a stem section.
+    /// Mayor y menor diámetro (m) de una sección de tronco.
     pub max_diam: f64,
     pub min_diam: f64,
-    /// Half thickness (m) of a section slice.
+    /// Semigrosor (m) de una rebanada de sección.
     pub slice: f64,
-    /// Fewest voxels in a section, sectors (of 16) it must occupy, and voxels allowed inside
-    /// the inner circle.
+    /// Menor número de vóxeles de una sección, sectores (de 16) que debe ocupar y vóxeles
+    /// permitidos dentro del círculo interior.
     pub min_section_points: usize,
     pub min_sectors: usize,
     pub max_inner: usize,
-    /// Height (m) above ground where the first log starts.
+    /// Altura (m) sobre el suelo donde empieza la primera troza.
     pub base_height: f64,
-    /// Diameter (m) at which the merchantable stem ends.
+    /// Diámetro (m) en el que termina el fuste comercial.
     pub top_diam: f64,
-    /// Distance (m) between the diameters measured along the stem: the length of a log.
+    /// Distancia (m) entre los diámetros medidos a lo largo del tronco: la longitud de una troza.
     pub log_len: f64,
     /// Highest section (m).
     pub max_height: f64,
-    /// Distance (m) up to which a point is given to a stem for the clouds by tree.
+    /// Distancia (m) hasta la que se asigna un punto a un tronco para las nubes por árbol.
     pub assign_dist: f64,
-    /// Distance (m) between the bases of stems that grow on the same stool (sprouts of a
-    /// coppice, or the branches of a fork).
+    /// Distancia (m) entre las bases de troncos que crecen en una misma cepa (brotes de un monte
+    /// bajo o ramas de una bifurcación).
     pub stool_dist: f64,
-    /// Height (m) of the diameter. Stems that are apart at this height are sprouts of one
-    /// stool, each a tree; stems that are one below it and fork above it are one forked tree.
+    /// Altura (m) del diámetro. Los troncos que están separados a esta altura son brotes de una
+    /// cepa, cada uno un árbol; los troncos que son uno por debajo y se bifurcan por encima son un
+    /// solo árbol bifurcado.
     pub fork_height: f64,
-    /// Longest stretch (m) of a stem that may go unmeasured (an occlusion, foliage, a sparse
-    /// part) before it is taken as lost. The search widens with the stretch.
+    /// Mayor tramo (m) de un tronco que puede quedar sin medir (una oclusión, follaje, una parte
+    /// poco densa) antes de darlo por perdido. La búsqueda se ensancha con el tramo.
     pub max_gap: f64,
-    /// Share (0–1) of the height of the tree that its merchantable height is expected to be, used
-    /// to estimate it for a stem that was lost while still thick and far below the top of the
-    /// tree. 0: no estimate (the stem stays truncated).
+    /// Proporción (0–1) de la altura del árbol que se espera que sea su altura comercial, que se
+    /// usa para estimarla en un tronco que se perdió cuando aún era grueso y muy por debajo de la
+    /// cima del árbol. 0: sin estimación (el tronco queda truncado).
     pub lost_top_share: f64,
 }
 
@@ -154,7 +156,7 @@ impl TlsParams {
     }
 }
 
-// ----------------------------------------------------------------------------- small helpers
+// ----------------------------------------------------------------------------- utilidades pequeñas
 
 #[derive(Default)]
 struct Fx(u64);
@@ -183,12 +185,12 @@ fn pack(ix: i64, iy: i64, iz: i64) -> u64 {
         | ((iz + (1 << 20)) as u64 & M)
 }
 
-/// Eigenvector of the largest eigenvalue of a symmetric 3×3 matrix.
+/// Autovector del mayor autovalor de una matriz simétrica de 3×3.
 fn principal(m: [[f64; 3]; 3]) -> [f64; 3] {
     eigen(m).1
 }
 
-/// Eigenvalues (largest first) and the eigenvector of the largest, by Jacobi rotations.
+/// Autovalores (el mayor primero) y autovector del mayor, por rotaciones de Jacobi.
 pub(crate) fn eigen(m: [[f64; 3]; 3]) -> ([f64; 3], [f64; 3]) {
     let mut a = m;
     let mut v = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
@@ -262,18 +264,18 @@ pub(crate) fn covariance(
     (m, c, n)
 }
 
-// ----------------------------------------------------------------------------- the cloud
+// ----------------------------------------------------------------------------- la nube
 
 struct Cloud {
-    /// Lower corner of the cloud: coordinates below are relative to it.
+    /// Esquina inferior de la nube: las coordenadas de abajo son relativas a ella.
     origin: [f64; 3],
     xyz: Vec<[f32; 3]>,
     class: Vec<u8>,
-    /// Height above ground.
+    /// Altura sobre el suelo.
     z0: Vec<f32>,
     date: Option<String>,
     epsg: Option<u16>,
-    /// The cloud, before voxels: points read.
+    /// La nube, antes de los vóxeles: puntos leídos.
     read: u64,
 }
 
@@ -318,7 +320,7 @@ fn load(input: &Path, p: &TlsParams) -> Result<Cloud> {
     })
 }
 
-/// Heights above ground for every point; the ground grid used (relative coordinates).
+/// Alturas sobre el suelo de cada punto; la rejilla de suelo usada (coordenadas relativas).
 fn normalize(c: &mut Cloud, p: &TlsParams) -> Result<Option<Grid>> {
     if p.normalized {
         c.z0 = c.xyz.iter().map(|q| q[2] + c.origin[2] as f32).collect();
@@ -333,10 +335,10 @@ fn normalize(c: &mut Cloud, p: &TlsParams) -> Result<Option<Grid>> {
     let mut g = Grid::covering([0.0, 0.0, f64::from(x1) + cell, f64::from(y1) + cell], cell)?;
     let n_ground = c.class.iter().filter(|k| **k == 2).count();
     let ground: Vec<usize> = if n_ground * 200 >= c.class.len() {
-        // the delivery's own ground class
+        // la clase de suelo propia de la entrega
         (0..c.class.len()).filter(|&i| c.class[i] == 2).collect()
     } else {
-        // cloth simulation on the lowest point of every 0.25 m cell
+        // simulación de tela sobre el punto más bajo de cada celda de 0,25 m
         let mut low: FxMap<u64, usize> = FxMap::default();
         for (i, q) in c.xyz.iter().enumerate() {
             let k = pack(
@@ -412,26 +414,28 @@ fn normalize(c: &mut Cloud, p: &TlsParams) -> Result<Option<Grid>> {
     Ok(Some(g))
 }
 
-// ----------------------------------------------------------------------------- stems in the stripe
+// ----------------------------------------------------------------------------- troncos en la
+// franja
 
-/// A stem found in the stripe: a principal axis through `c`, pointing up.
+/// Un tronco hallado en la franja: un eje principal por `c`, apuntando hacia arriba.
 #[derive(Clone, Debug)]
 struct Stem {
-    /// Point of the axis at height-above-ground `h0` (relative coordinates, x y).
+    /// Punto del eje a la altura sobre el suelo `h0` (coordenadas relativas, x y).
     c: [f64; 2],
     h0: f64,
-    /// Horizontal drift of the axis per metre of height.
+    /// Deriva horizontal del eje por metro de altura.
     slope: [f64; 2],
     n: usize,
-    /// The heights the axis was measured between. Inside them it is where the stem is, and
-    /// is trusted over a prediction from the sections already measured: that is what keeps the
-    /// branches of a fork, which share the stem below, each on its own.
+    /// Las alturas entre las que se midió el eje. Dentro de ellas es donde está el tronco, y se fía
+    /// más de ellas que de una predicción a partir de las secciones ya medidas: eso es lo que
+    /// mantiene cada una en su sitio a las ramas de una bifurcación, que comparten tronco por
+    /// debajo.
     from: f64,
     to: f64,
 }
 
-/// Verticality of the points of `set` (the cosine between the main direction of their
-/// neighbourhood and the vertical), using neighbours from `set` only.
+/// Verticalidad de los puntos de `set` (el coseno entre la dirección principal de su entorno y la
+/// vertical), usando solo vecinos de `set`.
 fn verticality(xyz: &[[f32; 3]], set: &[u32], radius: f64) -> Vec<f32> {
     let r = radius as f32;
     let key = |q: &[f32; 3]| {
@@ -494,7 +498,8 @@ fn verticality(xyz: &[[f32; 3]], set: &[u32], radius: f64) -> Vec<f32> {
         .collect()
 }
 
-/// Groups of points closer than `eps` (chained): the group number of each, and their sizes.
+/// Grupos de puntos más cercanos que `eps` (encadenados): el número de grupo de cada uno y sus
+/// tamaños.
 fn group(xyz: &[[f32; 3]], set: &[u32], eps: f64) -> (Vec<u32>, Vec<usize>) {
     let e = eps as f32;
     let key = |q: &[f32; 3]| {
@@ -552,9 +557,8 @@ fn group(xyz: &[[f32; 3]], set: &[u32], eps: f64) -> (Vec<u32>, Vec<usize>) {
     (label, sizes)
 }
 
-/// One stem followed through the levels of the stripe: (height, x, y, diameter, voxels) of its
-/// circle at each level it was found.
-/// A circle at a height: (height, x, y, diameter, voxels).
+/// Un tronco seguido por los niveles de la franja: (altura, x, y, diámetro, vóxeles) de su círculo
+/// en cada nivel en que se encontró. Un círculo a una altura: (altura, x, y, diámetro, vóxeles).
 type Circle = (f64, f64, f64, f64, usize);
 
 struct Chain {
@@ -563,8 +567,8 @@ struct Chain {
 }
 
 impl Chain {
-    /// Where the chain's circle is expected at height `h`: its last centre carried on with the
-    /// drift between its first and last circles.
+    /// Dónde se espera el círculo de la cadena a la altura `h`: su último centro prolongado con la
+    /// deriva entre sus círculos primero y último.
     fn predict(&self, h: f64) -> (f64, f64) {
         let (a, b) = (self.at[0], self.at[self.at.len() - 1]);
         let span = b.0 - a.0;
@@ -578,8 +582,8 @@ impl Chain {
         )
     }
 
-    /// The axis the circles lie along, as a stem: a least-squares line of each coordinate on the
-    /// height.
+    /// El eje a lo largo del cual están los círculos, como tronco: una recta de mínimos cuadrados
+    /// de cada coordenada sobre la altura.
     fn stem(&self) -> Stem {
         let n = self.at.len() as f64;
         let mean = |f: &dyn Fn(&Circle) -> f64| self.at.iter().map(f).sum::<f64>() / n;
@@ -609,10 +613,9 @@ impl Chain {
     }
 }
 
-/// The circles of one group of the stripe followed from level to level: at several levels all the
-/// circles of the group are searched (several stems that touch are several circles, not one wide
-/// one), and the circles of consecutive levels that continue each other make a chain, a stem
-/// candidate.
+/// Los círculos de un grupo de la franja seguidos de nivel en nivel: en varios niveles se buscan
+/// todos los círculos del grupo (varios troncos que se tocan son varios círculos, no uno ancho), y
+/// los círculos de niveles consecutivos que se continúan forman una cadena, un candidato a tronco.
 fn chain_candidates(c: &Cloud, ids: &[u32], p: &TlsParams) -> Vec<Chain> {
     let (lo, hi) = (p.stripe.0 + p.slice, p.stripe.1 - p.slice);
     let mut levels = Vec::new();
@@ -639,7 +642,7 @@ fn chain_candidates(c: &Cloud, ids: &[u32], p: &TlsParams) -> Vec<Chain> {
         let mut taken = vec![false; chains.len()];
         let fits = circles_in(&pts, centre, f64::INFINITY, p, None, 6);
         for f in fits {
-            // the chain whose circle, carried on, is nearest, and of a like size
+            // la cadena cuyo círculo, prolongado, es el más cercano y de un tamaño parecido
             let mut best: Option<(usize, f64)> = None;
             for (k, ch) in chains.iter().enumerate() {
                 if taken[k] || li - ch.last_level > 2 {
@@ -673,9 +676,9 @@ fn chain_candidates(c: &Cloud, ids: &[u32], p: &TlsParams) -> Vec<Chain> {
     chains
 }
 
-/// Whether a chain is a stem: it needs a few levels; a branch that leaves a fork inside the
-/// stripe may have only two, if it starts right above a circle of a stem that has them (`solid`,
-/// the chains of three levels or more, of any group).
+/// Si una cadena es un tronco: necesita unos cuantos niveles; una rama que sale de una bifurcación
+/// dentro de la franja puede tener solo dos, si empieza justo encima de un círculo de un tronco que
+/// los tiene (`solid`, las cadenas de tres niveles o más, de cualquier grupo).
 fn is_stem(ch: &Chain, solid: &[&Chain]) -> bool {
     ch.at.len() >= 3
         || (ch.at.len() == 2
@@ -736,8 +739,9 @@ fn find_stems(c: &Cloud, p: &TlsParams) -> Vec<Stem> {
             hi - lo >= p.height_range
         })
         .collect();
-    // the circles of every group first: a branch of a fork can be in a group of its own, apart
-    // from the stem under it, and what shows it is a branch is the stem that ends just below
+    // primero los círculos de cada grupo: una rama de una bifurcación puede estar en un grupo
+    // propio, aparte del tronco que tiene debajo, y lo que muestra que es una rama es el tronco que
+    // termina justo debajo
     let all: Vec<Vec<Chain>> = groups
         .iter()
         .map(|ids| chain_candidates(c, ids, p))
@@ -754,7 +758,7 @@ fn find_stems(c: &Cloud, p: &TlsParams) -> Vec<Stem> {
             stems.extend(found);
             continue;
         }
-        // no circle could be followed (stems seen only in arcs): the axis of the whole group
+        // no se pudo seguir ningún círculo (troncos vistos solo en arcos): el eje de todo el grupo
         let pts = ids.iter().map(|&i| {
             let q = c.xyz[i as usize];
             [
@@ -775,7 +779,7 @@ fn find_stems(c: &Cloud, p: &TlsParams) -> Vec<Stem> {
             continue;
         }
         let slope = [d[0] / d[2], d[1] / d[2]];
-        // a stem is a thin column around its axis
+        // un tronco es una columna fina alrededor de su eje
         let far = pts
             .clone()
             .map(|q| {
@@ -796,7 +800,7 @@ fn find_stems(c: &Cloud, p: &TlsParams) -> Vec<Stem> {
         });
     }
     stems.sort_by(|a, b| a.c[0].total_cmp(&b.c[0]).then(a.c[1].total_cmp(&b.c[1])));
-    // two groups of one stem (a gap in the stripe): keep the larger
+    // dos grupos de un mismo tronco (un hueco en la franja): se conserva el mayor
     let mut out: Vec<Stem> = Vec::new();
     for s in stems {
         let near = out.iter_mut().find(|o| {
@@ -815,7 +819,7 @@ fn find_stems(c: &Cloud, p: &TlsParams) -> Vec<Stem> {
 
 // ----------------------------------------------------------------------------- sections
 
-/// Voxels by horizontal cell, sorted by height, to cut slices quickly.
+/// Vóxeles por celda horizontal, ordenados por altura, para cortar rebanadas deprisa.
 struct SliceIndex {
     cell: f32,
     order: Vec<u32>,
@@ -856,7 +860,7 @@ impl SliceIndex {
         Self { cell, order, cells }
     }
 
-    /// The points within `rad` of `(x, y)` and between heights `lo` and `hi`.
+    /// Los puntos a menos de `rad` de `(x, y)` y entre las alturas `lo` y `hi`.
     fn slice(&self, c: &Cloud, x: f64, y: f64, rad: f64, lo: f64, hi: f64) -> Vec<[f32; 2]> {
         let cell = f64::from(self.cell);
         let (cx0, cx1) = (
@@ -890,7 +894,8 @@ impl SliceIndex {
     }
 }
 
-/// A circle by least squares: algebraic start, then Gauss–Newton on the geometric distances.
+/// Un círculo por mínimos cuadrados: arranque algebraico y luego Gauss–Newton sobre las distancias
+/// geométricas.
 fn fit_circle(pts: &[[f32; 2]]) -> Option<(f64, f64, f64)> {
     let n = pts.len();
     if n < 3 {
@@ -953,9 +958,9 @@ fn fit_circle(pts: &[[f32; 2]]) -> Option<(f64, f64, f64)> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Section {
-    /// Height above ground.
+    /// Altura sobre el suelo.
     pub h: f64,
-    /// Centre and diameter (relative coordinates until the result is made).
+    /// Centro y diámetro (coordenadas relativas hasta que se hace el resultado).
     pub x: f64,
     pub y: f64,
     pub d: f64,
@@ -964,7 +969,7 @@ pub struct Section {
     pub sectors: usize,
 }
 
-/// A circle through three points.
+/// Un círculo por tres puntos.
 fn circumcircle(a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> Option<(f64, f64, f64)> {
     let (ax, ay) = (f64::from(a[0]), f64::from(a[1]));
     let (bx, by) = (f64::from(b[0]) - ax, f64::from(b[1]) - ay);
@@ -978,11 +983,12 @@ fn circumcircle(a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> Option<(f64, f64, f64)
     Some((ax + ux, ay + uy, ux.hypot(uy)))
 }
 
-/// The circle most of whose circumference is covered, among those through random triples:
-/// robust to branches, leaves and neighbours that are in the slice. `tol` is how far from it a
-/// point may be; `per_m` the points a full ring has for each metre of circumference. Covering
-/// is what counts, not how many points: a wide circle drawn through arcs of several stems has
-/// as many points as the ring of one stem, but covers a fraction of its own circumference.
+/// El círculo cuya circunferencia está más cubierta, entre los que pasan por tripletes al azar:
+/// robusto frente a ramas, hojas y vecinos que están en la rebanada. `tol` es la distancia a la que
+/// puede estar un punto; `per_m` los puntos que tiene un anillo completo por cada metro de
+/// circunferencia. Lo que cuenta es la cobertura, no cuántos puntos: un círculo ancho trazado por
+/// arcos de varios troncos tiene tantos puntos como el anillo de un tronco, pero cubre una fracción
+/// de su propia circunferencia.
 fn ransac_circle(
     pts: &[[f32; 2]],
     rmin: f64,
@@ -1027,12 +1033,14 @@ fn ransac_circle(
     best
 }
 
-/// A circle found in a slice: centre, diameter, voxels that agree and sectors they occupy.
+/// Un círculo hallado en una rebanada: centro, diámetro, vóxeles que concuerdan y sectores que
+/// ocupan.
 type Fit = (f64, f64, f64, usize, usize);
 
-/// The circles of a slice, the best supported first, at most `max`. After each one the points
-/// around it are dropped, so that the circles of stems that touch (sprouts of one stool, the
-/// branches of a fork) are found one by one instead of as a single wide circle around both.
+/// Los círculos de una rebanada, el mejor respaldado primero, como mucho `max`. Tras cada uno se
+/// descartan los puntos de su alrededor, de modo que los círculos de troncos que se tocan (brotes
+/// de una cepa, ramas de una bifurcación) se hallan uno a uno y no como un único círculo ancho
+/// alrededor de ambos.
 fn circles_in(
     pts: &[[f32; 2]],
     guess: (f64, f64),
@@ -1055,16 +1063,16 @@ fn circles_in(
     out
 }
 
-/// How much further (m) to look for a stem that has not been measured for `gap` metres: the
-/// drift it was carried on with is less sure the longer the stretch.
+/// Cuánto más lejos (m) hay que buscar un tronco que no se ha medido en `gap` metros: la deriva con
+/// que se prolongó es menos segura cuanto más largo es el tramo.
 fn widening(gap: f64) -> f64 {
     0.06 * gap.clamp(0.0, 3.0)
 }
 
-/// The circle of a slice nearest to where the stem is expected, if the slice holds a stem
-/// section. `prev` is the diameter of the section before, if any: the number of points and
-/// sectors asked for follow the size of the stem. Choosing the nearest circle, and not the best
-/// supported, is what keeps a stem from jumping to a thicker neighbour a few centimetres away.
+/// El círculo de una rebanada más cercano a donde se espera el tronco, si la rebanada contiene una
+/// sección de tronco. `prev` es el diámetro de la sección anterior, si la hay: el número de puntos
+/// y sectores que se piden sigue el tamaño del tronco. Elegir el círculo más cercano, y no el mejor
+/// respaldado, es lo que impide que un tronco salte a un vecino más grueso a unos centímetros.
 fn measure(
     pts: &[[f32; 2]],
     guess: (f64, f64),
@@ -1073,7 +1081,7 @@ fn measure(
     gap: f64,
 ) -> Option<Fit> {
     let d_ref = prev.unwrap_or(0.3);
-    // the stem may be further from the carried-on guess the longer it has not been seen
+    // el tronco puede estar más lejos de la estimación prolongada cuanto más tiempo lleva sin verse
     let reach = (d_ref * 1.2 + 0.15).max(0.3) + widening(gap);
     let away = |f: &Fit| (f.0 - guess.0).hypot(f.1 - guess.1);
     circles_in(pts, guess, reach, p, prev, 3)
@@ -1081,8 +1089,8 @@ fn measure(
         .min_by(|a, b| away(a).total_cmp(&away(b)))
 }
 
-/// Fits and checks one circle of a slice within `reach` of `guess`; `None` when there is none
-/// that is a stem section.
+/// Ajusta y comprueba un círculo de una rebanada a menos de `reach` de `guess`; `None` cuando no
+/// hay ninguno que sea una sección de tronco.
 fn circle_at(
     pts: &[[f32; 2]],
     guess: (f64, f64),
@@ -1091,7 +1099,7 @@ fn circle_at(
     prev: Option<f64>,
 ) -> Option<Fit> {
     let d_ref = prev.unwrap_or(0.3);
-    // what a stem of this size gives in a slice of this thickness, at this voxel
+    // lo que da un tronco de este tamaño en una rebanada de este grosor, con este vóxel
     let expected =
         0.5 * (std::f64::consts::PI * d_ref / p.voxel) * (2.0 * p.slice / p.voxel).max(1.0);
     let min_pts = (p.min_section_points as f64).min(expected).max(8.0) as usize;
@@ -1104,7 +1112,7 @@ fn circle_at(
         return None;
     }
     let tol = p.voxel * 0.75 + 0.004;
-    // points per metre of a full ring: the layers of voxels in the slice, over the voxel
+    // puntos por metro de un anillo completo: las capas de vóxeles de la rebanada, entre el vóxel
     let per_m = (2.0 * p.slice / p.voxel).max(1.0) / p.voxel;
     let (cx, cy, r) = ransac_circle(
         pts,
@@ -1115,7 +1123,7 @@ fn circle_at(
         tol,
         per_m,
     )?;
-    // refine on the points that agree, a few rounds, with a tolerance that follows the data
+    // se refina con los puntos que concuerdan, unas rondas, con una tolerancia que sigue los datos
     let mut kept: Vec<[f32; 2]> = pts
         .iter()
         .copied()
@@ -1139,8 +1147,9 @@ fn circle_at(
     if r * 2.0 < p.min_diam || r * 2.0 > p.max_diam {
         return None;
     }
-    // the residual allowed grows with the stem, but only so far: a wide circle around two
-    // stems that touch has a large residual that 10 % of its radius would let through
+    // el residuo permitido crece con el tronco, pero solo hasta cierto punto: un círculo ancho
+    // alrededor de dos troncos que se tocan tiene un residuo grande que el 10 % de su radio dejaría
+    // pasar
     let floor = p.voxel * 0.6;
     if rms_residual(&kept, cx, cy, r) > (0.1 * r).clamp(floor, floor + 0.02) {
         return None;
@@ -1152,8 +1161,8 @@ fn circle_at(
             true;
     }
     let sectors = occupied.iter().filter(|o| **o).count();
-    // a stem is a surface: little of the slice lies inside it. A circle around two stems that
-    // touch, or around a branch with foliage, has voxels in its inner circle.
+    // un tronco es una superficie: poco de la rebanada cae dentro de él. Un círculo alrededor de
+    // dos troncos que se tocan, o de una rama con follaje, tiene vóxeles en su círculo interior.
     let inner = pts
         .iter()
         .filter(|q| (f64::from(q[0]) - cx).hypot(f64::from(q[1]) - cy) < r * 0.5)
@@ -1178,8 +1187,8 @@ fn rms_residual(pts: &[[f32; 2]], cx: f64, cy: f64, r: f64) -> f64 {
         .sqrt()
 }
 
-/// Sections of one stem, from the base height to where the stem is lost or thinner than the
-/// top diameter, `step` metres apart.
+/// Secciones de un tronco, desde la altura de la base hasta donde el tronco se pierde o es más fino
+/// que el diámetro de punta, separadas `step` metros.
 fn track(c: &Cloud, idx: &SliceIndex, stem: &Stem, p: &TlsParams, step: f64) -> Vec<Section> {
     let at_axis = |h: f64| {
         let t = h - stem.h0;
@@ -1187,7 +1196,7 @@ fn track(c: &Cloud, idx: &SliceIndex, stem: &Stem, p: &TlsParams, step: f64) -> 
     };
     let slice_at =
         |x: f64, y: f64, rad: f64, h: f64| idx.slice(c, x, y, rad, h - p.slice, h + p.slice);
-    // start at breast height, or the nearest height of the stripe that gives a section
+    // se empieza a la altura del pecho o a la altura más cercana de la franja que da una sección
     let j_of = |h: f64| ((h - p.base_height) / step).round() as i64;
     let h_of = |j: i64| p.base_height + j as f64 * step;
     let mut starts: Vec<f64> = vec![1.3, 1.5, 1.1, 1.7, 0.9, 1.9, 2.2, 2.6, 3.0];
@@ -1231,7 +1240,7 @@ fn track(c: &Cloud, idx: &SliceIndex, stem: &Stem, p: &TlsParams, step: f64) -> 
         },
     };
     let mut up: Vec<Section> = vec![mk(h_of(j0), Some(m0), (0.0, 0.0))];
-    // upwards, then downwards, with the same rules
+    // hacia arriba y luego hacia abajo, con las mismas reglas
     for dir in [1i64, -1i64] {
         let mut chain: Vec<Section> = vec![up[0].clone()];
         let mut fails = 0;
@@ -1251,18 +1260,18 @@ fn track(c: &Cloud, idx: &SliceIndex, stem: &Stem, p: &TlsParams, step: f64) -> 
                 .cloned()
                 .unwrap_or_else(|| up[0].clone());
             let dh = h - last_ok.h;
-            // where the stem was measured, its own axis; elsewhere, the last section carried on
+            // donde se midió el tronco, su propio eje; en otro caso, la última sección prolongada
             let (px, py) = if (stem.from - 0.3..=stem.to + 0.3).contains(&h) {
                 at_axis(h)
             } else {
                 (last_ok.x + slope[0] * dh, last_ok.y + slope[1] * dh)
             };
-            // the stretch since the last section measured: the search widens with it
+            // el tramo desde la última sección medida: la búsqueda se ensancha con él
             let gap = dh.abs();
             let rad = (last_ok.d * 0.75 + 0.1 + widening(gap)).min(p.max_diam);
             let pts = slice_at(px, py, rad, h);
             let mut m = measure(&pts, (px, py), p, Some(last_ok.d), gap);
-            // a sudden change of size or position is not a stem section
+            // un cambio brusco de tamaño o de posición no es una sección de tronco
             if let Some((x, y, d, ..)) = m {
                 let jump = (x - px).hypot(y - py) > 0.15 + 0.5 * last_ok.d + widening(gap);
                 let size = (d - last_ok.d).abs() > 0.3 * last_ok.d + 0.03;
@@ -1275,7 +1284,8 @@ fn track(c: &Cloud, idx: &SliceIndex, stem: &Stem, p: &TlsParams, step: f64) -> 
                     fails = 0;
                     if dh.abs() > 1e-9 {
                         let s = [(x - last_ok.x) / dh, (y - last_ok.y) / dh];
-                        // blend: the drift of a stem changes slowly, and stays below 25 degrees
+                        // mezcla: la deriva de un tronco cambia despacio y se mantiene por debajo
+                        // de 25 grados
                         for k in 0..2 {
                             slope[k] = (0.5 * slope[k] + 0.5 * s[k]).clamp(-0.47, 0.47);
                         }
@@ -1285,8 +1295,9 @@ fn track(c: &Cloud, idx: &SliceIndex, stem: &Stem, p: &TlsParams, step: f64) -> 
                 None => fails += 1,
             }
             chain.push(mk(h, m, (px, py)));
-            // lost: the stem has gone unmeasured for the longest stretch allowed (downwards the
-            // ground is near and a longer one is worth trying), or it is as thin as the top
+            // perdido: el tronco ha estado sin medir durante el mayor tramo permitido (hacia abajo
+            // el suelo está cerca y merece la pena probar uno más largo) o es tan fino como la
+            // punta
             if dir == 1 && (gap >= p.max_gap - 1e-9 && fails > 0 || thin >= 2) {
                 break;
             }
@@ -1298,21 +1309,21 @@ fn track(c: &Cloud, idx: &SliceIndex, stem: &Stem, p: &TlsParams, step: f64) -> 
     }
     up.sort_by(|a, b| a.h.total_cmp(&b.h));
     reject_outliers(&mut up);
-    // trailing failures carry no information
+    // los fallos finales no aportan información
     while up.last().is_some_and(|s| !s.ok) {
         up.pop();
     }
     up
 }
 
-/// Sections that disagree with both neighbours are not stem sections. They lose their diameter
-/// as well as their `ok`: a diameter left on a rejected section would pass for a measurement
-/// wherever the gap fill cannot replace it (a gap of more than a metre between the sections
-/// around it), and the cubing would take it in.
+/// Las secciones que no concuerdan con ninguna de sus dos vecinas no son secciones de tronco.
+/// Pierden su diámetro además de su `ok`: un diámetro dejado en una sección rechazada pasaría por
+/// una medida allí donde el relleno de huecos no puede sustituirlo (un hueco de más de un metro
+/// entre las secciones de alrededor) y la cubicación lo tomaría.
 fn reject_outliers(secs: &mut [Section]) {
     let ok_idx: Vec<usize> = (0..secs.len()).filter(|&i| secs[i].ok).collect();
     let mut rejected = Vec::new();
-    // every comparison reads the diameters as measured, so the rejections wait
+    // toda comparación lee los diámetros tal como se midieron, de modo que los rechazos esperan
     for w in 1..ok_idx.len().saturating_sub(1) {
         let (a, b, n) = (ok_idx[w - 1], ok_idx[w], ok_idx[w + 1]);
         let mean = (secs[a].d + secs[n].d) / 2.0;
@@ -1328,12 +1339,12 @@ fn reject_outliers(secs: &mut [Section]) {
     }
 }
 
-/// A stem narrows upwards. From 1 m up (below, the stem may flare towards the root) the sections
-/// kept make an envelope that never rises: the smallest median of three consecutive sections
-/// kept so far. A section wider than it (by more than 8 % and 1 cm) has caught a branch, a
-/// neighbouring stem or a fork, and loses its diameter; being a floor of medians, neither one
-/// thin section nor a slow creep of wide ones can move the envelope. Returns how many sections
-/// were dropped.
+/// Un tronco se estrecha hacia arriba. A partir de 1 m de altura (por debajo, el tronco puede
+/// ensancharse hacia la raíz) las secciones conservadas forman una envolvente que nunca sube: la
+/// menor mediana de tres secciones consecutivas conservadas hasta ahora. Una sección más ancha que
+/// ella (en más de un 8 % y 1 cm) ha cogido una rama, un tronco vecino o una bifurcación y pierde
+/// su diámetro; al ser un suelo de medianas, ni una sección fina suelta ni un lento aumento de
+/// secciones anchas pueden mover la envolvente. Devuelve cuántas secciones se descartaron.
 fn enforce_taper(secs: &mut [Section]) -> usize {
     let mut last: Vec<f64> = Vec::new();
     let mut envelope = f64::INFINITY;
@@ -1368,7 +1379,7 @@ pub struct Log {
     pub d_to: f64,
     /// Smalian's volume, m³.
     pub volume: f64,
-    /// 0 for the stem, 1 and up for each branch above a fork.
+    /// 0 para el tronco, 1 o más para cada rama por encima de una bifurcación.
     pub branch: u8,
 }
 
@@ -1376,11 +1387,11 @@ pub struct Log {
 pub struct Cubing {
     pub logs: Vec<Log>,
     pub volume: f64,
-    /// Height where the stem reaches the top diameter, or where it is lost.
+    /// Altura a la que el tronco alcanza el diámetro de punta o donde se pierde.
     pub top_h: f64,
-    /// The stem was lost before it reached the top diameter.
+    /// El tronco se perdió antes de alcanzar el diámetro de punta.
     pub truncated: bool,
-    /// The stem was lost, and the stretch from there to the top diameter is an estimate.
+    /// El tronco se perdió y el tramo desde allí hasta el diámetro de punta es una estimación.
     pub estimated: bool,
 }
 
@@ -1388,7 +1399,7 @@ fn area(d: f64) -> f64 {
     std::f64::consts::PI * d * d / 4.0
 }
 
-/// Diameter at height `h` interpolated linearly in `profile` (ascending heights).
+/// Diámetro a la altura `h` interpolado linealmente en `profile` (alturas ascendentes).
 pub(crate) fn diam_at(profile: &[(f64, f64)], h: f64) -> Option<f64> {
     let (first, last) = (profile.first()?, profile.last()?);
     if h < first.0 - 1e-9 || h > last.0 + 1e-9 {
@@ -1405,14 +1416,15 @@ pub(crate) fn diam_at(profile: &[(f64, f64)], h: f64) -> Option<f64> {
     Some(a.1 + (b.1 - a.1) * (h - a.0) / (b.0 - a.0))
 }
 
-/// Smalian's cubing of a stem from its diameter `profile` ((height, diameter), ascending): logs
-/// of `log_len` from `base` up, the last one cut where the diameter falls to `top_d`.
+/// Cubicación de Smalian de un tronco a partir de su perfil de diámetros `profile` ((altura,
+/// diámetro), ascendente): trozas de `log_len` desde `base` hacia arriba, la última cortada donde
+/// el diámetro baja hasta `top_d`.
 pub fn smalian(profile: &[(f64, f64)], base: f64, log_len: f64, top_d: f64) -> Cubing {
     let mut out = Cubing::default();
     let Some(&(h_end, _)) = profile.last() else {
         return out;
     };
-    // below the lowest section the diameter is taken as the lowest one's
+    // por debajo de la sección más baja se toma el diámetro de la más baja
     let first = profile[0];
     let pf: Vec<(f64, f64)> = if first.0 > base {
         std::iter::once((base, first.1))
@@ -1454,7 +1466,7 @@ pub fn smalian(profile: &[(f64, f64)], base: f64, log_len: f64, top_d: f64) -> C
             (h, d) = (hn, dn);
             continue;
         }
-        // the diameter reaches the top diameter inside this log: find where
+        // el diámetro alcanza el diámetro de punta dentro de esta troza: se busca dónde
         let mut cut = hn;
         let mut prev = (h, d);
         for &(ph, pd) in pf.iter().filter(|q| q.0 > h) {
@@ -1483,35 +1495,35 @@ pub fn smalian(profile: &[(f64, f64)], base: f64, log_len: f64, top_d: f64) -> C
     out
 }
 
-// ----------------------------------------------------------------------------- the result
+// ----------------------------------------------------------------------------- el resultado
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TreeResult {
     pub id: u32,
-    /// Position of the stem at the base, and the ground there (map coordinates).
+    /// Posición del tronco en la base y el suelo allí (coordenadas del mapa).
     pub x: f64,
     pub y: f64,
     pub ground_z: f64,
-    /// Diameter at 1.3 m, m.
+    /// Diámetro a 1,3 m, en m.
     pub dbh: Option<f64>,
     pub height: f64,
-    /// Inclination of the stem axis from the vertical, degrees.
+    /// Inclinación del eje del tronco respecto a la vertical, en grados.
     pub tilt: f64,
     pub cubing: Cubing,
     pub sections: Vec<Section>,
     pub points: usize,
-    /// Share of the sections along the measured length that passed the checks.
+    /// Proporción de las secciones a lo largo de la longitud medida que pasaron las comprobaciones.
     pub quality: f64,
     pub d_base: f64,
     pub flags: String,
-    /// Axis through (x, y) at the base with this horizontal drift per metre (for clouds by tree).
+    /// Eje por (x, y) en la base con esta deriva horizontal por metro (para las nubes por árbol).
     pub slope: [f64; 2],
-    /// The stool this stem grows on (the same number for the sprouts of one stool) and how many
-    /// sprouts it has: 1 for a stem on its own.
+    /// La cepa en la que crece este tronco (el mismo número para los brotes de una cepa) y cuántos
+    /// brotes tiene: 1 para un tronco solo.
     pub stool: u32,
     pub sprouts: u32,
-    /// Height of the fork, for a tree that forks above the height of the diameter (1.3 m): its
-    /// stem below is one, and each branch above is cubed apart.
+    /// Altura de la bifurcación, para un árbol que se bifurca por encima de la altura del diámetro
+    /// (1,3 m): su tronco de abajo es uno y cada rama de arriba se cubica aparte.
     pub fork_h: Option<f64>,
 }
 
@@ -1525,8 +1537,9 @@ pub struct TlsResult {
     origin: [f64; 3],
 }
 
-/// The tallest point of the stem's own cluster: the voxels of 0.3 m within 1.5 m of the stem's
-/// axis, extended upwards with the stem's lean, that chain to the top of the measured stem.
+/// El punto más alto del grupo propio del tronco: los vóxeles de 0,3 m a menos de 1,5 m del eje del
+/// tronco, extendidos hacia arriba con la inclinación del tronco, que se encadenan hasta lo alto
+/// del tronco medido.
 fn tree_height(c: &Cloud, idx: &SliceIndex, secs: &[Section], slope: [f64; 2]) -> f64 {
     let Some(top) = secs.iter().rev().find(|s| s.ok) else {
         return 0.0;
@@ -1574,7 +1587,7 @@ fn tree_height(c: &Cloud, idx: &SliceIndex, secs: &[Section], slope: [f64; 2]) -
 }
 
 impl SliceIndex {
-    /// (height, x, y) of every point within `rad` of `(x, y)`, whatever its height.
+    /// (altura, x, y) de cada punto a menos de `rad` de `(x, y)`, sea cual sea su altura.
     fn slice_all(&self, c: &Cloud, x: f64, y: f64, rad: f64) -> Vec<(f64, f64, f64)> {
         let cell = f64::from(self.cell);
         let mut out = Vec::new();
@@ -1598,7 +1611,7 @@ impl SliceIndex {
     }
 }
 
-/// Measures and cubes the trees of one cloud.
+/// Mide y cubica los árboles de una nube.
 pub fn analyse(input: &Path, p: &TlsParams) -> Result<TlsResult> {
     p.check()?;
     let mut c = load(input, p)?;
@@ -1629,7 +1642,7 @@ pub fn analyse(input: &Path, p: &TlsParams) -> Result<TlsResult> {
         estimate_lost_tops(&mut trees, p);
     }
     trees.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
-    // numbers: the trees in order, and the stools in the order their first tree comes
+    // números: los árboles en orden y las cepas en el orden en que llega su primer árbol
     let mut stools: HashMap<u32, u32> = HashMap::new();
     for (k, t) in trees.iter_mut().enumerate() {
         t.id = k as u32 + 1;
@@ -1646,13 +1659,13 @@ pub fn analyse(input: &Path, p: &TlsParams) -> Result<TlsResult> {
     })
 }
 
-/// A stem that was lost while still thicker than the top diameter, well below the top of the
-/// tree, was not measured to its end: something (foliage, a branch whorl, an occlusion) hid it,
-/// because a stem does not stop being cubable at 8 cm and 20 m of height. Its merchantable
-/// height is then estimated as `p.lost_top_share` of the height of the tree (what the user
-/// expects of the species, for instance 0.65 for eucalyptus), and the diameter goes down linearly
-/// from the last section to the top diameter there. Forked trees are left as they are. The trees
-/// get the flag `ESTIMADO` instead of `TRUNCADO`.
+/// Un tronco que se perdió cuando aún era más grueso que el diámetro de punta, muy por debajo de la
+/// cima del árbol, no se midió hasta su final: algo (follaje, un verticilo de ramas, una oclusión)
+/// lo ocultó, porque un tronco no deja de ser cubicable a 8 cm y 20 m de altura. Su altura
+/// comercial se estima entonces como `p.lost_top_share` de la altura del árbol (lo que espera el
+/// usuario de la especie, por ejemplo 0,65 para el eucalipto), y el diámetro baja linealmente desde
+/// la última sección hasta el diámetro de punta allí. Los árboles bifurcados se dejan como están.
+/// Los árboles reciben la marca `ESTIMADO` en lugar de `TRUNCADO`.
 fn estimate_lost_tops(trees: &mut [TreeResult], p: &TlsParams) {
     let profile_of = |t: &TreeResult| -> Vec<(f64, f64)> {
         t.sections
@@ -1671,7 +1684,8 @@ fn estimate_lost_tops(trees: &mut [TreeResult], p: &TlsParams) {
             continue;
         };
         let h_com = ratio * t.height;
-        // lost near the top of the tree it really is the end; lost short of the estimate, keep it
+        // perdido cerca de la cima del árbol, de verdad es el final; perdido antes de la
+        // estimación, se conserva
         if t.height - last_h <= 1.0 || h_com <= last_h + p.log_len || last_d < p.top_diam {
             continue;
         }
@@ -1703,11 +1717,11 @@ fn build_tree(
     if enforce_taper(&mut secs) > 0 {
         flags.push("ENSANCHA");
     }
-    // trailing sections left without a diameter carry no information
+    // las secciones finales que quedan sin diámetro no aportan información
     while secs.last().is_some_and(|s| !s.ok) {
         secs.pop();
     }
-    // short gaps are filled from the sections around them
+    // los huecos cortos se rellenan a partir de las secciones de alrededor
     let ok: Vec<(f64, f64)> = secs.iter().filter(|s| s.ok).map(|s| (s.h, s.d)).collect();
     let fine = secs.windows(2).next().map_or(0.25, |w| w[1].h - w[0].h);
     let mut filled = 0;
@@ -1731,8 +1745,8 @@ fn build_tree(
     if dbh.is_none() {
         flags.push("SIN_DIAM");
     }
-    // a profile that still widens above breast height (the envelope starts on the sections it
-    // finds, which may be the wrong ones) is left to be checked by eye
+    // un perfil que todavía se ensancha por encima de la altura del pecho (la envolvente empieza en
+    // las secciones que encuentra, que pueden ser las equivocadas) se deja para revisarlo a ojo
     if !flags.contains(&"ENSANCHA")
         && dbh.is_some_and(|d| profile.iter().any(|&(h, x)| h > 1.3 && x > d * 1.2 + 0.01))
     {
@@ -1903,8 +1917,8 @@ fn csv_text(t: &Table) -> String {
     s
 }
 
-/// Writes the trees as a point shapefile (at the base of each stem) and/or a CSV, and the logs
-/// of every tree as `<name>_trozas.csv`. Returns the files.
+/// Escribe los árboles como un shapefile de puntos (en la base de cada tronco) y/o un CSV, y las
+/// trozas de cada árbol como `<nombre>_trozas.csv`. Devuelve los archivos.
 pub fn write_results(
     r: &TlsResult,
     p: &TlsParams,
@@ -1917,7 +1931,8 @@ pub fn write_results(
     if formats.vector {
         let shp = crate::paths::swap_ext(out, "shp");
         let prj = r.epsg.and_then(crate::vector::prj_for_epsg);
-        // a shapefile column name is 10 characters at most: two of the longer names get a short form
+        // el nombre de una columna de shapefile tiene como mucho 10 caracteres: dos de los nombres
+        // más largos reciben una forma corta
         let mut shp_table = table.clone();
         for (name, _) in &mut shp_table.columns {
             match name.as_str() {
@@ -1934,7 +1949,7 @@ pub fn write_results(
         std::fs::write(&csv, csv_text(&table))?;
         files.push(csv);
     }
-    // the logs
+    // las trozas
     let mut logs = Table {
         columns: vec![
             ("TreeID".into(), ColKind::Num(6, 0)),
@@ -1970,11 +1985,11 @@ pub fn write_results(
     Ok(files)
 }
 
-/// Clouds by tree written in one read of the input.
+/// Nubes por árbol escritas en una sola lectura de la entrada.
 const OPEN_CLOUDS: usize = 150;
 
-/// Gives every point of the cloud to its nearest stem axis (within `assign_dist`, above the
-/// ground) and writes one cloud per tree into `dir`; returns how many clouds and points.
+/// Asigna cada punto de la nube a su eje de tronco más cercano (a menos de `assign_dist`, por
+/// encima del suelo) y escribe una nube por árbol en `dir`; devuelve cuántas nubes y puntos.
 pub fn write_tree_clouds(
     input: &Path,
     r: &TlsResult,
@@ -2004,8 +2019,9 @@ pub fn write_tree_clouds(
     let rec_len = usize::from(template.header.record_len);
     let mut total = 0u64;
     let mut n = 0;
-    // a file per tree is open while the cloud is read; the system limits how many files a
-    // program has open (256 on macOS), so the trees go in batches, one read of the cloud each
+    // un archivo por árbol está abierto mientras se lee la nube; el sistema limita cuántos archivos
+    // puede tener abiertos un programa (256 en macOS), así que los árboles van por tandas, una
+    // lectura de la nube por cada una
     for lo in (0..r.trees.len()).step_by(OPEN_CLOUDS) {
         let hi = (lo + OPEN_CLOUDS).min(r.trees.len());
         let mut writers: HashMap<usize, Writer> = HashMap::new();
@@ -2032,7 +2048,7 @@ pub fn write_tree_clouds(
                             if h < 0.2 {
                                 continue;
                             }
-                            // distance to the axis at this height
+                            // distancia al eje a esta altura
                             let (ax, ay) = (
                                 t.x + t.slope[0] * (h - p.base_height),
                                 t.y + t.slope[1] * (h - p.base_height),
@@ -2071,7 +2087,7 @@ pub fn write_tree_clouds(
     Ok((n, total))
 }
 
-/// How many points `classify_stems` gave to the stems, to the branches and left as they were.
+/// Cuántos puntos dio `classify_stems` a los troncos, a las ramas y dejó como estaban.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StemReport {
     pub stem: u64,
@@ -2079,15 +2095,15 @@ pub struct StemReport {
     pub other: u64,
 }
 
-/// The measured stem of one tree as a function of height: the centre and radius of its sections.
+/// El tronco medido de un árbol en función de la altura: el centro y el radio de sus secciones.
 struct StemProfile {
-    /// Height above ground, centre (relative coordinates) and radius of each good section.
+    /// Altura sobre el suelo, centro (coordenadas relativas) y radio de cada sección buena.
     h: Vec<f64>,
     c: Vec<[f64; 2]>,
     r: Vec<f64>,
-    /// Height of the tree: the stem is taken to go on up to it above the last section.
+    /// Altura del árbol: se toma que el tronco sigue hasta ella por encima de la última sección.
     top: f64,
-    /// Horizontal drift and radius change per metre above the last section.
+    /// Deriva horizontal y cambio de radio por metro por encima de la última sección.
     drift: [f64; 2],
     taper: f64,
 }
@@ -2097,7 +2113,7 @@ impl StemProfile {
         let mut ok: Vec<&Section> = t.sections.iter().filter(|s| s.ok && s.d > 0.0).collect();
         ok.sort_by(|a, b| a.h.total_cmp(&b.h));
         let last = *ok.last()?;
-        // taper over the last metre of sections, never growing
+        // estrechamiento en el último metro de secciones, sin crecer nunca
         let near: Vec<&&Section> = ok.iter().filter(|s| last.h - s.h <= 1.0).collect();
         let taper = match (near.first(), near.last()) {
             (Some(a), Some(b)) if b.h - a.h > 0.2 => {
@@ -2115,7 +2131,7 @@ impl StemProfile {
         })
     }
 
-    /// Centre and radius at height `h`, or `None` above the stem.
+    /// Centro y radio a la altura `h`, o `None` por encima del tronco.
     fn at(&self, h: f64) -> Option<([f64; 2], f64)> {
         let n = self.h.len();
         let last = self.h[n - 1];
@@ -2135,7 +2151,7 @@ impl StemProfile {
         }
         let k = self.h.partition_point(|v| *v <= h);
         if k == 0 {
-            // below the first section: its circle, moved along the lean
+            // por debajo de la primera sección: su círculo, movido a lo largo de la inclinación
             let dh = h - self.h[0];
             return Some((
                 [
@@ -2155,13 +2171,13 @@ impl StemProfile {
     }
 }
 
-/// Writes the cloud with the points of the stems in class [`crate::classes::STEM`] and the other
-/// points near a stem (up to `assign_dist` from its axis, above 0.2 m) in
-/// [`crate::classes::BRANCH`]; the rest keep their class. A point belongs to the stem when it
-/// lies within the measured circle of its tree at that height, plus a margin of a voxel. Heights
-/// where the stem was not measured take the circle between the sections around them, and above
-/// the last one the stem goes on to the top of the tree along its lean, thinning 0.5–2 cm per
-/// metre of radius.
+/// Escribe la nube con los puntos de los troncos en la clase [`crate::classes::STEM`] y los demás
+/// puntos cercanos a un tronco (hasta `assign_dist` de su eje, por encima de 0,2 m) en
+/// [`crate::classes::BRANCH`]; el resto conserva su clase. Un punto pertenece al tronco cuando está
+/// dentro del círculo medido de su árbol a esa altura, más un margen de un vóxel. Las alturas donde
+/// no se midió el tronco toman el círculo entre las secciones de alrededor y, por encima de la
+/// última, el tronco sigue hasta la cima del árbol a lo largo de su inclinación, adelgazando de 0,5
+/// a 2 cm por metro de radio.
 pub fn classify_stems(
     input: &Path,
     r: &TlsResult,
@@ -2177,7 +2193,8 @@ pub fn classify_stems(
     crate::paths::ensure_parent(output)?;
     let reader = Reader::open(input)?;
     let (old_format, rec_len) = (reader.header.format, usize::from(reader.header.record_len));
-    // classes above 31 need a full class byte: legacy files are written as LAS 1.4
+    // las clases por encima de 31 necesitan un byte de clase completo: los archivos antiguos se
+    // escriben como LAS 1.4
     let upgrade = if old_format < 6 {
         Some(crate::las::upgraded_format(old_format).ok_or_else(|| {
             Error::Unsupported(format!(
@@ -2207,7 +2224,7 @@ pub fn classify_stems(
         .or_default()
         .push(k);
     }
-    // 0: not touched, 1: stem, 2: branch
+    // 0: no tocado, 1: tronco, 2: rama
     let kind = |rec: &[u8]| -> u8 {
         let Some(pt) = reader.decode(rec) else {
             return 0;
@@ -2289,21 +2306,22 @@ pub fn classify_stems(
     Ok(rep)
 }
 
-/// Everything one run does: measure, cube, write the results and, if asked, the clouds by tree.
+/// Todo lo que hace una ejecución: medir, cubicar, escribir los resultados y, si se pide, las nubes
+/// por árbol.
 #[derive(Clone, Debug)]
 pub struct TlsJob {
     pub input: PathBuf,
-    /// The trees' table (`.shp` or `.csv`).
+    /// La tabla de árboles (`.shp` o `.csv`).
     pub output: PathBuf,
     pub params: TlsParams,
     pub formats: crate::paths::Formats,
     pub tree_clouds: bool,
-    /// Also write the cloud with the points of the stems and of the branches classified.
+    /// Escribe también la nube con los puntos de los troncos y de las ramas clasificados.
     pub stem_classes: bool,
 }
 
 impl TlsJob {
-    /// The folder of the clouds by tree: `<output name>_arboles`.
+    /// La carpeta de las nubes por árbol: `<nombre de salida>_arboles`.
     pub fn clouds_dir(&self) -> PathBuf {
         self.output
             .with_file_name(format!("{}_arboles", crate::paths::stem(&self.output)))
@@ -2311,7 +2329,8 @@ impl TlsJob {
 }
 
 impl TlsJob {
-    /// The cloud with stems and branches classified: `<output name>_troncos` with the input's format.
+    /// La nube con troncos y ramas clasificados: `<nombre de salida>_troncos` con el formato de la
+    /// entrada.
     pub fn stems_path(&self) -> PathBuf {
         let ext = self
             .input
@@ -2357,7 +2376,7 @@ Troncos (clase {}): {} puntos; ramas (clase {}): {} puntos: {}",
     Ok(text)
 }
 
-/// One line about the run.
+/// Una línea sobre la ejecución.
 pub fn summary(r: &TlsResult, out: &Path) -> String {
     let vol: f64 = r.trees.iter().map(|t| t.cubing.volume).sum();
     let stools = r
@@ -2411,7 +2430,7 @@ mod tests {
 
     #[test]
     fn a_stem_that_widens_upwards_loses_the_wide_sections() {
-        // the stem of 8-9 cm catches a branch from 2.6 m up: 12, 14, 16 cm
+        // el tronco de 8-9 cm recoge una rama a partir de 2,6 m de altura: 12, 14, 16 cm
         let mut secs: Vec<Section> = [
             (0.1, 0.089),
             (0.6, 0.088),
@@ -2428,18 +2447,18 @@ mod tests {
         assert_eq!(enforce_taper(&mut secs), 3);
         assert!(secs[..5].iter().all(|s| s.ok));
         assert!(secs[5..].iter().all(|s| !s.ok && s.d.is_nan()));
-        // a butt swell below a metre is the root flare, not a branch
+        // un ensanchamiento de la base por debajo de un metro es el pie de la raíz, no una rama
         let mut flare: Vec<Section> = [(0.1, 0.40), (0.6, 0.31), (1.1, 0.30), (1.6, 0.29)]
             .iter()
             .map(|&(h, d)| sec(h, d))
             .collect();
         assert_eq!(enforce_taper(&mut flare), 0);
-        // nor is the noise of a few millimetres on a stem of constant size
+        // ni lo es el ruido de unos milímetros en un tronco de tamaño constante
         let mut even: Vec<Section> = (0..12)
             .map(|k| sec(0.5 * f64::from(k), 0.30 + 0.01 * f64::from(k % 2)))
             .collect();
         assert_eq!(enforce_taper(&mut even), 0);
-        // nor can a stem creep wider a little at a time
+        // ni puede un tronco ensancharse un poco cada vez
         let mut creep: Vec<Section> = (0..10)
             .map(|k| sec(1.0 + 0.5 * f64::from(k), 0.080 + 0.008 * f64::from(k)))
             .collect();
@@ -2464,7 +2483,7 @@ mod tests {
 
     #[test]
     fn smalian_cuts_a_cone_at_the_top_diameter() {
-        // d falls from 0.4 at 0 to 0 at 20: it is 0.07 at 16.5
+        // d baja de 0,4 en 0 a 0 en 20: es 0,07 en 16,5
         let prof: Vec<(f64, f64)> = (0..=76)
             .map(|k| {
                 (
@@ -2476,7 +2495,7 @@ mod tests {
         let c = smalian(&prof, 0.1, 0.5, 0.07);
         assert!((c.top_h - 16.5).abs() < 0.01, "{}", c.top_h);
         assert!(!c.truncated);
-        // volume of the frustum between 0.1 and 16.5 m
+        // volumen del tronco de cono entre 0,1 y 16,5 m
         let (d0, d1) = (0.4 * (1.0 - 0.1 / 20.0), 0.07);
         let l = 16.4;
         let exact = std::f64::consts::PI * l / 12.0 * (d0 * d0 + d0 * d1 + d1 * d1);
@@ -2515,8 +2534,9 @@ mod tests {
 
     #[test]
     fn a_rejected_section_loses_its_diameter() {
-        // 0.50 m between 0.30 and 0.28 disagrees with both, and the sections that could have
-        // filled its place fail: the metre and a half around it is a gap the fill leaves alone
+        // 0,50 m entre 0,30 y 0,28 no concuerda con ninguno de los dos, y las secciones que podrían
+        // haber ocupado su lugar fallan: el metro y medio de alrededor es un hueco que el relleno
+        // deja en paz
         let mut s = vec![
             sec(1.0, 0.30),
             sec(1.5, 0.50),
@@ -2527,14 +2547,14 @@ mod tests {
         reject_outliers(&mut s);
         assert!(!s[1].ok && s[1].d.is_nan());
         assert!(s[0].ok && s[0].d == 0.30 && s[4].ok && s[4].d == 0.28);
-        // nothing of the section is left to be taken as a measurement
+        // no queda nada de la sección que pueda tomarse como medida
         assert!(s.iter().filter(|x| x.ok || x.d.is_finite()).count() == 2);
     }
 
     #[test]
     fn rejections_are_decided_on_the_diameters_as_measured() {
-        // 0.50 and then 0.31: if rejecting the first erased its diameter before the second was
-        // compared, the second would be compared with NaN. Both are judged on the originals.
+        // 0,50 y luego 0,31: si rechazar la primera borrara su diámetro antes de comparar la
+        // segunda, la segunda se compararía con NaN. Las dos se juzgan sobre los originales.
         let mut s = vec![
             sec(1.0, 0.30),
             sec(1.25, 0.50),
@@ -2546,7 +2566,7 @@ mod tests {
         assert!(s[2].ok && s[2].d == 0.31);
     }
 
-    /// Voxels of a ring of radius `r` centred at `(cx, cy)`, every 2 cm, in two layers.
+    /// Vóxeles de un anillo de radio `r` centrado en `(cx, cy)`, cada 2 cm, en dos capas.
     fn ring(cx: f64, cy: f64, r: f64) -> Vec<[f32; 2]> {
         let n = (std::f64::consts::TAU * r / 0.02).round() as usize;
         (0..n * 5)
@@ -2597,13 +2617,13 @@ mod tests {
             drift: [0.1, 0.0],
             taper: -0.01,
         };
-        // halfway between the sections
+        // a medio camino entre las secciones
         let (c, r) = prof.at(2.0).unwrap_or_default();
         assert!((c[0] - 0.1).abs() < 1e-9 && (r - 0.09).abs() < 1e-9);
-        // two metres above the last one: drifts along the lean and thins
+        // dos metros por encima de la última: deriva a lo largo de la inclinación y se adelgaza
         let (c, r) = prof.at(5.0).unwrap_or_default();
         assert!((c[0] - 0.4).abs() < 1e-9 && (r - 0.06).abs() < 1e-9);
-        // above the tree: no stem
+        // por encima del árbol: no hay tronco
         assert!(prof.at(6.5).is_none());
     }
 
@@ -2649,7 +2669,7 @@ mod tests {
             lost_top_share: 0.65,
             ..TlsParams::default()
         };
-        // lost at 4 m with 18 cm in a tree of 20 m: its merchantable height is 13 m
+        // perdido a 4 m con 18 cm en un árbol de 20 m: su altura comercial es 13 m
         let mut trees = vec![stem_lost_at(4.0, 20.0, &p), stem_lost_at(19.5, 20.0, &p)];
         assert!(trees[0].cubing.truncated);
         let before = trees[0].cubing.volume;
@@ -2658,7 +2678,7 @@ mod tests {
         assert!((trees[0].cubing.top_h - 13.0).abs() < 0.1);
         assert!(trees[0].cubing.volume > before);
         assert!(trees[0].flags.contains("ESTIMADO") && !trees[0].flags.contains("TRUNCADO"));
-        // lost within a metre of the top of the tree: that is where the stem ends
+        // perdido a menos de un metro de la cima del árbol: ahí es donde termina el tronco
         assert!(trees[1].cubing.truncated && !trees[1].cubing.estimated);
     }
 }

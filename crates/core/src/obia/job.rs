@@ -1,4 +1,4 @@
-//! The whole analysis as one job: layers → objects → attributes → classes → files.
+//! El análisis entero como un solo trabajo: capas → objetos → atributos → clases → archivos.
 
 use std::path::PathBuf;
 
@@ -15,22 +15,22 @@ use crate::paths::{self, Formats};
 use crate::vector::{ReadOptions, read_regions};
 use crate::{Error, Result, check_cancel};
 
-/// How the objects get their class.
+/// Cómo reciben su clase los objetos.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClassifyBy {
-    /// Objects are only described.
+    /// Los objetos solo se describen.
     Nothing,
-    /// A text file of rules (see [`classify::parse_rules`]).
+    /// Un archivo de texto con reglas (véase [`classify::parse_rules`]).
     Rules(PathBuf),
-    /// No rules and no samples: `k` strata by how alike the objects are (k-means on `features`,
-    /// the means and percentiles of the layers and the cover when empty).
+    /// Sin reglas ni muestras: `k` estratos según el parecido de los objetos (k-medias sobre
+    /// `features`, las medias y los percentiles de las capas y la cobertura cuando está vacío).
     Kmeans {
         k: usize,
         features: Vec<String>,
         seed: u64,
     },
-    /// Sample polygons (a shapefile) whose `field` names the class; a random forest learns from
-    /// the objects they cover.
+    /// Polígonos de muestra (un shapefile) cuyo `field` nombra la clase; un bosque aleatorio
+    /// aprende de los objetos que cubren.
     Samples {
         file: PathBuf,
         field: String,
@@ -38,60 +38,60 @@ pub enum ClassifyBy {
     },
 }
 
-/// Joins the classified objects into strata and spreads sample plots among them.
+/// Une los objetos clasificados en estratos y reparte parcelas de muestra entre ellos.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StrataOpts {
-    /// Areas under this many cells take the class of their neighbours.
+    /// Las áreas de menos de tantas celdas toman la clase de sus vecinas.
     pub min_cells: u32,
-    /// Sample plots to spread among the strata (0: none).
+    /// Parcelas de muestra que repartir entre los estratos (0: ninguna).
     pub plots: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ObiaJob {
-    /// One-band rasters on the same cells, the canopy height model first; each is a layer named
-    /// after its file.
+    /// Rásteres de una banda sobre las mismas celdas, el modelo de altura de copas el primero; cada
+    /// uno es una capa con el nombre de su archivo.
     pub rasters: Vec<PathBuf>,
-    /// Point clouds to read for more layers, and which layers.
+    /// Nubes de puntos que leer para más capas, y qué capas.
     pub clouds: Vec<PathBuf>,
     pub cloud_layers: Vec<CloudLayer>,
     pub filter: Filter,
-    /// Cells without points in the layers made from the clouds take the value of the nearest
-    /// cell that has one, up to this many cells away (0: they stay empty and leave a hole in
-    /// the objects).
+    /// Las celdas sin puntos de las capas hechas con las nubes toman el valor de la celda más
+    /// cercana que lo tenga, hasta tantas celdas de distancia (0: quedan vacías y dejan un hueco en
+    /// los objetos).
     pub cloud_fill: usize,
-    /// Those layers are averaged over a window of this radius in cells, which evens out the
-    /// noise of cells with only a few points (0: not).
+    /// Esas capas se promedian sobre una ventana de este radio en celdas, lo que uniforma el ruido
+    /// de las celdas con pocos puntos (0: no).
     pub cloud_smooth: usize,
-    /// Adds the local roughness of the first raster over a window of this many cells around each
-    /// cell (0: no).
+    /// Añade la rugosidad local del primer ráster sobre una ventana de tantas celdas alrededor de
+    /// cada celda (0: no).
     pub roughness: usize,
     pub segment: SegmentParams,
     pub classify: ClassifyBy,
-    /// Base path of the results (its extension is replaced by what each file needs).
+    /// Ruta base de los resultados (su extensión se sustituye por lo que necesita cada archivo).
     pub output: PathBuf,
     pub formats: Formats,
-    /// Also write the objects (and the strata) in one GeoPackage, `<output>.gpkg`.
+    /// Escribe además los objetos (y los estratos) en un solo GeoPackage, `<salida>.gpkg`.
     pub gpkg: bool,
-    /// Simplifies the polygons by this many map units (0: exact outlines).
+    /// Simplifica los polígonos en tantas unidades del mapa (0: contornos exactos).
     pub simplify: f64,
-    /// Height, in the units of the canopy height model, from which a cell counts as covered by
-    /// canopy (for the `cobertura` attribute, used by the strata).
+    /// Altura, en las unidades del modelo de altura de copas, a partir de la cual una celda cuenta
+    /// como cubierta por el dosel (para el atributo `cobertura`, que usan los estratos).
     pub cover_height: f64,
-    /// Join the classes into strata too.
+    /// Une también las clases en estratos.
     pub strata: Option<StrataOpts>,
 }
 
-/// The files a job writes.
+/// Los archivos que escribe un trabajo.
 pub struct Outputs {
-    /// Polygons, when vector output is on.
+    /// Polígonos, cuando la salida vectorial está activada.
     pub polygons: Option<PathBuf>,
     pub table: Option<PathBuf>,
-    /// The object number of every cell.
+    /// El número de objeto de cada celda.
     pub objects: PathBuf,
-    /// The class of every cell, when objects are classified.
+    /// La clase de cada celda, cuando se clasifican los objetos.
     pub classes: Option<PathBuf>,
-    /// The strata as polygons, their summary table and the class of every cell.
+    /// Los estratos como polígonos, su tabla resumen y la clase de cada celda.
     pub strata_polygons: Option<PathBuf>,
     pub strata_table: Option<PathBuf>,
     pub strata_classes: Option<PathBuf>,
@@ -135,7 +135,7 @@ pub fn obia(j: &ObiaJob) -> Result<String> {
     let first = j.rasters.first().ok_or_else(|| {
         Error::Param("hace falta al menos un ráster (el modelo de alturas)".into())
     })?;
-    // everything that is combined must be in one coordinate system
+    // todo lo que se combina debe estar en un solo sistema de coordenadas
     let mut inputs: Vec<PathBuf> = j.rasters.clone();
     if !j.cloud_layers.is_empty() {
         inputs.extend(j.clouds.iter().cloned());
@@ -154,7 +154,7 @@ pub fn obia(j: &ObiaJob) -> Result<String> {
     stack.push_grid(&paths::stem(first), &g)?;
     drop(g);
     for r in rasters.iter().skip(1) {
-        // an image of several bands (an orthophoto, a satellite image) gives a layer per band
+        // una imagen de varias bandas (una ortofoto, una imagen de satélite) da una capa por banda
         if crate::pyramid::Pyramid::open(r).is_ok_and(|p| p.bands > 1) {
             stack.push_image(&paths::stem(r), &crate::raster::read_image(r)?)?;
         } else {
@@ -269,8 +269,8 @@ pub fn obia(j: &ObiaJob) -> Result<String> {
     Ok(lines.join("\n") + &crate::crs::notes(&crs_warnings))
 }
 
-/// Puts the polygons written (objects, strata) into one GeoPackage; when the shapefile was not
-/// asked for, only as a step to this, it is removed.
+/// Pone los polígonos escritos (objetos, estratos) en un solo GeoPackage; cuando no se pidió el
+/// shapefile, solo como paso hacia esto, se borra.
 fn pack_gpkg(j: &ObiaJob, out: &Outputs) -> Result<String> {
     let path = paths::swap_ext(&j.output, "gpkg");
     let mut layers = Vec::new();
@@ -303,7 +303,7 @@ fn pack_gpkg(j: &ObiaJob, out: &Outputs) -> Result<String> {
     Ok(format!("  GeoPackage (objetos y estratos): {}", path.display()))
 }
 
-/// Joins the classes into strata and writes them; returns the lines that say so.
+/// Une las clases en estratos y los escribe; devuelve las líneas que lo dicen.
 fn write_strata(
     j: &ObiaJob,
     out: &Outputs,
@@ -394,7 +394,8 @@ mod tests {
     fn rasters_to_classified_polygons() -> Result<()> {
         let dir = std::env::temp_dir().join(format!("rl_obia_job_{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
-        // a canopy height model: a tall stand on the left, low scrub on the right, noise on top
+        // un modelo de altura de copas: un rodal alto a la izquierda, matorral bajo a la derecha,
+        // ruido encima
         let (cols, rows) = (60usize, 40usize);
         let mut chm = Grid::new(500.0, 800.0, 1.0, cols, rows)?;
         for (i, v) in chm.data.iter_mut().enumerate() {
@@ -449,7 +450,7 @@ mod tests {
         assert_eq!(ids.count, 2);
         assert!(dir.join("resultado.shp").exists());
         assert!(dir.join("resultado_clases.tif").exists());
-        // the integer rasters open as layers (object and class numbers)
+        // los rásteres de números enteros se abren como capas (números de objeto y de clase)
         let g = crate::grid::Grid::read(&dir.join("resultado_clases.tif"))?;
         assert!(g.data.iter().any(|v| *v == 1.0));
         let g = crate::grid::Grid::read(&dir.join("resultado_objetos.tif"))?;
@@ -503,7 +504,7 @@ mod crs_tests {
         }
         g.write_tiff(&dir.join("chm.tif"), Some(25830))?;
         g.write_tiff(&dir.join("misma.tif"), Some(25830))?;
-        // the same ground in UTM 29N
+        // el mismo terreno en UTM 29N
         crate::reproject::grid(&g, 25830, 25829)?.write_tiff(&dir.join("otra.tif"), Some(25829))?;
         let moved = obia(&job(
             vec![dir.join("chm.tif"), dir.join("otra.tif")],
@@ -532,7 +533,7 @@ mod strata_tests {
     fn strata_from_kmeans_with_plots() -> Result<()> {
         let dir = std::env::temp_dir().join(format!("rl_obia_strata_{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
-        // three stands side by side: tall, medium, low
+        // tres rodales lado a lado: alto, medio, bajo
         let (cols, rows) = (90usize, 40usize);
         let mut chm = Grid::new(500.0, 800.0, 1.0, cols, rows)?;
         for (i, v) in chm.data.iter_mut().enumerate() {
@@ -598,8 +599,9 @@ mod strata_tests {
     }
 }
 
-/// Timing on a large synthetic canopy: `cargo test -p hipso-core --release obia::job::bench -- --ignored --nocapture`
-/// (set `RL_OBIA_CELLS=20000000` to change the size).
+/// Temporización sobre un dosel sintético grande: `cargo test -p hipso-core --release
+/// obia::job::bench -- --ignored --nocapture` (fíjese `RL_OBIA_CELLS=20000000` para cambiar el
+/// tamaño).
 #[cfg(test)]
 mod bench {
     use super::*;
@@ -624,7 +626,7 @@ mod bench {
             cols,
             rows,
         };
-        // crowns of about 5 m: a smooth bump per 10 x 10 cells plus noise
+        // copas de unos 5 m: una loma suave por cada 10 x 10 celdas más ruido
         let data: Vec<f32> = (0..cols * rows)
             .map(|i| {
                 let (x, y) = ((i % cols) as f32, (i / cols) as f32);

@@ -1,10 +1,11 @@
-//! Ponding: where water stays on a terrain model.
+//! Encharcamiento: dónde se queda el agua sobre un modelo del terreno.
 //!
-//! The model is filled until every depression drains (priority flood: Barnes, Lehman and Mulla
-//! 2014); a cell is under water when the filled surface lies above the ground by more than the
-//! minimum depth, and connected cells (sharing an edge) form one pond. Each pond is measured:
-//! area, depth, volume, the level at which it spills and the area that drains into it. Ponds
-//! can be kept or dropped by size and, as an extra check, by the slope of the ground under them.
+//! El modelo se rellena hasta que cada depresión drena (inundación por prioridad: Barnes, Lehman y
+//! Mulla 2014); una celda está bajo el agua cuando la superficie rellena queda por encima del suelo
+//! en más que la profundidad mínima, y las celdas conectadas (que comparten una arista) forman una
+//! charca. Cada charca se mide: área, profundidad, volumen, el nivel al que desborda y la
+//! superficie que drena hacia ella. Las charcas se pueden conservar o descartar por tamaño y, como
+//! comprobación adicional, por la pendiente del suelo bajo ellas.
 
 use std::path::PathBuf;
 
@@ -18,52 +19,54 @@ use crate::terrain::{self, Edges};
 use crate::view::{Feature, GeomKind, VectorData};
 use crate::{Error, Result, check_cancel, paths};
 
-/// How the water is found.
+/// Cómo se encuentra el agua.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Method {
-    /// The water a depression holds up to its spill level: the model is filled and the depth is
-    /// the filled surface minus the ground. Slope and drained area (when asked for) are checked
-    /// on each pond as a whole.
+    /// El agua que retiene una depresión hasta su nivel de desborde: el modelo se rellena y la
+    /// profundidad es la superficie rellena menos el suelo. La pendiente y la superficie drenada
+    /// (cuando se piden) se comprueban en cada charca como un todo.
     Depression,
-    /// Low spots against the smoothed model: the depth is the *filled smoothed* surface minus the
-    /// *unsmoothed* ground, so it also picks up hollows that are not closed depressions, such as
-    /// a furrow bottom under the smoothed ridge. Slope (of the filled surface) and drained area
-    /// are checked on every cell.
+    /// Puntos bajos frente al modelo suavizado: la profundidad es la superficie suavizada *rellena*
+    /// menos el suelo *sin suavizar*, de modo que también recoge hoyos que no son depresiones
+    /// cerradas, como el fondo de un surco bajo la cresta suavizada. La pendiente (de la superficie
+    /// rellena) y la superficie drenada se comprueban en cada celda.
     Local,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PondJob {
     pub method: Method,
-    /// A value that means "no data" in a model that does not say so (0 in some exports); when
-    /// `None`, zeros are taken for it only if they cover a good part of a model whose other
-    /// values are all well above 0.
+    /// Un valor que significa «sin datos» en un modelo que no lo dice (0 en algunas exportaciones);
+    /// cuando `None`, los ceros se toman por tal solo si cubren buena parte de un modelo cuyos
+    /// demás valores están todos muy por encima de 0.
     pub nodata: Option<f64>,
-    /// The terrain model, in a metric system.
+    /// El modelo del terreno, en un sistema métrico.
     pub input: PathBuf,
-    /// Base path of the results (its extension is replaced by what each file needs).
+    /// Ruta base de los resultados (su extensión se sustituye por lo que necesita cada archivo).
     pub output: PathBuf,
-    /// Standard deviation, in map units, of a Gaussian smoothing of the model before filling
-    /// (0: none). Evens out the noise of a model made from photogrammetry or sparse returns.
+    /// Desviación típica, en unidades del mapa, de un suavizado gaussiano del modelo antes de
+    /// rellenarlo (0: ninguno). Uniforma el ruido de un modelo hecho con fotogrametría o retornos
+    /// dispersos.
     pub smooth: f64,
-    /// Water shallower than this (model units) is not a pond.
+    /// El agua menos profunda que esto (unidades del modelo) no es una charca.
     pub min_depth: f64,
-    /// Ponds smaller than this many map units² are dropped.
+    /// Las charcas menores que tantas unidades del mapa² se descartan.
     pub min_area: f64,
-    /// Ponds larger or deeper than these are dropped: reservoirs, ditches and pits are not
-    /// puddles (`None`: no limit).
+    /// Las charcas mayores o más profundas que estos valores se descartan: los embalses, las zanjas
+    /// y los hoyos no son charcos (`None`: sin límite).
     pub max_area: Option<f64>,
     pub max_depth: Option<f64>,
-    /// Ponds holding less than this volume (model units × map units²) are dropped.
+    /// Las charcas que retienen menos que este volumen (unidades del modelo × unidades del mapa²)
+    /// se descartan.
     pub min_volume: f64,
-    /// Drop ponds whose ground is steeper than this mean slope, degrees.
+    /// Descarta las charcas cuyo suelo es más empinado que esta pendiente media, en grados.
     pub max_slope: Option<f64>,
-    /// Drop ponds that drain an area smaller than this, map units².
+    /// Descarta las charcas que drenan una superficie menor que esta, unidades del mapa².
     pub min_catchment: Option<f64>,
-    /// Write the pond numbers as a raster, and the water depth as another.
+    /// Escribe los números de charca como ráster, y la profundidad del agua como otro.
     pub raster: bool,
     pub depth_raster: bool,
-    /// Write the pond polygons as a shapefile, and as a GeoPackage.
+    /// Escribe los polígonos de las charcas como shapefile y como GeoPackage.
     pub shp: bool,
     pub gpkg: bool,
 }
@@ -91,7 +94,7 @@ impl PondJob {
     }
 }
 
-/// What was measured about one pond.
+/// Lo que se midió de una charca.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pond {
     pub id: u32,
@@ -100,20 +103,20 @@ pub struct Pond {
     pub max_depth: f64,
     pub mean_depth: f64,
     pub volume: f64,
-    /// Level of the water when the pond is full.
+    /// Nivel del agua cuando la charca está llena.
     pub spill: f64,
     pub catchment: f64,
     pub slope: f64,
 }
 
-/// The ponds of a terrain model and the water depth of every cell.
+/// Las charcas de un modelo del terreno y la profundidad del agua de cada celda.
 pub struct Ponds {
     pub labels: Labels,
     pub depth: Grid,
     pub list: Vec<Pond>,
 }
 
-/// Gaussian smoothing with a separable kernel; empty cells stay empty and weigh nothing.
+/// Suavizado gaussiano con un núcleo separable; las celdas vacías siguen vacías y no pesan nada.
 fn gaussian(g: &Grid, sigma: f64) -> Grid {
     let s = sigma / g.cell;
     if s < 0.3 {
@@ -157,8 +160,8 @@ fn gaussian(g: &Grid, sigma: f64) -> Grid {
     out
 }
 
-/// Connected components (sharing an edge) of the cells where `mask` is true, numbered from 1 in
-/// raster order; the number of components.
+/// Componentes conexas (que comparten una arista) de las celdas donde `mask` es verdadero,
+/// numeradas desde 1 en orden del ráster; el número de componentes.
 fn components(mask: &[bool], cols: usize, rows: usize) -> (Vec<u32>, u32) {
     let n = mask.len();
     let mut dsu = crate::cluster::Dsu::new(n);
@@ -192,7 +195,7 @@ fn components(mask: &[bool], cols: usize, rows: usize) -> (Vec<u32>, u32) {
     (ids, count)
 }
 
-/// Empties the cells that hold the no-data value; says what was done, if anything.
+/// Vacía las celdas que contienen el valor de sin datos; dice lo que se hizo, si algo.
 fn apply_nodata(g: &mut Grid, value: Option<f64>) -> Option<String> {
     let total = g.data.len().max(1);
     let (v, auto) = match value {
@@ -227,7 +230,7 @@ fn apply_nodata(g: &mut Grid, value: Option<f64>) -> Option<String> {
     })
 }
 
-/// Finds and measures the ponds of a terrain model in memory.
+/// Halla y mide las charcas de un modelo del terreno en memoria.
 pub fn find(g: &Grid, job: &PondJob) -> Result<Ponds> {
     if !(g.cell > 1e-3) {
         return Err(Error::Param(
@@ -249,7 +252,7 @@ pub fn find(g: &Grid, job: &PondJob) -> Result<Ponds> {
     let accumulation = hydro::flow_accumulation(&base, 1.0);
     let slope = terrain::slope(&base, 1.0, false, Edges::NoData);
     let mask: Vec<bool> = if local {
-        // slope of the filled surface and drained area, cell by cell
+        // pendiente de la superficie rellena y superficie drenada, celda a celda
         let mut fg = base.like();
         fg.data.clone_from(&filled);
         let fslope = terrain::slope(&fg, 1.0, false, Edges::NoData);
@@ -309,7 +312,7 @@ pub fn find(g: &Grid, job: &PondJob) -> Result<Ponds> {
             s.slope_n += 1;
         }
     }
-    // the ponds that stay, numbered again from 1
+    // las charcas que se quedan, numeradas de nuevo desde 1
     let mut renumber = vec![0u32; count as usize + 1];
     let mut list: Vec<Pond> = Vec::new();
     for (id, s) in sums.iter().enumerate().skip(1) {
@@ -349,7 +352,7 @@ pub fn find(g: &Grid, job: &PondJob) -> Result<Ponds> {
     Ok(Ponds { labels, depth, list })
 }
 
-/// The ponds as a polygon layer.
+/// Las charcas como capa de polígonos.
 fn layer(p: &Ponds, simplify: f64) -> Result<VectorData> {
     let tracer = Tracer::new(&p.labels)?;
     let outlines: Vec<_> = (1..=p.labels.count)
@@ -395,7 +398,7 @@ fn layer(p: &Ponds, simplify: f64) -> Result<VectorData> {
     Ok(d)
 }
 
-/// Finds the ponds of the model in `job.input` and writes what was asked; returns the summary.
+/// Halla las charcas del modelo de `job.input` y escribe lo pedido; devuelve el resumen.
 pub fn run(job: &PondJob) -> Result<String> {
     let mut g = Grid::read(&job.input)?;
     let epsg = Grid::read_epsg(&job.input);
@@ -462,14 +465,15 @@ pub fn run(job: &PondJob) -> Result<String> {
 mod tests {
     use super::*;
 
-    /// A gently tilted plane with two bowls and a small one inside the big one.
+    /// Un plano ligeramente inclinado con dos cuencos y uno pequeño dentro del grande.
     fn terrain() -> Result<Grid> {
         let mut g = Grid::new(0.0, 0.0, 0.5, 80, 60)?;
         for r in 0..g.rows {
             for c in 0..g.cols {
                 let (x, y) = g.center(c, r);
                 let mut z = 10.0 - 0.001 * x;
-                // a 12 cm deep bowl, 6 m across, with a 6 cm deeper one in its middle
+                // un cuenco de 12 cm de profundidad, de 6 m de ancho, con otro 6 cm más profundo en
+                // su centro
                 let d1 = (x - 12.0).hypot(y - 15.0);
                 if d1 < 3.0 {
                     z -= 0.12;
@@ -477,7 +481,7 @@ mod tests {
                         z -= 0.06;
                     }
                 }
-                // a 3 cm one: below the minimum
+                // uno de 3 cm: por debajo del mínimo
                 if (x - 30.0).hypot(y - 15.0) < 2.0 {
                     z -= 0.03;
                 }
@@ -492,11 +496,12 @@ mod tests {
         let g = terrain()?;
         let job = PondJob::new("x".into(), "y".into());
         let p = find(&g, &job)?;
-        // the shallow bowl is below 5 cm; the deep one is a single pond, nested one included
+        // el cuenco poco profundo está por debajo de 5 cm; el profundo es una sola charca, con el
+        // anidado incluido
         assert_eq!(p.list.len(), 1, "{:?}", p.list);
         let pond = &p.list[0];
         assert!(pond.max_depth > 0.15 && pond.max_depth < 0.19, "{pond:?}");
-        // a disc of radius 3 m: about 28 m², the water as deep as its lowest spill
+        // un disco de radio 3 m: unos 28 m², el agua tan profunda como su desborde más bajo
         assert!((pond.area - 28.3).abs() < 3.0, "{pond:?}");
         assert!(pond.volume > 1.0 && pond.volume < pond.area * pond.max_depth, "{pond:?}");
         assert_eq!(p.labels.ids.iter().filter(|i| **i == 1).count() as u64, pond.cells);

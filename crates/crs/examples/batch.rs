@@ -1,5 +1,5 @@
-//! Transforms the points of a JSON file (`[{"src","dst","pts":[[x,y,(z)]...]}]`) and prints the
-//! results as JSON: the same cases are run through PROJ by `scripts/check_spain_crs.py`.
+//! Transforma los puntos de un archivo JSON (`[{"src","dst","pts":[[x,y,(z)]...]}]`) e imprime los
+//! resultados como JSON: los mismos casos los pasa por PROJ `scripts/check_spain_crs.py`.
 use hipso_crs::{SpatialRef, Transformer};
 
 fn main() {

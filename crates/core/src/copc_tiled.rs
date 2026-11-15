@@ -1,13 +1,14 @@
-//! COPC from a cloud too big to hold in memory, by cells.
+//! COPC a partir de una nube demasiado grande para guardarla en memoria, por celdas.
 //!
-//! The cube of the cloud is cut into the cells of one level of its octree (the level is the
-//! shallowest at which no cell holds more points than fit in memory). One pass spreads the
-//! records over the cells in a temporary file; then each cell is read, its tree is built as the
-//! subtree of the cell, and its chunks are compressed and appended to the output. The nodes
-//! above the cells (the coarse levels, an even sample of the whole cloud) take, as the points of
-//! each cell go through them, the first point of each of their grid cells; those points are kept
-//! in the same temporary file and written last. Memory is about one cell, whatever the size of
-//! the cloud; the temporary file takes the size of the cloud as COPC records.
+//! El cubo de la nube se corta en las celdas de un nivel de su octree (el nivel es el menos
+//! profundo en el que ninguna celda contiene más puntos de los que caben en memoria). Una pasada
+//! reparte los registros entre las celdas en un archivo temporal; luego se lee cada celda, se
+//! construye su árbol como el subárbol de la celda y sus fragmentos se comprimen y se añaden a la
+//! salida. Los nodos por encima de las celdas (los niveles gruesos, una muestra uniforme de toda la
+//! nube) toman, a medida que los puntos de cada celda pasan por ellos, el primer punto de cada una
+//! de sus celdas de rejilla; esos puntos se guardan en el mismo archivo temporal y se escriben los
+//! últimos. La memoria es de aproximadamente una celda, sea cual sea el tamaño de la nube; el
+//! archivo temporal ocupa el tamaño de la nube como registros COPC.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -20,13 +21,13 @@ use crate::copc_write::{CopcReport, CubeInfo, GRID, bad, build, copc_format, fin
 use crate::las::{self, Reader};
 use crate::{Error, Result};
 
-/// Cells per side of the histogram that chooses the level of the cells.
+/// Celdas por lado del histograma que elige el nivel de las celdas.
 const HIST: usize = 32;
-/// Deepest level of the cells (`HIST` is 2 to this power).
+/// Nivel más profundo de las celdas (`HIST` es 2 elevado a esto).
 const HIST_LEVEL: u32 = 5;
 
-/// The records of every cell (and of every coarse node), kept in one temporary file: each
-/// bucket collects a block in memory and appends it to the file when it is full.
+/// Los registros de cada celda (y de cada nodo grueso), guardados en un único archivo temporal:
+/// cada cubo recoge un bloque en memoria y lo añade al archivo cuando está lleno.
 struct Spool {
     file: File,
     path: PathBuf,
@@ -51,7 +52,7 @@ impl Spool {
             .create(true)
             .truncate(true)
             .open(path)?;
-        // the blocks in memory take at most 256 MB together
+        // los bloques en memoria ocupan como mucho 256 MB en total
         let block = ((256usize << 20) / buckets.max(1)).clamp(4 << 10, 64 << 10);
         Ok(Self {
             file,
@@ -92,7 +93,7 @@ impl Spool {
         Ok(())
     }
 
-    /// All the records of a bucket, in the order they came.
+    /// Todos los registros de un cubo, en el orden en que llegaron.
     fn read(&mut self, b: usize) -> Result<Vec<u8>> {
         self.flush(b)?;
         let total: usize = self.blocks[b].iter().map(|x| x.1 as usize).sum();
@@ -107,7 +108,7 @@ impl Spool {
     }
 }
 
-/// What one pass over the cloud learns.
+/// Lo que aprende una pasada sobre la nube.
 struct Survey {
     lo: [f64; 3],
     hi: [f64; 3],
@@ -153,7 +154,8 @@ fn i32_at(b: &[u8], at: usize) -> i32 {
     i32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]])
 }
 
-/// The coordinates of a record (all the point formats start with three 32-bit integers).
+/// Las coordenadas de un registro (todos los formatos de punto empiezan con tres enteros de 32
+/// bits).
 fn coords(rec: &[u8], scale: &[f64; 3], offset: &[f64; 3]) -> [f64; 3] {
     [
         f64::from(i32_at(rec, 0)) * scale[0] + offset[0],
@@ -162,12 +164,12 @@ fn coords(rec: &[u8], scale: &[f64; 3], offset: &[f64; 3]) -> [f64; 3] {
     ]
 }
 
-/// The cell of a coordinate on a grid of `n` cells of side `cell` from `lo`.
+/// La celda de una coordenada en una rejilla de `n` celdas de lado `cell` desde `lo`.
 fn cell_of(v: f64, lo: f64, cell: f64, n: usize) -> usize {
     (((v - lo) / cell).floor().max(0.0) as usize).min(n - 1)
 }
 
-/// A record in the output format, exactly `new_len` bytes.
+/// Un registro en el formato de salida, exactamente `new_len` bytes.
 fn convert<'a>(old: u8, new: u8, new_len: usize, rec: &'a [u8], buf: &'a mut Vec<u8>) -> &'a [u8] {
     if old == new && rec.len() == new_len {
         return rec;
@@ -182,8 +184,8 @@ fn convert<'a>(old: u8, new: u8, new_len: usize, rec: &'a [u8], buf: &'a mut Vec
     buf
 }
 
-/// Compresses `chunks` (one node each) and returns the compressed bytes of all of them and the
-/// size of each.
+/// Comprime `chunks` (uno por nodo) y devuelve los bytes comprimidos de todos ellos y el tamaño de
+/// cada uno.
 fn compress(vlr: &laz::LazVlr, chunks: Vec<Vec<u8>>) -> Result<(Vec<u8>, Vec<u64>)> {
     let mut comp =
         laz::ParLasZipCompressor::new(Cursor::new(Vec::<u8>::new()), vlr.clone()).map_err(bad)?;
@@ -192,14 +194,14 @@ fn compress(vlr: &laz::LazVlr, chunks: Vec<Vec<u8>>) -> Result<(Vec<u8>, Vec<u64
     let buf = comp.into_inner().into_inner();
     let table_at = u64::from_le_bytes(buf[0..8].try_into().map_err(|_| bad("trozo vacío"))?);
     let table_at = usize::try_from(table_at).map_err(|_| bad("tabla fuera de rango"))?;
-    // the table reads the pointer at the start of the buffer and goes to it
+    // la tabla lee el puntero al principio del búfer y va a él
     let mut cur = Cursor::new(&buf[..]);
     let table = laz::laszip::ChunkTable::read_from(&mut cur, vlr).map_err(bad)?;
     let sizes: Vec<u64> = table.as_ref().iter().map(|e| e.byte_count).collect();
     Ok((buf[8..table_at].to_vec(), sizes))
 }
 
-/// The free space of the disk that holds `path`, when it can be told.
+/// El espacio libre del disco que contiene `path`, cuando se puede saber.
 fn free_bytes(path: &Path) -> Option<u64> {
     if cfg!(windows) {
         return None;
@@ -220,13 +222,13 @@ fn free_bytes(path: &Path) -> Option<u64> {
     Some(kb * 1024)
 }
 
-/// A coarse node: which cells of its grid have a point already, and where its points go.
+/// Un nodo grueso: qué celdas de su rejilla ya tienen un punto y adónde van sus puntos.
 struct Coarse {
     taken: Vec<u64>,
     bucket: usize,
 }
 
-/// Writes `input` as COPC at `output` by cells of at most about `cell_max` points.
+/// Escribe `input` como COPC en `output` por celdas de como mucho unos `cell_max` puntos.
 pub fn write(input: &Path, output: &Path, cell_max: usize) -> Result<CopcReport> {
     let r = Reader::open(input)?;
     let h = r.header.clone();
@@ -240,7 +242,7 @@ pub fn write(input: &Path, output: &Path, cell_max: usize) -> Result<CopcReport>
     let new_len = usize::from(las::core_len(new).unwrap_or(30) + extra);
     let rec_len = usize::from(h.record_len);
     crate::paths::ensure_parent(output)?;
-    // the disk must hold the records of the cells while they wait, and then the output
+    // el disco debe contener los registros de las celdas mientras esperan y luego la salida
     if let Some(free) = free_bytes(output.parent().unwrap_or(Path::new(".")))
         && free < h.count * new_len as u64 * 13 / 10
     {
@@ -251,7 +253,7 @@ pub fn write(input: &Path, output: &Path, cell_max: usize) -> Result<CopcReport>
         )));
     }
 
-    // the cube: the extent of the header (it only has to hold the cloud; it is tightened below)
+    // el cubo: la extensión de la cabecera (solo tiene que contener la nube; se ajusta más abajo)
     let b = h.bounds;
     let center = [
         (b[0] + b[3]) / 2.0,
@@ -262,7 +264,8 @@ pub fn write(input: &Path, output: &Path, cell_max: usize) -> Result<CopcReport>
     let cube_lo = [center[0] - half, center[1] - half, center[2] - half];
     let size = 2.0 * half;
 
-    // pass 1: the extent, the times, the returns, and how many points each cell of a fine grid has
+    // pasada 1: la extensión, los tiempos, los retornos y cuántos puntos tiene cada celda de una
+    // rejilla fina
     let hcell = size / HIST as f64;
     let sv = {
         let mut total = Survey::new();
@@ -303,7 +306,7 @@ pub fn write(input: &Path, output: &Path, cell_max: usize) -> Result<CopcReport>
         return Err(bad("ningún punto se ha podido leer"));
     }
 
-    // the shallowest level whose biggest cell fits
+    // el nivel menos profundo cuya celda mayor cabe
     let biggest = |level: u32| -> usize {
         let n = 1usize << level;
         let step = HIST / n;
@@ -332,7 +335,7 @@ pub fn write(input: &Path, output: &Path, cell_max: usize) -> Result<CopcReport>
     let ncell = n_side * n_side * n_side;
     let cell_side = size / n_side as f64;
 
-    // pass 2: the records, converted, to the file of the cells
+    // pasada 2: los registros, convertidos, al archivo de las celdas
     let spool_path = output.with_extension("spool");
     let mut spool = Spool::create(&spool_path, ncell)?;
     let mut buf = Vec::with_capacity(new_len);
@@ -348,7 +351,7 @@ pub fn write(input: &Path, output: &Path, cell_max: usize) -> Result<CopcReport>
         crate::check_cancel()
     })?;
 
-    // the headers, with the extent the points really have
+    // las cabeceras, con la extensión que de verdad tienen los puntos
     let prep = prepare(&r, new, extra, new_len, sv.count, sv.lo, sv.hi, &sv.returns)?;
     let out_file = std::fs::OpenOptions::new()
         .read(true)
@@ -359,7 +362,7 @@ pub fn write(input: &Path, output: &Path, cell_max: usize) -> Result<CopcReport>
     let mut out = BufWriter::with_capacity(1 << 20, out_file);
     out.write_all(&prep.head)?;
     out.write_all(&prep.vlrs)?;
-    out.write_all(&[0u8; 8])?; // where the chunk table will be
+    out.write_all(&[0u8; 8])?; // dónde estará la tabla de fragmentos
     let mut entries: Vec<([i32; 4], u64, i32)> = Vec::new();
     let mut table = laz::laszip::ChunkTable::default();
     let mut coarse: HashMap<[i32; 4], Coarse> = HashMap::new();
@@ -368,7 +371,8 @@ pub fn write(input: &Path, output: &Path, cell_max: usize) -> Result<CopcReport>
     let scale = h.scale;
     let offset = h.offset;
 
-    // each cell: take what the coarse nodes above it keep, build the subtree, write its chunks
+    // cada celda: tomar lo que guardan los nodos gruesos por encima de ella, construir el subárbol,
+    // escribir sus fragmentos
     for c in 0..ncell {
         if spool.counts[c] == 0 {
             continue;
@@ -389,7 +393,7 @@ pub fn write(input: &Path, output: &Path, cell_max: usize) -> Result<CopcReport>
                 ]
             })
             .collect();
-        // the coarse nodes above this cell, from the root
+        // los nodos gruesos por encima de esta celda, desde la raíz
         let keys: Vec<[i32; 4]> = (0..level as i32)
             .map(|l| {
                 let s = (level as i32 - l) as u32;
@@ -456,7 +460,7 @@ pub fn write(input: &Path, output: &Path, cell_max: usize) -> Result<CopcReport>
         }
     }
 
-    // the coarse nodes last, in groups that fit in memory
+    // los nodos gruesos al final, en grupos que caben en memoria
     let mut keys: Vec<[i32; 4]> = coarse.keys().copied().collect();
     keys.sort();
     let mut i = 0;
@@ -485,7 +489,7 @@ pub fn write(input: &Path, output: &Path, cell_max: usize) -> Result<CopcReport>
     }
     drop(spool);
 
-    // the chunk table, where the points end, and the pointer to it
+    // la tabla de fragmentos, donde terminan los puntos y el puntero a ella
     out.flush()?;
     let mut file = out.into_inner().map_err(|e| bad(e.error()))?;
     let table_at = file.seek(SeekFrom::End(0))?;
@@ -542,12 +546,12 @@ mod tests {
         }
         w.finish()?;
         let out = dir.join("t.copc.laz");
-        // cells of at most 20 000 points: the cloud is cut into several levels of cells
+        // celdas de como mucho 20 000 puntos: la nube se corta en varios niveles de celdas
         let rep = write(&cloud, &out, 20_000)?;
         assert_eq!(rep.points, 300_000);
         assert!(rep.levels >= 3, "{rep:?}");
         assert!(!out.with_extension("spool").exists());
-        // it is a COPC whose nodes hold every point once
+        // es un COPC cuyos nodos contienen cada punto una vez
         let copc = crate::copc::Copc::open(&out)?.ok_or_else(|| bad("no es COPC"))?;
         let all = copc.nodes(None, None)?;
         assert_eq!(
@@ -555,7 +559,7 @@ mod tests {
             300_000
         );
         assert!(all.iter().any(|n| n.level == 0), "the root is there");
-        // read as a plain LAZ, the same points as the source, with their classes
+        // leído como un LAZ normal, los mismos puntos que el origen, con sus clases
         let key = |p: &las::Point| {
             (
                 (p.x * 1000.0).round() as i64,
@@ -570,7 +574,7 @@ mod tests {
         a.sort_unstable();
         b.sort_unstable();
         assert_eq!(a, b);
-        // a query by area reads less than the whole, and finds the points inside
+        // una consulta por área lee menos que el total y encuentra los puntos de dentro
         let window = [10.0, 10.0, 30.0, 30.0];
         let part = copc.nodes(Some(window), None)?;
         assert!(part.iter().map(|n| u64::from(n.points)).sum::<u64>() < 300_000);

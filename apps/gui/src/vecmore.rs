@@ -1,6 +1,6 @@
-//! More tools for editing vector layers: join the selected polygons, split and gather the parts
-//! of features, select by location, the field calculator, and the question asked before a
-//! GeoPackage is rewritten with tables HIPSO does not keep.
+//! Más herramientas para editar capas vectoriales: unir los polígonos seleccionados, dividir y
+//! reunir las partes de los elementos, seleccionar por localización, la calculadora de campos y la
+//! pregunta que se hace antes de reescribir un GeoPackage con tablas que HIPSO no conserva.
 
 use super::*;
 use hipso_core::{fieldcalc, geomops, vecops};
@@ -14,17 +14,17 @@ pub struct CalcDlg {
 }
 
 pub struct LocDlg {
-    /// The layer to compare with.
+    /// La capa con la que comparar.
     pub other: Option<usize>,
     pub rel: vecops::Relation,
-    /// 0: new selection, 1: add to it, 2: remove from it.
+    /// 0: selección nueva, 1: añadir a ella, 2: quitar de ella.
     pub mode: u8,
     pub msg: String,
 }
 
 pub struct ExprDlg {
     pub expr: String,
-    /// 0: new selection, 1: add to it, 2: remove from it.
+    /// 0: selección nueva, 1: añadir a ella, 2: quitar de ella.
     pub mode: u8,
     pub msg: String,
 }
@@ -34,13 +34,25 @@ pub struct State {
     pub calc: Option<CalcDlg>,
     pub expr: Option<ExprDlg>,
     pub loc: Option<LocDlg>,
-    /// A layer to save over its GeoPackage and what the file holds that would be lost.
+    /// Una capa que guardar sobre su GeoPackage y lo que contiene el archivo que se perdería.
     pub gpkg_loss: Option<(usize, Vec<String>)>,
+    /// La ventana de mover, girar y escalar la selección.
+    pub transform: Option<crate::editmore::TransformDlg>,
+    /// La ventana de la comprobación de topología.
+    pub topo: Option<crate::editmore::TopoDlg>,
+    /// Los elementos copiados: sus datos y el tipo de geometría.
+    pub clip: Option<(view::VectorData, view::GeomKind)>,
+    /// Con la herramienta de digitalizar, el trazo reforma el contorno de los polígonos en lugar
+    /// de crear uno nuevo.
+    pub reshape: bool,
+    /// La digitalización y el movimiento de vértices se ajustan también a los bordes (a cualquier
+    /// punto de un segmento), no solo a los vértices.
+    pub snap_edges: bool,
 }
 
 impl App {
-    /// Joins the selected polygons into one that takes the place and the attributes of the first
-    /// of them.
+    /// Une los polígonos seleccionados en uno que toma el lugar y los atributos del primero de
+    /// ellos.
     pub fn merge_selected(&mut self) {
         let Some(v) = self.active_vec_mut() else { return };
         if v.kind != view::GeomKind::Polygon {
@@ -64,7 +76,7 @@ impl App {
         self.log(format!("{n} polígonos unidos en uno (con los atributos del primero)."));
     }
 
-    /// Splits each selected feature that has several parts into one feature per part.
+    /// Divide cada elemento seleccionado que tiene varias partes en un elemento por parte.
     pub fn explode_selected(&mut self) {
         let Some(v) = self.active_vec_mut() else { return };
         let kind = v.kind;
@@ -87,8 +99,8 @@ impl App {
         self.log(format!("{n} elemento(s) separados en sus partes."));
     }
 
-    /// Gathers the selected features into one that has all their parts (the geometry is not
-    /// joined); it keeps the attributes of the first.
+    /// Reúne los elementos seleccionados en uno que tiene todas sus partes (la geometría no se
+    /// une); conserva los atributos del primero.
     pub fn gather_selected(&mut self) {
         let Some(v) = self.active_vec_mut() else { return };
         if v.selected.len() < 2 {
@@ -111,6 +123,8 @@ impl App {
         self.expr_window(ctx);
         self.loc_window(ctx);
         self.gpkg_loss_window(ctx);
+        self.transform_window(ctx);
+        self.topology_window(ctx);
     }
 
     fn calc_window(&mut self, ctx: &egui::Context) {
@@ -355,8 +369,8 @@ impl App {
         }
     }
 
-    /// The question asked before a GeoPackage is rewritten: the file holds tables HIPSO does
-    /// not keep (styles saved by QGIS, attribute tables, tiles).
+    /// La pregunta que se hace antes de reescribir un GeoPackage: el archivo contiene tablas que
+    /// HIPSO no conserva (estilos guardados por QGIS, tablas de atributos, teselas).
     fn gpkg_loss_window(&mut self, ctx: &egui::Context) {
         let Some((k, lost)) = self.vm.gpkg_loss.take() else { return };
         let Some(name) = self.refs.get(k).map(|r| r.name.clone()) else { return };

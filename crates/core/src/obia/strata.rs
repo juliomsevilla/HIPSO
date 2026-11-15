@@ -1,5 +1,5 @@
-//! Strata: classified objects joined into homogeneous areas, and how many sample plots each
-//! area deserves.
+//! Estratos: objetos clasificados unidos en áreas homogéneas, y cuántas parcelas de muestra merece
+//! cada área.
 
 use std::collections::HashMap;
 
@@ -7,18 +7,19 @@ use super::segment::label_components;
 use super::{Labels, Lattice};
 use crate::{Result, check_cancel};
 
-/// Joined areas: a label per cell and the class of each area (class 0 cells keep label 0).
+/// Áreas unidas: una etiqueta por celda y la clase de cada área (las celdas de clase 0 conservan la
+/// etiqueta 0).
 pub struct Strata {
     pub labels: Labels,
-    /// The class of area `i + 1`.
+    /// La clase del área `i + 1`.
     pub class: Vec<u16>,
-    /// The class of every cell, after small areas took the class of their neighbours.
+    /// La clase de cada celda, después de que las áreas pequeñas tomaran la clase de sus vecinas.
     pub cell_class: Vec<u16>,
 }
 
-/// Joins the objects of the same class that touch into one area. Areas under `min_cells` take the
-/// class that borders them most among the areas that are big enough, and join them; an area that
-/// has no big neighbour stays as it is.
+/// Une los objetos de la misma clase que se tocan en un área. Las áreas de menos de `min_cells`
+/// toman la clase con la que más limitan entre las áreas suficientemente grandes y se unen a ellas;
+/// un área que no tiene vecina grande se queda como está.
 pub fn dissolve(labels: &Labels, class: &[u16], min_cells: u32) -> Result<Strata> {
     let Lattice { cols, rows, .. } = labels.lat;
     let mut cell_class: Vec<u16> = labels
@@ -28,7 +29,8 @@ pub fn dissolve(labels: &Labels, class: &[u16], min_cells: u32) -> Result<Strata
         .collect();
     let areas =
         |cls: &[u16]| label_components(cols, rows, false, |i| cls[i] > 0, |i, j| cls[i] == cls[j]);
-    // each round reassigns small areas to a bigger neighbour's class; a few rounds settle it
+    // cada ronda reasigna las áreas pequeñas a la clase de una vecina mayor; unas pocas rondas lo
+    // asientan
     for _ in 0..12 {
         check_cancel()?;
         let (lab, n) = areas(&cell_class)?;
@@ -68,7 +70,7 @@ pub fn dissolve(labels: &Labels, class: &[u16], min_cells: u32) -> Result<Strata
         if votes.is_empty() {
             break;
         }
-        // the class with most votes for each small area (the lower class number on a tie)
+        // la clase con más votos para cada área pequeña (el número de clase menor en un empate)
         let mut best: HashMap<u32, (u16, u32)> = HashMap::new();
         for (&(a, c), &v) in &votes {
             let e = best.entry(a).or_insert((c, v));
@@ -100,7 +102,7 @@ pub fn dissolve(labels: &Labels, class: &[u16], min_cells: u32) -> Result<Strata
     })
 }
 
-/// What a stratum looks like on one layer.
+/// Qué aspecto tiene un estrato en una capa.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StratumStat {
     pub class: u16,
@@ -111,7 +113,7 @@ pub struct StratumStat {
 }
 
 impl StratumStat {
-    /// Coefficient of variation in percent: how heterogeneous the stratum is.
+    /// Coeficiente de variación en porcentaje: cuán heterogéneo es el estrato.
     pub fn cv(&self) -> f64 {
         if self.mean.abs() > 1e-12 {
             100.0 * self.sd / self.mean.abs()
@@ -121,8 +123,8 @@ impl StratumStat {
     }
 }
 
-/// Area, mean and standard deviation of `layer` in every class (`n_classes` of them, codes from 1)
-/// over the cells that have a class and a value, and how many separate areas each class has.
+/// Área, media y desviación típica de `layer` en cada clase (`n_classes` de ellas, códigos desde 1)
+/// sobre las celdas que tienen una clase y un valor, y cuántas áreas separadas tiene cada clase.
 pub fn summarize(
     cell_class: &[u16],
     layer: &[f32],
@@ -138,7 +140,7 @@ pub fn summarize(
             polygons[c as usize - 1] += 1;
         }
     }
-    // centred on the first value seen for precision
+    // centrado en el primer valor visto, por precisión
     let shift = layer
         .iter()
         .find(|v| v.is_finite())
@@ -173,9 +175,9 @@ pub fn summarize(
         .collect()
 }
 
-/// Splits `plots` sample plots among the strata in proportion to area times standard deviation
-/// (Neyman allocation: big and variable strata get more), at least two each when there are enough
-/// plots. Returns one count per entry of `stats`.
+/// Reparte `plots` parcelas de muestra entre los estratos en proporción al área por la desviación
+/// típica (asignación de Neyman: los estratos grandes y variables reciben más), al menos dos cada
+/// uno cuando hay suficientes parcelas. Devuelve un recuento por entrada de `stats`.
 pub fn allocate(stats: &[StratumStat], plots: usize) -> Vec<usize> {
     let h = stats.iter().filter(|s| s.cells > 0).count();
     let mut out = vec![0usize; stats.len()];
@@ -204,7 +206,7 @@ pub fn allocate(stats: &[StratumStat], plots: usize) -> Vec<usize> {
     for (o, e) in out.iter_mut().zip(&exact) {
         *o += e.floor() as usize;
     }
-    // the plots left go to the biggest fractions, the lower class first on a tie
+    // las parcelas que sobran van a las mayores fracciones, la clase menor primero en un empate
     let mut left = plots - out.iter().sum::<usize>();
     let mut order: Vec<usize> = (0..stats.len()).filter(|&k| stats[k].cells > 0).collect();
     order.sort_by(|&a, &b| {
@@ -243,7 +245,7 @@ mod tests {
 
     #[test]
     fn neighbours_of_one_class_become_one_area() -> Result<()> {
-        // objects 1, 2 and 3 side by side; 1 and 2 are class 1, 3 is class 2
+        // objetos 1, 2 y 3 lado a lado; 1 y 2 son clase 1, 3 es clase 2
         let l = labels(6, 2, vec![1, 1, 2, 2, 3, 3, 1, 1, 2, 2, 3, 3]);
         let s = dissolve(&l, &[1, 1, 2], 1)?;
         assert_eq!(s.labels.count, 2);
@@ -254,14 +256,15 @@ mod tests {
 
     #[test]
     fn small_areas_join_their_biggest_neighbour() -> Result<()> {
-        // a 2-cell island of class 2 inside class 1, and a big class 2 area elsewhere
+        // una isla de 2 celdas de clase 2 dentro de la clase 1, y un área grande de clase 2 en otro
+        // sitio
         let mut ids = vec![1u32; 40];
         ids[11] = 2;
         ids[12] = 2;
         ids[30..40].fill(3);
         let l = labels(10, 4, ids);
         let s = dissolve(&l, &[1, 2, 2], 5)?;
-        // the island took the class of the surrounding area, so there are two areas
+        // la isla tomó la clase del área que la rodea, así que hay dos áreas
         assert_eq!(s.labels.count, 2);
         assert_eq!(s.cell_class[11], 1);
         assert_eq!(s.cell_class[35], 2);

@@ -1,9 +1,9 @@
-//! The WKT 1 of a PROJ string, as PROJ writes it for GDAL (`WKT1_GDAL`): built from terrio's
-//! own reading of the PROJ string, with PROJ's default for every parameter the string omits.
-//! What WKT 1 cannot describe (a projection without a WKT 1 method, a datum grid, a parameter
-//! or axis order its method has no node for) is kept in the PROJ string itself, in an
-//! `EXTENSION["PROJ4", ...]` that GDAL and PROJ read instead of the nodes, with GDAL's
-//! `custom_proj4` method when WKT 1 has none.
+//! El WKT 1 de una cadena PROJ, como lo escribe PROJ para GDAL (`WKT1_GDAL`): construido a partir
+//! de la lectura propia de terrio de la cadena PROJ, con el valor por defecto de PROJ para cada
+//! parámetro que la cadena omite. Lo que WKT 1 no puede describir (una proyección sin método WKT 1,
+//! una rejilla de datum, un parámetro o un orden de ejes para el que su método no tiene nodo) se
+//! conserva en la propia cadena PROJ, en un `EXTENSION["PROJ4", ...]` que GDAL y PROJ leen en lugar
+//! de los nodos, con el método `custom_proj4` de GDAL cuando WKT 1 no tiene ninguno.
 
 use super::def::{Def, datum_geog};
 use super::math::{Ell, prime_meridian, unit_to_meter};
@@ -11,8 +11,8 @@ use super::params::Params;
 use super::{SpatialRef, epsg};
 use std::fmt::Write as _;
 
-/// The parameters the nodes describe. Any other (`+approx`, `+no_rot`, `+czech`, `+guam`,
-/// `+geoidgrids`...) is kept in the PROJ4 extension.
+/// Los parámetros que describen los nodos. Cualquier otro (`+approx`, `+no_rot`, `+czech`, `+guam`,
+/// `+geoidgrids`...) se conserva en la extensión PROJ4.
 const DESCRIBED: &[&str] = &[
     "proj", "lat_0", "lon_0", "k", "k_0", "x_0", "y_0", "lat_1", "lat_2", "lat_ts", "lonc",
     "alpha", "gamma", "no_uoff", "no_off", "zone", "south", "h", "sweep", "azi", "ellps", "datum",
@@ -20,7 +20,7 @@ const DESCRIBED: &[&str] = &[
     "type", "nadgrids",
 ];
 
-/// `(PROJ name, EPSG name, EPSG code)` of the ellipsoids GDAL names.
+/// `(nombre PROJ, nombre EPSG, código EPSG)` de los elipsoides que nombra GDAL.
 const ELLIPSOIDS: &[(&str, &str, u32)] = &[
     ("WGS84", "WGS 84", 7030),
     ("GRS80", "GRS 1980", 7019),
@@ -39,12 +39,12 @@ const ELLIPSOIDS: &[(&str, &str, u32)] = &[
     ("evrst30", "Everest 1830 (1937 Adjustment)", 7015),
 ];
 
-/// The axes of an east-north projected CS.
+/// Los ejes de un sistema de coordenadas proyectado este-norte.
 const EAST_NORTH: &str = ",AXIS[\"Easting\",EAST],AXIS[\"Northing\",NORTH]";
 
-/// A WKT 1 projection method: its name, its parameters (in degrees and the CRS's linear unit),
-/// the projected CS's axes as GDAL writes them, and whether the nodes describe the PROJ
-/// string's axis order.
+/// Un método de proyección WKT 1: su nombre, sus parámetros (en grados y en la unidad lineal del
+/// sistema), los ejes del sistema de coordenadas proyectado como los escribe GDAL y si los nodos
+/// describen el orden de ejes de la cadena PROJ.
 struct Method {
     name: &'static str,
     params: Vec<(&'static str, f64)>,
@@ -52,7 +52,7 @@ struct Method {
     axis_described: bool,
 }
 
-/// The GDAL WKT 1 of a PROJ string. `None` when terrio cannot read the PROJ string.
+/// El WKT 1 de GDAL de una cadena PROJ. `None` cuando terrio no puede leer la cadena PROJ.
 pub(crate) fn from_proj(s: &str) -> Option<String> {
     let own = Def::from_proj(s).ok()?;
     let p = Params::parse(s);
@@ -60,11 +60,11 @@ pub(crate) fn from_proj(s: &str) -> Option<String> {
     let (geogcs, datum_described) = geogcs(&p, &own);
     let described = datum_described && p.keys().all(|k| DESCRIBED.contains(&k));
     if own.is_rotated_pole() {
-        // Its base geographic CRS extended with the PROJ string, as GDAL 2 wrote it. Unnamed and
-        // without its code, so as not to be taken for the base CRS.
+        // Su sistema geográfico base ampliado con la cadena PROJ, como lo escribía GDAL 2. Sin
+        // nombre y sin su código, para que no se tome por el sistema base.
         let body = geogcs.strip_prefix("GEOGCS[\"")?;
         let body = body[body.find('"')? + 1..].strip_suffix(']')?;
-        // The root's own AUTHORITY: the last node, closed by the root's bracket.
+        // La AUTHORITY propia de la raíz: el último nodo, cerrado por el corchete de la raíz.
         let body = match body.rfind(",AUTHORITY[") {
             Some(i) if body[i..].matches(']').count() == 1 => &body[..i],
             _ => body,
@@ -95,7 +95,7 @@ pub(crate) fn from_proj(s: &str) -> Option<String> {
                 }
                 w
             }
-            // GDAL's `custom_proj4`: the PROJ string on its datum.
+            // `custom_proj4` de GDAL: la cadena PROJ sobre su datum.
             None => {
                 let ext = format!("EXTENSION[\"PROJ4\",\"{}\"]", custom(s));
                 return Some(format!(
@@ -104,8 +104,8 @@ pub(crate) fn from_proj(s: &str) -> Option<String> {
             }
         }
     };
-    // Faithful when terrio reads it back as the PROJ string: the same conversion on the same
-    // datum (its EPSG code identified, its geographic CRS).
+    // Fiel cuando terrio la lee de vuelta como la cadena PROJ: la misma conversión sobre el mismo
+    // datum (su código EPSG identificado, su sistema geográfico).
     let faithful = described
         && Def::new(&SpatialRef::from_wkt(&wkt))
             .is_ok_and(|read| read.same_conversion(&own) && read.same_datum(&own));
@@ -116,18 +116,19 @@ pub(crate) fn from_proj(s: &str) -> Option<String> {
     })
 }
 
-/// A PROJ string as its WKT 1 describes it, for formats that describe CRSs by parameters
-/// (GeoTIFF's GeoKeys): its method and parameters (in degrees and its linear unit), its linear
-/// unit and datum.
+/// Una cadena PROJ tal como la describe su WKT 1, para formatos que describen sistemas por
+/// parámetros (las GeoKeys de GeoTIFF): su método y parámetros (en grados y su unidad lineal), su
+/// unidad lineal y su datum.
 pub(crate) struct Described {
-    /// GDAL's WKT 1 method; `None` for a geographic CRS.
+    /// El método WKT 1 de GDAL; `None` para un sistema geográfico.
     pub method: Option<&'static str>,
     pub params: Vec<(&'static str, f64)>,
-    /// Metres per linear unit, and its EPSG code when GeoTIFF has one.
+    /// Metros por unidad lineal y su código EPSG cuando GeoTIFF lo tiene.
     pub to_meter: f64,
     pub unit_code: Option<u32>,
-    /// The EPSG geographic CRS, else the ellipsoid (its EPSG code when GDAL names it, semi-major
-    /// axis and inverse flattening, 0 for a sphere), prime meridian and datum shift.
+    /// El sistema geográfico EPSG o, si no, el elipsoide (su código EPSG cuando GDAL lo nombra,
+    /// semieje mayor e inverso del aplanamiento, 0 para una esfera), el meridiano origen y el
+    /// desplazamiento de datum.
     pub geog: Option<u32>,
     pub ellipsoid: Option<u32>,
     pub a: f64,
@@ -136,8 +137,8 @@ pub(crate) struct Described {
     pub towgs84: Option<Vec<f64>>,
 }
 
-/// The description of a PROJ string whose WKT 1 describes it whole (without the PROJ4
-/// extension), with east-north axes. `None` otherwise.
+/// La descripción de una cadena PROJ cuyo WKT 1 la describe entera (sin la extensión PROJ4), con
+/// ejes este-norte. `None` en otro caso.
 pub(crate) fn describe(s: &str) -> Option<Described> {
     let wkt = from_proj(s)?;
     if wkt.contains("EXTENSION[") {
@@ -159,7 +160,7 @@ pub(crate) fn describe(s: &str) -> Option<Described> {
     let ellipsoid = named
         .and_then(|n| ELLIPSOIDS.iter().find(|e| e.0 == n))
         .filter(|e| Ell::named(e.0).is_some_and(|n| n == ell));
-    // The units GDAL reads in GeoKeys, by size.
+    // Las unidades que lee GDAL en las GeoKeys, por tamaño.
     let to_meter = own.to_meter();
     const UNITS: [(f64, u32); 4] = [
         (1.0, 9001),
@@ -192,10 +193,10 @@ pub(crate) fn describe(s: &str) -> Option<Described> {
     })
 }
 
-/// The GDAL WKT 1 of a projected PROJ string on an EPSG geographic CRS (its `GEOGCS`, which
-/// identifies the datum), as GDAL reads GeoKeys that give the geographic CRS by its code. `None`
-/// when the code is not a geographic CRS of the EPSG table, or the WKT 1 needs the PROJ string to
-/// describe the projection.
+/// El WKT 1 de GDAL de una cadena PROJ proyectada sobre un sistema geográfico EPSG (su `GEOGCS`,
+/// que identifica el datum), como lee GDAL las GeoKeys que dan el sistema geográfico por su código.
+/// `None` cuando el código no es un sistema geográfico de la tabla EPSG o el WKT 1 necesita la
+/// cadena PROJ para describir la proyección.
 pub(crate) fn from_proj_on(s: &str, geog: u32) -> Option<String> {
     let e = epsg::get(geog).filter(|e| e.proj.starts_with("+proj=longlat"))?;
     let wkt = from_proj(s).filter(|w| w.starts_with("PROJCS[") && !w.contains("EXTENSION["))?;
@@ -221,7 +222,7 @@ pub(crate) fn from_proj_on(s: &str, geog: u32) -> Option<String> {
     Some(format!("{}{geogcs}{}", &wkt[..start], &wkt[end + 1..]))
 }
 
-/// The ellipsoid of an EPSG geographic CRS, as PROJ parameters.
+/// El elipsoide de un sistema geográfico EPSG, como parámetros PROJ.
 pub(crate) fn epsg_ellipsoid(geog: u32) -> Option<String> {
     let e = epsg::get(geog).filter(|e| e.proj.starts_with("+proj=longlat"))?;
     const ELLIPSOID: [&str; 6] = ["+ellps=", "+a=", "+b=", "+rf=", "+f=", "+R="];
@@ -233,13 +234,13 @@ pub(crate) fn epsg_ellipsoid(geog: u32) -> Option<String> {
     (!tokens.is_empty()).then(|| tokens.join(" "))
 }
 
-/// A WKT 1 with an extension node added to its root.
+/// Un WKT 1 con un nodo de extensión añadido a su raíz.
 fn extended(wkt: &str, extension: &str) -> String {
     format!("{},{extension}]", &wkt[..wkt.len() - 1])
 }
 
-/// The PROJ string of a `custom_proj4` extension, with `+wktext` and `+no_defs` as GDAL writes
-/// it.
+/// La cadena PROJ de una extensión `custom_proj4`, con `+wktext` y `+no_defs` como los escribe
+/// GDAL.
 fn custom(s: &str) -> String {
     let mut out = s.trim().replace('"', "");
     for flag in ["+wktext", "+no_defs"] {
@@ -251,9 +252,9 @@ fn custom(s: &str) -> String {
     out
 }
 
-/// The `GEOGCS` of a PROJ string, and whether it describes the datum: an EPSG geographic CRS
-/// for PROJ's `+datum=` names, else a datum named after its ellipsoid, with its `TOWGS84`. A
-/// datum grid (`+nadgrids=`) is not described.
+/// El `GEOGCS` de una cadena PROJ y si describe el datum: un sistema geográfico EPSG para los
+/// nombres `+datum=` de PROJ o, si no, un datum con el nombre de su elipsoide, con su `TOWGS84`.
+/// Una rejilla de datum (`+nadgrids=`) no se describe.
 fn geogcs(p: &Params, own: &Def) -> (String, bool) {
     let towgs84 = p.list("towgs84").filter(|v| v.len() == 3 || v.len() == 7);
     let grids = p.str("nadgrids").is_some();
@@ -322,8 +323,8 @@ fn geogcs(p: &Params, own: &Def) -> (String, bool) {
     )
 }
 
-/// The EPSG geographic CRS of a PROJ string's `+datum=`, on Greenwich and without another
-/// datum shift.
+/// El sistema geográfico EPSG del `+datum=` de una cadena PROJ, sobre Greenwich y sin otro
+/// desplazamiento de datum.
 fn epsg_geographic(p: &Params) -> Option<&'static epsg::Entry> {
     let other = p.has("towgs84") || p.has("nadgrids") || p.has("pm");
     p.str("datum")
@@ -332,7 +333,7 @@ fn epsg_geographic(p: &Params) -> Option<&'static epsg::Entry> {
         .and_then(epsg::get)
 }
 
-/// A number as GDAL writes it: to 15 significant digits.
+/// Un número como lo escribe GDAL: con 15 cifras significativas.
 fn num(v: f64) -> String {
     format!("{:.14e}", v)
         .parse::<f64>()
@@ -340,7 +341,7 @@ fn num(v: f64) -> String {
         .unwrap_or_else(|_| v.to_string())
 }
 
-/// The `UNIT` of a projected CRS's linear unit, as GDAL names it.
+/// El `UNIT` de la unidad lineal de un sistema proyectado, como lo nombra GDAL.
 fn unit(p: &Params, to_meter: f64) -> String {
     let named = |name: &str, size: &str, code: u32| {
         format!("UNIT[\"{name}\",{size},AUTHORITY[\"EPSG\",\"{code}\"]]")
@@ -357,8 +358,9 @@ fn unit(p: &Params, to_meter: f64) -> String {
     }
 }
 
-/// The WKT 1 method of a PROJ string's projection, with PROJ's defaults. `None` when WKT 1 has
-/// none, or when PROJ's CRSs read the PROJ string otherwise than PROJ's projection does.
+/// El método WKT 1 de la proyección de una cadena PROJ, con los valores por defecto de PROJ. `None`
+/// cuando WKT 1 no tiene ninguno o cuando los sistemas de PROJ leen la cadena PROJ de otro modo que
+/// la proyección de PROJ.
 fn method(p: &Params, to_meter: f64) -> Option<Method> {
     let deg = |k: &str| p.angle(k).map(f64::to_degrees);
     let lat_0 = deg("lat_0").unwrap_or(0.0);
@@ -420,9 +422,9 @@ fn method(p: &Params, to_meter: f64) -> Option<Method> {
         }
         "lcc" => {
             let lat_1 = deg("lat_1").unwrap_or(0.0);
-            // With one standard parallel and no latitude of origin, PROJ's `lcc` (and terrio) puts
-            // the origin on the parallel, PROJ's CRSs on the equator with a second parallel there:
-            // written as the PROJ string.
+            // Con un paralelo estándar y sin latitud de origen, la `lcc` de PROJ (y terrio) pone el
+            // origen en el paralelo, los sistemas de PROJ en el ecuador con un segundo paralelo
+            // allí: se escribe como la cadena PROJ.
             let lat_2 = match deg("lat_2") {
                 Some(v) => v,
                 None if p.has("lat_0") => lat_1,
@@ -528,7 +530,7 @@ fn method(p: &Params, to_meter: f64) -> Option<Method> {
             "Gauss_Schreiber_Transverse_Mercator",
             tm(lat_0, lon_0, k, fe, fn_),
         ),
-        // GDAL's Swiss oblique Mercator: an oblique Mercator of azimuth 90°.
+        // La Mercator oblicua suiza de GDAL: una Mercator oblicua de acimut 90°.
         "somerc" => m(
             "Hotine_Oblique_Mercator_Azimuth_Center",
             vec![
@@ -572,7 +574,7 @@ fn method(p: &Params, to_meter: f64) -> Option<Method> {
                 ("false_northing", fn_),
             ],
         ),
-        // Krovak with PROJ's defaults, east-north or south-west (`+axis=swu`).
+        // Krovak con los valores por defecto de PROJ, este-norte o sur-oeste (`+axis=swu`).
         "krovak" => Method {
             name: "Krovak",
             params: vec![
@@ -597,7 +599,7 @@ fn method(p: &Params, to_meter: f64) -> Option<Method> {
             },
             axis_described: en || axis == "sw",
         },
-        // PROJ's New Zealand Map Grid has a fixed origin.
+        // La rejilla del mapa de Nueva Zelanda de PROJ tiene un origen fijo.
         "nzmg" => m(
             "New_Zealand_Map_Grid",
             vec![
@@ -630,7 +632,7 @@ fn method(p: &Params, to_meter: f64) -> Option<Method> {
                 ("false_northing", fn_),
             ],
         ),
-        // A cylindrical equal-area projection given by its scale instead has no WKT 1 method.
+        // Una proyección cilíndrica de áreas iguales dada por su escala no tiene método WKT 1.
         "cea" if p.has("lat_ts") || k == 1.0 => m(
             "Cylindrical_Equal_Area",
             vec![
@@ -667,7 +669,7 @@ fn method(p: &Params, to_meter: f64) -> Option<Method> {
                 ("false_northing", fn_),
             ],
             axes: EAST_NORTH,
-            // The sweep axis is only in the PROJ string.
+            // El eje de barrido solo está en la cadena PROJ.
             axis_described: en && p.str("sweep").is_none_or(|s| s == "y"),
         },
         name @ ("wintri" | "wink1" | "wink2") => {
@@ -696,7 +698,7 @@ fn method(p: &Params, to_meter: f64) -> Option<Method> {
     })
 }
 
-/// World projections of a central meridian, by PROJ name, and their WKT 1 methods.
+/// Proyecciones del mundo de un meridiano central, por nombre de PROJ, y sus métodos WKT 1.
 pub(crate) const WORLD: [(&str, &str); 12] = [
     ("vandg", "VanDerGrinten"),
     ("eqearth", "Equal_Earth"),

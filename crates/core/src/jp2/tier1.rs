@@ -1,19 +1,20 @@
-//! Tier-1 decoding of JPEG 2000 (T.800 Annex C and D): the MQ arithmetic decoder and the three
-//! coding passes (significance propagation, magnitude refinement, cleanup) that turn the bytes of
-//! a code-block into its wavelet coefficients.
+//! Decodificación de nivel 1 de JPEG 2000 (T.800 anexos C y D): el decodificador aritmético MQ y
+//! las tres pasadas de codificación (propagación de significancia, refinamiento de magnitud,
+//! limpieza) que convierten los bytes de un bloque de código en sus coeficientes de ondícula.
 //!
-//! Coefficients come out as signed magnitudes in units of half the last decoded bit, which is how
-//! the reconstruction at the midpoint of the interval left by the missing bit-planes is kept exact
-//! for integers: a reversible band divides by two, an irreversible one multiplies by half its step.
+//! Los coeficientes salen como magnitudes con signo en unidades de la mitad del último bit
+//! decodificado, que es como se mantiene exacta para enteros la reconstrucción en el punto medio
+//! del intervalo que dejan los planos de bits que faltan: una banda reversible divide por dos, una
+//! irreversible multiplica por la mitad de su paso.
 
-/// Code-block style bits (the `SPcod` byte).
+/// Bits de estilo del bloque de código (el byte `SPcod`).
 pub const BYPASS: u8 = 0x01;
 pub const RESET: u8 = 0x02;
 pub const TERMALL: u8 = 0x04;
 pub const CAUSAL: u8 = 0x08;
 pub const SEGSYM: u8 = 0x20;
 
-/// One codeword segment of a code-block and the passes it holds.
+/// Un segmento de palabra de código de un bloque de código y las pasadas que contiene.
 #[derive(Clone, Debug, Default)]
 pub struct Segment {
     pub data: Vec<u8>,
@@ -23,7 +24,7 @@ pub struct Segment {
 
 // ------------------------------------------------------------------------------------- MQ coder
 
-/// (Qe, next state after a more probable symbol, after a less probable one, switch of the MPS).
+/// (Qe, estado siguiente tras un símbolo más probable, tras uno menos probable, cambio del MPS).
 const QE: [(u16, u8, u8, u8); 47] = [
     (0x5601, 1, 1, 1),
     (0x3401, 2, 6, 0),
@@ -77,7 +78,7 @@ const QE: [(u16, u8, u8, u8); 47] = [
 const CTX_RUN: usize = 17;
 const CTX_UNI: usize = 18;
 
-/// The context states: bit 0 the more probable symbol, the rest the index into [`QE`].
+/// Los estados de contexto: el bit 0 el símbolo más probable, el resto el índice en [`QE`].
 type Contexts = [u8; 19];
 
 fn reset_contexts(cx: &mut Contexts) {
@@ -112,7 +113,8 @@ impl<'a> Mq<'a> {
         m
     }
 
-    /// The byte at `i`; past the end the coder sees the 0xFF 0xFF of a marker, as the standard asks.
+    /// El byte en `i`; pasado el final el codificador ve el 0xFF 0xFF de un marcador, como pide la
+    /// norma.
     #[inline]
     fn byte(&self, i: usize) -> u8 {
         self.data.get(i).copied().unwrap_or(0xFF)
@@ -146,7 +148,7 @@ impl<'a> Mq<'a> {
         let d;
         self.a -= qe;
         if (self.c >> 16) < qe {
-            // the less probable sub-interval is at the bottom
+            // el subintervalo menos probable está abajo
             if self.a < qe {
                 d = mps;
                 next = nmps;
@@ -191,7 +193,8 @@ impl<'a> Mq<'a> {
     }
 }
 
-/// Raw (bypass) bits, most significant first, with the stuffed bit after a 0xFF byte.
+/// Bits en bruto (derivación), el más significativo primero, con el bit de relleno tras un byte
+/// 0xFF.
 struct Raw<'a> {
     data: &'a [u8],
     pos: usize,
@@ -227,7 +230,7 @@ const SIG: u16 = 1 << 8;
 const VISIT: u16 = 1 << 9;
 const REFINED: u16 = 1 << 10;
 const NEG: u16 = 1 << 11;
-// neighbour significance bits 0..8
+// bits de significancia de vecinos 0..8
 const N: u16 = 1;
 const S: u16 = 2;
 const W: u16 = 4;
@@ -236,13 +239,14 @@ const NW: u16 = 16;
 const NE: u16 = 32;
 const SW: u16 = 64;
 const SE: u16 = 128;
-// signs of the four direct neighbours, kept beside the significance bits
+// signos de los cuatro vecinos directos, guardados junto a los bits de significancia
 const SN: u16 = 1 << 12;
 const SS: u16 = 1 << 13;
 const SW_: u16 = 1 << 14;
 const SE_: u16 = 1 << 15;
 
-/// Zero-coding context for the neighbour mask, by orientation class (0: LL and LH, 1: HL, 2: HH).
+/// Contexto de codificación de cero para la máscara de vecinos, por clase de orientación (0: LL y
+/// LH, 1: HL, 2: HH).
 fn zc_table() -> [[u8; 256]; 3] {
     let mut t = [[0u8; 256]; 3];
     #[allow(clippy::needless_range_loop)]
@@ -285,8 +289,9 @@ fn zc_table() -> [[u8; 256]; 3] {
     t
 }
 
-/// Sign-coding context and the bit to XOR, from the significance and sign of the four direct
-/// neighbours, packed as `N S W E` significance (bits 0..4) and `N S W E` signs (bits 4..8).
+/// Contexto de codificación de signo y el bit con que hacer XOR, a partir de la significancia y el
+/// signo de los cuatro vecinos directos, empaquetados como significancia `N S O E` (bits 0..4) y
+/// signos `N S O E` (bits 4..8).
 fn sc_table() -> [(u8, u8); 256] {
     let mut t = [(9u8, 0u8); 256];
     for (m, slot) in t.iter_mut().enumerate() {
@@ -329,14 +334,14 @@ fn tables() -> &'static Tables {
     })
 }
 
-// -------------------------------------------------------------------------------------- the block
+// -------------------------------------------------------------------------------------- el bloque
 
 struct Block {
     w: usize,
     h: usize,
-    /// Padded by one on every side: `(w + 2) * (h + 2)`.
+    /// Con un relleno de uno por cada lado: `(w + 2) * (h + 2)`.
     flags: Vec<u16>,
-    /// Magnitudes in half units.
+    /// Magnitudes en medias unidades.
     mag: Vec<u32>,
     zc: &'static [u8; 256],
     sc: &'static [(u8, u8); 256],
@@ -349,8 +354,8 @@ impl Block {
         (y + 1) * (self.w + 2) + x + 1
     }
 
-    /// The neighbour significance mask of a coefficient, with the next stripe left out when the
-    /// block asks for vertically causal contexts.
+    /// La máscara de significancia de vecinos de un coeficiente, dejando fuera la siguiente franja
+    /// cuando el bloque pide contextos verticalmente causales.
     #[inline]
     fn neighbours(&self, x: usize, y: usize) -> u16 {
         let f = self.flags[self.fi(x, y)];
@@ -373,7 +378,7 @@ impl Block {
         (usize::from(c), u32::from(x))
     }
 
-    /// Makes (x, y) significant, updating the neighbour bits of the eight around it.
+    /// Hace significativo (x, y), actualizando los bits de vecinos de los ocho de alrededor.
     fn set_significant(&mut self, x: usize, y: usize, negative: bool) {
         let stride = self.w + 2;
         let i = self.fi(x, y);
@@ -390,15 +395,16 @@ impl Block {
     }
 }
 
-/// What the coding passes read the bits from.
+/// De dónde leen los bits las pasadas de codificación.
 enum Source<'a> {
     Mq(Mq<'a>),
     Raw(Raw<'a>),
 }
 
-/// Decodes a code-block. `numbps` is the number of magnitude bit-planes that were coded (the
-/// band's `Mb` less the zero bit-planes signalled); `orient` is 0 for LL, 1 HL, 2 LH, 3 HH.
-/// Returns `w * h` signed values in half units (see the module description).
+/// Decodifica un bloque de código. `numbps` es el número de planos de bits de magnitud que se
+/// codificaron (el `Mb` de la banda menos los planos de bits cero señalados); `orient` es 0 para
+/// LL, 1 HL, 2 LH, 3 HH. Devuelve `w * h` valores con signo en medias unidades (véase la
+/// descripción del módulo).
 pub fn decode_block(
     w: usize,
     h: usize,
@@ -469,7 +475,7 @@ pub fn decode_block(
             }
         }
     }
-    // region of interest: magnitudes at or above the shift are scaled down
+    // región de interés: las magnitudes iguales o superiores al desplazamiento se reducen
     let thresh = if roishift > 0 {
         1u32 << (roishift + 1)
     } else {
@@ -501,7 +507,7 @@ fn bit(src: &mut Source, cx: &mut u8) -> u32 {
     }
 }
 
-/// Decodes the sign of a newly significant coefficient.
+/// Decodifica el signo de un coeficiente que acaba de hacerse significativo.
 #[inline]
 fn sign(b: &Block, src: &mut Source, cx: &mut Contexts, x: usize, y: usize) -> bool {
     match src {
@@ -576,7 +582,8 @@ fn clean_pass(b: &mut Block, cx: &mut Contexts, src: &mut Source, bpno: u32) {
         for x in 0..w {
             let mut y = y0;
             let full = y0 + 4 <= h;
-            // run-length mode: four rows, none significant, visited or with a significant neighbour
+            // modo de longitud de racha: cuatro filas, ninguna significativa, visitada o con un
+            // vecino significativo
             if full {
                 let clear = (0..4).all(|k| {
                     let f = b.neighbours(x, y0 + k);
@@ -584,7 +591,7 @@ fn clean_pass(b: &mut Block, cx: &mut Contexts, src: &mut Source, bpno: u32) {
                 });
                 if clear {
                     let Source::Mq(m) = src else {
-                        // cleanup passes are always arithmetic coded
+                        // las pasadas de limpieza siempre se codifican aritméticamente
                         return;
                     };
                     if m.decode(&mut cx[CTX_RUN]) == 0 {
@@ -613,7 +620,7 @@ fn clean_pass(b: &mut Block, cx: &mut Contexts, src: &mut Source, bpno: u32) {
             }
         }
     }
-    // the visit marks only last for one bit-plane
+    // las marcas de visita solo duran un plano de bits
     for f in &mut b.flags {
         *f &= !VISIT;
     }

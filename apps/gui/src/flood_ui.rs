@@ -1,5 +1,5 @@
-//! Inundación (Ráster › Análisis del terreno › Hidrología): the water of one or several levels
-//! on a DTM, from seeds.
+//! Inundación (Ráster › Análisis del terreno › Hidrología): el agua de uno o varios niveles sobre
+//! un MDT, desde semillas.
 
 use super::*;
 use crate::numfield::NumField;
@@ -49,7 +49,7 @@ impl Default for FloodTool {
     }
 }
 
-/// The points `x,y` of a text, one per line.
+/// Los puntos `x,y` de un texto, uno por línea.
 fn points(text: &str) -> Option<Vec<[f64; 2]>> {
     let v: Option<Vec<[f64; 2]>> = text
         .lines()

@@ -1,8 +1,9 @@
-//! LAS 1.0–1.4 and LAZ, read as a stream: points are decoded batch by batch from their raw
-//! records and handed to a callback, so memory never grows with the size of the cloud.
+//! LAS 1.0–1.4 y LAZ, leídos como flujo: los puntos se decodifican lote a lote a partir de sus
+//! registros en bruto y se entregan a una función de retorno, de modo que la memoria nunca crece
+//! con el tamaño de la nube.
 //!
-//! The header and record layout follow the approach of RustGIS's `rustgis-data` LiDAR reader
-//! (Apache-2.0, https://github.com/opengeos/RustGIS).
+//! La cabecera y la disposición de los registros siguen el enfoque del lector LiDAR `rustgis-data`
+//! de RustGIS (Apache-2.0, https://github.com/opengeos/RustGIS).
 
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom, Write};
@@ -10,16 +11,17 @@ use std::path::Path;
 
 use crate::{Error, Result};
 
-/// The smallest record of each point format.
+/// El registro más pequeño de cada formato de punto.
 const RECORD_LEN: [u16; 11] = [20, 28, 26, 34, 57, 63, 30, 36, 38, 59, 67];
 
-/// Points decoded per batch (LAZ: rounded up to whole chunks by the decompressor).
+/// Puntos decodificados por lote (LAZ: redondeados hacia arriba a fragmentos enteros por el
+/// descompresor).
 const BATCH: usize = 1 << 16;
 
-/// Most LAZ points decompressed at once (in parallel): about 100 MB of records at most.
+/// Máximo de puntos LAZ descomprimidos a la vez (en paralelo): unos 100 MB de registros como mucho.
 const MAX_LAZ_BATCH: usize = 1 << 21;
 
-/// Variable length records read, and the most bytes one may hold.
+/// Registros de longitud variable leídos, y el máximo de bytes que puede contener uno.
 const MAX_VLRS: u32 = 1000;
 const MAX_VLR_BYTES: u64 = 1 << 20;
 
@@ -36,13 +38,13 @@ pub struct Header {
     pub offset: [f64; 3],
     /// min x, min y, min z, max x, max y, max z.
     pub bounds: [f64; 6],
-    /// The projected (else geographic) EPSG code of the GeoTIFF keys, when given.
+    /// El código EPSG proyectado (o, si no, geográfico) de las claves GeoTIFF, cuando se da.
     pub epsg: Option<u16>,
-    /// The EPSG code of the vertical reference (heights), when the file declares one.
+    /// El código EPSG de la referencia vertical (alturas), cuando el archivo declara una.
     pub vertical_epsg: Option<u16>,
 }
 
-/// One point: what the forestry tools need from a record.
+/// Un punto: lo que las herramientas forestales necesitan de un registro.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Point {
     pub x: f64,
@@ -53,14 +55,15 @@ pub struct Point {
     pub number_of_returns: u8,
     pub class: u8,
     pub withheld: bool,
-    /// Scan angle in degrees, positive to one side of the flight line (0 when the file has none).
+    /// Ángulo de barrido en grados, positivo hacia un lado de la pasada (0 cuando el archivo no lo
+    /// tiene).
     pub scan_angle: f32,
-    /// The flight line (point source ID; 0 when the file has none).
+    /// La pasada (ID de fuente del punto; 0 cuando el archivo no la tiene).
     pub source_id: u16,
 }
 
 impl Point {
-    /// Noise (classes 7 and 18) and withheld points take no part in any product.
+    /// El ruido (clases 7 y 18) y los puntos retenidos no participan en ningún producto.
     pub fn is_noise(&self) -> bool {
         self.withheld || self.class == 7 || self.class == 18
     }
@@ -70,25 +73,25 @@ impl Point {
     }
 }
 
-/// What a file says about itself besides what the tools need: for reports.
+/// Lo que dice un archivo de sí mismo además de lo que necesitan las herramientas: para informes.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Meta {
     pub file_source_id: u16,
     pub global_encoding: u16,
     pub system_id: String,
     pub software: String,
-    /// Creation day of the year and year.
+    /// Día del año y año de creación.
     pub creation: (u16, u16),
     pub header_size: u16,
-    /// Points by return number 1–5 as the header counts them (LAS 1.4: up to 15).
+    /// Puntos por número de retorno 1–5 como los cuenta la cabecera (LAS 1.4: hasta 15).
     pub by_return: Vec<u64>,
     pub vlrs: Vec<VlrInfo>,
-    /// The coordinate system as WKT, when the file carries it.
+    /// El sistema de coordenadas como WKT, cuando el archivo lo lleva.
     pub wkt: Option<String>,
     pub file_size: u64,
 }
 
-/// A variable length record in the header block.
+/// Un registro de longitud variable del bloque de cabecera.
 #[derive(Clone, Debug, PartialEq)]
 pub struct VlrInfo {
     pub user: String,
@@ -97,28 +100,28 @@ pub struct VlrInfo {
     pub description: String,
 }
 
-/// Fields beyond [`Point`], read from the same record.
+/// Campos más allá de [`Point`], leídos del mismo registro.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Extra {
-    /// The flight line (point source ID).
+    /// La pasada (ID de fuente del punto).
     pub source_id: u16,
     pub user_data: u8,
-    /// Scan angle in degrees (signed).
+    /// Ángulo de barrido en grados (con signo).
     pub scan_angle: f32,
     pub gps_time: f64,
-    /// 16-bit colour, when the format has it.
+    /// Color de 16 bits, cuando el formato lo tiene.
     pub rgb: Option<[u16; 3]>,
     pub synthetic: bool,
     pub key_point: bool,
     pub overlap: bool,
 }
 
-/// The length of the fields of point format `format`, without extra attributes.
+/// La longitud de los campos del formato de punto `format`, sin atributos adicionales.
 pub(crate) fn core_len(format: u8) -> Option<u16> {
     RECORD_LEN.get(usize::from(format)).copied()
 }
 
-/// Where each format keeps its optional fields: GPS time, then colour.
+/// Dónde guarda cada formato sus campos opcionales: tiempo GPS y luego color.
 fn gps_at(format: u8) -> Option<usize> {
     match format {
         1 | 3 | 4 | 5 => Some(20),
@@ -136,14 +139,14 @@ fn rgb_at(format: u8) -> Option<usize> {
     }
 }
 
-/// Decodes the fields beyond [`Point`] of one record.
+/// Decodifica los campos más allá de [`Point`] de un registro.
 pub(crate) fn decode_extra(h: &Header, rec: &[u8]) -> Extra {
     let ext = h.format >= 6;
     let (source_id, user_data, scan_angle) = if ext {
         (
             u16_at(rec, 20).unwrap_or(0),
             rec.get(17).copied().unwrap_or(0),
-            // Extended records count the angle in steps of 0.006 degrees.
+            // Los registros extendidos cuentan el ángulo en pasos de 0,006 grados.
             f32::from(u16_at(rec, 18).unwrap_or(0) as i16) * 0.006,
         )
     } else {
@@ -174,8 +177,8 @@ pub(crate) fn decode_extra(h: &Header, rec: &[u8]) -> Extra {
     }
 }
 
-/// Writes coordinates into a record with the header's scale and offset; false when one lies
-/// outside what a 32-bit coordinate can hold.
+/// Escribe coordenadas en un registro con la escala y el desplazamiento de la cabecera; falso
+/// cuando una queda fuera de lo que cabe en una coordenada de 32 bits.
 pub fn set_xyz(h: &Header, rec: &mut [u8], x: f64, y: f64, z: f64) -> bool {
     for (k, v) in [x, y, z].into_iter().enumerate() {
         let q = ((v - h.offset[k]) / h.scale[k]).round();
@@ -220,7 +223,7 @@ fn bad(what: &str) -> Error {
     Error::Format(format!("no es un archivo LAS legible ({what})"))
 }
 
-/// Reads the header block (its first 375 bytes at most).
+/// Lee el bloque de cabecera (sus primeros 375 bytes como mucho).
 fn parse_header(b: &[u8]) -> Result<Header> {
     if !b.starts_with(b"LASF") {
         return Err(bad("no empieza por la firma LASF"));
@@ -238,7 +241,7 @@ fn parse_header(b: &[u8]) -> Result<Header> {
     let header_size = u16_at(b, 94).ok_or_else(|| bad("tamaño de la cabecera"))?;
     let point_offset = u32_at(b, 96).ok_or_else(|| bad("posición de los puntos"))?;
     let raw_format = *b.get(104).ok_or_else(|| bad("formato de punto"))?;
-    // LAZ marks its formats with the top bits.
+    // LAZ marca sus formatos con los bits altos.
     let compressed = raw_format & 0xC0 != 0;
     let format = raw_format & 0x3F;
     let min_len = *RECORD_LEN
@@ -264,7 +267,7 @@ fn parse_header(b: &[u8]) -> Result<Header> {
         return Err(bad("una escala nula"));
     }
     let offset = [f(155)?, f(163)?, f(171)?];
-    // On disk: max x, min x, max y, min y, max z, min z.
+    // En disco: x máxima, x mínima, y máxima, y mínima, z máxima, z mínima.
     let bounds = [f(187)?, f(203)?, f(219)?, f(179)?, f(195)?, f(211)?];
     if u32::from(header_size) > point_offset || header_size < 227 {
         return Err(bad("tamaño de la cabecera"));
@@ -290,7 +293,8 @@ struct Vlr {
     data: Vec<u8>,
 }
 
-/// The records this reader uses (GeoTIFF keys, WKT, LASzip's), and a list of all of them.
+/// Los registros que usa este lector (claves GeoTIFF, WKT, los de LASzip) y una lista de todos
+/// ellos.
 fn read_vlrs<R: Read + Seek>(
     r: &mut R,
     at: u64,
@@ -337,7 +341,7 @@ fn read_vlrs<R: Read + Seek>(
     Ok((out, all))
 }
 
-/// The descriptive part of the header block.
+/// La parte descriptiva del bloque de cabecera.
 fn parse_meta(b: &[u8]) -> Meta {
     let text = |a: usize, z: usize| {
         String::from_utf8_lossy(b.get(a..z).unwrap_or(&[]))
@@ -375,7 +379,7 @@ fn parse_meta(b: &[u8]) -> Meta {
     }
 }
 
-/// The text of the first bracketed block of a WKT that starts with `key` (`VERT_CS[` ...).
+/// El texto del primer bloque entre corchetes de un WKT que empieza con `key` (`VERT_CS[` ...).
 fn wkt_block<'a>(wkt: &'a str, keys: &[&str]) -> Option<&'a str> {
     let start = keys.iter().filter_map(|k| wkt.find(k)).min()?;
     let mut depth = 0i32;
@@ -398,12 +402,12 @@ fn wkt_block<'a>(wkt: &'a str, keys: &[&str]) -> Option<&'a str> {
 
 const VERTICAL_KEYS: [&str; 3] = ["VERT_CS[", "VERTCRS[", "VERTICALCRS["];
 
-/// The EPSG code of the vertical CRS of a compound WKT.
+/// El código EPSG del sistema vertical de un WKT compuesto.
 pub fn vertical_epsg_from_wkt(wkt: &str) -> Option<u16> {
     epsg_from_wkt_plain(wkt_block(wkt, &VERTICAL_KEYS)?)
 }
 
-/// The EPSG code of a WKT: for a compound one, that of its horizontal part.
+/// El código EPSG de un WKT: para uno compuesto, el de su parte horizontal.
 pub fn epsg_from_wkt(wkt: &str) -> Option<u16> {
     if wkt_block(wkt, &VERTICAL_KEYS).is_some() {
         let h = wkt_block(wkt, &["PROJCS[", "PROJCRS[", "PROJECTEDCRS["])
@@ -413,7 +417,7 @@ pub fn epsg_from_wkt(wkt: &str) -> Option<u16> {
     epsg_from_wkt_plain(wkt)
 }
 
-/// The EPSG code a WKT ends with (the outermost authority), either WKT1 or WKT2 style.
+/// El código EPSG con que termina un WKT (la autoridad más externa), al estilo de WKT1 o de WKT2.
 fn epsg_from_wkt_plain(wkt: &str) -> Option<u16> {
     let mut best = None;
     for pat in ["AUTHORITY[\"EPSG\",\"", "ID[\"EPSG\","] {
@@ -438,14 +442,14 @@ fn epsg_from_wkt_plain(wkt: &str) -> Option<u16> {
     best.map(|(_, code)| code)
 }
 
-/// The name of a coordinate system from its WKT: the first quoted string.
+/// El nombre de un sistema de coordenadas a partir de su WKT: la primera cadena entrecomillada.
 pub fn wkt_name(wkt: &str) -> Option<String> {
     let start = wkt.find('"')? + 1;
     let len = wkt.get(start..)?.find('"')?;
     wkt.get(start..start + len).map(str::to_string)
 }
 
-/// VerticalCSTypeGeoKey (4096) of the key directory.
+/// VerticalCSTypeGeoKey (4096) del directorio de claves.
 fn vertical_epsg_of(vlrs: &[Vlr]) -> Option<u16> {
     let keys = vlrs
         .iter()
@@ -490,7 +494,7 @@ fn epsg_of(vlrs: &[Vlr]) -> Option<u16> {
     code
 }
 
-/// Decodes one record (`rec` holds at least the format's minimum length).
+/// Decodifica un registro (`rec` contiene al menos la longitud mínima del formato).
 #[inline]
 pub(crate) fn decode(h: &Header, rec: &[u8]) -> Option<Point> {
     let c = |i: usize| -> Option<f64> {
@@ -506,7 +510,7 @@ pub(crate) fn decode(h: &Header, rec: &[u8]) -> Option<Point> {
         let b15 = *rec.get(15)?;
         (b14 & 0x07, (b14 >> 3) & 0x07, b15 & 0x1F, b15 & 0x80 != 0)
     };
-    // legacy formats keep whole degrees; 1.4 formats steps of 0.006 degrees
+    // los formatos antiguos guardan grados enteros; los formatos 1.4, pasos de 0,006 grados
     let scan_angle = if h.format >= 6 {
         f32::from(u16_at(rec, 18).unwrap_or(0) as i16) * 0.006
     } else {
@@ -530,10 +534,11 @@ pub(crate) fn decode(h: &Header, rec: &[u8]) -> Option<Point> {
     })
 }
 
-/// The date of a GPS time stamp as `YYYY-MM-DD`. Adjusted standard GPS time (bit 0 of the global
-/// encoding) counts seconds since 1980-01-06 minus 1e9; a time within a week is a time of week
-/// and carries no date, so the file's creation date `(day of year, year)` stands in. Standard
-/// (unadjusted) time below 4e8 s would put the survey before 1993, so it is read as adjusted.
+/// La fecha de una marca de tiempo GPS como `AAAA-MM-DD`. El tiempo GPS estándar ajustado (bit 0 de
+/// la codificación global) cuenta segundos desde 1980-01-06 menos 1e9; un tiempo de menos de una
+/// semana es un tiempo de semana y no lleva fecha, así que la sustituye la fecha de creación del
+/// archivo `(día del año, año)`. Un tiempo estándar (sin ajustar) por debajo de 4e8 s situaría el
+/// vuelo antes de 1993, así que se lee como ajustado.
 pub fn gps_date(t: f64, global_encoding: u16, creation: (u16, u16)) -> Option<String> {
     let days_from_civil = |y: i64, m: i64, d: i64| {
         let y = if m <= 2 { y - 1 } else { y };
@@ -544,21 +549,22 @@ pub fn gps_date(t: f64, global_encoding: u16, creation: (u16, u16)) -> Option<St
         era * 146_097 + doe - 719_468
     };
     let mut days = if t.is_finite() && (global_encoding & 1 != 0 || t > 604_800.0 * 1.01) {
-        // old files (LAS 1.0) hold adjusted time without the flag: no survey is from before 1992
+        // los archivos antiguos (LAS 1.0) guardan tiempo ajustado sin el indicador: ningún vuelo es
+        // anterior a 1992
         let secs = if global_encoding & 1 != 0 || t < 4e8 {
             t + 1e9
         } else {
             t
         };
-        // 1980-01-06, the GPS epoch, is day 3657 of the Unix count
+        // 1980-01-06, la época GPS, es el día 3657 de la cuenta de Unix
         3657 + (secs / 86_400.0).floor() as i64
     } else if creation.1 > 1900 && creation.0 >= 1 {
         days_from_civil(i64::from(creation.1), 1, 1) + i64::from(creation.0) - 1
     } else {
         return None;
     };
-    // A date in the future cannot be the survey's: some scanners (GeoSLAM among them) stamp the
-    // points with Unix time, which read as GPS time lands years ahead.
+    // Una fecha futura no puede ser la del vuelo: algunos escáneres (GeoSLAM entre ellos) marcan
+    // los puntos con tiempo Unix, que leído como tiempo GPS cae años por delante.
     let today = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(i64::MAX, |d| (d.as_secs() / 86_400) as i64);
@@ -580,7 +586,7 @@ pub fn gps_date(t: f64, global_encoding: u16, creation: (u16, u16)) -> Option<St
     Some(format!("{y:04}-{m:02}-{d:02}"))
 }
 
-/// Sets a record's classification.
+/// Fija la clasificación de un registro.
 pub fn set_class(format: u8, rec: &mut [u8], class: u8) {
     if format >= 6 {
         if let Some(b) = rec.get_mut(16) {
@@ -591,8 +597,8 @@ pub fn set_class(format: u8, rec: &mut [u8], class: u8) {
     }
 }
 
-/// Sets a record's point source id (the flight line): bytes 18-19 in the legacy formats, 20-21 in
-/// formats 6 and up.
+/// Fija el identificador de fuente de punto de un registro (la pasada): bytes 18-19 en los formatos
+/// antiguos, 20-21 en los formatos 6 y superiores.
 pub fn set_source_id(format: u8, rec: &mut [u8], id: u16) {
     let at = if format >= 6 { 20 } else { 18 };
     if let Some(b) = rec.get_mut(at..at + 2) {
@@ -600,15 +606,16 @@ pub fn set_source_id(format: u8, rec: &mut [u8], id: u16) {
     }
 }
 
-/// Sets a record's user data byte (byte 17 in every format).
+/// Fija el byte de datos de usuario de un registro (byte 17 en todos los formatos).
 pub fn set_user_data(rec: &mut [u8], value: u8) {
     if let Some(b) = rec.get_mut(17) {
         *b = value;
     }
 }
 
-/// The LAS 1.4 point format that keeps what a legacy `format` keeps and holds a full class byte
-/// (classes above 31 do not fit the 5 bits of formats 0–5). `None`: no such format here.
+/// El formato de punto LAS 1.4 que conserva lo que conserva un formato antiguo `format` y tiene un
+/// byte de clase completo (las clases por encima de 31 no caben en los 5 bits de los formatos 0–5).
+/// `None`: aquí no hay tal formato.
 pub fn upgraded_format(format: u8) -> Option<u8> {
     match format {
         0 | 1 => Some(6),
@@ -618,9 +625,9 @@ pub fn upgraded_format(format: u8) -> Option<u8> {
     }
 }
 
-/// Converts the record of a legacy `old` format to the 1.4 format `new` (6 or 7); bytes after
-/// the format's own fields (extra attributes) are kept. Scan angles go from whole degrees to
-/// steps of 0.006°.
+/// Convierte el registro de un formato antiguo `old` al formato 1.4 `new` (6 o 7); se conservan los
+/// bytes posteriores a los campos propios del formato (atributos adicionales). Los ángulos de
+/// barrido pasan de grados enteros a pasos de 0,006°.
 pub fn upgrade_record(old: u8, new: u8, rec: &[u8], out: &mut Vec<u8>) {
     out.clear();
     let at = |i: usize| rec.get(i).copied().unwrap_or(0);
@@ -653,7 +660,7 @@ pub fn upgrade_record(old: u8, new: u8, rec: &[u8], out: &mut Vec<u8>) {
     out.extend((old_core..rec.len()).map(at));
 }
 
-/// Anything read as a stream of points: a file, or a tile held in memory.
+/// Cualquier cosa que se lee como flujo de puntos: un archivo o una tesela en memoria.
 pub trait Cloud {
     /// min x, min y, min z, max x, max y, max z.
     fn bounds(&self) -> [f64; 6];
@@ -669,7 +676,7 @@ impl Cloud for Reader {
     }
 }
 
-/// Points held in memory, with their extent.
+/// Puntos en memoria, con su extensión.
 pub struct Points {
     pub pts: Vec<Point>,
     pub bounds: [f64; 6],
@@ -712,7 +719,7 @@ impl Cloud for Points {
     }
 }
 
-/// Where an extra attribute lies in a record, and its type code (LAS 1.4 table).
+/// Dónde está un atributo adicional en un registro y su código de tipo (tabla de LAS 1.4).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ExtraField {
     pub at: usize,
@@ -720,7 +727,7 @@ pub struct ExtraField {
 }
 
 impl ExtraField {
-    /// The value in `rec`.
+    /// El valor en `rec`.
     pub fn get(&self, rec: &[u8]) -> Option<f64> {
         let b = rec.get(self.at..)?;
         Some(match self.code {
@@ -738,7 +745,7 @@ impl ExtraField {
         })
     }
 
-    /// The value as an identifier: whole and positive, else 0.
+    /// El valor como identificador: entero y positivo; si no, 0.
     pub fn id(&self, rec: &[u8]) -> u32 {
         self.get(rec)
             .filter(|v| v.is_finite() && *v > 0.0)
@@ -746,17 +753,17 @@ impl ExtraField {
     }
 }
 
-/// An open LAS or LAZ file.
+/// Un archivo LAS o LAZ abierto.
 pub struct Reader {
     path: std::path::PathBuf,
     pub header: Header,
     laz_vlr: Option<Vec<u8>>,
-    /// The header block as written, and the variable length records but LASzip's, for
-    /// writing files like this one.
+    /// El bloque de cabecera tal como se escribió y los registros de longitud variable salvo los de
+    /// LASzip, para escribir archivos como este.
     head: Vec<u8>,
     vlrs: Vec<u8>,
     n_vlrs: u32,
-    /// What the file says about itself, for reports.
+    /// Lo que dice el archivo de sí mismo, para informes.
     pub meta: Meta,
     _spool: Option<Spool>,
 }
@@ -771,7 +778,7 @@ impl Reader {
         let n_vlrs = u32_at(&head, 100).unwrap_or(0);
         let header_size = u16_at(&head, 94).unwrap_or(0);
         if usize::from(header_size) > head.len() {
-            // A header extended past LAS 1.4's: read it whole.
+            // Una cabecera ampliada más allá de LAS 1.4: se lee entera.
             head = vec![0u8; usize::from(header_size)];
             r.seek(SeekFrom::Start(0))?;
             r.read_exact(&mut head)?;
@@ -819,8 +826,9 @@ impl Reader {
         &self.path
     }
 
-    /// Where the extra attribute called `name` (case ignored) sits in each record, when the
-    /// file declares it in its Extra Bytes record and its type is a plain number.
+    /// Dónde está en cada registro el atributo adicional llamado `name` (sin distinguir
+    /// mayúsculas), cuando el archivo lo declara en su registro de Extra Bytes y su tipo es un
+    /// número simple.
     pub fn extra_field(&self, name: &str) -> Option<ExtraField> {
         let raw = &self.vlrs;
         let mut pos = 0usize;
@@ -840,7 +848,7 @@ impl Reader {
                     3 | 4 => 2,
                     5 | 6 | 9 => 4,
                     7 | 8 | 10 => 8,
-                    // pairs, triples and the like are not plain numbers
+                    // los pares, tríos y similares no son números simples
                     _ => return None,
                 };
                 let label = String::from_utf8_lossy(&d[4..36]);
@@ -853,23 +861,26 @@ impl Reader {
         None
     }
 
-    /// The header block as it is in the file.
+    /// El bloque de cabecera tal como está en el archivo.
     pub(crate) fn raw_header(&self) -> &[u8] {
         &self.head
     }
 
-    /// The variable length records other than the projection's and LASzip's, raw, and how many.
+    /// Los registros de longitud variable distintos de los de proyección y de LASzip, en bruto, y
+    /// cuántos son.
     pub(crate) fn other_records(&self) -> (Vec<u8>, u32) {
         split_projection(&self.vlrs, false)
     }
 
-    /// The projection records (`LASF_Projection`) of this file as raw bytes, and how many.
+    /// Los registros de proyección (`LASF_Projection`) de este archivo como bytes en bruto, y
+    /// cuántos son.
     pub fn projection_records(&self) -> (Vec<u8>, u32) {
         split_projection(&self.vlrs, true)
     }
 
-    /// This reader with another projection: files written from it carry `records` (raw records,
-    /// as [`Reader::projection_records`] gives) instead of the projection it had.
+    /// Este lector con otra proyección: los archivos escritos a partir de él llevan `records`
+    /// (registros en bruto, como los da [`Reader::projection_records`]) en lugar de la proyección
+    /// que tenía.
     pub fn with_projection(
         mut self,
         records: &[u8],
@@ -886,8 +897,8 @@ impl Reader {
         self
     }
 
-    /// This reader with `bits` set in the global encoding of the files written from it (bit 4:
-    /// the coordinate system is WKT).
+    /// Este lector con `bits` activados en la codificación global de los archivos escritos a partir
+    /// de él (bit 4: el sistema de coordenadas es WKT).
     pub fn with_global_encoding_bits(mut self, bits: u16) -> Self {
         self.meta.global_encoding |= bits;
         if let Some(b) = self.head.get_mut(6..8) {
@@ -897,8 +908,9 @@ impl Reader {
         self
     }
 
-    /// This reader with another coordinate offset: files written from it store their points
-    /// relative to `offset`, as data moved to another coordinate system needs.
+    /// Este lector con otro desplazamiento de coordenadas: los archivos escritos a partir de él
+    /// guardan sus puntos relativos a `offset`, como necesitan los datos llevados a otro sistema de
+    /// coordenadas.
     pub fn with_offset(mut self, offset: [f64; 3]) -> Self {
         for (k, v) in offset.iter().enumerate() {
             put(&mut self.head, 155 + 8 * k, &v.to_le_bytes());
@@ -907,8 +919,9 @@ impl Reader {
         self
     }
 
-    /// This reader as a LAS 1.4 file of point format `new` (see [`upgraded_format`]): files
-    /// written from it have the 375-byte header and records [`upgrade_record`] makes.
+    /// Este lector como archivo LAS 1.4 de formato de punto `new` (véase [`upgraded_format`]): los
+    /// archivos escritos a partir de él tienen la cabecera de 375 bytes y los registros que hace
+    /// [`upgrade_record`].
     pub fn upgraded(mut self, new: u8) -> Self {
         let extra = self.header.record_len.saturating_sub(
             RECORD_LEN
@@ -925,8 +938,9 @@ impl Reader {
         self
     }
 
-    /// The day the points were captured, `YYYY-MM-DD`, from the GPS time of the first points
-    /// (the file's creation date when it has no usable GPS time). Reads one batch, not the file.
+    /// El día en que se capturaron los puntos, `AAAA-MM-DD`, a partir del tiempo GPS de los
+    /// primeros puntos (la fecha de creación del archivo cuando no tiene un tiempo GPS utilizable).
+    /// Lee un lote, no el archivo.
     pub fn capture_date(&self) -> Option<String> {
         let h = &self.header;
         let creation = self.meta.creation;
@@ -935,7 +949,7 @@ impl Reader {
         }
         let rec_len = usize::from(h.record_len);
         let mut lo = f64::INFINITY;
-        // reading stops after the first batch: the sentinel error ends the scan
+        // la lectura se detiene tras el primer lote: el error centinela termina el recorrido
         let _ = self.scan_raw(|bytes| {
             for rec in bytes.chunks_exact(rec_len).take(100_000) {
                 lo = lo.min(self.decode_extra(rec).gps_time);
@@ -945,25 +959,26 @@ impl Reader {
         gps_date(lo, self.meta.global_encoding, creation)
     }
 
-    /// Decodes a record of this file.
+    /// Decodifica un registro de este archivo.
     pub fn decode(&self, rec: &[u8]) -> Option<Point> {
         decode(&self.header, rec)
     }
 
-    /// The fields beyond [`Point`] of a record of this file.
+    /// Los campos más allá de [`Point`] de un registro de este archivo.
     pub fn decode_extra(&self, rec: &[u8]) -> Extra {
         decode_extra(&self.header, rec)
     }
 
-    /// For tools that read the cloud several times: a LAZ file is decompressed once into a
-    /// temporary file of raw records (deleted with the reader), so later passes skip the
-    /// decompression; a LAS file is read in place. Costs disk, never memory.
+    /// Para herramientas que leen la nube varias veces: un archivo LAZ se descomprime una vez a un
+    /// archivo temporal de registros en bruto (se borra con el lector), de modo que las pasadas
+    /// posteriores se saltan la descompresión; un archivo LAS se lee en su sitio. Cuesta disco,
+    /// nunca memoria.
     pub fn for_passes(self) -> Result<Self> {
         if self.laz_vlr.is_none() {
             return Ok(self);
         }
-        // shortcut: the spool goes to the system temp folder, which must hold every record
-        // uncompressed; add a --temp-dir option when that runs out.
+        // atajo: el volcado va a la carpeta temporal del sistema, que debe contener todos los
+        // registros sin comprimir; añadir una opción --temp-dir cuando eso se agote.
         let path = std::env::temp_dir().join(format!(
             "hipso-{}-{}.rec",
             std::process::id(),
@@ -989,8 +1004,8 @@ impl Reader {
         })
     }
 
-    /// Reads every point in file order, calling `f` on each; how many were read. A file cut
-    /// short is an error: products from part of a cloud would look complete.
+    /// Lee cada punto en el orden del archivo, llamando a `f` con cada uno; cuántos se leyeron. Un
+    /// archivo cortado es un error: los productos de una parte de una nube parecerían completos.
     pub fn scan(&self, mut f: impl FnMut(&Point)) -> Result<u64> {
         let h = &self.header;
         let rec_len = usize::from(h.record_len);
@@ -1004,7 +1019,7 @@ impl Reader {
         })
     }
 
-    /// Hands every batch of raw records to `f`, in file order.
+    /// Entrega cada lote de registros en bruto a `f`, en el orden del archivo.
     pub fn scan_raw(&self, mut f: impl FnMut(&[u8]) -> Result<()>) -> Result<u64> {
         let h = &self.header;
         let rec_len = usize::from(h.record_len);
@@ -1018,7 +1033,7 @@ impl Reader {
                 if vlr.items_size() != u64::from(h.record_len) {
                     return Err(bad("el tamaño de registro LAZ no coincide con la cabecera"));
                 }
-                // Two chunks per core, so the decompressor has work for every thread.
+                // Dos fragmentos por núcleo, para que el descompresor tenga trabajo para cada hilo.
                 let chunk = if vlr.uses_variable_size_chunks() {
                     50_000
                 } else {
@@ -1054,7 +1069,7 @@ impl Reader {
     }
 }
 
-/// The raw variable length records but LASzip's and COPC's, and how many they are.
+/// Los registros de longitud variable en bruto salvo los de LASzip y COPC, y cuántos son.
 fn raw_vlrs<R: Read + Seek>(r: &mut R, at: u64, n: u32, end: u64) -> Result<(Vec<u8>, u32)> {
     let (mut out, mut kept, mut pos) = (Vec::new(), 0u32, at);
     for _ in 0..n.min(MAX_VLRS) {
@@ -1069,8 +1084,8 @@ fn raw_vlrs<R: Read + Seek>(r: &mut R, at: u64, n: u32, end: u64) -> Result<(Vec
         }
         let laszip =
             h.get(2..16) == Some(b"laszip encoded".as_slice()) && u16_at(&h, 18) == Some(22204);
-        // the COPC record describes the octree of the file it came from: a file made from it is
-        // not one, and a reader that believed the record would look for chunks that are not there
+        // el registro COPC describe el octree del archivo del que vino: un archivo hecho a partir
+        // de él no lo es, y un lector que creyera el registro buscaría fragmentos que no están
         let copc = h.get(2..6) == Some(b"copc".as_slice());
         if !laszip && !copc {
             let mut data = vec![0u8; len as usize];
@@ -1089,7 +1104,7 @@ enum Sink {
     Laz(laz::ParLasZipCompressor<std::io::BufWriter<File>>),
 }
 
-/// The type of an extra attribute stored after each record.
+/// El tipo de un atributo adicional guardado tras cada registro.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ExtraKind {
     U32,
@@ -1101,7 +1116,7 @@ impl ExtraKind {
         4
     }
 
-    /// The data type code of the LAS Extra Bytes record.
+    /// El código de tipo de datos del registro Extra Bytes de LAS.
     fn code(self) -> u8 {
         match self {
             ExtraKind::U32 => 5,
@@ -1110,8 +1125,8 @@ impl ExtraKind {
     }
 }
 
-/// An extra per-point attribute, kept in the record's extra bytes and described by an Extra
-/// Bytes record, as other LAS software expects (lidR's `treeID` is one).
+/// Un atributo adicional por punto, guardado en los bytes adicionales del registro y descrito por
+/// un registro Extra Bytes, como espera otro software LAS (el `treeID` de lidR es uno).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExtraAttr {
     pub name: String,
@@ -1119,12 +1134,13 @@ pub struct ExtraAttr {
     pub kind: ExtraKind,
 }
 
-/// How a [`Writer`] is set up.
+/// Cómo se prepara un [`Writer`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct WriterOptions {
-    /// Points held before they are compressed (LAZ only): large for one file, small for many.
+    /// Puntos retenidos antes de comprimirlos (solo LAZ): grande para un archivo, pequeño para
+    /// muchos.
     pub flush_points: usize,
-    /// Buffer of the file, in bytes.
+    /// Búfer del archivo, en bytes.
     pub buffer: usize,
     pub extra: Vec<ExtraAttr>,
 }
@@ -1140,7 +1156,7 @@ impl Default for WriterOptions {
 }
 
 impl WriterOptions {
-    /// For many files open at once.
+    /// Para muchos archivos abiertos a la vez.
     pub fn small() -> Self {
         Self {
             flush_points: 50_000,
@@ -1150,7 +1166,7 @@ impl WriterOptions {
     }
 }
 
-/// The 192-byte descriptor of an extra attribute.
+/// El descriptor de 192 bytes de un atributo adicional.
 fn extra_descriptor(a: &ExtraAttr) -> Vec<u8> {
     let mut d = vec![0u8; 192];
     d[2] = a.kind.code();
@@ -1163,8 +1179,8 @@ fn extra_descriptor(a: &ExtraAttr) -> Vec<u8> {
     d
 }
 
-/// The variable length records of a new file: the template's, with `attrs` added to its Extra
-/// Bytes record (or a new one), and how many records there are.
+/// Los registros de longitud variable de un archivo nuevo: los de la plantilla, con `attrs`
+/// añadidos a su registro de Extra Bytes (o uno nuevo), y cuántos registros hay.
 fn merge_extra_vlrs(raw: &[u8], n: u32, attrs: &[ExtraAttr]) -> (Vec<u8>, u32) {
     if attrs.is_empty() {
         return (raw.to_vec(), n);
@@ -1204,9 +1220,9 @@ fn merge_extra_vlrs(raw: &[u8], n: u32, attrs: &[ExtraAttr]) -> (Vec<u8>, u32) {
     (out, n + 1)
 }
 
-/// Writes LAS, or LAZ when the path ends in `.laz`, with the header, coordinate system and
-/// record layout of a template file (plus any extra attributes); counts, extent and return
-/// counts are set on finishing.
+/// Escribe LAS, o LAZ cuando la ruta termina en `.laz`, con la cabecera, el sistema de coordenadas
+/// y la disposición de registros de un archivo plantilla (más los atributos adicionales que haya);
+/// los recuentos, la extensión y los recuentos de retornos se fijan al terminar.
 pub struct Writer {
     sink: Sink,
     template: Header,
@@ -1215,7 +1231,7 @@ pub struct Writer {
     count: u64,
     by_return: [u64; 15],
     bounds: [f64; 6],
-    /// Bytes of extra attributes after each record.
+    /// Bytes de atributos adicionales tras cada registro.
     extra_len: usize,
     flush_bytes: usize,
 }
@@ -1281,7 +1297,7 @@ impl Writer {
                 .to_le_bytes(),
         );
         if head.len() >= 375 {
-            // No extended records follow the points.
+            // No hay registros extendidos tras los puntos.
             put(&mut head, 235, &[0u8; 12]);
         }
         let mut w = std::io::BufWriter::with_capacity(opts.buffer.max(4096), File::create(path)?);
@@ -1315,13 +1331,15 @@ impl Writer {
         })
     }
 
-    /// Writes one record in the template's layout (extra attributes, if any, are zero).
+    /// Escribe un registro con la disposición de la plantilla (los atributos adicionales, si los
+    /// hay, son cero).
     pub fn write(&mut self, rec: &[u8]) -> Result<()> {
         let zeros = [0u8; 64];
         self.write_with_extra(rec, zeros.get(..self.extra_len).unwrap_or(&[]))
     }
 
-    /// Writes one record in the template's layout and the bytes of its extra attributes.
+    /// Escribe un registro con la disposición de la plantilla y los bytes de sus atributos
+    /// adicionales.
     pub fn write_with_extra(&mut self, rec: &[u8], extra: &[u8]) -> Result<()> {
         if rec.len() != usize::from(self.template.record_len) || extra.len() != self.extra_len {
             return Err(bad("a record of another layout"));
@@ -1361,7 +1379,7 @@ impl Writer {
         Ok(())
     }
 
-    /// Completes the file; how many points it holds.
+    /// Completa el archivo; cuántos puntos contiene.
     pub fn finish(mut self) -> Result<u64> {
         let mut w = match self.sink {
             Sink::Las(w) => w,
@@ -1420,8 +1438,8 @@ fn put(buf: &mut [u8], at: usize, bytes: &[u8]) {
     }
 }
 
-/// The variable length records of a raw block that are (or are not) projection records, with
-/// their count.
+/// Los registros de longitud variable de un bloque en bruto que son (o no son) registros de
+/// proyección, con su recuento.
 fn split_projection(raw: &[u8], want: bool) -> (Vec<u8>, u32) {
     let (mut out, mut n, mut pos) = (Vec::new(), 0u32, 0usize);
     while let Some(h) = raw.get(pos..pos + 54) {
@@ -1439,13 +1457,13 @@ fn split_projection(raw: &[u8], want: bool) -> (Vec<u8>, u32) {
     (out, n)
 }
 
-/// The GeoTIFF key directory record that declares EPSG code `epsg` (projected, or geographic
-/// for codes in the 4000s), as raw bytes.
+/// El registro del directorio de claves GeoTIFF que declara el código EPSG `epsg` (proyectado, o
+/// geográfico para códigos de los 4000), como bytes en bruto.
 pub fn epsg_record(epsg: u16) -> Vec<u8> {
     epsg_record_with_vertical(epsg, None)
 }
 
-/// As [`epsg_record`], also declaring the vertical reference (key 4096) when there is one.
+/// Como [`epsg_record`], declarando además la referencia vertical (clave 4096) cuando la hay.
 pub fn epsg_record_with_vertical(epsg: u16, vertical: Option<u16>) -> Vec<u8> {
     let geographic = (4000..5000).contains(&epsg);
     let mut keys: Vec<[u16; 4]> = vec![
@@ -1474,14 +1492,15 @@ pub fn epsg_record_with_vertical(epsg: u16, vertical: Option<u16>) -> Vec<u8> {
     rec
 }
 
-/// The compound WKT of a horizontal and a vertical EPSG code (`COMPD_CS[…]`).
+/// El WKT compuesto de un código EPSG horizontal y uno vertical (`COMPD_CS[…]`).
 pub fn compound_wkt(horizontal: u16, vertical: u16) -> Option<String> {
     hipso_crs::SpatialRef::parse(&format!("EPSG:{horizontal}+{vertical}"))
         .ok()
         .and_then(|s| s.to_wkt())
 }
 
-/// The OGC WKT record (2112) of a LAS 1.4 file, as raw bytes: the text ends with a NUL.
+/// El registro WKT de OGC (2112) de un archivo LAS 1.4, como bytes en bruto: el texto termina con
+/// un NUL.
 pub fn wkt_record(wkt: &str) -> Vec<u8> {
     let mut data = wkt.as_bytes().to_vec();
     data.push(0);
@@ -1494,7 +1513,7 @@ pub fn wkt_record(wkt: &str) -> Vec<u8> {
     rec
 }
 
-/// A temporary file, deleted when dropped.
+/// Un archivo temporal, borrado al soltarlo.
 struct Spool(std::path::PathBuf);
 
 impl Drop for Spool {
@@ -1533,7 +1552,7 @@ mod tests {
         set_user_data(&mut new, 9);
         assert_eq!((new[20], new[21], new[17]), (0x34, 0x12, 9));
         assert_eq!((new[18], new[19]), (0, 0));
-        // a record too short is left alone
+        // un registro demasiado corto se deja como está
         let mut short = [0u8; 10];
         set_source_id(6, &mut short, 5);
         set_user_data(&mut short, 5);
@@ -1542,18 +1561,19 @@ mod tests {
 
     #[test]
     fn gps_times_become_dates() {
-        // adjusted GPS time 6.0962773e7 s: 1e9 + 6.0962773e7 s after 1980-01-06
+        // tiempo GPS ajustado 6,0962773e7 s: 1e9 + 6,0962773e7 s después de 1980-01-06
         assert_eq!(
             gps_date(60_962_773.0, 1, (1, 2000)).as_deref(),
             Some("2013-08-19")
         );
-        // a time of week has no date: the creation date (day 45 of 2015) stands in
+        // un tiempo de semana no tiene fecha: la sustituye la fecha de creación (día 45 de 2015)
         assert_eq!(
             gps_date(1000.0, 0, (45, 2015)).as_deref(),
             Some("2015-02-14")
         );
         assert_eq!(gps_date(f64::NAN, 0, (0, 0)), None);
-        // Unix time (1.78e9 s is June 2026) read as GPS time would be in 2036: it is read as Unix
+        // El tiempo Unix (1,78e9 s es junio de 2026) leído como tiempo GPS sería de 2036: se lee
+        // como Unix
         assert_eq!(
             gps_date(1_781_265_639.0, 0, (0, 0)).as_deref(),
             Some("2026-06-12")
@@ -1562,7 +1582,8 @@ mod tests {
 
     use super::*;
 
-    /// A LAS 1.2 file of point format 1: (x, y, z, return byte, class byte) per point.
+    /// Un archivo LAS 1.2 de formato de punto 1: (x, y, z, byte de retorno, byte de clase) por
+    /// punto.
     fn las_file(points: &[(i32, i32, i32, u8, u8)]) -> Vec<u8> {
         let mut h = vec![0u8; 227];
         h[..4].copy_from_slice(b"LASF");
@@ -1609,7 +1630,7 @@ mod tests {
 
     #[test]
     fn reads_header_and_points() -> Result<()> {
-        // Return 2 of 3, class 5; then a withheld noise point.
+        // Retorno 2 de 3, clase 5; después un punto de ruido retenido.
         let bytes = las_file(&[
             (50, 25, 1000, 2 | (3 << 3), 5),
             (100, 100, 0, 1 | (1 << 3), 7 | 0x80),
@@ -1645,7 +1666,7 @@ mod tests {
     fn rejects_what_is_not_las() {
         assert!(parse_header(b"not a las file").is_err());
         let mut b = las_file(&[]);
-        b[105] = 10; // records shorter than format 1's
+        b[105] = 10; // registros más cortos que los del formato 1
         assert!(parse_header(&b).is_err());
     }
 }

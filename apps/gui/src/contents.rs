@@ -1,7 +1,8 @@
-//! The contents pane: the map with its layers in drawing order and the point clouds, as a tree
-//! in the manner of a GIS table of contents. Each row has a disclosure arrow, a visibility box,
-//! the symbol of the layer and its name; the actions of a row appear when the pointer is over
-//! it, and a layer can be dragged to another place in the drawing order.
+//! El panel de contenido: el mapa con sus capas en orden de dibujo y las nubes de puntos, como
+//! árbol al estilo de una tabla de contenido de un SIG. Cada fila tiene una flecha de despliegue,
+//! una casilla de visibilidad, el símbolo de la capa y su nombre; las acciones de una fila aparecen
+//! cuando el puntero está sobre ella, y una capa se puede arrastrar a otro lugar del orden de
+//! dibujo.
 
 use super::*;
 use crate::layers::{GroupCmd, Item, LayerCmd};
@@ -11,7 +12,7 @@ use eframe::egui::Response;
 const ROW_H: f32 = 23.0;
 const INDENT: f32 = 16.0;
 
-/// Visibility box of a row: all, some or none of what it holds.
+/// Casilla de visibilidad de una fila: todo, parte o nada de lo que contiene.
 #[derive(Clone, Copy, PartialEq)]
 enum Check {
     On,
@@ -19,24 +20,25 @@ enum Check {
     Mixed,
 }
 
-/// What to draw in a row.
+/// Qué dibujar en una fila.
 struct RowSpec<'a> {
     depth: usize,
-    /// `Some(open)`: the row has children and shows an arrow.
+    /// `Some(open)`: la fila tiene hijos y muestra una flecha.
     arrow: Option<bool>,
     check: Option<Check>,
     icon: Option<(&'a str, Color32)>,
-    /// A colour swatch instead of an icon (the classes of a symbology).
+    /// Una muestra de color en lugar de un icono (las clases de una simbología).
     swatch: Option<Color32>,
     label: String,
     bold: bool,
     selected: bool,
     dim: bool,
-    /// Actions shown on the right while the pointer is on the row: (glyph, tooltip).
+    /// Acciones que se muestran a la derecha mientras el puntero está en la fila: (glifo, ayuda
+    /// emergente).
     actions: &'a [(&'a str, &'a str)],
 }
 
-/// What happened in a row.
+/// Lo que ocurrió en una fila.
 #[derive(Default)]
 struct RowOut {
     row: Option<Response>,
@@ -85,7 +87,7 @@ fn draw_arrow(p: &egui::Painter, r: Rect, open: bool, t: &Tokens) {
     p.add(egui::Shape::convex_polygon(pts, t.weak, Stroke::NONE));
 }
 
-/// Draws one row and reports the clicks on it.
+/// Dibuja una fila e informa de los clics en ella.
 fn row(ui: &mut egui::Ui, t: &Tokens, id: egui::Id, s: &RowSpec) -> RowOut {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW_H), Sense::hover());
     let mut out = RowOut::default();
@@ -99,7 +101,8 @@ fn row(ui: &mut egui::Ui, t: &Tokens, id: egui::Id, s: &RowSpec) -> RowOut {
     }
     let mut x = rect.left() + 2.0 + s.depth as f32 * INDENT;
     let slot = |x: f32, w: f32| Rect::from_min_size(Pos2::new(x, rect.top()), Vec2::new(w, ROW_H));
-    // the arrow keeps its place even when the row has none, so the boxes line up
+    // la flecha mantiene su sitio aunque la fila no tenga ninguna, de modo que las casillas se
+    // alinean
     let ar = slot(x, 16.0);
     if let Some(open) = s.arrow {
         draw_arrow(p, ar, open, t);
@@ -127,7 +130,7 @@ fn row(ui: &mut egui::Ui, t: &Tokens, id: egui::Id, s: &RowSpec) -> RowOut {
         );
         x += 20.0;
     }
-    // the actions on the right, from the edge in
+    // las acciones de la derecha, desde el borde hacia dentro
     let mut right = rect.right() - 4.0;
     let show_actions = hovered || s.selected;
     if show_actions {
@@ -141,7 +144,7 @@ fn row(ui: &mut egui::Ui, t: &Tokens, id: egui::Id, s: &RowSpec) -> RowOut {
             }
             let ink = if r.hovered() { t.text } else { t.weak };
             if *glyph == "solo" {
-                // a target: the one cloud that stays
+                // un destino: la única nube que se queda
                 ui.painter()
                     .circle_stroke(ar.center(), 5.5, Stroke::new(1.4, ink));
                 ui.painter().circle_filled(ar.center(), 2.0, ink);
@@ -176,7 +179,7 @@ fn row(ui: &mut egui::Ui, t: &Tokens, id: egui::Id, s: &RowSpec) -> RowOut {
     out
 }
 
-/// A thin heading line for the filter and the tools above the tree.
+/// Una línea fina de encabezado para el filtro y las herramientas sobre el árbol.
 fn memory_flag(ui: &egui::Ui, id: egui::Id, default: bool) -> bool {
     ui.ctx().data_mut(|d| *d.get_temp_mut_or(id, default))
 }
@@ -186,7 +189,7 @@ fn set_flag(ui: &egui::Ui, id: egui::Id, v: bool) {
 }
 
 impl App {
-    /// The "Contenido" tab of the side panel.
+    /// La pestaña «Contenido» del panel lateral.
     pub fn contents_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let t = self.tokens();
         let filter_id = egui::Id::new("contents_filter");
@@ -194,7 +197,7 @@ impl App {
             .ctx()
             .data_mut(|d| d.get_temp::<String>(filter_id))
             .unwrap_or_default();
-        // tools above the tree
+        // herramientas sobre el árbol
         ui.horizontal(|ui| {
             let w = (ui.available_width() - 76.0).max(60.0);
             ui.add(
@@ -219,7 +222,7 @@ impl App {
             .data_mut(|d| d.insert_temp(filter_id, filter.clone()));
         let needle = filter.trim().to_lowercase();
         let matches = |name: &str| needle.is_empty() || name.to_lowercase().contains(&needle);
-        // the group only counts while it holds the layer that is selected
+        // el grupo solo cuenta mientras contiene la capa que está seleccionada
         if self.sel_layer.is_none_or(|k| !self.sel_layers.contains(&k)) {
             self.sel_layers.clear();
         }
@@ -248,10 +251,10 @@ impl App {
         ui.add_space(2.0);
         let n_clouds = self.clouds.len();
         let n_layers = self.refs.len();
-        // the order of the drawing, shown from the top
+        // el orden del dibujo, mostrado desde arriba
         let items: Vec<Item> = self.order_items();
         let on_top_first: Vec<Item> = items.iter().rev().copied().collect();
-        // what is dragged, and where each top-level row lies this frame
+        // lo que se arrastra y dónde está cada fila de nivel superior en este fotograma
         let drag_id = egui::Id::new("contents_drag");
         let mut rows: Vec<(Item, Rect, f32)> = Vec::new();
         let mut reorder: Option<Vec<Item>> = None;
@@ -264,7 +267,7 @@ impl App {
         let mut clouds_step: Option<bool> = None;
         let sel_cloud_id = egui::Id::new("contents_sel_cloud");
         let mut sel_cloud: Option<usize> = ui.ctx().data_mut(|d| d.get_temp::<usize>(sel_cloud_id));
-        // clouds in another system than the first would land elsewhere
+        // las nubes en otro sistema que la primera caerían en otro sitio
         let cloud_crs: Vec<Option<u16>> =
             self.clouds.clone().iter().map(|p| self.crs_of(p)).collect();
         let first_crs = cloud_crs.first().copied().flatten();
@@ -273,7 +276,7 @@ impl App {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
-                // ---- the map
+                // ---- el mapa
                 let map_id = egui::Id::new("contents_map");
                 let map_open = memory_flag(ui, map_id, true);
                 let all_vis = self.show_points && self.refs.iter().all(|r| r.visible);
@@ -312,7 +315,7 @@ impl App {
                     }
                 }
                 if !map_open {
-                    // the base map is not part of the group: it stays when the group folds
+                    // el mapa base no forma parte del grupo: se queda cuando el grupo se pliega
                     ui.add_space(4.0);
                     self.basemap_row(ui, ctx, &t);
                     return;
@@ -394,7 +397,7 @@ impl App {
                             let lid = egui::Id::new(("contents_layer", k));
                             let open = memory_flag(ui, lid.with("open"), true);
                             let editing = self.active == Some(k) && self.edit_layer_on();
-                            // table (vector layers only), zoom and remove
+                            // tabla (solo capas vectoriales), zoom y quitar
                             let actions: &[(&str, &str)] = if is_vec {
                                 &[
                                     ("@table", "Tabla de atributos"),
@@ -431,7 +434,7 @@ impl App {
                                 set_flag(ui, lid.with("open"), !open);
                             }
                             if o.check {
-                                // on a layer of the selection the box turns the whole selection
+                                // en una capa de la selección, la casilla gira toda la selección
                                 if self.sel_layers.len() > 1 && self.sel_layers.contains(&k) {
                                     for j in self.sel_layers.clone() {
                                         if let Some(r) = self.refs.get_mut(j) {
@@ -457,7 +460,7 @@ impl App {
                                     sel_cloud = None;
                                     let m = ui.input(|i| i.modifiers);
                                     if m.command {
-                                        // Ctrl / Cmd: add the layer to the selection or take it out
+                                        // Ctrl / Cmd: añade la capa a la selección o la quita
                                         if let Some(p) = self.sel_layer
                                             && self.sel_layers.is_empty()
                                         {
@@ -470,7 +473,8 @@ impl App {
                                             self.sel_layer = self.sel_layers.iter().next_back().copied();
                                         }
                                     } else if m.shift && self.sel_layer.is_some() {
-                                        // Shift: every layer between the last one selected and this
+                                        // Mayús: todas las capas entre la última seleccionada y
+                                        // esta
                                         let shown: Vec<usize> = on_top_first
                                             .iter()
                                             .filter_map(|i| match i {
@@ -539,7 +543,7 @@ impl App {
                                 });
                                 }
                             }
-                            // the symbology, as children of the layer
+                            // la simbología, como hijos de la capa
                             if open {
                                 for (text, c) in legend.iter().take(14) {
                                     let r = row(
@@ -766,14 +770,14 @@ impl App {
                         }
                     }
                 }
-                // ---- dragging a layer or the clouds: the line where it would land, and the drop
+                // ---- arrastrar una capa o las nubes: la línea donde caería y el soltado
                 let dragging: Option<(u8, usize)> =
                     ui.ctx().data_mut(|d| d.get_temp::<(u8, usize)>(drag_id));
                 if let Some((kind, k)) = dragging {
                     let from = if kind == 1 { Item::Clouds } else { Item::Layer(k) };
                     let ptr = ui.input(|i| i.pointer.interact_pos());
                     if let (Some(p), false) = (ptr, rows.is_empty()) {
-                        // the slot: how many rows have their middle above the pointer
+                        // la posición: cuántas filas tienen su centro por encima del puntero
                         let slot = rows.iter().filter(|(_, r, _)| r.center().y < p.y).count();
                         let y = if slot < rows.len() {
                             rows[slot].1.top()
@@ -788,7 +792,7 @@ impl App {
                         if ui.input(|i| i.pointer.any_released()) {
                             let mut shown: Vec<Item> = rows.iter().map(|r| r.0).collect();
                             if shown.contains(&from) {
-                                // a layer of the selection takes the whole selection with it
+                                // una capa de la selección se lleva consigo toda la selección
                                 let moving: Vec<Item> = if kind == 0
                                     && self.sel_layers.len() > 1
                                     && self.sel_layers.contains(&k)
@@ -807,7 +811,8 @@ impl App {
                                 for (n, item) in moving.into_iter().enumerate() {
                                     shown.insert((dest + n).min(shown.len()), item);
                                 }
-                                // from the bottom; the clouds, when none are open, keep their place
+                                // desde abajo; las nubes, cuando no hay ninguna abierta, conservan
+                                // su sitio
                                 let mut bottom_up: Vec<Item> = shown.into_iter().rev().collect();
                                 if !bottom_up.contains(&Item::Clouds) {
                                     let at = self.cloud_slot.min(bottom_up.len());
@@ -825,7 +830,7 @@ impl App {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
                     }
                 }
-                // ---- the base map: the last row, under everything it is drawn beneath
+                // ---- el mapa base: la última fila, bajo todo lo que se dibuja encima
                 ui.add_space(4.0);
                 self.basemap_row(ui, ctx, &t);
             });
@@ -858,7 +863,7 @@ impl App {
             self.show_points = true;
         }
         if let Some(k) = cloud_zoom {
-            // the tile: its extent, from the header of the file
+            // la tesela: su extensión, a partir de la cabecera del archivo
             if let Ok(r) = hipso_core::las::Reader::open(&self.clouds[k]) {
                 let b = r.header.bounds;
                 self.zoom_to_bounds([b[0], b[1], b[3], b[4]]);
@@ -871,7 +876,7 @@ impl App {
             self.act(ctx, Action::CloseAll);
         } else if let Some(k) = cloud_remove {
             if self.clouds.len() > 1 && self.drop_cloud_in_memory(ctx, k) {
-                // the others stay as they are: nothing is read again
+                // las demás se quedan como están: no se vuelve a leer nada
             } else {
                 self.drop_cloud(k);
                 if self.clouds.is_empty() {
@@ -883,8 +888,8 @@ impl App {
         }
     }
 
-    /// The base map as the last row of the list: a box turns it on and off, and while it is on
-    /// its source and opacity show below it.
+    /// El mapa base como última fila de la lista: una casilla lo activa y desactiva, y mientras
+    /// está activado su origen y opacidad se muestran debajo.
     fn basemap_row(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, t: &Tokens) {
         let id = egui::Id::new("contents_basemap");
         let open = memory_flag(ui, id, true);

@@ -1,12 +1,13 @@
-//! A read-only SQLite reader that scans whole tables, enough to read the vector layers of a
-//! GeoPackage. The file format is public (https://www.sqlite.org/fileformat.html); the structure
-//! of this reader follows the one in terrio (MIT, Qiusheng Wu), trimmed to what is needed here.
+//! Un lector de SQLite de solo lectura que recorre tablas enteras, suficiente para leer las capas
+//! vectoriales de un GeoPackage. El formato de archivo es público
+//! (https://www.sqlite.org/fileformat.html); la estructura de este lector sigue la de terrio (MIT,
+//! Qiusheng Wu), recortada a lo que se necesita aquí.
 
 use rayon::prelude::*;
 
 use crate::{Error, Result};
 
-/// A value in a row.
+/// Un valor en una fila.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Null,
@@ -41,7 +42,7 @@ impl Value {
         }
     }
 
-    /// The value as the text a table shows.
+    /// El valor como el texto que muestra una tabla.
     pub fn display(&self) -> String {
         match self {
             Value::Null => String::new(),
@@ -53,7 +54,7 @@ impl Value {
     }
 }
 
-/// A table's rows, with its column names and declared types.
+/// Las filas de una tabla, con los nombres de sus columnas y los tipos declarados.
 pub struct Table {
     pub columns: Vec<String>,
     pub types: Vec<String>,
@@ -61,7 +62,7 @@ pub struct Table {
 }
 
 impl Table {
-    /// The index of a column (case-insensitive).
+    /// El índice de una columna (sin distinguir mayúsculas).
     pub fn column(&self, name: &str) -> Option<usize> {
         self.columns
             .iter()
@@ -69,13 +70,13 @@ impl Table {
     }
 }
 
-/// A row of the b-tree of a table: its rowid and the bytes of its record.
+/// Una fila del árbol B de una tabla: su rowid y los bytes de su registro.
 type RawRow = (i64, Vec<u8>);
 
-/// A schema entry: `(type, name, table, root page, sql)`.
+/// Una entrada del esquema: `(tipo, nombre, tabla, página raíz, sql)`.
 pub type SchemaEntry = (String, String, String, u32, String);
 
-/// An SQLite database file in memory.
+/// Un archivo de base de datos SQLite en memoria.
 pub struct Db {
     data: Vec<u8>,
     page_size: usize,
@@ -86,7 +87,7 @@ fn bad(msg: &str) -> Error {
     Error::Format(format!("SQLite: {msg}"))
 }
 
-/// Reads a varint at `i`: `(value, length)`.
+/// Lee un varint en `i`: `(valor, longitud)`.
 fn varint(b: &[u8], i: usize) -> Option<(i64, usize)> {
     let mut v: u64 = 0;
     for k in 0..9 {
@@ -104,7 +105,8 @@ fn varint(b: &[u8], i: usize) -> Option<(i64, usize)> {
 }
 
 impl Db {
-    /// Opens a database file: the whole file is read, so very large ones (over 2 GB) are refused.
+    /// Abre un archivo de base de datos: se lee el archivo entero, así que los muy grandes (más de
+    /// 2 GB) se rechazan.
     pub fn open(path: &std::path::Path) -> Result<Self> {
         if std::fs::metadata(path)?.len() > (2u64 << 30) {
             return Err(Error::Unsupported(
@@ -144,8 +146,8 @@ impl Db {
             .ok_or_else(|| bad("página fuera de rango"))
     }
 
-    /// Every row of the b-tree rooted at `root`, as `(rowid, payload)`: the interior pages are
-    /// walked first, then the leaf pages are decoded in parallel.
+    /// Cada fila del árbol B con raíz en `root`, como `(rowid, carga)`: primero se recorren las
+    /// páginas interiores y luego se decodifican las páginas hoja en paralelo.
     fn scan(&self, root: u32) -> Result<Vec<RawRow>> {
         let mut leaves = Vec::new();
         self.leaves(root, &mut leaves, 0)?;
@@ -211,7 +213,7 @@ impl Db {
         Ok(out)
     }
 
-    /// A cell's payload, following overflow pages.
+    /// La carga de una celda, siguiendo las páginas de desbordamiento.
     fn payload(&self, page: &[u8], start: usize, size: usize) -> Result<Vec<u8>> {
         let u = self.usable;
         let x = u.checked_sub(35).ok_or_else(|| bad("página"))?;
@@ -242,7 +244,7 @@ impl Db {
         Ok(out)
     }
 
-    /// Decodes a value of serial type `t` at `pos`: the value and its length.
+    /// Decodifica un valor de tipo serial `t` en `pos`: el valor y su longitud.
     fn value(payload: &[u8], t: i64, pos: usize) -> (Value, usize) {
         let int = |len: usize| -> i64 {
             let b = payload
@@ -287,7 +289,7 @@ impl Db {
         }
     }
 
-    /// Decodes a record (a row's payload).
+    /// Decodifica un registro (la carga de una fila).
     fn record(payload: &[u8]) -> Vec<Value> {
         let Some((header_len, n)) = varint(payload, 0) else {
             return Vec::new();
@@ -311,7 +313,8 @@ impl Db {
         out
     }
 
-    /// The schema: `(type, name, table, root page, sql)` of every table, index, view and trigger.
+    /// El esquema: `(tipo, nombre, tabla, página raíz, sql)` de cada tabla, índice, vista y
+    /// disparador.
     pub fn schema(&self) -> Result<Vec<SchemaEntry>> {
         Ok(self
             .scan(1)?
@@ -335,7 +338,7 @@ impl Db {
             .collect())
     }
 
-    /// Reads a whole table by name.
+    /// Lee una tabla entera por nombre.
     pub fn table(&self, name: &str) -> Result<Table> {
         for (kind, table, _, root, sql) in self.schema()? {
             if kind != "table" || !table.eq_ignore_ascii_case(name) {
@@ -358,7 +361,7 @@ impl Db {
             let defs = column_types(&sql);
             let columns: Vec<String> = defs.iter().map(|(n, _)| n.clone()).collect();
             let types: Vec<String> = defs.into_iter().map(|(_, t)| t).collect();
-            // an INTEGER PRIMARY KEY column is the rowid, stored as NULL
+            // una columna INTEGER PRIMARY KEY es el rowid, guardado como NULL
             let rowid_col = integer_primary_key(&sql, &columns);
             let raw = self.scan(root)?;
             let rows = raw
@@ -384,7 +387,7 @@ impl Db {
     }
 }
 
-/// The column definitions of a `CREATE TABLE` statement.
+/// Las definiciones de columna de una sentencia `CREATE TABLE`.
 fn column_defs(sql: &str) -> Vec<String> {
     let Some(open) = sql.find('(') else {
         return Vec::new();
@@ -428,7 +431,7 @@ fn column_defs(sql: &str) -> Vec<String> {
         .collect()
 }
 
-/// Splits a column definition into its (unquoted) name and the rest.
+/// Divide una definición de columna en su nombre (sin comillas) y el resto.
 fn split_column(def: &str) -> (String, &str) {
     let def = def.trim();
     let close = match def.chars().next() {
@@ -462,7 +465,7 @@ fn split_column(def: &str) -> (String, &str) {
     }
 }
 
-/// The columns of a `CREATE TABLE` statement: names and declared types.
+/// Las columnas de una sentencia `CREATE TABLE`: nombres y tipos declarados.
 pub fn column_types(sql: &str) -> Vec<(String, String)> {
     const CONSTRAINTS: [&str; 9] = [
         "PRIMARY",
@@ -496,7 +499,7 @@ pub fn column_types(sql: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The column that aliases the rowid (`INTEGER PRIMARY KEY`).
+/// La columna que es alias del rowid (`INTEGER PRIMARY KEY`).
 fn integer_primary_key(sql: &str, columns: &[String]) -> Option<usize> {
     let types = column_types(sql);
     let pk_in_def = column_defs(sql).iter().zip(&types).position(|(d, (_, t))| {

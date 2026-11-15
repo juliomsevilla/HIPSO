@@ -1,10 +1,11 @@
-//! Forest change between two dates, from two canopy height models on the same cells: how much
-//! each cell grew or lost, where the canopy opened or closed, which patches were disturbed, what
-//! happened in each stand, and how much each tree grew.
+//! Cambio forestal entre dos fechas, a partir de dos modelos de altura de copas sobre las mismas
+//! celdas: cuánto creció o perdió cada celda, dónde se abrió o se cerró el dosel, qué manchas se
+//! perturbaron, qué pasó en cada rodal y cuánto creció cada árbol.
 //!
-//! The difference of two models is only as good as their vertical agreement: a ground model that
-//! is a few decimetres off between dates shifts every cell. The report says how big that shift is
-//! (the median difference over cells that are ground in both dates).
+//! La diferencia de dos modelos es tan buena como su concordancia vertical: un modelo del suelo que
+//! está unos decímetros desviado entre fechas desplaza todas las celdas. El informe dice cuán
+//! grande es ese desplazamiento (la diferencia mediana sobre las celdas que son suelo en ambas
+//! fechas).
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -20,7 +21,7 @@ use crate::trees::{self, Smoothing, TopParams};
 use crate::vector::{ReadOptions, Region, read_regions};
 use crate::{Error, Result, check_cancel};
 
-/// What a cell did between the dates (the codes of the class raster).
+/// Lo que hizo una celda entre las fechas (los códigos del ráster de clases).
 pub const STABLE: u16 = 1;
 pub const GREW: u16 = 2;
 pub const SHRANK: u16 = 3;
@@ -30,34 +31,35 @@ pub const COVER_GAINED: u16 = 5;
 #[derive(Clone, Debug, PartialEq)]
 pub struct TreeChange {
     pub tops: TopParams,
-    /// Smooth both models first with a window of this size (0: no).
+    /// Suaviza antes ambos modelos con una ventana de este tamaño (0: no).
     pub smooth: f64,
-    /// A tree of the first date and one of the second are the same when closer than this.
+    /// Un árbol de la primera fecha y uno de la segunda son el mismo cuando están más cerca que
+    /// esto.
     pub max_dist: f64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChangeJob {
-    /// The canopy height models of the first and of the second date, on the same cells.
+    /// Los modelos de altura de copas de la primera y de la segunda fecha, sobre las mismas celdas.
     pub before: PathBuf,
     pub after: PathBuf,
-    /// Base path of the results.
+    /// Ruta base de los resultados.
     pub output: PathBuf,
-    /// A height change smaller than this (in absolute value) is noise, not growth or loss.
+    /// Un cambio de altura menor que esto (en valor absoluto) es ruido, no crecimiento ni pérdida.
     pub min_change: f64,
-    /// Height from which a cell counts as canopy.
+    /// Altura a partir de la cual una celda cuenta como dosel.
     pub cover_height: f64,
-    /// Patches of lost canopy smaller than this many cells are not reported as disturbances.
+    /// Las manchas de dosel perdido menores que tantas celdas no se comunican como perturbaciones.
     pub min_patch: u32,
-    /// Years between the dates, for yearly rates.
+    /// Años entre las fechas, para las tasas anuales.
     pub years: Option<f64>,
-    /// Stands (polygons) to summarise, and the field that names them.
+    /// Rodales (polígonos) que resumir y el campo que los nombra.
     pub regions: Option<(PathBuf, Option<String>)>,
     pub trees: Option<TreeChange>,
     pub formats: Formats,
 }
 
-/// The files a change job writes.
+/// Los archivos que escribe un trabajo de cambio.
 pub struct Outputs {
     pub difference: PathBuf,
     pub classes: PathBuf,
@@ -88,7 +90,7 @@ impl ChangeJob {
     }
 }
 
-/// The median of the values (the slice is reordered); NaN when there are none.
+/// La mediana de los valores (la porción se reordena); NaN cuando no hay ninguno.
 fn median(v: &mut [f32]) -> f64 {
     if v.is_empty() {
         return f64::NAN;
@@ -98,7 +100,7 @@ fn median(v: &mut [f32]) -> f64 {
     f64::from(v[m])
 }
 
-/// What happened in one cell. `None` when either date has no value.
+/// Lo que pasó en una celda. `None` cuando alguna de las fechas no tiene valor.
 fn classify(before: f32, after: f32, min_change: f32, cover: f32) -> Option<u16> {
     if before.is_nan() || after.is_nan() {
         return None;
@@ -119,7 +121,7 @@ fn classify(before: f32, after: f32, min_change: f32, cover: f32) -> Option<u16>
     })
 }
 
-/// One stand's summary.
+/// El resumen de un rodal.
 struct StandRow {
     name: String,
     cells: u64,
@@ -178,15 +180,16 @@ fn stand_rows(
         .collect()
 }
 
-/// A tree of one date.
+/// Un árbol de una fecha.
 struct Tip {
     x: f64,
     y: f64,
     h: f32,
 }
 
-/// Pairs the trees of both dates: each of the second date takes the nearest free tree of the first
-/// within `max_dist`, the closest pairs first. Returns `(index before, index after, distance)`.
+/// Empareja los árboles de ambas fechas: cada uno de la segunda fecha toma el árbol libre más
+/// cercano de la primera a menos de `max_dist`, los pares más cercanos primero. Devuelve `(índice
+/// antes, índice después, distancia)`.
 fn match_trees(before: &[Tip], after: &[Tip], max_dist: f64) -> Vec<(usize, usize, f64)> {
     let cell = max_dist.max(1e-6);
     let key = |x: f64, y: f64| ((x / cell).floor() as i64, (y / cell).floor() as i64);
@@ -238,7 +241,7 @@ fn tips(g: &Grid, tc: &TreeChange) -> Vec<Tip> {
 }
 
 pub fn change(j: &ChangeJob) -> Result<String> {
-    // `after` is moved onto the cells of `before`, and the stands to their system
+    // `after` se lleva sobre las celdas de `before` y los rodales a su sistema
     let mut files = vec![j.before.as_path(), j.after.as_path()];
     files.extend(j.regions.iter().map(|r| r.0.as_path()));
     let unified = crate::crs::unify_like(&files, true, Some(&j.before))?;
@@ -260,7 +263,7 @@ pub fn change(j: &ChangeJob) -> Result<String> {
     }
     let n = a.data.len();
     let (min_change, cover) = (j.min_change as f32, j.cover_height as f32);
-    // the difference and what each cell did
+    // la diferencia y lo que hizo cada celda
     let diff: Vec<f32> = a
         .data
         .iter()
@@ -280,7 +283,8 @@ pub fn change(j: &ChangeJob) -> Result<String> {
         .map(|(&x, &y)| classify(x, y, min_change, cover).unwrap_or(0))
         .collect();
     check_cancel()?;
-    // how well the two models agree where nothing grows: cells that are ground in both dates
+    // cuán bien concuerdan los dos modelos donde nada crece: las celdas que son suelo en ambas
+    // fechas
     let mut ground: Vec<f32> = a
         .data
         .iter()
@@ -351,7 +355,7 @@ pub fn change(j: &ChangeJob) -> Result<String> {
         out.classes.display()
     ));
     check_cancel()?;
-    // patches of lost canopy
+    // manchas de dosel perdido
     if out.patches.is_some() || out.patches_table.is_some() {
         let mut stack = LayerStack::new(lat, epsg);
         stack.push("clase", class.iter().map(|&c| f32::from(c)).collect())?;
@@ -436,7 +440,7 @@ pub fn change(j: &ChangeJob) -> Result<String> {
             path.display()
         ));
     }
-    // trees
+    // árboles
     if let (Some(tc), Some(path)) = (&j.trees, &out.trees) {
         let (tb, ta) = (tips(&a, tc), tips(&b, tc));
         let pairs = match_trees(&tb, &ta, tc.max_dist);
@@ -494,7 +498,7 @@ pub fn change(j: &ChangeJob) -> Result<String> {
     Ok(lines.join("\n") + &crate::crs::notes(&warnings))
 }
 
-/// The files a job needs, to be checked for existence by callers.
+/// Los archivos que necesita un trabajo, para que quien llama compruebe su existencia.
 pub fn inputs(j: &ChangeJob) -> Vec<&Path> {
     let mut v = vec![j.before.as_path(), j.after.as_path()];
     v.extend(j.regions.iter().map(|r| r.0.as_path()));
@@ -505,7 +509,7 @@ pub fn inputs(j: &ChangeJob) -> Vec<&Path> {
 mod tests {
     use super::*;
 
-    /// A cone of a tree at `(cx, cy)`: `h` high, `r` wide.
+    /// Un cono de un árbol en `(cx, cy)`: `h` de alto, `r` de ancho.
     fn cone(g: &mut Grid, cx: f64, cy: f64, h: f32, r: f64) {
         for row in 0..g.rows {
             for col in 0..g.cols {
@@ -529,14 +533,15 @@ mod tests {
             g.data.fill(0.0);
             Ok(g)
         };
-        // before: trees A (grows), B (is cut) and C (stays); after: A taller, B gone, D new
+        // antes: árboles A (crece), B (se corta) y C (se queda); después: A más alto, B
+        // desaparecido, D nuevo
         let (mut before, mut after) = (new()?, new()?);
         for (cx, h) in [(1010.0, 12.0), (1040.0, 14.0), (1070.0, 10.0)] {
             cone(&mut before, cx, 2020.0, h, 8.0);
         }
-        cone(&mut after, 1010.0, 2020.0, 14.0, 8.0); // A grows 2 m
-        cone(&mut after, 1070.0, 2020.0, 10.0, 8.0); // C unchanged
-        cone(&mut after, 1025.0, 2005.0, 9.0, 6.0); // D new
+        cone(&mut after, 1010.0, 2020.0, 14.0, 8.0); // A crece 2 m
+        cone(&mut after, 1070.0, 2020.0, 10.0, 8.0); // C sin cambio
+        cone(&mut after, 1025.0, 2005.0, 9.0, 6.0); // D nuevo
         before.write_tiff(&dir.join("a.tif"), Some(25830))?;
         after.write_tiff(&dir.join("b.tif"), Some(25830))?;
         let regions = dir.join("unidades.geojson");
@@ -573,14 +578,15 @@ mod tests {
         let text = change(&job)?;
         assert!(text.contains("pierde la cubierta"), "{text}");
         let out = job.outputs();
-        // the class raster: tree B's centre lost its canopy, A's centre grew, C's did not change
+        // el ráster de clases: el centro del árbol B perdió su dosel, el de A creció, el de C no
+        // cambió
         let classes = crate::obia::Labels::read_tiff(&out.classes)?;
         let at = |x: f64, y: f64| classes.ids[classes.lat.index(x, y).unwrap_or(0)];
         assert_eq!(at(1040.5, 2020.5), u32::from(COVER_LOST));
         assert_eq!(at(1010.5, 2020.5), u32::from(GREW));
         assert_eq!(at(1070.5, 2020.5), u32::from(STABLE));
         assert_eq!(at(1025.5, 2005.5), u32::from(COVER_GAINED));
-        // one patch of lost canopy (B), one tree grew 2 m, one lost, one new
+        // una mancha de dosel perdido (B), un árbol creció 2 m, uno se perdió, uno es nuevo
         let patches = std::fs::read_to_string(out.patches_table.as_ref().ok_or(Error::Cancelled)?)?;
         assert_eq!(patches.lines().count(), 2, "{patches}");
         let trees = std::fs::read_to_string(out.trees.as_ref().ok_or(Error::Cancelled)?)?;
@@ -592,7 +598,8 @@ mod tests {
             .lines()
             .find(|l| l.starts_with("emparejado,1009") || l.starts_with("emparejado,1010"))
             .unwrap_or_default();
-        // the cone's apex falls between cell centres, so the growth reads a little under 2 m
+        // el ápice del cono cae entre centros de celda, así que el crecimiento se lee algo por
+        // debajo de 2 m
         let cols: Vec<&str> = grown.split(',').collect();
         let (g, yearly): (f64, f64) = (
             cols.get(5).and_then(|v| v.parse().ok()).unwrap_or(0.0),
@@ -602,13 +609,13 @@ mod tests {
             (1.5..=2.1).contains(&g) && (yearly - g / 2.0).abs() < 0.01,
             "{trees}"
         );
-        // stand on the left: tree A grows, B (x=1040) is outside it
+        // rodal a la izquierda: el árbol A crece, B (x=1040) queda fuera de él
         let stands = std::fs::read_to_string(out.stands.as_ref().ok_or(Error::Cancelled)?)?;
         assert!(
             stands.lines().nth(1).is_some_and(|l| l.starts_with("izq,")),
             "{stands}"
         );
-        // models off the same cells are refused
+        // los modelos de celdas distintas se rechazan
         let mut shifted = new()?;
         shifted.x0 += 0.5;
         shifted.write_tiff(&dir.join("c.tif"), Some(25830))?;

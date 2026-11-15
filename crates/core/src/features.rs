@@ -1,16 +1,18 @@
-//! Geometric features of the neighbourhood of a point: how the points around it lie, from the
-//! eigenvalues l1 ≥ l2 ≥ l3 of their covariance (Demantké et al. 2011; Weinmann et al. 2015).
+//! Características geométricas del entorno de un punto: cómo se disponen los puntos a su alrededor,
+//! a partir de los autovalores l1 ≥ l2 ≥ l3 de su covarianza (Demantké et al. 2011; Weinmann et al.
+//! 2015).
 //!
-//! * linearity (l1 − l2) / l1: near 1 on wires and edges;
-//! * planarity (l2 − l3) / l1: near 1 on roofs, roads and bare ground;
-//! * sphericity l3 / l1: near 1 where the points fill a volume (crowns);
-//! * slope: angle (degrees) between the local plane and the horizontal, 0 flat, 90 a wall;
-//! * roughness: standard deviation of the distance of the neighbours to the local plane (m);
-//! * count: how many points lie within the radius, the point itself included.
+//! * linealidad (l1 − l2) / l1: cercana a 1 en cables y bordes;
+//! * planaridad (l2 − l3) / l1: cercana a 1 en tejados, carreteras y suelo desnudo;
+//! * esfericidad l3 / l1: cercana a 1 donde los puntos llenan un volumen (copas);
+//! * pendiente: ángulo (grados) entre el plano local y la horizontal, 0 llano, 90 una pared;
+//! * rugosidad: desviación típica de la distancia de los vecinos al plano local (m);
+//! * recuento: cuántos puntos están dentro del radio, incluido el propio punto.
 //!
-//! The neighbourhood is the points within `radius` (a sphere), found on a hash grid of cells of
-//! one radius; a point with fewer than [`MIN_NEIGHBOURS`] has no features. Only the points asked
-//! for are given features, so a rule that looks at a few does not pay for the rest.
+//! El entorno son los puntos a menos de `radius` (una esfera), hallados en una rejilla hash de
+//! celdas de un radio; un punto con menos de [`MIN_NEIGHBOURS`] no tiene características. Solo se
+//! dan características a los puntos pedidos, de modo que una regla que mira unos pocos no paga por
+//! el resto.
 
 use std::collections::HashMap;
 
@@ -19,7 +21,7 @@ use rayon::prelude::*;
 use crate::las::Point;
 use crate::tls::eigen;
 
-/// Fewest points in a neighbourhood (the point included) to describe its shape.
+/// Menor número de puntos en un entorno (el punto incluido) para describir su forma.
 pub const MIN_NEIGHBOURS: usize = 4;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -34,8 +36,8 @@ pub struct Features {
 
 type Cell = (i32, i32, i32);
 
-/// Features of the points of `pts` that `wanted` marks (all the others get `None`), with their
-/// neighbours taken from every point that is not noise.
+/// Características de los puntos de `pts` que marca `wanted` (todos los demás reciben `None`), con
+/// sus vecinos tomados de todo punto que no es ruido.
 pub fn compute(pts: &[Point], wanted: &[bool], radius: f64) -> Vec<Option<Features>> {
     let mut out = vec![None; pts.len()];
     if !(radius > 0.0) || !wanted.iter().any(|w| *w) {
@@ -85,7 +87,8 @@ pub fn compute(pts: &[Point], wanted: &[bool], radius: f64) -> Vec<Option<Featur
     out
 }
 
-/// The features of a neighbourhood given as offsets from its centre; `None` when too small.
+/// Las características de un entorno dado como desplazamientos desde su centro; `None` cuando es
+/// demasiado pequeño.
 fn describe(nb: &[[f64; 3]]) -> Option<Features> {
     let n = nb.len();
     if n < MIN_NEIGHBOURS {
@@ -113,7 +116,7 @@ fn describe(nb: &[[f64; 3]]) -> Option<Features> {
     let (vals, _) = eigen(c);
     let [l1, l2, l3] = [vals[0].max(0.0), vals[1].max(0.0), vals[2].max(0.0)];
     if l1 <= 1e-12 {
-        // all the points on one spot: nothing to say about their shape
+        // todos los puntos en un mismo sitio: nada que decir de su forma
         return None;
     }
     let normal = smallest_direction(c, l3);
@@ -127,8 +130,8 @@ fn describe(nb: &[[f64; 3]]) -> Option<Features> {
     })
 }
 
-/// Unit eigenvector of the smallest eigenvalue `l3` of a symmetric matrix: a direction in the
-/// null space of `c − l3·I`, the largest cross product of two of its rows.
+/// Autovector unitario del menor autovalor `l3` de una matriz simétrica: una dirección en el
+/// espacio nulo de `c − l3·I`, el mayor producto vectorial de dos de sus filas.
 fn smallest_direction(c: [[f64; 3]; 3], l3: f64) -> [f64; 3] {
     let r = [
         [c[0][0] - l3, c[0][1], c[0][2]],
@@ -246,7 +249,7 @@ mod tests {
         let mut wanted = vec![false; 3];
         wanted[0] = true;
         assert_eq!(compute(&pts, &wanted, 1.0)[0], None);
-        // only the points asked for get features
+        // solo los puntos pedidos reciben características
         assert!(compute(&pts, &[false; 3], 1.0).iter().all(Option::is_none));
     }
 }

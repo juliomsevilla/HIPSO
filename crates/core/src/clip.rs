@@ -1,6 +1,6 @@
-//! Clipping point clouds with polygons, circles and rectangles: selecting points by region.
-//! One pass over the cloud writes any number of outputs, and the plots can
-//! be measured as they go (CloudMetrics).
+//! Recorte de nubes de puntos con polígonos, círculos y rectángulos: selección de puntos por
+//! región. Una pasada sobre la nube escribe cualquier número de salidas, y las parcelas se pueden
+//! medir sobre la marcha (CloudMetrics).
 
 use std::path::{Path, PathBuf};
 
@@ -11,31 +11,31 @@ use crate::metrics;
 use crate::vector::{Region, RegionIndex};
 use crate::{Error, Result};
 
-/// What goes where.
+/// Qué va adónde.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ClipMode {
-    /// One file with the points inside any region.
+    /// Un archivo con los puntos dentro de cualquier región.
     Merge,
-    /// One file with the points inside none.
+    /// Un archivo con los puntos dentro de ninguna.
     Outside,
-    /// One file per region.
+    /// Un archivo por región.
     PerRegion,
-    /// No point file: only the metrics of each region.
+    /// Sin archivo de puntos: solo las métricas de cada región.
     MetricsOnly,
 }
 
-/// CloudMetrics of each region's points, as it clips.
+/// CloudMetrics de los puntos de cada región, a medida que se recorta.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SampleMetrics {
-    /// Base path of the metrics table (its extension is replaced by the formats chosen).
+    /// Ruta base de la tabla de métricas (su extensión se sustituye por los formatos elegidos).
     pub csv: PathBuf,
     pub formats: crate::paths::Formats,
-    /// Height break for the cover metrics (height break).
+    /// Altura de corte para las métricas de cobertura (height break).
     pub heightbreak: f64,
-    /// Only returns above this height count (minimum height).
+    /// Solo cuentan los retornos por encima de esta altura (altura mínima).
     pub min_height: f64,
-    /// The metrics to write, by the name of their column (`Elev P90`, `Int mean`…); empty:
-    /// all of them. A name that is not a column is an error that lists the valid ones.
+    /// Las métricas que escribir, por el nombre de su columna (`Elev P90`, `Int mean`…); vacío:
+    /// todas. Un nombre que no es una columna es un error que lista los válidos.
     pub only: Vec<String>,
 }
 
@@ -44,25 +44,26 @@ pub struct ClipJob {
     pub inputs: Vec<PathBuf>,
     pub regions: Vec<Region>,
     pub mode: ClipMode,
-    /// The file for `Merge` and `Outside`; for `PerRegion`, `<dir>/<stem>.<ext>` gives
-    /// `<dir>/<stem>_<region>.<ext>`.
+    /// El archivo para `Merge` y `Outside`; para `PerRegion`, `<dir>/<nombre>.<ext>` da
+    /// `<dir>/<nombre>_<región>.<ext>`.
     pub output: PathBuf,
     pub filter: Filter,
-    /// A ground model: points get their height above it as elevation.
+    /// Un modelo del suelo: los puntos reciben como elevación su altura sobre él.
     pub dtm: Option<PathBuf>,
-    /// One ground model per input, in order, instead of `dtm` (each cloud minus its own DTM).
+    /// Un modelo del suelo por entrada, en orden, en lugar de `dtm` (cada nube menos su propio
+    /// MDT).
     pub dtms: Vec<PathBuf>,
-    /// Added to every elevation (or height) written.
+    /// Se suma a cada elevación (o altura) escrita.
     pub z_offset: f64,
-    /// A point goes to the first region that holds it only (PolyClipData's behaviour), not to
-    /// every one.
+    /// Un punto va solo a la primera región que lo contiene (el comportamiento de PolyClipData), no
+    /// a todas.
     pub exclusive: bool,
-    /// Write a file for regions with no points too.
+    /// Escribe también un archivo para las regiones sin puntos.
     pub keep_empty: bool,
-    /// Files open at once; more regions take more passes over the cloud.
+    /// Archivos abiertos a la vez; más regiones requieren más pasadas sobre la nube.
     pub max_open: usize,
-    /// The file the regions were read from, so that its coordinate system can be checked
-    /// against the clouds' (regions drawn in the viewer have none).
+    /// El archivo del que se leyeron las regiones, para poder comprobar su sistema de coordenadas
+    /// contra el de las nubes (las regiones dibujadas en el visor no lo tienen).
     pub regions_source: Option<PathBuf>,
     pub metrics: Option<SampleMetrics>,
 }
@@ -87,7 +88,7 @@ impl ClipJob {
     }
 }
 
-/// One output of a clip.
+/// Una salida de un recorte.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClipFile {
     pub region: String,
@@ -100,13 +101,13 @@ pub struct ClipReport {
     pub files: Vec<ClipFile>,
     pub points_read: u64,
     pub points_written: u64,
-    /// Points left out because the ground model has nothing under them.
+    /// Puntos que se dejan fuera porque el modelo del suelo no tiene nada bajo ellos.
     pub no_ground: u64,
-    /// Passes over the cloud (regions are taken in groups of `max_open`).
+    /// Pasadas sobre la nube (las regiones se toman en grupos de `max_open`).
     pub passes: usize,
 }
 
-/// A file-name-safe version of a region name.
+/// Una versión del nombre de una región segura como nombre de archivo.
 fn safe(name: &str) -> String {
     let s: String = name
         .chars()
@@ -122,7 +123,7 @@ fn safe(name: &str) -> String {
     if s.is_empty() { "region".into() } else { s }
 }
 
-/// `<dir>/<stem>_<name>.<ext>`, with a number added when two regions share a name.
+/// `<dir>/<nombre>_<nombre>.<ext>`, con un número añadido cuando dos regiones comparten nombre.
 fn region_path(base: &Path, name: &str, used: &mut Vec<PathBuf>) -> PathBuf {
     let stem = base
         .file_stem()
@@ -140,7 +141,7 @@ fn region_path(base: &Path, name: &str, used: &mut Vec<PathBuf>) -> PathBuf {
     p
 }
 
-/// What a region collects for its metrics.
+/// Lo que reúne una región para sus métricas.
 #[derive(Default)]
 struct Sample {
     heights: Vec<f32>,
@@ -148,8 +149,8 @@ struct Sample {
     intensity: Vec<f32>,
 }
 
-/// The job with everything in one coordinate system: clouds and models in another one are
-/// converted into temporary copies, the regions in memory.
+/// El trabajo con todo en un mismo sistema de coordenadas: las nubes y los modelos en otro se
+/// convierten en copias temporales, las regiones en memoria.
 pub fn unified(job: &ClipJob) -> Result<(ClipJob, crate::crs::Unified)> {
     let mut files = job.inputs.clone();
     files.extend(job.dtm.clone());
@@ -161,7 +162,8 @@ pub fn unified(job: &ClipJob) -> Result<(ClipJob, crate::crs::Unified)> {
         dtm: job.dtm.as_ref().map(|p| u.path(p)),
         dtms: u.all(&job.dtms),
         regions: u.regions(&job.regions, job.regions_source.as_deref())?,
-        // the regions are in the clouds' system now: a second pass has nothing to convert
+        // las regiones están ahora en el sistema de las nubes: una segunda pasada no tiene nada que
+        // convertir
         regions_source: None,
         ..job.clone()
     };
@@ -210,7 +212,7 @@ pub fn run(job: &ClipJob) -> Result<ClipReport> {
     let mut sample_rows: Vec<(usize, Vec<String>)> = Vec::new();
     let mut used = Vec::new();
 
-    // The groups of regions each pass handles: all at once, except a file per region.
+    // Los grupos de regiones que maneja cada pasada: todas a la vez, salvo un archivo por región.
     let groups: Vec<std::ops::Range<usize>> = match job.mode {
         ClipMode::PerRegion => {
             let n = job.max_open.max(1);
@@ -221,8 +223,8 @@ pub fn run(job: &ClipJob) -> Result<ClipReport> {
         }
         _ => std::iter::once(0..job.regions.len()).collect(),
     };
-    // A compressed cloud read several times is decompressed once.
-    // (a COPC file is not: its tree lets each pass read just the nodes it needs)
+    // Una nube comprimida leída varias veces se descomprime una vez. (un archivo COPC no: su árbol
+    // permite a cada pasada leer solo los nodos que necesita)
     let readers: Vec<Reader> = if groups.len() > 1 {
         readers
             .into_iter()
@@ -300,8 +302,8 @@ pub fn run(job: &ClipJob) -> Result<ClipReport> {
                 own.get(ri)
             };
             let h = &reader.header;
-            // A file whose extent misses every region of the group is not read (unless regions
-            // are what is left out).
+            // Un archivo cuya extensión no alcanza ninguna región del grupo no se lee (salvo que
+            // las regiones sean lo que se deja fuera).
             let reach = h.bounds[0] <= bb[2]
                 && h.bounds[3] >= bb[0]
                 && h.bounds[1] <= bb[3]
@@ -311,8 +313,8 @@ pub fn run(job: &ClipJob) -> Result<ClipReport> {
             }
             let rec_len = usize::from(h.record_len);
             let same = h.scale == template.header.scale && h.offset == template.header.offset;
-            // A COPC file is read by the nodes that touch the regions when they are a good part
-            // fewer than the whole file's.
+            // Un archivo COPC se lee por los nodos que tocan las regiones cuando son bastantes
+            // menos que los del archivo entero.
             let copc_nodes = if job.mode == ClipMode::Outside {
                 None
             } else {
@@ -463,7 +465,7 @@ pub fn run(job: &ClipJob) -> Result<ClipReport> {
     Ok(report)
 }
 
-/// Keeps a point's numbers for a region's metrics.
+/// Guarda los números de un punto para las métricas de una región.
 fn collect(samples: &mut [Sample], k: usize, job: &ClipJob, z: f64, ret: u8, intensity: u16) {
     let (Some(m), Some(s)) = (&job.metrics, samples.get_mut(k)) else {
         return;
@@ -480,7 +482,7 @@ fn write_metrics(m: &SampleMetrics, job: &ClipJob, rows: &[(usize, Vec<String>)]
     if let Some(parent) = m.csv.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
-    // the day(s) the clouds were captured, one more metric of every region
+    // el día o los días en que se capturaron las nubes, una métrica más de cada región
     let mut dates: Vec<String> = job
         .inputs
         .iter()
@@ -496,7 +498,8 @@ fn write_metrics(m: &SampleMetrics, job: &ClipJob, rows: &[(usize, Vec<String>)]
     let mut rows: Vec<&(usize, Vec<String>)> = rows.iter().collect();
     rows.sort_by_key(|r| r.0);
     let all = metrics::sample_header(m.heightbreak);
-    // the columns asked for, in the order asked for (all, in their own order, when none is)
+    // las columnas pedidas, en el orden pedido (todas, en su propio orden, cuando no se pide
+    // ninguna)
     let keep: Vec<usize> = if m.only.is_empty() {
         (0..all.len()).collect()
     } else {
@@ -535,7 +538,7 @@ fn write_metrics(m: &SampleMetrics, job: &ClipJob, rows: &[(usize, Vec<String>)]
             return Ok(());
         }
     }
-    // a shapefile: each region's own polygon with the metrics as attributes
+    // un shapefile: el propio polígono de cada región con las métricas como atributos
     let mut columns = vec!["Muestra".to_string(), "Area".to_string()];
     columns.extend(head);
     columns.push("Date".to_string());
@@ -582,7 +585,8 @@ mod tests {
     use super::*;
     use crate::vector::Shape2;
 
-    /// A LAS 1.2 file of format 1 with the given (x, y, z, class) points on a 0.01 grid.
+    /// Un archivo LAS 1.2 de formato 1 con los puntos (x, y, z, clase) dados en una rejilla de
+    /// 0,01.
     fn write_las(path: &Path, pts: &[(f64, f64, f64, u8)]) -> Result<()> {
         let mut h = vec![0u8; 227];
         h[..4].copy_from_slice(b"LASF");
@@ -638,7 +642,7 @@ mod tests {
         let mut pts = Vec::new();
         for i in 0..100 {
             for j in 0..100 {
-                // Ground at 100 m with a 10 m tree in the middle of each 50 m block.
+                // Suelo a 100 m con un árbol de 10 m en medio de cada bloque de 50 m.
                 let (x, y) = (f64::from(i), f64::from(j));
                 let tree = (i % 50 - 25_i32).abs() < 3 && (j % 50 - 25_i32).abs() < 3;
                 pts.push((
@@ -717,7 +721,7 @@ mod tests {
         let r = run(&job)?;
         assert_eq!(r.files.len(), 2);
         assert!(r.files[0].path.ends_with("plot_A.las"));
-        // A disc of radius 10 holds about 314 points; both are alike.
+        // Un disco de radio 10 contiene unos 314 puntos; ambos se parecen.
         assert!(
             (300..330).contains(&r.files[0].points),
             "{}",
@@ -756,7 +760,7 @@ mod tests {
             .filter(|p| p[0] >= 10.0 && p[0] <= 30.0 && p[1] >= 10.0 && p[1] <= 30.0)
             .count() as u64;
         assert_eq!(r.points_written, expected);
-        // not the whole cloud was read
+        // no se leyó toda la nube
         assert!(r.points_read < 400, "{}", r.points_read);
         std::fs::remove_dir_all(&dir)?;
         Ok(())
@@ -777,7 +781,7 @@ mod tests {
         outside.mode = ClipMode::Outside;
         let b = run(&outside)?;
         assert_eq!(a.points_written + b.points_written, 10_000);
-        // Heights above a flat ground at 100 m: the trees are 10 m, the ground 0.
+        // Alturas sobre un suelo llano a 100 m: los árboles son de 10 m, el suelo de 0.
         let mut g = Grid::new(990.0, 1990.0, 10.0, 12, 12)?;
         g.data.fill(100.0);
         g.write_tiff(&dir.join("dtm.tif"), None)?;
@@ -821,7 +825,8 @@ mod tests {
         let mut job2 = ClipJob::new(vec![input.clone()], wide, dir.join("w.las"));
         job2.mode = ClipMode::PerRegion;
         let grown = run(&job2)?;
-        // the bounds of each output reach 10 m (to the cloud's resolution) beyond the polygon
+        // los límites de cada salida alcanzan 10 m (a la resolución de la nube) más allá del
+        // polígono
         for (a, b) in plain.files.iter().zip(&grown.files) {
             assert!(b.points > a.points);
         }

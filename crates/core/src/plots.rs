@@ -1,6 +1,7 @@
-//! Placing sample plots without a map to start from: at random or on a regular grid, circular or
-//! rectangular, inside the extent of the cloud or of a stand polygon. The result is a list of
-//! regions the clip tool cuts the cloud with, and a shapefile that records where they are.
+//! Colocación de parcelas de muestreo sin un mapa del que partir: al azar o en una rejilla regular,
+//! circulares o rectangulares, dentro de la extensión de la nube o de un polígono de rodal. El
+//! resultado es una lista de regiones con las que la herramienta de recorte corta la nube, y un
+//! shapefile que registra dónde están.
 
 use std::path::Path;
 
@@ -12,7 +13,7 @@ pub enum PlotShape {
     Circle {
         radius: f64,
     },
-    /// Sides along x and y, in metres.
+    /// Lados a lo largo de x e y, en metros.
     Rect {
         w: f64,
         h: f64,
@@ -43,10 +44,10 @@ impl PlotShape {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Sampling {
-    /// `count` plots at random, no closer than `min_dist` between centres.
+    /// `count` parcelas al azar, no más cercanas que `min_dist` entre centros.
     Random { count: usize, min_dist: f64 },
-    /// A regular grid with `dx` x `dy` between centres; `random_start` shifts it by a random
-    /// offset instead of centring it.
+    /// Una rejilla regular de `dx` x `dy` entre centros; `random_start` la desplaza un desfase
+    /// aleatorio en lugar de centrarla.
     Systematic {
         dx: f64,
         dy: f64,
@@ -54,7 +55,7 @@ pub enum Sampling {
     },
 }
 
-/// A small, seedable generator (xorshift64*): the same seed gives the same plots.
+/// Un generador pequeño y con semilla (xorshift64*): la misma semilla da las mismas parcelas.
 struct Rng(u64);
 
 impl Rng {
@@ -66,8 +67,8 @@ impl Rng {
     }
 }
 
-/// Plots inside `bounds` (min x, min y, max x, max y) whose centre is also inside one of
-/// `limit` when given, and which fit entirely within `bounds`.
+/// Parcelas dentro de `bounds` (x mínima, y mínima, x máxima, y máxima) cuyo centro está también
+/// dentro de alguno de `limit` cuando se da, y que caben enteras dentro de `bounds`.
 pub fn generate(
     bounds: [f64; 4],
     limit: Option<&[Polygon]>,
@@ -163,18 +164,18 @@ pub fn generate(
         .collect())
 }
 
-/// The rings that draw a region.
+/// Los anillos que dibujan una región.
 pub fn rings(shape: &Shape2) -> Vec<Vec<[f64; 2]>> {
     match shape {
         Shape2::Polygon(p) => p.rings.clone(),
-        // the outline drawn is the polygon's; the buffer is applied when clipping
+        // el contorno dibujado es el del polígono; el margen se aplica al recortar
         Shape2::Buffered(b) => b.poly.rings.clone(),
         Shape2::Circle { cx, cy, r } => crate::edit::circle(*cx, *cy, *r).rings,
         Shape2::Rect(b) => vec![vec![[b[0], b[1]], [b[0], b[3]], [b[2], b[3]], [b[2], b[1]]]],
     }
 }
 
-/// Saves the plots as a polygon shapefile (name, shape, size, centre).
+/// Guarda las parcelas como shapefile de polígonos (nombre, forma, tamaño, centro).
 pub fn write_layout(path: &Path, regions: &[Region], prj: Option<&str>) -> Result<()> {
     let columns: Vec<String> = ["Muestra", "Forma", "Radio", "LadoX", "LadoY", "X", "Y"]
         .iter()

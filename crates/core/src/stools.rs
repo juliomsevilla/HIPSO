@@ -1,16 +1,17 @@
-//! Stems that grow together. In a coppice stand (eucalyptus that sprout from the stump) several
-//! stems come out of one stool; some trees fork higher up. They are told apart at the height of
-//! the diameter (1.3 m): stems that are apart at that height are the sprouts of one stool, and
-//! each is a tree with its own diameter; stems that are one below it and fork above it are one
-//! forked tree, with the diameter of its stem and the volume of the stem and of every branch.
+//! Troncos que crecen juntos. En un monte bajo (eucaliptos que brotan de la cepa) salen varios
+//! troncos de una misma cepa; algunos árboles se bifurcan más arriba. Se distinguen a la altura del
+//! diámetro (1,3 m): los troncos que están separados a esa altura son los brotes de una cepa y cada
+//! uno es un árbol con su propio diámetro; los troncos que son uno por debajo y se bifurcan por
+//! encima son un solo árbol bifurcado, con el diámetro de su tronco y el volumen del tronco y de
+//! cada rama.
 
 use std::collections::{BTreeSet, HashMap};
 
 use crate::cluster::Dsu;
 use crate::tls::{Cubing, Log, Section, TlsParams, TreeResult, smalian};
 
-/// Two sections are the same circle: centres closer than 40 % of the wider diameter, and
-/// diameters within 35 % of it.
+/// Dos secciones son el mismo círculo: centros más cercanos que el 40 % del diámetro mayor y
+/// diámetros dentro del 35 % de él.
 fn same_circle(a: &Section, b: &Section) -> bool {
     let wide = a.d.max(b.d);
     (a.x - b.x).hypot(a.y - b.y) < 0.4 * wide && (a.d - b.d).abs() < 0.35 * wide
@@ -18,17 +19,17 @@ fn same_circle(a: &Section, b: &Section) -> bool {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Relation {
-    /// Two stems, apart at the height of the diameter.
+    /// Dos troncos, separados a la altura del diámetro.
     Apart,
-    /// One stem at the height of the diameter that forks above it, at this height.
+    /// Un tronco a la altura del diámetro que se bifurca por encima de ella, a esta altura.
     Fork(f64),
-    /// The same stem found twice.
+    /// El mismo tronco encontrado dos veces.
     Twin,
 }
 
-/// How two trees of a stool relate, from the sections both have.
+/// Cómo se relacionan dos árboles de una cepa, a partir de las secciones que tienen ambos.
 fn relation(a: &TreeResult, b: &TreeResult, p: &TlsParams) -> Relation {
-    // the heights where both have a valid section, and whether it is the same circle
+    // las alturas donde ambos tienen una sección válida y si es el mismo círculo
     let common: Vec<(f64, bool)> = a
         .sections
         .iter()
@@ -40,9 +41,9 @@ fn relation(a: &TreeResult, b: &TreeResult, p: &TlsParams) -> Relation {
                 .map(|sb| (sa.h, same_circle(sa, sb)))
         })
         .collect();
-    // the pair nearest to the height of the diameter says which they are (a stem is often
-    // missing a section right there); with no section in common, the bases tell: two stems
-    // cannot grow in the same place
+    // el par más cercano a la altura del diámetro dice cuáles son (a un tronco suele faltarle justo
+    // allí una sección); sin ninguna sección en común, lo dicen las bases: dos troncos no pueden
+    // crecer en el mismo sitio
     let away = |h: f64| (h - p.fork_height).abs();
     let Some(&(h_ref, same)) = common.iter().min_by(|x, y| away(x.0).total_cmp(&away(y.0))) else {
         return if (a.x - b.x).hypot(a.y - b.y) < 0.05 {
@@ -54,7 +55,8 @@ fn relation(a: &TreeResult, b: &TreeResult, p: &TlsParams) -> Relation {
     if !same {
         return Relation::Apart;
     }
-    // one stem at the height of the diameter: a fork if they part above, else a twin
+    // un tronco a la altura del diámetro: una bifurcación si se separan por encima, si no, un
+    // gemelo
     match common
         .iter()
         .filter(|(h, same)| *h > h_ref && !*same)
@@ -68,7 +70,7 @@ fn relation(a: &TreeResult, b: &TreeResult, p: &TlsParams) -> Relation {
                 .map(|(h, _)| *h)
                 .fold(h_ref, f64::max);
             let fork = (h_same + h_apart) / 2.0;
-            // a fork under the height of the diameter is a stool of sprouts
+            // una bifurcación por debajo de la altura del diámetro es una cepa de brotes
             if fork < p.fork_height {
                 Relation::Apart
             } else {
@@ -83,7 +85,7 @@ fn valid_sections(t: &TreeResult) -> usize {
     t.sections.iter().filter(|s| s.ok).count()
 }
 
-/// The profile (height, diameter) of the valid or filled sections that `keep` accepts.
+/// El perfil (altura, diámetro) de las secciones válidas o rellenadas que acepta `keep`.
 fn profile(secs: &[Section], keep: &dyn Fn(f64) -> bool) -> Vec<(f64, f64)> {
     secs.iter()
         .filter(|s| (s.ok || s.d.is_finite()) && keep(s.h))
@@ -91,10 +93,10 @@ fn profile(secs: &[Section], keep: &dyn Fn(f64) -> bool) -> Vec<(f64, f64)> {
         .collect()
 }
 
-/// One tree from the stems of a fork: the stem under the fork is cubed once, and every branch
-/// above it from the fork up.
+/// Un árbol a partir de los troncos de una bifurcación: el tronco bajo la bifurcación se cubica una
+/// vez y cada rama por encima, desde la bifurcación hacia arriba.
 fn merge_fork(mut members: Vec<TreeResult>, fork_h: f64, p: &TlsParams) -> TreeResult {
-    // the stem below the fork: the member with most valid sections under it
+    // el tronco bajo la bifurcación: el miembro con más secciones válidas por debajo
     let under = |t: &TreeResult| t.sections.iter().filter(|s| s.ok && s.h <= fork_h).count();
     let first = (0..members.len())
         .max_by_key(|&i| under(&members[i]))
@@ -119,7 +121,7 @@ fn merge_fork(mut members: Vec<TreeResult>, fork_h: f64, p: &TlsParams) -> TreeR
     let mut points = 0;
     let mut height = 0.0f64;
     for m in &members {
-        // every member goes on above the fork as a branch of its own
+        // cada miembro sigue por encima de la bifurcación como una rama propia
         let above = smalian(
             &profile(&m.sections, &|h| h >= fork_h),
             fork_h,
@@ -142,7 +144,7 @@ fn merge_fork(mut members: Vec<TreeResult>, fork_h: f64, p: &TlsParams) -> TreeR
     members.clear();
     sections.sort_by(|a, b| a.h.total_cmp(&b.h));
     let volume = logs.iter().map(|l| l.volume).sum();
-    // what depends on the cubing is worked out again for the whole tree
+    // lo que depende de la cubicación se vuelve a calcular para todo el árbol
     for stale in ["SIN_DAP", "SIN_DIAM", "TRUNCADO", "SIN_VOLUMEN"] {
         flags.remove(stale);
     }
@@ -172,12 +174,13 @@ fn merge_fork(mut members: Vec<TreeResult>, fork_h: f64, p: &TlsParams) -> TreeR
     tree
 }
 
-/// Tells the sprouts of a stool from the branches of a fork, from the trees measured one by one:
-/// twins are dropped, forks are merged into one tree, and the stems of each stool are numbered
-/// together (`stool`, `sprouts`; the flag `BROTES` marks a stool with several).
+/// Distingue los brotes de una cepa de las ramas de una bifurcación, a partir de los árboles
+/// medidos uno a uno: los gemelos se descartan, las bifurcaciones se fusionan en un árbol y los
+/// troncos de cada cepa se numeran juntos (`stool`, `sprouts`; la marca `BROTES` señala una cepa
+/// con varios).
 pub fn resolve(trees: Vec<TreeResult>, p: &TlsParams) -> Vec<TreeResult> {
     let n = trees.len();
-    // stems that grow on one stool: bases closer than the distance between stools
+    // troncos que crecen en una cepa: bases más cercanas que la distancia entre cepas
     let mut order: Vec<usize> = (0..n).collect();
     order.sort_by(|&a, &b| trees[a].x.total_cmp(&trees[b].x));
     let mut stool = Dsu::new(n);
@@ -203,7 +206,7 @@ pub fn resolve(trees: Vec<TreeResult>, p: &TlsParams) -> Vec<TreeResult> {
             match rel {
                 Relation::Apart => {}
                 Relation::Twin => {
-                    // the stem found twice: the one measured less stays out
+                    // el tronco encontrado dos veces: el medido menos se queda fuera
                     let weaker = if valid_sections(&trees[i]) < valid_sections(&trees[j]) {
                         i
                     } else {
@@ -218,7 +221,7 @@ pub fn resolve(trees: Vec<TreeResult>, p: &TlsParams) -> Vec<TreeResult> {
             }
         }
     }
-    // the members of each fork, and its height: the lowest the pairs of it part at
+    // los miembros de cada bifurcación y su altura: la más baja a la que se separan sus pares
     let mut sets: HashMap<usize, Vec<usize>> = HashMap::new();
     for (i, gone) in dropped.iter().enumerate() {
         if !*gone {
@@ -250,7 +253,7 @@ pub fn resolve(trees: Vec<TreeResult>, p: &TlsParams) -> Vec<TreeResult> {
         let parts: Vec<TreeResult> = members.iter().filter_map(|&m| slots[m].take()).collect();
         out.push((stool.find(i), merge_fork(parts, h, p)));
     }
-    // how many trees each stool ended with
+    // con cuántos árboles terminó cada cepa
     let mut count: HashMap<usize, u32> = HashMap::new();
     for (s, _) in &out {
         *count.entry(*s).or_default() += 1;
@@ -274,7 +277,7 @@ mod tests {
     use super::*;
     use crate::tls::diam_at;
 
-    /// A tree from `(height, x, y, diameter)` sections, all valid.
+    /// Un árbol a partir de secciones `(altura, x, y, diámetro)`, todas válidas.
     fn tree(x: f64, y: f64, secs: &[(f64, f64, f64, f64)]) -> TreeResult {
         let p = TlsParams::default();
         let sections: Vec<Section> = secs
@@ -311,7 +314,7 @@ mod tests {
         }
     }
 
-    /// Sections every 0.25 m from `from` to `to` along a vertical axis.
+    /// Secciones cada 0,25 m de `from` a `to` a lo largo de un eje vertical.
     fn column(from: f64, to: f64, x: f64, y: f64, d: f64) -> Vec<(f64, f64, f64, f64)> {
         let n = ((to - from) / 0.25).round() as usize;
         (0..=n).map(|k| (from + 0.25 * k as f64, x, y, d)).collect()
@@ -333,11 +336,12 @@ mod tests {
         assert!(out.iter().all(|t| t.fork_h.is_none()));
     }
 
-    /// A trunk of 30 cm up to 2 m that forks into two branches of 20 cm.
+    /// Un tronco de 30 cm hasta 2 m que se bifurca en dos ramas de 20 cm.
     fn forked_at(fork: f64) -> (TreeResult, TreeResult) {
         let branch = |side: f64| {
             let mut s = column(0.1, fork, 0.0, 0.0, 0.30);
-            // above the fork the branches leave the axis at 20 cm per 25 cm of height
+            // por encima de la bifurcación las ramas se separan del eje 20 cm por cada 25 cm de
+            // altura
             for k in 1..=8 {
                 let h = fork + 0.25 * k as f64;
                 s.push((h, side * 0.2 * k as f64, 0.0, 0.20));
@@ -355,15 +359,15 @@ mod tests {
         assert_eq!(out.len(), 1);
         let t = &out[0];
         assert!(t.flags.contains("BIFURCADO") && !t.flags.contains("BROTES"));
-        // the diameter is that of the stem under the fork
+        // el diámetro es el del tronco bajo la bifurcación
         assert!(t.dbh.is_some_and(|d| (d - 0.30).abs() < 1e-9));
         assert!(t.fork_h.is_some_and(|h| (2.0..2.3).contains(&h)));
-        // the stem once, and a branch each: logs of branch 0, 1 and 2
+        // el tronco una vez y una rama cada una: trozas de la rama 0, 1 y 2
         let ids: BTreeSet<u8> = t.cubing.logs.iter().map(|l| l.branch).collect();
         assert_eq!(ids, BTreeSet::from([0, 1, 2]));
         let volume: f64 = t.cubing.logs.iter().map(|l| l.volume).sum();
         assert!((t.cubing.volume - volume).abs() < 1e-12);
-        // more than the stem alone, and the stem is not counted twice
+        // más que el tronco solo, y el tronco no se cuenta dos veces
         let one = forked_at(2.0).0.cubing.volume;
         assert!(t.cubing.volume > one && t.cubing.volume < 2.0 * one);
     }
@@ -381,8 +385,8 @@ mod tests {
     #[test]
     fn a_twin_with_no_section_near_the_height_of_the_diameter_is_still_found() {
         let p = TlsParams::default();
-        // sections of one stem found twice, each missing the ones the other has, and none
-        // between 0.85 and 1.9 m in common
+        // secciones de un tronco encontrado dos veces, a cada una le faltan las que tiene la otra,
+        // y ninguna entre 0,85 y 1,9 m en común
         let a = tree(
             0.0,
             0.0,
@@ -404,7 +408,7 @@ mod tests {
             ],
         );
         assert_eq!(resolve(vec![a, b], &p).len(), 1);
-        // with nothing in common at all, only the same place gives them away
+        // sin nada en común en absoluto, solo el mismo lugar los delata
         let c = tree(0.0, 0.0, &[(0.35, 0.0, 0.0, 0.15)]);
         let d = tree(0.01, 0.0, &[(0.6, 0.0, 0.0, 0.15)]);
         let e = tree(0.4, 0.0, &[(0.6, 0.4, 0.0, 0.15)]);

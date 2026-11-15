@@ -1,9 +1,10 @@
-//! Thinning ("decimating") a cloud: fewer points, same extent. Used to bring clouds of different
-//! density to the same footing, for example the first and the third LiDAR coverage of Spain
-//! (PNOA) before comparing them. Methods that look at no neighbours (every n-th, random, target
-//! density) stream point by point; the cell methods keep one record per cell, so the memory
-//! follows the output and not the input. Only the percentile method holds an elevation per
-//! input point of the cells it ranks (4 bytes each).
+//! Adelgazamiento («diezmado») de una nube: menos puntos, la misma extensión. Sirve para poner
+//! nubes de distinta densidad en pie de igualdad, por ejemplo la primera y la tercera cobertura
+//! LiDAR de España (PNOA) antes de compararlas. Los métodos que no miran vecinos (uno de cada n,
+//! aleatorio, densidad objetivo) funcionan en flujo punto a punto; los métodos por celda guardan un
+//! registro por celda, de modo que la memoria sigue a la salida y no a la entrada. Solo el método
+//! de percentil guarda una elevación por punto de entrada de las celdas que ordena (4 bytes cada
+//! una).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -14,37 +15,38 @@ use crate::{Error, Result};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ThinMethod {
-    /// The lowest point of each square cell.
+    /// El punto más bajo de cada celda cuadrada.
     Lowest,
-    /// The highest point of each square cell.
+    /// El punto más alto de cada celda cuadrada.
     Highest,
-    /// The point nearest to the centre of each cell: an even spacing.
+    /// El punto más cercano al centro de cada celda: un espaciado uniforme.
     Nearest,
-    /// The point at this percentile (0–100) of the elevations of each cell; 50 is the median.
+    /// El punto en este percentil (0–100) de las elevaciones de cada celda; 50 es la mediana.
     Percentile(f64),
-    /// The point nearest to the centre of each 3D cell, whose height is `vertical`: keeps the
-    /// spacing in three dimensions, so walls and steep slopes keep their points.
+    /// El punto más cercano al centro de cada celda 3D, cuya altura es `vertical`: conserva el
+    /// espaciado en tres dimensiones, de modo que las paredes y las pendientes fuertes conservan
+    /// sus puntos.
     Voxel { vertical: f64 },
-    /// Keeps every n-th point of the file.
+    /// Conserva uno de cada n puntos del archivo.
     EveryNth(u64),
-    /// Removes every n-th point of the file.
+    /// Quita uno de cada n puntos del archivo.
     RemoveNth(u64),
-    /// Keeps each point with this probability (0–1).
+    /// Conserva cada punto con esta probabilidad (0–1).
     Random { fraction: f64, seed: u64 },
-    /// Random thinning that leaves about this many points per square metre; a cloud that is
-    /// less dense is left as it is.
+    /// Adelgazamiento aleatorio que deja unos tantos puntos por metro cuadrado; una nube menos
+    /// densa se deja como está.
     Density { per_m2: f64, seed: u64 },
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ThinParams {
     pub method: ThinMethod,
-    /// Cell size in metres (cell methods).
+    /// Tamaño de celda en metros (métodos por celda).
     pub cell: f64,
 }
 
 impl ThinParams {
-    /// A short tag for file names: `delgada_<tag>`.
+    /// Una etiqueta corta para nombres de archivo: `delgada_<etiqueta>`.
     pub fn tag(&self) -> String {
         let n = crate::paths::num;
         match self.method {
@@ -61,8 +63,8 @@ impl ThinParams {
     }
 }
 
-/// Splitmix64: a seeded hash of the point index, so a random thinning gives the same points
-/// whatever the batch sizes.
+/// Splitmix64: un hash con semilla del índice del punto, de modo que un adelgazamiento aleatorio da
+/// los mismos puntos sean cuales sean los tamaños de lote.
 #[inline]
 fn mix(mut x: u64) -> u64 {
     x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -73,7 +75,7 @@ fn mix(mut x: u64) -> u64 {
 
 type Key = (i64, i64, i64);
 
-/// Thins `inputs` (joined) into `output`. Returns (points read, points kept).
+/// Adelgaza `inputs` (unidas) en `output`. Devuelve (puntos leídos, puntos conservados).
 pub fn thin_cloud(
     inputs: &[PathBuf],
     output: &Path,
@@ -133,7 +135,7 @@ pub fn thin_cloud(
         }
         readers.push(r.for_passes()?);
     }
-    // random thinning to a density needs the density the cloud has
+    // el adelgazamiento aleatorio a una densidad necesita la densidad que tiene la nube
     let fraction = match params.method {
         ThinMethod::Random { fraction, .. } => fraction,
         ThinMethod::Density { per_m2, .. } => {
@@ -163,7 +165,7 @@ pub fn thin_cloud(
             _ => 1.0,
         },
     );
-    // percentile: the elevation each cell is asked for
+    // percentil: la elevación que se pide a cada celda
     let targets: HashMap<Key, f32> = if let ThinMethod::Percentile(pct) = params.method {
         let mut zs: HashMap<Key, Vec<f32>> = HashMap::new();
         for r in &readers {
@@ -281,7 +283,7 @@ fn cell_of(x: f64, y: f64, z: f64, cell: f64, vcell: f64) -> Key {
     )
 }
 
-/// Squared distance, in cells, from the point to the centre of its cell.
+/// Distancia al cuadrado, en celdas, del punto al centro de su celda.
 #[inline]
 fn centre_dist(x: f64, y: f64, z: Option<f64>, cell: f64, vcell: f64) -> f64 {
     let f = |v: f64, c: f64| {
@@ -291,7 +293,7 @@ fn centre_dist(x: f64, y: f64, z: Option<f64>, cell: f64, vcell: f64) -> f64 {
     f(x, cell) + f(y, cell) + z.map_or(0.0, |z| f(z, vcell))
 }
 
-/// The report line of a thinning.
+/// La línea de informe de un adelgazamiento.
 pub fn report(read: u64, kept: u64, output: &Path) -> String {
     format!(
         "{read} puntos leídos, {kept} conservados ({:.1} %): {}",

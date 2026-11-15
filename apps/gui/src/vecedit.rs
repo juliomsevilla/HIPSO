@@ -1,13 +1,13 @@
-//! Editing vector layers on the map and in the attribute table: digitising with snapping,
-//! selecting, moving vertices and features, inserting and deleting vertices, undo and redo, and
-//! selecting by attribute.
+//! Edición de capas vectoriales en el mapa y en la tabla de atributos: digitalización con ajuste,
+//! selección, movimiento de vértices y elementos, inserción y borrado de vértices, deshacer y
+//! rehacer, y selección por atributo.
 
 use super::*;
 use crate::layers::{VecLayer, dist_to_segment};
 use hipso_core::fieldtype::FieldType;
 use std::collections::HashMap;
 
-/// A comparison for selecting by attribute.
+/// Una comparación para seleccionar por atributo.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Op {
     Eq,
@@ -34,8 +34,8 @@ impl Op {
         }
     }
 
-    /// Whether a cell passes, reading the value typed by the type of its field: numbers and
-    /// dates by their number, yes/no as equal or not, text as text without regard to case.
+    /// Si una celda pasa, leyendo el valor escrito según el tipo de su campo: números y fechas por
+    /// su número, sí/no como igual o no, texto como texto sin distinguir mayúsculas.
     fn test(self, ty: FieldType, text: &str, num: f64, value: &str) -> bool {
         let want = value.trim();
         if self == Op::Contains {
@@ -51,7 +51,8 @@ impl Op {
         };
         match ty {
             FieldType::Integer | FieldType::Real | FieldType::Date | FieldType::Bool => {
-                // a value that is not of the type selects nothing (or, for ≠, whatever has a value)
+                // un valor que no es del tipo no selecciona nada (o, para ≠, todo lo que tiene
+                // valor)
                 let Ok((_, w)) = ty.parse(want) else { return false };
                 if w.is_nan() || num.is_nan() {
                     return self == Op::Ne && !text.is_empty();
@@ -63,11 +64,12 @@ impl Op {
     }
 }
 
-/// A vertex: feature, part, index in the part.
+/// Un vértice: elemento, parte, índice en la parte.
 type Vertex = (usize, usize, usize);
 
 pub struct VecEditState {
-    /// Digitising and moving vertices snap to the vertices of the visible layers.
+    /// La digitalización y el movimiento de vértices se ajustan a los vértices de las capas
+    /// visibles.
     pub snap: bool,
     drag: Option<Vertex>,
     moving: Option<[f64; 2]>,
@@ -78,22 +80,21 @@ pub struct VecEditState {
     pub q_value: String,
     pub only_selected: bool,
     last_row: Option<usize>,
-    /// The cell being typed in: feature, field and its text on entering.
+    /// La celda en la que se está escribiendo: elemento, campo y su texto al entrar.
     cell_old: Option<(usize, usize, String)>,
-    /// The cell being edited: feature and field.
+    /// La celda que se está editando: elemento y campo.
     editing: Option<(usize, usize)>,
-    /// What is typed in the cell being edited (checked against the type of its field when it is
-    /// left).
+    /// Lo que se escribe en la celda que se edita (comprobado contra el tipo de su campo al salir).
     edit_buf: String,
-    /// Why the last value typed or the last change of type was refused.
+    /// Por qué se rechazó el último valor escrito o el último cambio de tipo.
     pub err: Option<String>,
-    /// The type chosen for a field about to be added.
+    /// El tipo elegido para un campo que se va a añadir.
     pub new_type: hipso_core::fieldtype::FieldType,
-    /// Width of every column of the table of each layer (index 0 is the row number).
+    /// Ancho de cada columna de la tabla de cada capa (el índice 0 es el número de fila).
     col_w: HashMap<usize, Vec<f32>>,
-    /// Field the table is sorted by and whether it goes up.
+    /// Campo por el que se ordena la tabla y si sube.
     sort: Option<(usize, bool)>,
-    /// The order of the rows for `sort_key` (layer, sort, number of rows).
+    /// El orden de las filas para `sort_key` (capa, orden, número de filas).
     order: Vec<usize>,
     sort_key: Option<(usize, Option<(usize, bool)>, usize)>,
 }
@@ -125,7 +126,7 @@ impl Default for VecEditState {
 }
 
 impl VecLayer {
-    /// Moves the selected features.
+    /// Mueve los elementos seleccionados.
     fn translate_selected(&mut self, dx: f64, dy: f64) {
         let sel: Vec<usize> = self.selected.iter().copied().collect();
         for i in sel {
@@ -137,7 +138,7 @@ impl VecLayer {
         }
     }
 
-    /// Sets a vertex, keeping closed rings closed.
+    /// Fija un vértice, manteniendo cerrados los anillos cerrados.
     fn set_vertex(&mut self, (f, p, v): Vertex, pos: [f64; 2]) {
         let part = &mut self.data.features[f].parts[p];
         let closed = part.len() > 3 && part.first() == part.last();
@@ -151,7 +152,7 @@ impl VecLayer {
         self.update_feature(f);
     }
 
-    /// Selects by an attribute; `mode` 0 replaces the selection, 1 adds to it, 2 narrows it.
+    /// Selecciona por un atributo; `mode` 0 sustituye la selección, 1 la amplía, 2 la reduce.
     fn select_by(&mut self, field: usize, op: Op, value: &str, mode: u8) {
         let ty = self.data.field_type(field);
         let hits: HashSet<usize> = (0..self.data.features.len())
@@ -227,11 +228,12 @@ impl App {
         })
     }
 
-    /// The nearest vertex of the visible layers to a map point, within `tol` (`skip`: a layer and
-    /// feature whose vertices do not count).
+    /// El vértice más cercano de las capas visibles a un punto del mapa, a menos de `tol` (`skip`:
+    /// una capa y elemento cuyos vértices no cuentan).
     fn snap_to(&self, m: (f64, f64), skip: Option<(usize, usize)>) -> [f64; 2] {
         let tol = self.tol(10.0);
         let (mut best, mut d) = ([m.0, m.1], tol);
+        let mut on_vertex = false;
         for (k, r) in self.refs.iter().enumerate().filter(|(_, r)| r.visible) {
             let RefKind::Vector(v) = &r.kind else {
                 continue;
@@ -240,10 +242,40 @@ impl App {
                 if skip == Some((k, i)) {
                     continue;
                 }
-                for q in v.data.features[i].parts.iter().flatten() {
-                    let dd = (q[0] - m.0).hypot(q[1] - m.1);
-                    if dd < d {
-                        (d, best) = (dd, *q);
+                if self.vedit.snap {
+                    for q in v.data.features[i].parts.iter().flatten() {
+                        let dd = (q[0] - m.0).hypot(q[1] - m.1);
+                        if dd < d {
+                            (d, best, on_vertex) = (dd, *q, true);
+                        }
+                    }
+                }
+            }
+        }
+        // sin vértice a tiro, el punto más cercano de un borde (los vértices mandan sobre los bordes)
+        if self.vm.snap_edges && !on_vertex {
+            for (k, r) in self.refs.iter().enumerate().filter(|(_, r)| r.visible) {
+                let RefKind::Vector(v) = &r.kind else {
+                    continue;
+                };
+                for i in v.in_window([m.0 - tol, m.1 - tol, m.0 + tol, m.1 + tol]) {
+                    if skip == Some((k, i)) {
+                        continue;
+                    }
+                    for part in &v.data.features[i].parts {
+                        for w in part.windows(2) {
+                            let (dx, dy) = (w[1][0] - w[0][0], w[1][1] - w[0][1]);
+                            let l2 = dx * dx + dy * dy;
+                            if l2 == 0.0 {
+                                continue;
+                            }
+                            let t = (((m.0 - w[0][0]) * dx + (m.1 - w[0][1]) * dy) / l2).clamp(0.0, 1.0);
+                            let q = [w[0][0] + t * dx, w[0][1] + t * dy];
+                            let dd = (q[0] - m.0).hypot(q[1] - m.1);
+                            if dd < d {
+                                (d, best) = (dd, q);
+                            }
+                        }
                     }
                 }
             }
@@ -252,7 +284,7 @@ impl App {
     }
 
     pub fn digitize_click(&mut self, m: (f64, f64)) {
-        let p = if self.vedit.snap {
+        let p = if self.vedit.snap || self.vm.snap_edges {
             self.snap_to(m, None)
         } else {
             [m.0, m.1]
@@ -271,9 +303,13 @@ impl App {
             return;
         };
         let mut d = std::mem::take(&mut self.dig_draft);
-        // a double click adds its vertex twice
+        // un doble clic añade su vértice dos veces
         if d.len() >= 2 && d.last() == d.get(d.len() - 2) {
             d.pop();
+        }
+        if kind == view::GeomKind::Polygon && self.vm.reshape {
+            self.reshape_polygons(&d);
+            return;
         }
         if kind == view::GeomKind::Polygon && self.polygon_edit(&d) {
             return;
@@ -288,10 +324,10 @@ impl App {
         }
     }
 
-    /// A line drawn on a polygon layer can edit the polygons instead of making a new one: starting and
-    /// ending inside polygons (the same or different ones), it adds the ground it covers outside
-    /// them as a new polygon next to all of them; any other line cuts every polygon it splits, one
-    /// or many. Returns whether it did either.
+    /// Una línea dibujada sobre una capa de polígonos puede editar los polígonos en lugar de hacer
+    /// uno nuevo: empezando y terminando dentro de polígonos (los mismos o distintos), añade el
+    /// terreno que cubre fuera de ellos como un polígono nuevo junto a todos ellos; cualquier otra
+    /// línea corta todo polígono que divide, uno o muchos. Devuelve si hizo una de las dos cosas.
     fn polygon_edit(&mut self, d: &[[f64; 2]]) -> bool {
         use hipso_core::geomops;
         let (Some(first), Some(last)) = (d.first().copied(), d.last().copied()) else {
@@ -320,7 +356,8 @@ impl App {
                 return true;
             }
         }
-        // any other line cuts every polygon it splits, whatever the polygons its ends are in
+        // cualquier otra línea corta todo polígono que divide, sean cuales sean los polígonos en
+        // que están sus extremos
         if d.len() >= 2 {
             let cuts: Vec<(usize, Vec<Vec<Vec<[f64; 2]>>>)> = near
                 .iter()
@@ -368,8 +405,8 @@ impl App {
         v.selected.insert(i);
     }
 
-    /// Switches an editing tool on or off. Switching one off ends the editing session of the
-    /// layer: if it changed, the user is asked what to do with the changes.
+    /// Activa o desactiva una herramienta de edición. Desactivar una termina la sesión de edición
+    /// de la capa: si cambió, se pregunta al usuario qué hacer con los cambios.
     pub fn toggle_edit_tool(&mut self, n: Nav) {
         self.dig_draft.clear();
         if self.nav == n {
@@ -386,7 +423,7 @@ impl App {
         self.nav = n;
     }
 
-    /// Leaves the editing tools; asks about the changes if there are any.
+    /// Sale de las herramientas de edición; pregunta por los cambios si los hay.
     pub fn end_edit_session(&mut self) {
         let was = self.nav;
         self.nav = Nav::Zoom;
@@ -400,7 +437,7 @@ impl App {
         }
     }
 
-    /// The question asked when an editing tool is switched off after changes.
+    /// La pregunta que se hace cuando se desactiva una herramienta de edición tras hacer cambios.
     pub fn edit_confirm_window(&mut self, ctx: &egui::Context) {
         let Some((k, tool)) = self.edit_confirm else { return };
         let Some(r) = self.refs.get(k) else {
@@ -462,7 +499,7 @@ impl App {
         }
     }
 
-    /// Selects the topmost feature at a map point.
+    /// Selecciona el elemento superior en un punto del mapa.
     fn select_at(&mut self, m: (f64, f64), additive: bool) {
         let tol = self.tol(6.0);
         let hit = (0..self.refs.len()).rev().find_map(|k| {
@@ -507,7 +544,7 @@ impl App {
         }
     }
 
-    /// The vertex of the active layer nearest to a map point, within `tol`.
+    /// El vértice de la capa activa más cercano a un punto del mapa, a menos de `tol`.
     fn vertex_near(&self, m: (f64, f64), tol: f64) -> Option<Vertex> {
         let v = self.active_vec()?;
         let mut best: Option<(f64, Vertex)> = None;
@@ -584,7 +621,7 @@ impl App {
         let closed = part.first() == part.last();
         part.remove(k);
         if closed && (k == 0 || k == n - 1) {
-            // the ring starts and ends at the same vertex: keep it closed
+            // el anillo empieza y termina en el mismo vértice: se mantiene cerrado
             let first = part[0];
             if k == n - 1 {
                 part.push(first);
@@ -614,7 +651,7 @@ impl App {
         }
     }
 
-    /// The pointer work of the vector tools in the plan.
+    /// El trabajo con el puntero de las herramientas vectoriales en la planta.
     pub fn vector_tool(&mut self, resp: &egui::Response, rect: Rect, w: usize, h: usize) {
         let to_map = |s: &Self, p: Pos2| {
             s.plan.to_map(
@@ -627,7 +664,8 @@ impl App {
         let additive = resp.ctx.input(|i| i.modifiers.shift || i.modifiers.command);
         let pointer = resp.interact_pointer_pos().or_else(|| resp.hover_pos());
         let left_down = resp.dragged_by(egui::PointerButton::Primary);
-        // a drag is noticed after the pointer has moved: what it grabbed is under the press
+        // un arrastre se nota después de que el puntero se haya movido: lo que agarró está bajo la
+        // pulsación
         let press = resp.ctx.input(|i| i.pointer.press_origin());
         match self.nav {
             Nav::Digitize => {
@@ -637,7 +675,7 @@ impl App {
                     let m = to_map(self, p);
                     self.digitize_click(m);
                 }
-                // right click or double click close a line or an area (Enter does too)
+                // clic derecho o doble clic cierran una línea o un área (Intro también)
                 if resp.secondary_clicked() || resp.double_clicked() {
                     self.digitize_finish();
                 }
@@ -679,7 +717,7 @@ impl App {
                 }
                 if let (Some(vx), true, Some(m)) = (self.vedit.drag, left_down, m) {
                     let skip = self.active.map(|k| (k, vx.0));
-                    let pos = if self.vedit.snap {
+                    let pos = if self.vedit.snap || self.vm.snap_edges {
                         self.snap_to(m, skip)
                     } else {
                         [m.0, m.1]
@@ -749,7 +787,7 @@ impl App {
         }
     }
 
-    /// Keys of the vector tools: undo, redo, delete, finish and cancel.
+    /// Teclas de las herramientas vectoriales: deshacer, rehacer, borrar, terminar y cancelar.
     pub fn vector_keys(&mut self, ctx: &egui::Context) {
         if !self.edit_layer_on() {
             return;
@@ -779,8 +817,8 @@ impl App {
         }
     }
 
-    /// The feature being drawn, the selected features, the vertices being edited and the
-    /// selection rectangle.
+    /// El elemento que se dibuja, los elementos seleccionados, los vértices que se editan y el
+    /// rectángulo de selección.
     pub fn paint_draft(
         &self,
         painter: &egui::Painter,
@@ -828,7 +866,7 @@ impl App {
                 }
             }
         }
-        // the vertices of the selected features of the layer being edited
+        // los vértices de los elementos seleccionados de la capa que se edita
         if matches!(self.nav, Nav::VecVertex | Nav::VecMove)
             && let Some(v) = self.active_vec()
         {
@@ -890,7 +928,7 @@ impl App {
         }
     }
 
-    // ------------------------------------------------------------------------ the table
+    // ------------------------------------------------------------------------ la tabla
 
     pub fn table_window(&mut self, ctx: &egui::Context) {
         let Some(k) = self.table_layer else { return };
@@ -918,7 +956,7 @@ impl App {
             .min_size([360.0, 220.0])
             .resizable(true)
             .show(ctx, |ui| {
-                // ---- the toolbar
+                // ---- la barra de herramientas
                 ui.horizontal_wrapped(|ui| {
                     if ui.button("Seleccionar todo").clicked() {
                         v.selected = (0..v.data.features.len()).collect();
@@ -1035,7 +1073,7 @@ impl App {
                     ui.checkbox(&mut ed.only_selected, "Solo seleccionados");
                 });
                 ui.add_space(2.0);
-                // ---- the order of the rows
+                // ---- el orden de las filas
                 let nfields = v.data.fields.len();
                 if ed.sort.is_some_and(|(c, _)| c >= nfields) {
                     ed.sort = None;
@@ -1067,7 +1105,7 @@ impl App {
                 } else {
                     ed.order.clone()
                 };
-                // ---- the columns: their widths are kept for the layer, and fitted to the content
+                // ---- las columnas: sus anchos se guardan para la capa y se ajustan al contenido
                 let widths = ed.col_w.entry(k).or_default();
                 widths.resize(nfields + 1, 0.0);
                 widths[0] = NUM_W;
@@ -1119,7 +1157,7 @@ impl App {
                                 Color32::TRANSPARENT
                             };
                             painter.rect_filled(row_rect, 0.0, fill);
-                            // row number: click selects the row
+                            // número de fila: un clic selecciona la fila
                             let num_rect = Rect::from_min_max(row_rect.min, Pos2::new(xs[1], y + ROW_H));
                             let nr = ui.interact(num_rect, ui.id().with(("tn", i)), Sense::click());
                             painter.rect_filled(num_rect, 0.0, t.header);
@@ -1142,7 +1180,7 @@ impl App {
                                     if resp.lost_focus() {
                                         let before = v.data.text.get(i).and_then(|r| r.get(c)).cloned().unwrap_or_default();
                                         if !cancel && ed.edit_buf != before {
-                                            // the value must be one of the type of its field
+                                            // el valor debe ser de los del tipo de su campo
                                             match v.data.field_type(c).parse(&ed.edit_buf) {
                                                 Ok(_) => {
                                                     v.push_undo();
@@ -1181,7 +1219,8 @@ impl App {
                                     start_edit = Some((i, c));
                                 } else if cr.clicked() {
                                     if is_link {
-                                        // a click on a hyperlink opens it; the row number selects the row
+                                        // un clic en un hipervínculo lo abre; el número de fila
+                                        // selecciona la fila
                                         let url = text.trim();
                                         let target = if url.contains("://") || url.starts_with("mailto:") {
                                             url.to_string()
@@ -1212,7 +1251,7 @@ impl App {
                                     clip.line_segment([r.left_bottom(), r.right_bottom()], Stroke::new(1.0, ink));
                                 }
                             }
-                            // grid lines
+                            // líneas de cuadrícula
                             painter.line_segment([Pos2::new(row_rect.left(), y + ROW_H), Pos2::new(row_rect.right(), y + ROW_H)], Stroke::new(1.0, t.border.gamma_multiply(0.5)));
                         }
                         for x in &xs[1..] {
@@ -1221,7 +1260,7 @@ impl App {
                                 Stroke::new(1.0, t.border.gamma_multiply(0.5)),
                             );
                         }
-                        // ---- the header stays at the top of the view
+                        // ---- la cabecera se queda arriba en la vista
                         let top = area.top() + view.min.y;
                         let head = Rect::from_min_size(Pos2::new(area.left(), top), Vec2::new(total_w, HEAD_H));
                         painter.rect_filled(head, 0.0, t.header);
@@ -1258,7 +1297,8 @@ impl App {
                                 FontId::proportional(12.0),
                                 t.text,
                             );
-                            // the right edge drags to resize; a double click fits the content
+                            // el borde derecho se arrastra para cambiar el tamaño; un doble clic lo
+                            // ajusta al contenido
                             let handle = Rect::from_min_max(Pos2::new(cell.right() - 4.0, top), Pos2::new(cell.right() + 4.0, top + HEAD_H));
                             let hd = ui.interact(handle, ui.id().with(("tr", c)), Sense::click_and_drag());
                             if hd.hovered() || hd.dragged() {
@@ -1290,7 +1330,7 @@ impl App {
                     *slot = 0.0;
                 }
                 if let Some((c, to)) = retype {
-                    // every value must be valid for the new type, or nothing changes
+                    // todo valor debe ser válido para el tipo nuevo, o no cambia nada
                     let bad = v.data.text.iter().enumerate().find_map(|(r, row)| {
                         to.parse(row.get(c).map_or("", String::as_str)).err().map(|m| (r, m))
                     });

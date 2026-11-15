@@ -1,5 +1,5 @@
-//! Crestas y drenaje (Ráster › Análisis del terreno › Forma del terreno): ridge or drainage
-//! lines traced from a DTM.
+//! Crestas y drenaje (Ráster › Análisis del terreno › Forma del terreno): líneas de cresta o de
+//! drenaje trazadas a partir de un MDT.
 
 use super::*;
 use crate::numfield::NumField;

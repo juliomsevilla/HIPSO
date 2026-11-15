@@ -1,5 +1,5 @@
-//! Fitting one cloud onto another: the known motion is recovered by every variant, and the
-//! trimmed fit ignores a block of changed ground that drags the plain one off.
+//! Ajuste de una nube sobre otra: todas las variantes recuperan el movimiento conocido, y el ajuste
+//! recortado ignora un bloque de terreno cambiado que desvía al ajuste simple.
 
 mod common;
 
@@ -20,7 +20,7 @@ fn run(name: &str, source: &[[f64; 3]], p: &FitParams) -> Result<FitReport> {
     rep
 }
 
-/// The same terrain sampled between the reference points, then moved by `MOVE`.
+/// El mismo terreno muestreado entre los puntos de referencia y luego movido por `MOVE`.
 fn displaced() -> Vec<[f64; 3]> {
     terrain_points(56.0, 0.25, 2)
         .into_iter()
@@ -39,7 +39,7 @@ fn params() -> FitParams {
     }
 }
 
-/// How far the recovered shift is from the inverse of `MOVE`, in metres.
+/// A qué distancia está el desplazamiento recuperado de la inversa de `MOVE`, en metros.
 fn error(r: &FitReport) -> f64 {
     (0..3)
         .map(|k| (r.shift[k] + MOVE[k]).powi(2))
@@ -50,7 +50,7 @@ fn error(r: &FitReport) -> f64 {
 #[test]
 fn point_to_point_recovers_the_motion() -> Result<()> {
     let r = run("fit_pp", &displaced(), &params())?;
-    // it creeps towards the answer (the motion is 0.54 m) and has not arrived in 60 iterations
+    // se arrastra hacia la respuesta (el movimiento es de 0,54 m) y no ha llegado en 60 iteraciones
     assert!(r.after < r.before, "{r:?}");
     assert!(error(&r) < 0.4, "error {} {r:?}", error(&r));
     Ok(())

@@ -1,15 +1,16 @@
-//! The field calculator: fills a field of a vector layer from an expression over the other
-//! fields and the geometry.
+//! La calculadora de campos: rellena un campo de una capa vectorial a partir de una expresión sobre
+//! los demás campos y la geometría.
 //!
-//! Expressions: numbers, `'text'`, `"field"` (or the bare name of a field), `$area`,
-//! `$perimeter`, `$length`, `$x`, `$y`, `$id`, `$npoints`; `+ - * / % ^`, `||` to join texts,
-//! comparisons (`= != < <= > >=`), `and`, `or`, `not`, parentheses and the functions `round`, `floor`,
-//! `ceil`, `abs`, `sqrt`, `ln`, `log10`, `pow`, `min`, `max`, `upper`, `lower`, `trim`, `len`,
-//! `concat`, `left`, `right`, `substr`, `replace`, `if` and `coalesce`; for dates `date('2025-03-31')`,
-//! `today()`, `year`, `month` and `day` (a date plus or minus days is a date; two dates subtracted
-//! give days) and the values `true` and `false`. Each field is read by its type: numbers as numbers,
-//! dates as dates, yes/no as yes/no and text (and hyperlinks) as text. Areas and lengths are in
-//! the units of the layer (square metres and metres in a projected system).
+//! Expresiones: números, `'texto'`, `"campo"` (o el nombre a secas de un campo), `$area`,
+//! `$perimeter`, `$length`, `$x`, `$y`, `$id`, `$npoints`; `+ - * / % ^`, `||` para unir textos,
+//! comparaciones (`= != < <= > >=`), `and`, `or`, `not`, paréntesis y las funciones `round`,
+//! `floor`, `ceil`, `abs`, `sqrt`, `ln`, `log10`, `pow`, `min`, `max`, `upper`, `lower`, `trim`,
+//! `len`, `concat`, `left`, `right`, `substr`, `replace`, `if` y `coalesce`; para las fechas
+//! `date('2025-03-31')`, `today()`, `year`, `month` y `day` (una fecha más o menos días es una
+//! fecha; dos fechas restadas dan días) y los valores `true` y `false`. Cada campo se lee según su
+//! tipo: números como números, fechas como fechas, sí/no como sí/no y texto (y los hipervínculos)
+//! como texto. Las áreas y longitudes están en las unidades de la capa (metros cuadrados y metros
+//! en un sistema proyectado).
 
 use std::collections::HashSet;
 
@@ -82,7 +83,7 @@ impl Parser {
         }
     }
 
-    /// A word operator (`and`, `or`) that is not the start of a longer name.
+    /// Un operador de palabra (`and`, `or`) que no es el comienzo de un nombre más largo.
     fn eat_word(&mut self, w: &str) -> bool {
         self.ws();
         let t: Vec<char> = w.chars().collect();
@@ -112,7 +113,7 @@ impl Parser {
         Ok(l)
     }
 
-    /// `not` before a comparison.
+    /// `not` delante de una comparación.
     fn not(&mut self) -> Result<E> {
         if self.eat_word("not") {
             return Ok(E::Call("not".into(), vec![self.not()?]));
@@ -190,7 +191,7 @@ impl Parser {
     }
 
     fn quoted(&mut self, q: char) -> Result<String> {
-        // the opening quote is already read; a doubled quote is one inside the text
+        // la comilla de apertura ya está leída; una comilla duplicada es una dentro del texto
         let mut out = String::new();
         loop {
             match self.s.get(self.i) {
@@ -298,13 +299,14 @@ fn parse(expr: &str) -> Result<E> {
 #[derive(Clone, Debug)]
 enum V {
     N(f64),
-    /// Text of no declared type (a literal, a function's result): read as a number when it is one.
+    /// Texto sin tipo declarado (un literal, el resultado de una función): se lee como número
+    /// cuando lo es.
     T(String),
-    /// The value of a text or hyperlink field: compared as text, never as a number.
+    /// El valor de un campo de texto o de hipervínculo: se compara como texto, nunca como número.
     S(String),
-    /// A yes/no value.
+    /// Un valor sí/no.
     B(bool),
-    /// A date, as days since 1970-01-01.
+    /// Una fecha, como días desde 1970-01-01.
     D(f64),
 }
 
@@ -338,7 +340,7 @@ impl V {
         }
     }
 
-    /// As a date, when it is one or a text that reads as one.
+    /// Como fecha, cuando lo es o es un texto que se lee como tal.
     fn date(&self) -> Option<f64> {
         match self {
             V::D(d) => Some(*d),
@@ -348,7 +350,7 @@ impl V {
         }
     }
 
-    /// As yes/no, when it is one or a text that reads as one.
+    /// Como sí/no, cuando lo es o es un texto que se lee como tal.
     fn yes_no(&self) -> Option<bool> {
         match self {
             V::B(b) => Some(*b),
@@ -359,8 +361,9 @@ impl V {
     }
 }
 
-/// How two values order, by what they are: dates by day (a text that reads as a date counts as
-/// one), yes/no as false < true, text of a field as text, the rest as numbers when both are.
+/// Cómo se ordenan dos valores, según lo que son: fechas por día (un texto que se lee como fecha
+/// cuenta como tal), sí/no como falso < verdadero, el texto de un campo como texto, el resto como
+/// números cuando ambos lo son.
 fn compare(l: &V, r: &V) -> std::cmp::Ordering {
     if (matches!(l, V::D(_)) || matches!(r, V::D(_)))
         && let (Some(a), Some(b)) = (l.date(), r.date())
@@ -442,7 +445,7 @@ impl Ctx<'_> {
             .iter()
             .position(|f| f.trim().eq_ignore_ascii_case(name.trim()))
         else {
-            // `true` and `false` are values when no field has that name
+            // `true` y `false` son valores cuando ningún campo tiene ese nombre
             return match name.trim().to_lowercase().as_str() {
                 "true" | "verdadero" => Ok(V::B(true)),
                 "false" | "falso" => Ok(V::B(false)),
@@ -450,7 +453,7 @@ impl Ctx<'_> {
             };
         };
         let t = self.d.text.get(self.row).and_then(|r| r.get(c)).cloned().unwrap_or_default();
-        // an empty value is empty whatever the type: it is neither zero, nor false, nor a date
+        // un valor vacío está vacío sea cual sea el tipo: no es cero, ni falso, ni una fecha
         if t.trim().is_empty() {
             return Ok(V::T(String::new()));
         }
@@ -473,7 +476,7 @@ impl Ctx<'_> {
             E::Var(n) => self.var(n)?,
             E::Neg(a) => V::N(-self.eval(a)?.num()),
             E::Bin(op, a, b) => {
-                // `and` and `or` do not look at the right side when the left decides
+                // `and` y `or` no miran el lado derecho cuando el izquierdo decide
                 let l = self.eval(a)?;
                 match op {
                     Op::And if !l.truth() => return Ok(flag(false)),
@@ -482,7 +485,7 @@ impl Ctx<'_> {
                 }
                 let r = self.eval(b)?;
                 match op {
-                    // a date plus or minus days is a date; the difference of two is days
+                    // una fecha más o menos días es una fecha; la diferencia de dos son días
                     Op::Add if matches!(l, V::D(_)) != matches!(r, V::D(_)) => V::D(l.num() + r.num()),
                     Op::Sub if matches!(l, V::D(_)) && !matches!(r, V::D(_)) => V::D(l.num() - r.num()),
                     Op::Add => V::N(l.num() + r.num()),
@@ -664,8 +667,8 @@ fn eval_rows(d: &VectorData, kind: GeomKind, expr: &str, only: Option<&HashSet<u
     Ok(out)
 }
 
-/// The values of `expr` for the rows asked for (all, or `only`), as text; checks the expression
-/// without changing anything.
+/// Los valores de `expr` para las filas pedidas (todas, o `only`), como texto; comprueba la
+/// expresión sin cambiar nada.
 pub fn evaluate(d: &VectorData, kind: GeomKind, expr: &str, only: Option<&HashSet<usize>>) -> Result<Vec<(usize, String)>> {
     Ok(eval_rows(d, kind, expr, only)?
         .into_iter()
@@ -678,8 +681,8 @@ pub fn evaluate(d: &VectorData, kind: GeomKind, expr: &str, only: Option<&HashSe
         .collect())
 }
 
-/// The rows for which `expr` holds: a comparison that is true, a number other than zero, a text
-/// that is not empty.
+/// Las filas para las que se cumple `expr`: una comparación verdadera, un número distinto de cero,
+/// un texto que no está vacío.
 pub fn select(d: &VectorData, kind: GeomKind, expr: &str) -> Result<Vec<usize>> {
     let e = parse(expr)?;
     let mut out = Vec::new();
@@ -691,7 +694,7 @@ pub fn select(d: &VectorData, kind: GeomKind, expr: &str) -> Result<Vec<usize>> 
     Ok(out)
 }
 
-/// The type a field made by an expression gets: that of the values it gives.
+/// El tipo que recibe un campo hecho por una expresión: el de los valores que da.
 fn type_of_values(values: &[(usize, V)]) -> crate::fieldtype::FieldType {
     use crate::fieldtype::FieldType;
     let some: Vec<&V> = values.iter().map(|v| &v.1).filter(|v| !v.text().is_empty()).collect();
@@ -708,10 +711,10 @@ fn type_of_values(values: &[(usize, V)]) -> crate::fieldtype::FieldType {
     }
 }
 
-/// Writes the values of `expr` into `field` for all the rows or only those in `only`. A field
-/// that exists keeps its type and the values are checked against it (a text in a number field is
-/// an error); one that does not is made with the type of the values. Nothing changes if the
-/// expression fails on any row or a value does not fit. Returns how many rows were set.
+/// Escribe los valores de `expr` en `field` para todas las filas o solo las de `only`. Un campo que
+/// existe conserva su tipo y los valores se comprueban contra él (un texto en un campo numérico es
+/// un error); uno que no existe se hace con el tipo de los valores. No cambia nada si la expresión
+/// falla en alguna fila o un valor no cabe. Devuelve cuántas filas se fijaron.
 pub fn apply(d: &mut VectorData, kind: GeomKind, field: &str, expr: &str, only: Option<&HashSet<usize>>) -> Result<usize> {
     let name = field.trim();
     if name.is_empty() {
@@ -723,7 +726,7 @@ pub fn apply(d: &mut VectorData, kind: GeomKind, field: &str, expr: &str, only: 
         v => v.text(),
     };
     let existing = d.fields.iter().position(|f| f.trim().eq_ignore_ascii_case(name));
-    // check every value before touching the layer
+    // comprobar cada valor antes de tocar la capa
     if let Some(c) = existing {
         let ty = d.field_type(c);
         for (row, v) in &values {
@@ -817,13 +820,13 @@ mod tests {
         assert_eq!(d.text[0][2], "");
         assert_eq!(d.text[1][2], "0.04");
         assert_eq!(d.num[1][2], 0.04);
-        // an existing field is set, whatever the case of its name
+        // un campo que existe se fija, sea cual sea la capitalización de su nombre
         apply(&mut d, GeomKind::Polygon, "ESPECIE", "'x'", None)?;
         assert_eq!((d.fields.len(), d.text[0][0].as_str()), (3, "x"));
         Ok(())
     }
 
-    /// A layer with one field of each type.
+    /// Una capa con un campo de cada tipo.
     fn typed() -> VectorData {
         use crate::fieldtype::FieldType::*;
         let mut d = layer();
@@ -843,21 +846,22 @@ mod tests {
     fn dates_yes_no_and_text_are_read_by_their_type() -> Result<()> {
         let d = typed();
         let sel = |e: &str| select(&d, GeomKind::Polygon, e);
-        // dates compare as dates, with a text that reads as a date, and do arithmetic in days
+        // las fechas se comparan como fechas, con un texto que se lee como fecha, y hacen
+        // aritmética en días
         assert_eq!(sel("fecha > '2025-01-01'")?, [0]);
         assert_eq!(sel("fecha < date('01/01/2025')")?, [1]);
         assert_eq!(sel("year(fecha) = 2024")?, [1]);
         assert_eq!(sel("fecha - date('2025-03-01') = 30")?, [0]);
         assert_eq!(sel("fecha >= today() - 36500")?, [0, 1]);
-        // yes/no
+        // sí/no
         assert_eq!(sel("activo")?, [0]);
         assert_eq!(sel("not activo = true")?, [1]);
         assert_eq!(sel("activo = false")?, [1]);
-        // a text field is compared as text: "007" is not 7 and "10" sorts before "7"
+        // un campo de texto se compara como texto: «007» no es 7 y «10» va antes que «7»
         assert_eq!(sel("codigo = 7")?, Vec::<usize>::new());
         assert_eq!(sel("codigo = '007'")?, [0]);
         assert_eq!(sel("codigo < '2'")?, [0, 1]);
-        // a number field is compared as a number
+        // un campo numérico se compara como número
         assert_eq!(sel("n > 2")?, [0]);
         Ok(())
     }
@@ -865,18 +869,18 @@ mod tests {
     #[test]
     fn values_written_to_a_field_must_fit_its_type() -> Result<()> {
         let mut d = typed();
-        // a text into a number or a date field is refused and nothing changes
+        // un texto en un campo numérico o de fecha se rechaza y no cambia nada
         assert!(apply(&mut d, GeomKind::Polygon, "n", "especie", None).is_err());
         assert!(apply(&mut d, GeomKind::Polygon, "fecha", "'mañana'", None).is_err());
         assert_eq!(d.text[0][1], "3");
-        // a decimal into a whole-number field is refused, rounded it is accepted
+        // un decimal en un campo de números enteros se rechaza, redondeado se acepta
         assert!(apply(&mut d, GeomKind::Polygon, "n", "$area / 7", None).is_err());
         apply(&mut d, GeomKind::Polygon, "n", "round($area / 7)", None)?;
         assert_eq!(d.text[0][1], "14");
-        // a yes/no result into a yes/no field is Sí / No
+        // un resultado sí/no en un campo sí/no es Sí / No
         apply(&mut d, GeomKind::Polygon, "activo", "$area > 150", None)?;
         assert_eq!((d.text[0][3].as_str(), d.text[1][3].as_str()), ("No", "Sí"));
-        // a new field takes the type of the values
+        // un campo nuevo toma el tipo de los valores
         apply(&mut d, GeomKind::Polygon, "nuevo_f", "fecha + 10", None)?;
         apply(&mut d, GeomKind::Polygon, "nuevo_a", "$area", None)?;
         apply(&mut d, GeomKind::Polygon, "nuevo_s", "especie", None)?;

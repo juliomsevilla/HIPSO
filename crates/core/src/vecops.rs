@@ -1,8 +1,8 @@
-//! Operations on vector layers of any kind (points, lines, polygons) that work on the data the
-//! viewer holds: selection by location, spatial join of attributes, centroids and points on
-//! the surface, and the split and gathering of the parts of features.
+//! Operaciones sobre capas vectoriales de cualquier tipo (puntos, líneas, polígonos) que trabajan
+//! sobre los datos que tiene el visor: selección por localización, unión espacial de atributos,
+//! centroides y puntos en la superficie, y la división y reunión de las partes de los elementos.
 //!
-//! Geometry comes from the `geo` crate (relations after the DE-9IM model of the OGC).
+//! La geometría viene del crate `geo` (relaciones según el modelo DE-9IM de OGC).
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -13,7 +13,7 @@ use crate::geomops::multipolygon_of;
 use crate::view::{Feature, GeomKind, VectorData};
 use crate::{Error, Result};
 
-/// The kind of geometry of a layer read for display.
+/// El tipo de geometría de una capa leída para mostrar.
 pub fn kind_of(d: &VectorData) -> GeomKind {
     if d.points {
         GeomKind::Point
@@ -24,8 +24,8 @@ pub fn kind_of(d: &VectorData) -> GeomKind {
     }
 }
 
-/// A layer from a file as the viewer holds it, with its kind and the `.prj` text to write back
-/// (the file's own, or the one of its EPSG code).
+/// Una capa de un archivo tal como la tiene el visor, con su tipo y el texto `.prj` que escribir de
+/// vuelta (el del propio archivo o el de su código EPSG).
 pub fn read_layer(path: &Path) -> Result<(VectorData, GeomKind, Option<String>)> {
     let d = crate::view::read_vector(path)?;
     let kind = kind_of(&d);
@@ -47,7 +47,7 @@ fn number(t: &str) -> f64 {
     t.trim().parse().unwrap_or(f64::NAN)
 }
 
-/// The geometry of a feature for the relations; `None` when it has none.
+/// La geometría de un elemento para las relaciones; `None` cuando no la tiene.
 pub fn geometry_of(parts: &[Vec<[f64; 2]>], kind: GeomKind) -> Option<Geometry<f64>> {
     let line = |p: &Vec<[f64; 2]>| LineString::new(p.iter().map(|c| Coord { x: c[0], y: c[1] }).collect());
     match kind {
@@ -80,17 +80,17 @@ fn bbox(parts: &[Vec<[f64; 2]>]) -> [f64; 4] {
     b
 }
 
-/// How a feature of one layer must stand to a feature of another.
+/// Cómo debe estar un elemento de una capa respecto a un elemento de otra.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Relation {
     Intersects,
-    /// The feature lies inside the other one.
+    /// El elemento está dentro del otro.
     Within,
-    /// The feature contains the other one.
+    /// El elemento contiene al otro.
     Contains,
     Touches,
     Crosses,
-    /// The feature meets none of the others.
+    /// El elemento no toca a ninguno de los otros.
     Disjoint,
 }
 
@@ -122,8 +122,8 @@ impl Relation {
     }
 }
 
-/// The features of the other layer that meet `a`'s extent, per feature of `a`, with the
-/// geometries of both worked out once.
+/// Los elementos de la otra capa que tocan la extensión de `a`, por elemento de `a`, con las
+/// geometrías de ambos calculadas una vez.
 struct Pairs {
     ga: Vec<Option<Geometry<f64>>>,
     gb: Vec<Option<Geometry<f64>>>,
@@ -151,8 +151,8 @@ fn pairs(a: &VectorData, ka: GeomKind, b: &VectorData, kb: GeomKind) -> Pairs {
     Pairs { ga, gb, near }
 }
 
-/// The features of `a` that stand in the relation to some feature of `b` (to none, for
-/// [`Relation::Disjoint`]), in layer order.
+/// Los elementos de `a` que están en la relación con algún elemento de `b` (con ninguno, para
+/// [`Relation::Disjoint`]), en el orden de la capa.
 pub fn select_by_location(a: &VectorData, ka: GeomKind, b: &VectorData, kb: GeomKind, rel: Relation) -> Vec<usize> {
     let p = pairs(a, ka, b, kb);
     (0..a.features.len())
@@ -167,12 +167,12 @@ pub fn select_by_location(a: &VectorData, ka: GeomKind, b: &VectorData, kb: Geom
         .collect()
 }
 
-/// What a spatial join copies from the matching features.
+/// Lo que copia una unión espacial de los elementos coincidentes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JoinMode {
-    /// The fields of the first matching feature.
+    /// Los campos del primer elemento coincidente.
     First,
-    /// The sum and the mean of each numeric field of all the matching features.
+    /// La suma y la media de cada campo numérico de todos los elementos coincidentes.
     Summary,
 }
 
@@ -192,8 +192,8 @@ pub(crate) fn nice(v: f64) -> String {
     }
 }
 
-/// The layer `a` with fields taken from the features of `b` that stand in the relation to each
-/// of its features (`n_coinc` counts them). Names of new fields start with `prefix`.
+/// La capa `a` con campos tomados de los elementos de `b` que están en la relación con cada uno de
+/// sus elementos (`n_coinc` los cuenta). Los nombres de los campos nuevos empiezan por `prefix`.
 pub fn spatial_join(
     a: &VectorData,
     ka: GeomKind,
@@ -261,9 +261,9 @@ pub fn spatial_join(
     Ok(out)
 }
 
-/// One point per feature of the layer, with its attributes: the centroid, or a point that lies
-/// on the feature itself (inside a polygon even when it is concave or has holes). Features with
-/// no geometry are left out.
+/// Un punto por elemento de la capa, con sus atributos: el centroide o un punto que está en el
+/// propio elemento (dentro de un polígono aunque sea cóncavo o tenga huecos). Los elementos sin
+/// geometría se dejan fuera.
 pub fn representative_points(d: &VectorData, kind: GeomKind, on_surface: bool) -> VectorData {
     let mut out = VectorData { points: true, fields: d.fields.clone(), ..VectorData::default() };
     for (i, f) in d.features.iter().enumerate() {
@@ -278,8 +278,8 @@ pub fn representative_points(d: &VectorData, kind: GeomKind, on_surface: bool) -
     out
 }
 
-/// The parts of a feature, one feature each: the polygons (with their holes) of a polygon
-/// feature, the lines of a line feature. A point feature stays as it is.
+/// Las partes de un elemento, un elemento cada una: los polígonos (con sus huecos) de un elemento
+/// poligonal, las líneas de un elemento lineal. Un elemento puntual se queda como está.
 pub fn split_parts(parts: &[Vec<[f64; 2]>], kind: GeomKind) -> Vec<Vec<Vec<[f64; 2]>>> {
     match kind {
         GeomKind::Point => vec![parts.to_vec()],
@@ -296,9 +296,9 @@ pub fn split_parts(parts: &[Vec<[f64; 2]>], kind: GeomKind) -> Vec<Vec<Vec<[f64;
     }
 }
 
-/// Splits every selected feature that has several parts into one feature per part; the pieces
-/// keep the attributes. Returns the indices of the features that were split and how many
-/// features there are now. Selected features come out selected.
+/// Divide cada elemento seleccionado que tiene varias partes en un elemento por parte; las piezas
+/// conservan los atributos. Devuelve los índices de los elementos que se dividieron y cuántos
+/// elementos hay ahora. Los elementos seleccionados salen seleccionados.
 pub fn explode(d: &mut VectorData, kind: GeomKind, which: &HashSet<usize>) -> (usize, HashSet<usize>) {
     let mut features = Vec::with_capacity(d.features.len());
     let (mut text, mut num) = (Vec::new(), Vec::new());
@@ -324,9 +324,9 @@ pub fn explode(d: &mut VectorData, kind: GeomKind, which: &HashSet<usize>) -> (u
     (split, selected)
 }
 
-/// Gathers the selected features into one that has all their parts, without joining the
-/// geometry (a polygon feature keeps its polygons separate, even if they overlap). The new
-/// feature takes the place and the attributes of the first selected one.
+/// Reúne los elementos seleccionados en uno que tiene todas sus partes, sin unir la geometría (un
+/// elemento poligonal mantiene sus polígonos separados, aunque se solapen). El elemento nuevo toma
+/// el lugar y los atributos del primer seleccionado.
 pub fn gather(d: &mut VectorData, which: &HashSet<usize>) -> Option<usize> {
     let mut idx: Vec<usize> = which.iter().copied().filter(|i| *i < d.features.len()).collect();
     idx.sort_unstable();

@@ -1,4 +1,5 @@
-//! Zonas encharcadas (Ráster › Análisis del terreno › Hidrología): where water stays on a DTM.
+//! Zonas encharcadas (Ráster › Análisis del terreno › Hidrología): dónde se queda el agua sobre un
+//! MDT.
 
 use super::*;
 use crate::numfield::NumField;
@@ -7,9 +8,9 @@ use hipso_core::ponds::{self, Method, PondJob};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Preset {
-    /// Levelled ground: shallow water counts.
+    /// Terreno nivelado: el agua poco profunda cuenta.
     Level,
-    /// Rough ground (forest, scrub): the model has hollows that are not ponds.
+    /// Terreno rugoso (bosque, matorral): el modelo tiene hoyos que no son charcas.
     Rough,
     Custom,
 }

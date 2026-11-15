@@ -1,17 +1,18 @@
-//! Raster operations on one grid: sieve (remove small patches of a class raster), proximity
-//! (distance to the cells of some classes) and fill of empty cells by inverse distance weights.
+//! Operaciones ráster sobre una rejilla: tamizado (quitar manchas pequeñas de un ráster de clases),
+//! proximidad (distancia a las celdas de algunas clases) y relleno de celdas vacías por pesos del
+//! inverso de la distancia.
 //!
-//! Written from the published algorithms: connected-component labelling with merging of small
-//! components into their largest neighbour (sieve), the exact Euclidean distance transform of
-//! Felzenszwalb and Huttenlocher (2012) (proximity) and inverse distance weighting along eight
-//! directions (fill). Empty cells are `NaN`.
+//! Escritas a partir de los algoritmos publicados: etiquetado de componentes conexas con fusión de
+//! componentes pequeñas en su vecina mayor (tamiz), la transformada exacta de distancia euclídea de
+//! Felzenszwalb y Huttenlocher (2012) (proximidad) y ponderación por el inverso de la distancia en
+//! ocho direcciones (relleno). Las celdas vacías son `NaN`.
 
 use rayon::prelude::*;
 
 use crate::grid::Grid;
 use crate::{Error, Result};
 
-/// Which cells touch: the four sharing an edge, or all eight around.
+/// Qué celdas se tocan: las cuatro que comparten una arista o las ocho de alrededor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Connectivity {
     Four,
@@ -22,15 +23,15 @@ fn same(a: f32, b: f32) -> bool {
     a == b
 }
 
-/// Replaces patches (connected cells of equal value) smaller than `threshold` cells by the value
-/// of their largest neighbouring patch: a bigger neighbour is preferred to one that is itself
-/// small. Empty cells are not part of any patch and never receive a value. Patches are visited
-/// in raster order and a merged patch counts its new size, so a chain of small patches ends in
-/// the neighbour that finally holds them.
+/// Sustituye las manchas (celdas conectadas de igual valor) menores que `threshold` celdas por el
+/// valor de su mancha vecina mayor: se prefiere una vecina mayor a una que a su vez es pequeña. Las
+/// celdas vacías no forman parte de ninguna mancha y nunca reciben un valor. Las manchas se visitan
+/// en orden del ráster y una mancha fusionada cuenta su tamaño nuevo, de modo que una cadena de
+/// manchas pequeñas termina en la vecina que por fin las contiene.
 pub fn sieve(g: &Grid, threshold: usize, conn: Connectivity) -> Grid {
     let (cols, rows) = (g.cols, g.rows);
     let n = cols * rows;
-    // label connected components with union-find
+    // etiquetar las componentes conexas con unión-búsqueda
     let mut dsu = crate::cluster::Dsu::new(n);
     let offs: &[(isize, isize)] = match conn {
         Connectivity::Four => &[(0, -1), (-1, 0)],
@@ -63,14 +64,14 @@ pub fn sieve(g: &Grid, threshold: usize, conn: Connectivity) -> Grid {
         }
     }
     let mut value: Vec<f32> = g.data.clone();
-    // patch value by root
+    // valor de la mancha por raíz
     let mut patch_value = vec![f32::NAN; n];
     for i in 0..n {
         if !g.data[i].is_nan() {
             patch_value[root[i] as usize] = g.data[i];
         }
     }
-    // the cells of each patch, for its neighbours
+    // las celdas de cada mancha, para sus vecinas
     let mut members: Vec<Vec<u32>> = vec![Vec::new(); n];
     for i in 0..n {
         if !g.data[i].is_nan() {
@@ -93,8 +94,8 @@ pub fn sieve(g: &Grid, threshold: usize, conn: Connectivity) -> Grid {
         if size[me] >= threshold || size[me] == 0 {
             continue;
         }
-        // neighbouring patches: the largest big one, else the largest small one
-        let mut best: Option<(bool, usize, usize)> = None; // (big, size, root)
+        // manchas vecinas: la mayor de las grandes o, si no, la mayor de las pequeñas
+        let mut best: Option<(bool, usize, usize)> = None; // (grande, tamaño, raíz)
         for &cell in &members[me] {
             let (r, c) = ((cell as usize / cols) as isize, (cell as usize % cols) as isize);
             for &(dr, dc) in around {
@@ -134,18 +135,18 @@ pub fn sieve(g: &Grid, threshold: usize, conn: Connectivity) -> Grid {
     out
 }
 
-/// What counts as a target for [`proximity`].
+/// Qué cuenta como objetivo para [`proximity`].
 #[derive(Clone, Debug, PartialEq)]
 pub enum Targets {
-    /// Cells with these values.
+    /// Celdas con estos valores.
     Values(Vec<f32>),
-    /// Every cell with a value other than zero (not empty).
+    /// Toda celda con un valor distinto de cero (no vacía).
     NonZero,
 }
 
-/// For each cell, the Euclidean distance to the nearest target cell, in map units (or cells when
-/// `in_cells`); targets are at 0. Distances beyond `max_distance` are empty. Exact for any shape
-/// of targets (one pass per axis).
+/// Para cada celda, la distancia euclídea a la celda objetivo más cercana, en unidades del mapa (o
+/// en celdas cuando `in_cells`); los objetivos están a 0. Las distancias mayores que `max_distance`
+/// quedan vacías. Exacto para cualquier forma de los objetivos (una pasada por eje).
 pub fn proximity(g: &Grid, targets: &Targets, max_distance: Option<f64>, in_cells: bool) -> Result<Grid> {
     let (cols, rows) = (g.cols, g.rows);
     let is_target = |v: f32| {
@@ -156,7 +157,7 @@ pub fn proximity(g: &Grid, targets: &Targets, max_distance: Option<f64>, in_cell
             }
     };
     const INF: f64 = 1e20;
-    // squared distances in cells: columns first, then rows (Felzenszwalb and Huttenlocher)
+    // distancias al cuadrado en celdas: primero columnas, luego filas (Felzenszwalb y Huttenlocher)
     let mut d2 = vec![INF; cols * rows];
     for (i, v) in g.data.iter().enumerate() {
         if is_target(*v) {
@@ -204,7 +205,7 @@ pub fn proximity(g: &Grid, targets: &Targets, max_distance: Option<f64>, in_cell
             *o = (q as f64 - p as f64).powi(2) + f[p];
         }
     }
-    // rows: each column independently
+    // filas: cada columna por separado
     let mut tmp = vec![INF; cols * rows];
     let cols_out: Vec<Vec<f64>> = (0..cols)
         .into_par_iter()
@@ -243,10 +244,11 @@ pub fn proximity(g: &Grid, targets: &Targets, max_distance: Option<f64>, in_cell
     Ok(out)
 }
 
-/// Fills empty cells from the valued cells around them: for each, the nearest valued cell found
-/// along each of the eight directions within `max_distance` cells, weighted by the inverse of
-/// the squared distance. Cells with none in reach stay empty. `smoothing` passes of a 3x3 mean
-/// over the filled cells only soften the seams.
+/// Rellena las celdas vacías a partir de las celdas con valor que las rodean: para cada una, la
+/// celda con valor más cercana hallada en cada una de las ocho direcciones a menos de
+/// `max_distance` celdas, ponderada por el inverso de la distancia al cuadrado. Las celdas sin
+/// ninguna a su alcance quedan vacías. `smoothing` pasadas de una media 3x3 sobre las celdas
+/// rellenadas solo suavizan las costuras.
 pub fn fill_nodata(g: &Grid, max_distance: usize, smoothing: usize) -> Grid {
     let (cols, rows) = (g.cols as isize, g.rows as isize);
     let dirs: [(isize, isize); 8] = [
@@ -351,11 +353,11 @@ mod tests {
         let g = grid(&["11122", "11122", "13322", "11122"]);
         let s = sieve(&g, 3, Connectivity::Four);
         assert_eq!(text(&s), ["11122", "11122", "11122", "11122"]);
-        // an isolated cell with threshold 1 stays; empty cells are never filled
+        // una celda aislada con umbral 1 se queda; las celdas vacías nunca se rellenan
         let g = grid(&["11.2", "1.22"]);
         let s = sieve(&g, 2, Connectivity::Four);
         assert_eq!(text(&s), ["11.2", "1.22"]);
-        // diagonal neighbours join only with eight-connectivity
+        // las vecinas diagonales se unen solo con conectividad ocho
         let g = grid(&["1112", "1121", "2111"]);
         let four = sieve(&g, 2, Connectivity::Four);
         let eight = sieve(&g, 2, Connectivity::Eight);
@@ -369,11 +371,11 @@ mod tests {
         assert_eq!(p.data[2 * 7 + 3], 0.0);
         assert_eq!(p.data[2 * 7 + 6], 3.0);
         assert!((f64::from(p.data[0]) - 13f64.sqrt()).abs() < 1e-5);
-        // in map units (cell 2 m) and with a limit
+        // en unidades del mapa (celda de 2 m) y con un límite
         let q = proximity(&g, &Targets::Values(vec![1.0]), Some(4.5), false)?;
         assert_eq!(q.data[2 * 7 + 5], 4.0);
         assert!(q.data[2 * 7 + 6].is_nan());
-        // brute force on a scattered raster
+        // fuerza bruta sobre un ráster disperso
         let mut g = Grid::new(0.0, 0.0, 1.0, 23, 17)?;
         let mut k = 12345u64;
         for v in g.data.iter_mut() {
@@ -414,10 +416,10 @@ mod tests {
         }
         let f = fill_nodata(&g, 10, 0);
         assert!(f.data.iter().all(|v| (*v - 10.0).abs() < 1e-5));
-        // too far to reach anything
+        // demasiado lejos para alcanzar nada
         let f = fill_nodata(&g, 1, 0);
         assert!(f.data[4 * 9 + 4].is_nan() && f.data[3 * 9 + 3].is_finite());
-        // valued cells never change
+        // las celdas con valor nunca cambian
         assert_eq!(f.data[0], 10.0);
     }
 }

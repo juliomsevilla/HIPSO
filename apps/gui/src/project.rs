@@ -1,16 +1,16 @@
-//! Projects: a `.hipso` file (JSON) that remembers which clouds and layers are open, in what order,
-//! how they are shown and where the views look, so that a session starts again from there. It
-//! holds paths, not data: the files stay where they are.
+//! Proyectos: un archivo `.hipso` (JSON) que recuerda qué nubes y capas están abiertas, en qué
+//! orden, cómo se muestran y adónde miran las vistas, de modo que una sesión empiece de nuevo desde
+//! ahí. Guarda rutas, no datos: los archivos se quedan donde están.
 
 use super::*;
 use hipso_core::json::{Json, quote};
 
 pub const EXT: &str = "hipso";
-/// The extension projects had before the program was called HIPSO: they are still read, never
-/// written.
+/// La extensión que tenían los proyectos antes de que el programa se llamara HIPSO: se siguen
+/// leyendo, nunca se escriben.
 pub const LEGACY_EXT: &str = "elp";
 
-/// Whether the file is a project, in the current or the former format.
+/// Si el archivo es un proyecto, en el formato actual o en el anterior.
 pub fn is_project(p: &Path) -> bool {
     p.extension()
         .is_some_and(|e| e.eq_ignore_ascii_case(EXT) || e.eq_ignore_ascii_case(LEGACY_EXT))
@@ -40,7 +40,7 @@ impl App {
             .refs
             .iter()
             .map(|r| {
-                // a GeoPackage table is told apart by the « · table» its name carries
+                // una tabla de GeoPackage se distingue por el « · tabla» que lleva su nombre
                 let table = match (&r.kind, r.name.split_once(" · ")) {
                     (RefKind::Vector(_), Some((_, t))) => quote(t),
                     _ => "null".to_string(),
@@ -87,8 +87,8 @@ impl App {
         }
     }
 
-    /// Closes what is open and opens what the project lists; files that are gone are skipped
-    /// and named in the log.
+    /// Cierra lo que está abierto y abre lo que lista el proyecto; los archivos que ya no están se
+    /// saltan y se nombran en el registro.
     pub fn open_project(&mut self, ctx: &egui::Context, file: &Path) {
         let parsed = std::fs::read_to_string(file)
             .map_err(|e| e.to_string())

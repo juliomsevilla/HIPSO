@@ -1,6 +1,7 @@
-//! Tier-2 of JPEG 2000 (T.800 Annex B): the geometry of a tile (resolutions, subbands, precincts,
-//! code-blocks), the packet sequence of each progression order and the packet headers, which say
-//! which code-blocks contribute to a layer and how many bytes of each.
+//! Nivel 2 de JPEG 2000 (T.800 anexo B): la geometría de una tesela (resoluciones, subbandas,
+//! recintos, bloques de código), la secuencia de paquetes de cada orden de progresión y las
+//! cabeceras de paquete, que dicen qué bloques de código contribuyen a una capa y cuántos bytes de
+//! cada uno.
 
 use super::codestream::{CodParams, CompCod, Quant, Siz};
 use super::dwt::Rect;
@@ -11,15 +12,16 @@ fn bad(what: &str) -> Error {
     Error::Format(format!("JPEG 2000: {what}"))
 }
 
-/// Ceiling of `a / 2^s`, also for negative `a`.
+/// Techo de `a / 2^s`, también para `a` negativo.
 #[inline]
 pub fn cdiv(a: i64, s: u32) -> i64 {
     (a + (1i64 << s) - 1) >> s
 }
 
-// ------------------------------------------------------------------------------------ bit reader
+// ------------------------------------------------------------------------------------ lector de
+// bits
 
-/// Reads the bits of a packet header: after a `0xFF` byte the next one carries only 7 bits.
+/// Lee los bits de una cabecera de paquete: tras un byte `0xFF` el siguiente lleva solo 7 bits.
 pub struct Bits<'a> {
     d: &'a [u8],
     pub pos: usize,
@@ -56,7 +58,7 @@ impl<'a> Bits<'a> {
         Ok(v)
     }
 
-    /// Ends the header at a byte boundary (a final `0xFF` is followed by a stuffed byte).
+    /// Termina la cabecera en un límite de byte (a un `0xFF` final le sigue un byte de relleno).
     pub fn align(&mut self) {
         self.left = 0;
         if self.cur == 0xFF {
@@ -66,7 +68,8 @@ impl<'a> Bits<'a> {
     }
 }
 
-// -------------------------------------------------------------------------------------- tag tree
+// -------------------------------------------------------------------------------------- árbol de
+// etiquetas
 
 const NONE: usize = usize::MAX;
 
@@ -76,7 +79,8 @@ struct Node {
     low: u32,
 }
 
-/// A tag tree (B.10.2): codes a grid of non-negative numbers incrementally.
+/// Un árbol de etiquetas (B.10.2): codifica una rejilla de números no negativos de forma
+/// incremental.
 pub struct TagTree {
     nodes: Vec<Node>,
     parent: Vec<usize>,
@@ -116,7 +120,7 @@ impl TagTree {
         }
     }
 
-    /// Whether the value of `leaf` is below `threshold`, reading what the stream says about it.
+    /// Si el valor de `leaf` está por debajo de `threshold`, leyendo lo que dice el flujo sobre él.
     pub fn decode(&mut self, bits: &mut Bits, leaf: usize, threshold: u32) -> Result<bool> {
         let mut path = [0usize; 40];
         let mut n = 0;
@@ -153,7 +157,8 @@ impl TagTree {
     }
 }
 
-// ---------------------------------------------------------------------------------- tile geometry
+// ---------------------------------------------------------------------------------- geometría de
+// teselas
 
 pub struct CodeBlock {
     pub rect: Rect,
@@ -173,9 +178,9 @@ pub struct Band {
     /// 0 LL, 1 HL, 2 LH, 3 HH.
     pub orient: u8,
     pub rect: Rect,
-    /// Bit-planes the band can have (`Mb`).
+    /// Planos de bits que puede tener la banda (`Mb`).
     pub numbps: u32,
-    /// Quantisation step (1 when reversible).
+    /// Paso de cuantificación (1 cuando es reversible).
     pub step: f32,
     pub precs: Vec<PrecBand>,
 }
@@ -201,7 +206,8 @@ pub struct TileComp {
     pub roishift: u32,
 }
 
-/// Builds the geometry of one component of a tile; `tile` is the tile on the reference grid.
+/// Construye la geometría de un componente de una tesela; `tile` es la tesela en la rejilla de
+/// referencia.
 pub fn build_comp(
     siz: &Siz,
     c: usize,
@@ -262,7 +268,7 @@ pub fn build_comp(
                     y1: cdiv(rect.y1 - oy, nb),
                 }
             };
-            // quantisation of this band
+            // cuantificación de esta banda
             let idx = if r == 0 {
                 0
             } else {
@@ -293,7 +299,7 @@ pub fn build_comp(
                 let rb = i32::from(comp.depth) + gain;
                 2f32.powi(rb - exp) * (1.0 + f32::from(mant) / 2048.0)
             };
-            // precincts of the band and their code-blocks
+            // recintos de la banda y sus bloques de código
             let (cx, cy) = if r == 0 {
                 (u32::from(cod.xcb).min(ppx), u32::from(cod.ycb).min(ppy))
             } else {
@@ -380,7 +386,7 @@ pub struct Packet {
     pub layer: usize,
 }
 
-/// The packets of a tile in the order of its progression (B.12).
+/// Los paquetes de una tesela en el orden de su progresión (B.12).
 pub fn packet_order(tile: Rect, tcs: &[TileComp], prog: u8, layers: usize) -> Result<Vec<Packet>> {
     let max_res = tcs.iter().map(|t| t.res.len()).max().unwrap_or(0);
     let mut out = Vec::new();
@@ -419,7 +425,8 @@ pub fn packet_order(tile: Rect, tcs: &[TileComp], prog: u8, layers: usize) -> Re
             }
         }
         2..=4 => {
-            // steps of the position loops: the finest precinct spacing on the reference grid
+            // pasos de los bucles de posición: el espaciado de recinto más fino en la rejilla de
+            // referencia
             let (mut sx, mut sy) = (i64::MAX, i64::MAX);
             for t in tcs {
                 let nl = t.res.len() as u32 - 1;
@@ -528,7 +535,8 @@ fn read_passes(b: &mut Bits) -> Result<u32> {
     Ok(37 + b.bits(7)?)
 }
 
-/// Passes a codeword segment can hold: the coding style decides where the coder is terminated.
+/// Pasadas que puede contener un segmento de palabra de código: el estilo de codificación decide
+/// dónde termina el codificador.
 fn segment_capacity(style: u8, index: usize, previous: u32) -> u32 {
     if style & TERMALL != 0 {
         1
@@ -545,7 +553,7 @@ fn segment_capacity(style: u8, index: usize, previous: u32) -> u32 {
     }
 }
 
-/// Reads the packet at `*pos` of `data` into the code-blocks of `tc`.
+/// Lee el paquete en `*pos` de `data` en los bloques de código de `tc`.
 pub fn read_packet(
     data: &[u8],
     pos: &mut usize,

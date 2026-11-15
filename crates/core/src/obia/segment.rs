@@ -1,11 +1,12 @@
-//! Grouping cells into objects.
+//! Agrupación de celdas en objetos.
 //!
-//! Two methods: connected cells whose value lies in a range ([`Method::Mask`]), and the
-//! multiresolution merging of Baatz & Schäpe (2000) ([`Method::Merge`]). The second starts from
-//! flat patches of the layers, builds the graph of neighbouring patches and merges, round after
-//! round, every pair that is each other's best fit while the cost of merging (the growth of the
-//! patches' heterogeneity in value and, if asked, in shape) stays under the scale. Merging only
-//! mutual best pairs keeps a round parallel and the result independent of any visiting order.
+//! Dos métodos: celdas conectadas cuyo valor está en un rango ([`Method::Mask`]) y la fusión
+//! multirresolución de Baatz y Schäpe (2000) ([`Method::Merge`]). El segundo parte de manchas
+//! planas de las capas, construye el grafo de manchas vecinas y fusiona, ronda tras ronda, cada par
+//! que es el mejor ajuste uno del otro mientras el coste de fusionar (el crecimiento de la
+//! heterogeneidad de las manchas en valor y, si se pide, en forma) se mantenga por debajo de la
+//! escala. Fusionar solo los mejores pares mutuos mantiene paralela una ronda y hace el resultado
+//! independiente de cualquier orden de visita.
 
 use rayon::prelude::*;
 
@@ -15,12 +16,12 @@ use crate::{Error, Result, check_cancel};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Method {
-    /// The connected groups of cells whose value on `layer` is between `min` and `max`.
+    /// Los grupos conectados de celdas cuyo valor en `layer` está entre `min` y `max`.
     Mask {
         layer: String,
         min: f32,
         max: f32,
-        /// Cells touching at a corner belong together.
+        /// Las celdas que se tocan por una esquina van juntas.
         diagonal: bool,
     },
     Merge(MergeParams),
@@ -28,19 +29,19 @@ pub enum Method {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MergeParams {
-    /// Patches merge while the cost of doing so is under `scale` squared. The cost is measured in
-    /// cells times standard deviations of the (standardised) layers, so a bigger scale gives
-    /// bigger objects; start around 5 to 15.
+    /// Las manchas se fusionan mientras el coste de hacerlo sea menor que `scale` al cuadrado. El
+    /// coste se mide en celdas por desviaciones típicas de las capas (estandarizadas), de modo que
+    /// una escala mayor da objetos mayores; empiécese alrededor de 5 a 15.
     pub scale: f64,
-    /// Weight of the shape (compactness and smoothness) against the value, 0 to 0.9.
+    /// Peso de la forma (compacidad y suavidad) frente al valor, de 0 a 0,9.
     pub shape: f64,
-    /// Inside the shape, the weight of compactness against smoothness, 0 to 1.
+    /// Dentro de la forma, el peso de la compacidad frente a la suavidad, de 0 a 1.
     pub compact: f64,
-    /// A weight per layer (name, weight); the layers not named weigh 1 and a weight of 0 leaves a
-    /// layer out.
+    /// Un peso por capa (nombre, peso); las capas no nombradas pesan 1 y un peso de 0 deja fuera
+    /// una capa.
     pub weights: Vec<(String, f32)>,
-    /// Width, in standard deviations, of the value bins that decide which neighbouring cells
-    /// start in the same patch: smaller is slower and more faithful.
+    /// Anchura, en desviaciones típicas, de los intervalos de valor que deciden qué celdas vecinas
+    /// empiezan en la misma mancha: menor es más lento y más fiel.
     pub init: f64,
 }
 
@@ -59,14 +60,14 @@ impl Default for MergeParams {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SegmentParams {
     pub method: Method,
-    /// Objects smaller than this are merged into their most similar neighbour (`Merge`) or
-    /// dropped (`Mask`).
+    /// Los objetos menores que esto se fusionan con su vecino más parecido (`Merge`) o se descartan
+    /// (`Mask`).
     pub min_cells: u32,
 }
 
-/// Connected components of the cells for which `valid` holds, two neighbours being joined when
-/// `same` says so. Labels run from 1 in reading order of each component's first cell; 0 marks
-/// the cells that are not valid. Returns the labels and how many components there are.
+/// Componentes conexas de las celdas para las que se cumple `valid`, uniéndose dos vecinas cuando
+/// `same` lo dice. Las etiquetas van desde 1 en orden de lectura de la primera celda de cada
+/// componente; 0 marca las celdas no válidas. Devuelve las etiquetas y cuántas componentes hay.
 pub(crate) fn label_components(
     cols: usize,
     rows: usize,
@@ -133,7 +134,7 @@ pub(crate) fn label_components(
     Ok((lab, next))
 }
 
-/// Renumbers the objects in reading order and turns those under `min_cells` into 0.
+/// Renumera los objetos en orden de lectura y convierte en 0 los de menos de `min_cells`.
 fn finish(mut ids: Vec<u32>, count: u32, min_cells: u32) -> (Vec<u32>, u32) {
     let mut size = vec![0u32; count as usize + 1];
     for &l in &ids {
@@ -156,7 +157,7 @@ fn finish(mut ids: Vec<u32>, count: u32, min_cells: u32) -> (Vec<u32>, u32) {
     (ids, next)
 }
 
-/// Splits the cells of the stack into objects.
+/// Divide las celdas de la pila en objetos.
 pub fn segment(stack: &LayerStack, p: &SegmentParams) -> Result<Labels> {
     let lat = stack.lat;
     let (ids, count) = match &p.method {
@@ -185,7 +186,7 @@ pub fn segment(stack: &LayerStack, p: &SegmentParams) -> Result<Labels> {
     Ok(Labels { lat, ids, count })
 }
 
-/// A border of `len` cell edges between two patches, `a < b`.
+/// Un borde de `len` aristas de celda entre dos manchas, `a < b`.
 #[derive(Clone, Copy)]
 struct Edge {
     a: u32,
@@ -193,26 +194,26 @@ struct Edge {
     len: u32,
 }
 
-/// The patches and the borders between them.
+/// Las manchas y los bordes entre ellas.
 struct Rag {
-    /// Layers in use and their weights (summing to 1).
+    /// Capas en uso y sus pesos (que suman 1).
     k: usize,
     w: Vec<f64>,
     shape: f64,
     compact: f64,
     n: Vec<u32>,
-    /// Per patch and layer: the sum of the values and of their squares.
+    /// Por mancha y capa: la suma de los valores y de sus cuadrados.
     sum: Vec<f64>,
     sq: Vec<f64>,
-    /// Edges of the patch's outline.
+    /// Aristas del contorno de la mancha.
     per: Vec<u32>,
-    /// First column, first row, last column, last row.
+    /// Primera columna, primera fila, última columna, última fila.
     bb: Vec<[u32; 4]>,
     edges: Vec<Edge>,
 }
 
 impl Rag {
-    /// What merging patches `a` and `b`, sharing `shared` cell edges, would cost.
+    /// Lo que costaría fusionar las manchas `a` y `b`, que comparten `shared` aristas de celda.
     fn cost(&self, a: usize, b: usize, shared: u32) -> f64 {
         let (na, nb) = (f64::from(self.n[a]), f64::from(self.n[b]));
         let nm = na + nb;
@@ -220,7 +221,7 @@ impl Rag {
         for j in 0..self.k {
             let (sa, sb) = (self.sum[a * self.k + j], self.sum[b * self.k + j]);
             let (qa, qb) = (self.sq[a * self.k + j], self.sq[b * self.k + j]);
-            // n times the standard deviation
+            // n veces la desviación típica
             let hm = (nm * (qa + qb) - (sa + sb) * (sa + sb)).max(0.0).sqrt();
             let ha = (na * qa - sa * sa).max(0.0).sqrt();
             let hb = (nb * qb - sb * sb).max(0.0).sqrt();
@@ -245,8 +246,8 @@ impl Rag {
             + self.shape * (self.compact * compact + (1.0 - self.compact) * smooth)
     }
 
-    /// For every patch, the cost of merging it with its best neighbour and who that is (the
-    /// lower number wins a tie).
+    /// Para cada mancha, el coste de fusionarla con su mejor vecina y quién es (gana el número
+    /// menor en caso de empate).
     fn best(&self) -> (Vec<f64>, Vec<u32>) {
         let costs: Vec<f64> = self
             .edges
@@ -267,8 +268,8 @@ impl Rag {
         (cost, nb)
     }
 
-    /// Merges the patches joined in `parent` (a union-find with the smallest member as root);
-    /// returns where each old patch went.
+    /// Fusiona las manchas unidas en `parent` (una unión-búsqueda con el miembro menor como raíz);
+    /// devuelve adónde fue cada mancha antigua.
     fn merge(&mut self, parent: &mut Dsu) -> Vec<u32> {
         let old = self.n.len();
         let mut new_id = vec![0u32; old];
@@ -337,11 +338,11 @@ impl Rag {
     }
 }
 
-/// Border cells kept before they are counted into the edges (a few hundred MB at most).
+/// Celdas de borde guardadas antes de contarlas en las aristas (unos cientos de MB como mucho).
 const KEY_CHUNK: usize = 16_000_000;
 
-/// Counts the border keys (`a << 32 | b`, one per cell edge) into `edges`, which stays sorted
-/// by pair; `keys` is left empty.
+/// Cuenta las claves de borde (`a << 32 | b`, una por arista de celda) en `edges`, que sigue
+/// ordenado por pares; `keys` queda vacío.
 fn add_borders(edges: &mut Vec<Edge>, keys: &mut Vec<u64>) {
     keys.par_sort_unstable();
     let mut fresh: Vec<Edge> = Vec::new();
@@ -382,7 +383,7 @@ fn merge(stack: &LayerStack, m: &MergeParams, min_cells: u32) -> Result<(Vec<u32
     if cols > u32::MAX as usize / 2 || rows > u32::MAX as usize / 2 {
         return Err(Error::Param("la rejilla es demasiado grande".into()));
     }
-    // layers in use and their weights
+    // capas en uso y sus pesos
     let mut sel: Vec<usize> = Vec::new();
     let mut w: Vec<f64> = Vec::new();
     for (i, l) in stack.layers.iter().enumerate() {
@@ -418,7 +419,7 @@ fn merge(stack: &LayerStack, m: &MergeParams, min_cells: u32) -> Result<(Vec<u32
         .iter()
         .map(|&i| stack.layers[i].data.as_slice())
         .collect();
-    // standardise: mean and standard deviation of each layer over its valid cells
+    // estandarizar: media y desviación típica de cada capa sobre sus celdas válidas
     let (mean, inv): (Vec<f64>, Vec<f64>) = data
         .iter()
         .map(|d| {
@@ -444,7 +445,7 @@ fn merge(stack: &LayerStack, m: &MergeParams, min_cells: u32) -> Result<(Vec<u32
         .unzip();
     let z = |j: usize, i: usize| (f64::from(data[j][i]) - mean[j]) * inv[j];
     let valid = |i: usize| data.iter().all(|d| d[i].is_finite());
-    // patches of cells in the same value bins
+    // manchas de celdas en los mismos intervalos de valor
     let step: Vec<f64> = inv.iter().map(|v| v / m.init).collect();
     let bin = |j: usize, i: usize| ((f64::from(data[j][i]) - mean[j]) * step[j]).floor() as i64;
     let (lab, patches) = label_components(cols, rows, false, valid, |i, j| {
@@ -454,7 +455,7 @@ fn merge(stack: &LayerStack, m: &MergeParams, min_cells: u32) -> Result<(Vec<u32
         return Ok((lab, 0));
     }
     let r0 = patches as usize;
-    // the patches' statistics and borders, in one pass
+    // las estadísticas y los bordes de las manchas, en una pasada
     let mut rag = Rag {
         k,
         w,
@@ -472,8 +473,8 @@ fn merge(stack: &LayerStack, m: &MergeParams, min_cells: u32) -> Result<(Vec<u32
         if y % 1024 == 0 {
             check_cancel()?;
         }
-        // the borders are counted as they come: one key per border cell would take a gigabyte
-        // on a large mosaic
+        // los bordes se cuentan según llegan: una clave por celda de borde ocuparía un gigabyte en
+        // un mosaico grande
         if keys.len() > KEY_CHUNK {
             add_borders(&mut rag.edges, &mut keys);
         }
@@ -509,7 +510,8 @@ fn merge(stack: &LayerStack, m: &MergeParams, min_cells: u32) -> Result<(Vec<u32
                 }
                 _ => outline += 1,
             };
-            // right and down count each border once; left and up only add to the outline
+            // derecha y abajo cuentan cada borde una vez; izquierda y arriba solo añaden al
+            // contorno
             side((x + 1 < cols).then_some(i + 1), true);
             side((y + 1 < rows).then_some(i + cols), true);
             side((x > 0).then(|| i - 1), false);
@@ -519,7 +521,7 @@ fn merge(stack: &LayerStack, m: &MergeParams, min_cells: u32) -> Result<(Vec<u32
     }
     add_borders(&mut rag.edges, &mut keys);
     drop(keys);
-    // where each initial patch is now
+    // dónde está ahora cada mancha inicial
     let mut cur: Vec<u32> = (0..r0 as u32).collect();
     let limit = m.scale * m.scale;
     loop {
@@ -540,7 +542,7 @@ fn merge(stack: &LayerStack, m: &MergeParams, min_cells: u32) -> Result<(Vec<u32
         let remap = rag.merge(&mut parent);
         cur.par_iter_mut().for_each(|c| *c = remap[*c as usize]);
     }
-    // patches under the minimum size join their most similar neighbour
+    // las manchas por debajo del tamaño mínimo se unen a su vecina más parecida
     if min_cells > 1 {
         loop {
             check_cancel()?;
@@ -599,7 +601,7 @@ mod tests {
 
     #[test]
     fn a_mask_gives_its_connected_groups() -> Result<()> {
-        // two blocks of 3 x 3 apart, a single cell touching the first at a corner
+        // dos bloques de 3 x 3 separados, una sola celda que toca al primero por una esquina
         let s = stack(12, 6, |x, y| {
             let block = (x < 3 && y < 3) || (x >= 8 && y < 3);
             let corner = x == 3 && y == 3;
@@ -621,7 +623,7 @@ mod tests {
         };
         assert_eq!(run(false, 1)?.count, 3);
         assert_eq!(run(true, 1)?.count, 2);
-        // small groups are dropped and the rest numbered again
+        // los grupos pequeños se descartan y el resto se vuelve a numerar
         let l = run(false, 2)?;
         assert_eq!(l.count, 2);
         assert_eq!(l.ids[3 * 12 + 3], 0);
@@ -630,7 +632,7 @@ mod tests {
         Ok(())
     }
 
-    /// A noisy step: two plateaus 10 apart.
+    /// Un escalón con ruido: dos mesetas separadas 10.
     fn plateaus() -> LayerStack {
         stack(40, 30, |x, y| {
             let noise = (((x * 31 + y * 17) % 7) as f32 - 3.0) * 0.05;
@@ -654,10 +656,10 @@ mod tests {
         for (i, &id) in l.ids.iter().enumerate() {
             assert_eq!(id, if i % 40 < 20 { a } else { b });
         }
-        // a larger scale than the step is worth merges everything
+        // una escala mayor que el paso fusiona todo
         let all = segment(&plateaus(), &p(1000.0))?;
         assert_eq!(all.count, 1);
-        // the result does not depend on the thread schedule
+        // el resultado no depende de la planificación de los hilos
         assert_eq!(segment(&plateaus(), &p(8.0))?.ids, l.ids);
         Ok(())
     }

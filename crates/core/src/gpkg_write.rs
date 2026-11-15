@@ -1,9 +1,10 @@
-//! Writes GeoPackage files (OGC GeoPackage 1.x, vector features) in pure Rust: a small SQLite
-//! file writer (pages, table b-trees, overflow pages) and the GeoPackage tables on top of it.
-//! The layout follows what GDAL and RustGIS write (`application_id` "GPKG", `user_version`
-//! 10400, `gpkg_spatial_ref_sys`, `gpkg_contents`, `gpkg_geometry_columns`, geometry in
-//! GeoPackage binary with WKB). There is no R-tree index and no primary-key indexes on the
-//! metadata tables: every reader that follows the format opens it without them.
+//! Escribe archivos GeoPackage (OGC GeoPackage 1.x, elementos vectoriales) en Rust puro: un pequeño
+//! escritor de archivos SQLite (páginas, árboles B de tablas, páginas de desbordamiento) y las
+//! tablas de GeoPackage encima. La disposición sigue lo que escriben GDAL y RustGIS
+//! (`application_id` «GPKG», `user_version` 10400, `gpkg_spatial_ref_sys`, `gpkg_contents`,
+//! `gpkg_geometry_columns`, geometría en binario de GeoPackage con WKB). No hay índice R-tree ni
+//! índices de clave primaria en las tablas de metadatos: todo lector que siga el formato lo abre
+//! sin ellos.
 
 use std::path::Path;
 
@@ -13,7 +14,7 @@ use crate::{Error, Result};
 
 const PAGE: usize = 8192;
 
-/// One feature table to write.
+/// Una tabla de elementos que escribir.
 pub struct Table<'a> {
     pub name: &'a str,
     pub data: &'a VectorData,
@@ -59,7 +60,7 @@ fn varint(mut v: u64, out: &mut Vec<u8>) {
     }
 }
 
-/// A row in SQLite's record format.
+/// Una fila en el formato de registro de SQLite.
 fn record(vals: &[Val]) -> Vec<u8> {
     let (mut types, mut body) = (Vec::new(), Vec::new());
     for v in vals {
@@ -121,7 +122,8 @@ impl Pager {
         self.pages.len() as u32
     }
 
-    /// The cell of a row of a table b-tree; what does not fit in the page goes to overflow pages.
+    /// La celda de una fila de un árbol B de tabla; lo que no cabe en la página va a páginas de
+    /// desbordamiento.
     fn cell(&mut self, rowid: i64, payload: &[u8]) -> Vec<u8> {
         let (u, x) = (PAGE, PAGE - 35);
         let mut c = Vec::new();
@@ -150,7 +152,7 @@ impl Pager {
         c
     }
 
-    /// A table b-tree holding the rows (sorted by rowid); its root page.
+    /// Un árbol B de tabla que guarda las filas (ordenadas por rowid); su página raíz.
     fn table(&mut self, rows: &[(i64, Vec<u8>)]) -> u32 {
         let mut level: Vec<(u32, i64)> = Vec::new();
         let mut cells: Vec<Vec<u8>> = Vec::new();
@@ -171,7 +173,7 @@ impl Pager {
             let mut next = Vec::new();
             let mut i = 0;
             while i < level.len() {
-                // children whose cells (a pointer and a key) and the right pointer fit
+                // hijos cuyas celdas (un puntero y una clave) y el puntero derecho caben
                 let (mut n, mut size) = (0usize, 12usize);
                 while i + n < level.len() {
                     let mut key = Vec::new();
@@ -192,7 +194,8 @@ impl Pager {
         level[0].0
     }
 
-    /// A leaf page of a table b-tree; `at` is where its header starts (100 on page 1).
+    /// Una página hoja de un árbol B de tabla; `at` es donde empieza su cabecera (100 en la página
+    /// 1).
     fn leaf_into(page: &mut [u8], cells: &[Vec<u8>], at: usize) -> bool {
         let total: usize = cells.iter().map(Vec::len).sum();
         if at + 8 + 2 * cells.len() + total > PAGE {
@@ -222,7 +225,8 @@ impl Pager {
         pg
     }
 
-    /// An interior page of a table b-tree whose header starts at `at`; false when it does not fit.
+    /// Una página interior de un árbol B de tabla cuya cabecera empieza en `at`; falso cuando no
+    /// cabe.
     fn interior_into(page: &mut [u8], children: &[(u32, i64)], at: usize) -> bool {
         let n = children.len() - 1;
         let cells: Vec<Vec<u8>> = children[..n]
@@ -278,8 +282,8 @@ fn ring(out: &mut Vec<u8>, r: &[[f64; 2]], reversed: bool) {
     }
 }
 
-/// The polygons of a feature: each exterior ring (clockwise in the program's convention) starts
-/// one and the holes that follow it belong to it.
+/// Los polígonos de un elemento: cada anillo exterior (en el sentido de las agujas del reloj en el
+/// convenio del programa) abre uno y los huecos que le siguen le pertenecen.
 fn polygons(parts: &[Vec<[f64; 2]>]) -> Vec<Vec<&Vec<[f64; 2]>>> {
     let mut out: Vec<Vec<&Vec<[f64; 2]>>> = Vec::new();
     for r in parts.iter().filter(|r| r.len() >= 3) {
@@ -292,7 +296,7 @@ fn polygons(parts: &[Vec<[f64; 2]>]) -> Vec<Vec<&Vec<[f64; 2]>>> {
     out
 }
 
-/// The geometry of a feature as GeoPackage binary, and the type name it needs.
+/// La geometría de un elemento como binario de GeoPackage y el nombre de tipo que necesita.
 fn geometry(parts: &[Vec<[f64; 2]>], kind: GeomKind, srs: i32) -> Option<Vec<u8>> {
     let mut b = vec![b'G', b'P', 0, 1];
     b.extend(srs.to_le_bytes());
@@ -341,7 +345,7 @@ fn geometry(parts: &[Vec<[f64; 2]>], kind: GeomKind, srs: i32) -> Option<Vec<u8>
             let one = |b: &mut Vec<u8>, p: &Vec<&Vec<[f64; 2]>>| {
                 wkb_head(b, 3);
                 b.extend((p.len() as u32).to_le_bytes());
-                // counter-clockwise exterior and clockwise holes, as the OGC wants them
+                // exterior antihorario y huecos horarios, como los quiere OGC
                 for r in p {
                     ring(b, r, true);
                 }
@@ -378,14 +382,14 @@ fn type_name(d: &VectorData, kind: GeomKind) -> &'static str {
     }
 }
 
-// --------------------------------------------------------------------------------- the file
+// --------------------------------------------------------------------------------- el archivo
 
 fn quote_ident(s: &str) -> String {
     format!("\"{}\"", s.replace('"', "\"\""))
 }
 
-/// `2026-10-26T14:30:00.000Z` from the clock (days since 1970 to a calendar date, Hinnant's
-/// algorithm).
+/// `2026-10-26T14:30:00.000Z` a partir del reloj (días desde 1970 a una fecha de calendario,
+/// algoritmo de Hinnant).
 fn now_iso() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -445,7 +449,7 @@ fn srs_row(epsg: i64) -> Vec<Val> {
     ]
 }
 
-/// How a field is stored: whole numbers, decimals or text.
+/// Cómo se guarda un campo: números enteros, decimales o texto.
 #[derive(Clone, Copy, PartialEq)]
 enum Col {
     Int,
@@ -468,10 +472,10 @@ fn column_kind(d: &VectorData, c: usize) -> Col {
     }
 }
 
-/// Writes the tables to a new GeoPackage (an existing file is replaced).
+/// Escribe las tablas en un GeoPackage nuevo (uno existente se sustituye).
 pub fn write(path: &Path, tables: &[Table]) -> Result<()> {
     let mut pager = Pager::default();
-    pager.alloc(); // page 1 is the schema; it is filled in last
+    pager.alloc(); // la página 1 es el esquema; se rellena la última
     let mut master: Vec<(String, String, String, u32, String)> = Vec::new();
     let mut add = |kind: &str, name: &str, root: u32, sql: &str| {
         master.push((kind.into(), name.into(), name.into(), root, sql.into()));
@@ -496,7 +500,7 @@ pub fn write(path: &Path, tables: &[Table]) -> Result<()> {
         "CREATE TABLE gpkg_spatial_ref_sys (srs_name TEXT NOT NULL, srs_id INTEGER PRIMARY KEY, organization TEXT NOT NULL, organization_coordsys_id INTEGER NOT NULL, definition TEXT NOT NULL, description TEXT)",
     );
 
-    // the feature tables
+    // las tablas de elementos
     let when = now_iso();
     let (mut contents, mut geom_cols) = (Vec::new(), Vec::new());
     let mut feature_tables = Vec::new();
@@ -505,9 +509,9 @@ pub fn write(path: &Path, tables: &[Table]) -> Result<()> {
     for t in tables {
         let d = t.data;
         let srs = t.epsg.map_or(-1, i64::from);
-        // names: never `fid` or `geom`, never repeated
+        // nombres: nunca `fid` ni `geom`, nunca repetidos
         let mut names: Vec<String> = Vec::new();
-        // the columns written: a whole-number `fid` of the source is made again, not copied
+        // las columnas escritas: un `fid` de números enteros del origen se rehace, no se copia
         let src: Vec<usize> = (0..d.fields.len())
             .filter(|&c| {
                 !(d.fields[c].trim().eq_ignore_ascii_case("fid") && column_kind(d, c) == Col::Int)
@@ -710,7 +714,7 @@ pub fn write(path: &Path, tables: &[Table]) -> Result<()> {
     );
     master.extend(extras);
 
-    // page 1: the schema table and the database header
+    // página 1: la tabla de esquema y la cabecera de la base de datos
     let cells: Vec<Vec<u8>> = master
         .iter()
         .enumerate()
@@ -726,7 +730,7 @@ pub fn write(path: &Path, tables: &[Table]) -> Result<()> {
         })
         .collect();
     if !Pager::leaf_into(&mut pager.pages[0], &cells, 100) {
-        // the schema takes several pages: page 1 points at the leaves that hold it
+        // el esquema ocupa varias páginas: la página 1 apunta a las hojas que lo contienen
         let (mut leaves, mut cur, mut used) = (Vec::new(), Vec::new(), 0usize);
         for (i, c) in cells.into_iter().enumerate() {
             if !cur.is_empty() && 8 + 2 * (cur.len() + 1) + used + c.len() > PAGE {
@@ -773,20 +777,20 @@ pub fn write(path: &Path, tables: &[Table]) -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------- R-tree extension
+// ---------------------------------------------------------------------------- extensión R-tree
 
-/// A node holds the 51 cells SQLite allows; every node of a tree has the same size.
+/// Un nodo contiene las 51 celdas que permite SQLite; todo nodo de un árbol tiene el mismo tamaño.
 const NODE: usize = 4 + 24 * 51;
-/// SQLite never puts more than 51 cells in a node (RTREE_MAXCELLS); more makes it loop.
+/// SQLite nunca pone más de 51 celdas en un nodo (RTREE_MAXCELLS); más lo hace entrar en bucle.
 const CAP: usize = 50;
 
-/// An f32 not above `v`.
+/// Un f32 no mayor que `v`.
 fn f32_down(v: f64) -> f32 {
     let f = v as f32;
     if f64::from(f) > v { f.next_down() } else { f }
 }
 
-/// An f32 not below `v`.
+/// Un f32 no menor que `v`.
 fn f32_up(v: f64) -> f32 {
     let f = v as f32;
     if f64::from(f) < v { f.next_up() } else { f }
@@ -799,7 +803,8 @@ fn node_blob(depth: u16, cells: &[(i64, [f64; 4])]) -> Vec<u8> {
     for (k, (id, e)) in cells.iter().enumerate() {
         let at = 4 + 24 * k;
         b[at..at + 8].copy_from_slice(&id.to_be_bytes());
-        // minx, maxx, miny, maxy, rounded outward so that a box never loses a feature
+        // minx, maxx, miny, maxy, redondeados hacia fuera para que una caja nunca pierda un
+        // elemento
         for (j, v) in [f32_down(e[0]), f32_up(e[2]), f32_down(e[1]), f32_up(e[3])]
             .iter()
             .enumerate()
@@ -818,8 +823,8 @@ fn str_sort<T>(items: &mut [(T, [f64; 4])]) {
     }
 }
 
-/// The three shadow tables of an R-tree over `items` (feature id and extent): the b-tree roots
-/// of `_node`, `_parent` and `_rowid`.
+/// Las tres tablas sombra de un R-tree sobre `items` (identificador de elemento y extensión): las
+/// raíces de los árboles B de `_node`, `_parent` y `_rowid`.
 fn rtree_tables(p: &mut Pager, items: &[(i64, [f64; 4])]) -> (u32, u32, u32) {
     let mut sorted = items.to_vec();
     str_sort(&mut sorted);
@@ -877,7 +882,7 @@ fn rtree_tables(p: &mut Pager, items: &[(i64, [f64; 4])]) -> (u32, u32, u32) {
         depth += 1;
     }
     let root = level[0];
-    // the root is node 1, the others follow in the order they were made
+    // la raíz es el nodo 1, los demás siguen en el orden en que se hicieron
     let mut no = vec![0i64; nodes.len()];
     let mut n = 1;
     no[root] = 1;
@@ -920,7 +925,7 @@ fn rtree_tables(p: &mut Pager, items: &[(i64, [f64; 4])]) -> (u32, u32, u32) {
     )
 }
 
-/// The six triggers the extension asks for, which keep the index in step with the table.
+/// Los seis disparadores que pide la extensión, que mantienen el índice al ritmo de la tabla.
 fn rtree_triggers(t: &str, tree: &str) -> Vec<(String, String)> {
     let (tq, rq) = (quote_ident(t), quote_ident(tree));
     let put = format!(
@@ -973,9 +978,9 @@ fn rtree_triggers(t: &str, tree: &str) -> Vec<(String, String)> {
     ]
 }
 
-/// What rewriting a GeoPackage with [`replace_table`] would not keep: tables that are not
-/// feature tables nor the standard bookkeeping (styles saved by QGIS, attribute-only tables,
-/// tiles). Empty when nothing is lost.
+/// Lo que no conservaría reescribir un GeoPackage con [`replace_table`]: las tablas que no son de
+/// elementos ni la contabilidad estándar (estilos guardados por QGIS, tablas solo de atributos,
+/// teselas). Vacío cuando no se pierde nada.
 pub fn lost_on_rewrite(path: &Path) -> Result<Vec<String>> {
     use crate::sqlite::Db;
     let db = Db::open(path)?;
@@ -1003,9 +1008,10 @@ pub fn lost_on_rewrite(path: &Path) -> Result<Vec<String>> {
     Ok(lost)
 }
 
-/// Saves a layer over its own table of a GeoPackage, keeping the other feature tables: the file
-/// is written again beside the old one and replaces it only when it is complete. A table of
-/// that name that does not exist is added. See [`lost_on_rewrite`] for what is not kept.
+/// Guarda una capa sobre su propia tabla de un GeoPackage, conservando las demás tablas de
+/// elementos: el archivo se escribe de nuevo junto al antiguo y lo sustituye solo cuando está
+/// completo. Una tabla de ese nombre que no existe se añade. Véase [`lost_on_rewrite`] para lo que
+/// no se conserva.
 pub fn replace_table(path: &Path, table: &str, data: &VectorData, kind: GeomKind, epsg: Option<u16>) -> Result<()> {
     struct Owned {
         name: String,
@@ -1053,7 +1059,8 @@ mod tests {
     fn layer() -> VectorData {
         let sq =
             |x: f64, y: f64, s: f64| vec![[x, y], [x, y + s], [x + s, y + s], [x + s, y], [x, y]];
-        // exterior clockwise and a hole counter-clockwise, as the program keeps them
+        // exterior en el sentido de las agujas del reloj y hueco en sentido contrario, como los
+        // guarda el programa
         let mut hole = sq(2.0, 2.0, 2.0);
         hole.reverse();
         let features = vec![

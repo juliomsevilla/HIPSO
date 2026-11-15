@@ -1,9 +1,9 @@
-//! Viewshed: which cells an observer sees. Rays leave the observer at an angular step finer
-//! than the cell at the far end, and along each one a cell is seen when the line from the eye
-//! to its top (ground plus the height to be seen) rises at least as steeply as everything
-//! before it. The work grows with the radius and the number of rays, not with the cells in the
-//! disc, and the rays run in parallel. The Earth's curvature and refraction are not applied
-//! (negligible within a few kilometres).
+//! Cuenca visual: qué celdas ve un observador. Los rayos salen del observador con un paso angular
+//! más fino que la celda en el extremo lejano y, a lo largo de cada uno, una celda se ve cuando la
+//! línea del ojo a su parte superior (suelo más la altura que debe verse) sube al menos tan
+//! empinada como todo lo anterior. El trabajo crece con el radio y el número de rayos, no con las
+//! celdas del disco, y los rayos se ejecutan en paralelo. No se aplican la curvatura de la Tierra
+//! ni la refracción (despreciables en unos pocos kilómetros).
 
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -12,7 +12,7 @@ use rayon::prelude::*;
 use crate::grid::Grid;
 use crate::{Error, Result};
 
-/// 1 where the observer sees, 0 where not, empty beyond `max_distance` or without data.
+/// 1 donde el observador ve, 0 donde no, vacío más allá de `max_distance` o sin datos.
 pub fn viewshed(
     g: &Grid,
     z: f64,
@@ -38,12 +38,12 @@ pub fn viewshed(
     }
     let zo = f64::from(ground) * z + eye;
     let reach = max_distance / g.cell;
-    // sub-cell steps and rays, so no cell between two rays goes unvisited
+    // pasos y rayos de subcelda, de modo que ninguna celda entre dos rayos queda sin visitar
     let rays = ((std::f64::consts::TAU * reach * 2.0).ceil() as usize).max(360);
     let steps = (reach * 2.0).ceil() as usize;
-    // per cell: bit 0 reached by a ray, bit 1 seen
+    // por celda: el bit 0 alcanzada por un rayo, el bit 1 vista
     let state: Vec<AtomicU8> = (0..g.data.len()).map(|_| AtomicU8::new(0)).collect();
-    // the observer's cell, in cell units from the grid's north-west corner
+    // la celda del observador, en unidades de celda desde la esquina noroeste de la rejilla
     let (ox, oy) = (
         (observer[0] - g.x0) / g.cell,
         (g.y0 + g.rows as f64 * g.cell - observer[1]) / g.cell,
@@ -63,7 +63,7 @@ pub fn viewshed(
                 continue;
             }
             last = i;
-            // distance to the cell's centre, so the cell is judged the same from every ray
+            // distancia al centro de la celda, de modo que la celda se juzga igual desde cada rayo
             let (cx, cy) = (
                 (i % g.cols) as f64 + 0.5 - ox,
                 (i / g.cols) as f64 + 0.5 - oy,
@@ -131,7 +131,7 @@ mod tests {
         assert_eq!(v.data[20 * 41 + 24], 1.0, "in front of the wall");
         assert_eq!(v.data[20 * 41 + 25], 1.0, "the wall itself");
         assert_eq!(v.data[20 * 41 + 30], 0.0, "behind it");
-        // a tall enough target is seen over a low wall
+        // un blanco suficientemente alto se ve por encima de un muro bajo
         let mut low = flat(41, 41)?;
         for r in 0..41 {
             low.data[r * 41 + 25] = 12.0;

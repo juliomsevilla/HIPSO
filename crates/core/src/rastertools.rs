@@ -1,12 +1,12 @@
-//! Raster tools:
-//! a multiband image made from rasters (each input band becomes one output band) and a mosaic
-//! of rasters that says what to do where pixels overlap (first, last, mean, minimum, maximum,
-//! median, sum or the number of layers). Both read the inputs by window and write the output as
-//! a cloud-optimized GeoTIFF (tiles and overviews, see [`crate::tiled`]), so memory follows a
-//! block of rows, never the images.
+//! Herramientas de ráster: una imagen multibanda hecha a partir de rásteres (cada banda de entrada
+//! pasa a ser una banda de salida) y un mosaico de rásteres que dice qué hacer donde se solapan los
+//! píxeles (primero, último, media, mínimo, máximo, mediana, suma o número de capas). Ambas leen
+//! las entradas por ventana y escriben la salida como un GeoTIFF optimizado para la nube (teselas y
+//! vistas reducidas, véase [`crate::tiled`]), de modo que la memoria sigue a un bloque de filas,
+//! nunca a las imágenes.
 //!
-//! The inputs may be in different coordinate systems (those of the others are moved to the
-//! first one's) and have different cells: they are resampled to the output's.
+//! Las entradas pueden estar en distintos sistemas de coordenadas (las de las demás se llevan al de
+//! la primera) y tener celdas distintas: se remuestrean a la de la salida.
 
 use std::path::PathBuf;
 
@@ -16,19 +16,19 @@ use crate::pyramid::Pyramid;
 use crate::raster::Image;
 use crate::{Error, Result};
 
-/// What to do where pixels of several inputs overlap.
+/// Qué hacer donde se solapan píxeles de varias entradas.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Overlap {
-    /// The first input that has data (the order of the list).
+    /// La primera entrada que tiene datos (el orden de la lista).
     First,
-    /// The last input that has data.
+    /// La última entrada que tiene datos.
     Last,
     Mean,
     Min,
     Max,
     Median,
     Sum,
-    /// How many inputs have data at the pixel.
+    /// Cuántas entradas tienen datos en el píxel.
     Count,
 }
 
@@ -75,22 +75,22 @@ impl Overlap {
 pub enum Resample {
     Nearest,
     Bilinear,
-    /// The mean of the source pixels under the output pixel (for reducing a fine image).
+    /// La media de los píxeles de origen bajo el píxel de salida (para reducir una imagen fina).
     Average,
-    /// Cubic convolution over the 4x4 nearest pixels (Keys, a = -0.5); bilinear where one of
-    /// them is empty. Smooth, may overshoot slightly: not for classes.
+    /// Convolución cúbica sobre los 4x4 píxeles más cercanos (Keys, a = -0,5); bilineal donde uno
+    /// de ellos está vacío. Suave, puede sobrepasar ligeramente: no para clases.
     Cubic,
-    /// The most frequent value under the output pixel (ties: the smallest): for classes when
-    /// reducing a fine image.
+    /// El valor más frecuente bajo el píxel de salida (en los empates, el menor): para clases al
+    /// reducir una imagen fina.
     Mode,
 }
 
-/// The area the output covers.
+/// El área que cubre la salida.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Extent {
     Union,
     Intersection,
-    /// That of the first input.
+    /// La de la primera entrada.
     First,
 }
 
@@ -101,7 +101,7 @@ pub enum Dtype {
     F32,
 }
 
-/// An input raster and the bands taken from it (empty: all, numbered from 1).
+/// Un ráster de entrada y las bandas que se toman de él (vacío: todas, numeradas desde 1).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Source {
     pub path: PathBuf,
@@ -112,21 +112,21 @@ pub struct Source {
 pub struct RasterJob {
     pub inputs: Vec<Source>,
     pub output: PathBuf,
-    /// Output cell; the finest input's when `None`.
+    /// Celda de salida; la de la entrada más fina cuando `None`.
     pub cell: Option<f64>,
     pub extent: Extent,
     pub overlap: Overlap,
     pub resample: Resample,
-    /// Sample type of the output; that of the first input when `None`.
+    /// Tipo de muestra de la salida; el de la primera entrada cuando `None`.
     pub dtype: Option<Dtype>,
-    /// A value of the inputs that means "no data" (besides what their files declare).
+    /// Un valor de las entradas que significa «sin datos» (además de lo que declaren sus archivos).
     pub src_nodata: Option<f32>,
-    /// What empty output pixels hold.
+    /// Lo que contienen los píxeles de salida vacíos.
     pub nodata: f32,
-    /// Write BigTIFF even if the image is small (it is used above 4 GB anyway).
+    /// Escribe BigTIFF aunque la imagen sea pequeña (se usa por encima de 4 GB de todos modos).
     pub bigtiff: bool,
-    /// How the tiles are compressed; `None`: JPEG for 8-bit photographs of three bands,
-    /// deflate otherwise.
+    /// Cómo se comprimen las teselas; `None`: JPEG para fotografías de 8 bits y tres bandas,
+    /// deflate en los demás casos.
     pub compression: Option<crate::tiled::Compression>,
 }
 
@@ -148,10 +148,10 @@ impl RasterJob {
     }
 }
 
-/// Most bands of an output.
+/// Máximo de bandas de una salida.
 pub const MAX_BANDS: usize = 64;
 
-/// Output grid.
+/// Rejilla de salida.
 struct Frame {
     x0: f64,
     top: f64,
@@ -164,7 +164,7 @@ struct Opened {
     pyr: Pyramid,
     /// 0-based bands taken.
     bands: Vec<usize>,
-    /// The copy moved to the system of the first input, deleted when the job ends.
+    /// La copia llevada al sistema de la primera entrada, borrada cuando termina el trabajo.
     temp: Option<PathBuf>,
 }
 
@@ -187,7 +187,7 @@ fn open_all(job: &RasterJob) -> Result<Vec<Opened>> {
     for (n, s) in job.inputs.iter().enumerate() {
         let mut pyr = Pyramid::open(&s.path)?;
         let mut temp = None;
-        // an input in another system is moved to that of the first one
+        // una entrada en otro sistema se lleva al de la primera
         if let (Some(first), Some(own)) = (out.first().and_then(|o| o.pyr.epsg), pyr.epsg)
             && first != own
         {
@@ -271,12 +271,13 @@ fn frame_of(job: &RasterJob, ins: &[Opened]) -> Result<Frame> {
     })
 }
 
-/// The value of band `b` of `img` for the output pixel centred on `(x, y)` with side `cell`.
+/// El valor de la banda `b` de `img` para el píxel de salida centrado en `(x, y)` con lado `cell`.
 fn sample(img: &Image, b: usize, x: f64, y: f64, cell: f64, how: Resample) -> f32 {
     let top = img.y0 + img.rows as f64 * img.cell;
     let (fx, fy) = ((x - img.x0) / img.cell, (top - y) / img.cell);
-    // same cell and the pixel centre on a source centre (the usual case when sheets or strips of
-    // one grid are joined or rewritten): the source value itself, with no interpolation
+    // misma celda y el centro del píxel sobre el centro de uno de origen (el caso habitual cuando
+    // se unen o reescriben hojas o franjas de una misma rejilla): el propio valor de origen, sin
+    // interpolación
     if (img.cell - cell).abs() <= cell * 1e-9
         && (fx - fx.floor() - 0.5).abs() < 1e-6
         && (fy - fy.floor() - 0.5).abs() < 1e-6
@@ -322,7 +323,7 @@ fn sample(img: &Image, b: usize, x: f64, y: f64, cell: f64, how: Resample) -> f3
             let (c0, r0) = (gx.floor() as i64, gy.floor() as i64);
             let (tx, ty) = (gx - gx.floor(), gy - gy.floor());
             let kernel = |t: f64| -> [f64; 4] {
-                // Keys' cubic convolution weights for the pixels at -1, 0, 1, 2
+                // Los pesos de la convolución cúbica de Keys para los píxeles en -1, 0, 1, 2
                 let w = |x: f64| {
                     let x = x.abs();
                     if x <= 1.0 {
@@ -404,8 +405,8 @@ fn sample(img: &Image, b: usize, x: f64, y: f64, cell: f64, how: Resample) -> f3
     }
 }
 
-/// Reads the part of input `o` that covers rows `r0..r1` of the frame; `None` when it lies
-/// outside.
+/// Lee la parte de la entrada `o` que cubre las filas `r0..r1` del marco; `None` cuando queda
+/// fuera.
 fn read_block(
     o: &Opened,
     f: &Frame,
@@ -420,7 +421,7 @@ fn read_block(
         f.top - r0 as f64 * f.cell,
     ];
     let e = o.pyr.extent();
-    // a margin of two source pixels for the bilinear and average kernels
+    // un margen de dos píxeles de origen para los núcleos bilineal y de media
     let m = o.pyr.cell * 2.0;
     if win[2] <= e[0] || win[0] >= e[2] || win[3] <= e[1] || win[1] >= e[3] {
         return Ok(None);
@@ -441,16 +442,16 @@ fn read_block(
     Ok(Some(img))
 }
 
-/// Rows per block so that a block holds about 4 million samples.
+/// Filas por bloque para que un bloque contenga unos 4 millones de muestras.
 fn block_rows(f: &Frame, nb: usize, layers: usize) -> usize {
     (4_000_000 / (f.cols * nb * layers.max(1))).clamp(8, 2048)
 }
 
 // -------------------------------------------------------------------------------- writing
 
-/// Writes the frame as a cloud-optimized GeoTIFF (tiles, overviews), asking `rows_of(r0, r1)`
-/// for the interleaved samples of those rows, `step` rows at a time. BigTIFF when the image
-/// could pass 4 GB.
+/// Escribe el marco como GeoTIFF optimizado para la nube (teselas, vistas reducidas), pidiendo a
+/// `rows_of(r0, r1)` las muestras entrelazadas de esas filas, `step` filas cada vez. BigTIFF cuando
+/// la imagen podría pasar de 4 GB.
 #[allow(clippy::too_many_arguments)]
 fn write_frame(
     job: &RasterJob,
@@ -475,7 +476,7 @@ fn write_frame(
         epsg,
         nodata: job.nodata,
         compression,
-        // classes and counts are not averaged in the overviews
+        // las clases y los recuentos no se promedian en las vistas reducidas
         nearest: job.overlap == Overlap::Count
             || ((job.resample == Resample::Nearest || job.resample == Resample::Mode) && nb == 1 && dtype != Dtype::F32),
         bigtiff: job.bigtiff,
@@ -493,7 +494,7 @@ fn dtype_of(job: &RasterJob, first: &Pyramid) -> Dtype {
 
 // -------------------------------------------------------------------------------- stack
 
-/// A multiband image: the bands of every input, in order, one after another.
+/// Una imagen multibanda: las bandas de cada entrada, en orden, una tras otra.
 pub fn stack(job: &RasterJob) -> Result<String> {
     let ins = open_all(job)?;
     let nb: usize = ins.iter().map(|o| o.bands.len()).sum();
@@ -539,32 +540,32 @@ pub fn stack(job: &RasterJob) -> Result<String> {
 
 // -------------------------------------------------------------------------------- warp
 
-/// Where a warp puts a raster.
+/// Dónde pone una deformación un ráster.
 #[derive(Clone, Debug)]
 pub enum Target {
-    /// The cells of this raster: its system, origin, cell and size.
+    /// Las celdas de este ráster: su sistema, origen, celda y tamaño.
     Reference(PathBuf),
-    /// This system (EPSG). The cell is the source's when the units agree (see
-    /// [`crate::reproject::grid`]) unless `cell` says another; the extent is the source's.
+    /// Este sistema (EPSG). La celda es la de origen cuando las unidades coinciden (véase
+    /// [`crate::reproject::grid`]) salvo que `cell` diga otra; la extensión es la de origen.
     Epsg { code: u16, cell: Option<f64> },
 }
 
-/// One raster moved to another system, extent or cell: the single operation behind "reproject",
-/// "match the extent of a reference" and "resample".
+/// Un ráster llevado a otro sistema, extensión o celda: la única operación que hay detrás de
+/// «reproyectar», «igualar la extensión de una referencia» y «remuestrear».
 #[derive(Clone, Debug)]
 pub struct WarpJob {
     pub input: PathBuf,
     pub output: PathBuf,
     pub target: Target,
-    /// The input's system when the file does not declare it.
+    /// El sistema de la entrada cuando el archivo no lo declara.
     pub from: Option<u16>,
-    /// `None` chooses by the data and the cell sizes (see [`Resample::describe`]).
+    /// `None` elige según los datos y los tamaños de celda (véase [`Resample::describe`]).
     pub resample: Option<Resample>,
-    /// Sample type of the output; that of the input when `None`.
+    /// Tipo de muestra de la salida; el de la entrada cuando `None`.
     pub dtype: Option<Dtype>,
-    /// What output cells without a value hold.
+    /// Lo que contienen las celdas de salida sin valor.
     pub nodata: f32,
-    /// A value of the input that means "no data" (besides what its file declares).
+    /// Un valor de la entrada que significa «sin datos» (además de lo que declare su archivo).
     pub src_nodata: Option<f32>,
     pub compression: Option<crate::tiled::Compression>,
 }
@@ -604,7 +605,7 @@ impl Resample {
         }
     }
 
-    /// When to use it, for the help of the tools.
+    /// Cuándo usarlo, para la ayuda de las herramientas.
     pub fn describe(self) -> &'static str {
         match self {
             Resample::Nearest => "Copia el valor de la celda más cercana, sin inventar valores: es el que hay que usar con clases, identificadores o máscaras. Es el más rápido; en imágenes continuas deja bordes escalonados.",
@@ -626,9 +627,10 @@ impl Resample {
     }
 }
 
-/// A source whose values are all whole numbers (classes, identifiers) in a sample of the picture.
+/// Un origen cuyos valores son todos números enteros (clases, identificadores) en una muestra de la
+/// imagen.
 fn looks_categorical(pyr: &Pyramid) -> bool {
-    // several bands are an image (photograph, composition), not classes
+    // varias bandas son una imagen (fotografía, composición), no clases
     if pyr.bands != 1 {
         return false;
     }
@@ -651,8 +653,9 @@ fn looks_categorical(pyr: &Pyramid) -> bool {
     seen > 0
 }
 
-/// The resampling used when none is asked for: classes keep their values (the nearest cell, or
-/// the commonest one when reducing), the rest is averaged when reduced and bilinear otherwise.
+/// El remuestreo que se usa cuando no se pide ninguno: las clases conservan sus valores (la celda
+/// más cercana o la más frecuente al reducir), el resto se promedia al reducir y es bilineal en
+/// caso contrario.
 fn auto_resample(pyr: &Pyramid, reducing: bool) -> Resample {
     if looks_categorical(pyr) {
         if reducing { Resample::Mode } else { Resample::Nearest }
@@ -663,14 +666,14 @@ fn auto_resample(pyr: &Pyramid, reducing: bool) -> Resample {
     }
 }
 
-/// Maps the pixels of a block of the output frame to the source system without transforming each
-/// one: the exact transformation at nodes every `k` pixels, interpolated between them, with `k`
-/// halved until the error at the middle of every node cell is under a tenth of a source pixel
-/// (down to `k = 1`, which is exact).
+/// Traslada los píxeles de un bloque del marco de salida al sistema de origen sin transformar cada
+/// uno: la transformación exacta en nodos cada `k` píxeles, interpolada entre ellos, con `k`
+/// reducido a la mitad hasta que el error en el centro de cada celda de nodos es inferior a una
+/// décima de píxel de origen (hasta `k = 1`, que es exacto).
 struct NodeMap {
     cols_at: Vec<usize>,
     rows_at: Vec<usize>,
-    /// `[x, y]` of node (row j, column i) in the source system; NaN where it cannot be moved.
+    /// `[x, y]` del nodo (fila j, columna i) en el sistema de origen; NaN donde no se puede mover.
     xy: Vec<[f64; 2]>,
     k: usize,
 }
@@ -732,7 +735,7 @@ impl NodeMap {
                     (n(i, j)[0] + n(i + 1, j)[0] + n(i, j + 1)[0] + n(i + 1, j + 1)[0]) / 4.0,
                     (n(i, j)[1] + n(i + 1, j)[1] + n(i, j + 1)[1] + n(i + 1, j + 1)[1]) / 4.0,
                 ];
-                // a cell the transformation cannot cross is left to the exact pass
+                // una celda que la transformación no puede cruzar se deja a la pasada exacta
                 if want[0].is_nan() != have[0].is_nan() {
                     return self.k <= 1;
                 }
@@ -740,7 +743,7 @@ impl NodeMap {
             })
     }
 
-    /// The source box of the nodes, `None` when none could be moved.
+    /// La caja de origen de los nodos, `None` cuando ninguno se pudo mover.
     fn bounds(&self) -> Option<[f64; 4]> {
         let mut b = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
         for p in self.xy.iter().filter(|p| p[0].is_finite() && p[1].is_finite()) {
@@ -749,7 +752,8 @@ impl NodeMap {
         (b[0] <= b[2] && b[1] <= b[3]).then_some(b)
     }
 
-    /// Fills `line` with the source coordinates of the pixels of row `r` (0-based in the block).
+    /// Rellena `line` con las coordenadas de origen de los píxeles de la fila `r` (empezando en 0
+    /// en el bloque).
     fn row(&self, r: usize, line: &mut [[f64; 2]]) {
         let w = self.cols_at.len();
         let j = (r / self.k).min(self.rows_at.len().saturating_sub(2));
@@ -782,9 +786,9 @@ impl NodeMap {
     }
 }
 
-/// Moves a raster (all its bands) to another system, extent or cell. Memory follows a block of
-/// rows; the source is read by window and the work is spread over all cores. Returns a line for
-/// the report.
+/// Lleva un ráster (todas sus bandas) a otro sistema, extensión o celda. La memoria sigue a un
+/// bloque de filas; el origen se lee por ventana y el trabajo se reparte entre todos los núcleos.
+/// Devuelve una línea para el informe.
 pub fn warp(job: &WarpJob) -> Result<String> {
     let pyr = Pyramid::open(&job.input)?;
     let nb = pyr.bands;
@@ -796,7 +800,7 @@ pub fn warp(job: &WarpJob) -> Result<String> {
     let from = job.from.or(pyr.epsg);
     let e = pyr.extent();
     let (src_cols, src_rows) = (pyr.levels[0].cols as usize, pyr.levels[0].rows as usize);
-    // the output frame and its system
+    // el marco de salida y su sistema
     let (f, out_epsg, note) = match &job.target {
         Target::Reference(path) => {
             let r = Pyramid::open(path)?;
@@ -865,7 +869,7 @@ pub fn warp(job: &WarpJob) -> Result<String> {
         (Some(a), Some(b)) if a != b => Some(crate::reproject::transformer(b, a)?),
         _ => None,
     };
-    // source cell in the units of the output, to know whether the picture is reduced
+    // celda de origen en las unidades de la salida, para saber si la imagen se reduce
     let src_in_out = match (&inv, from, out_epsg) {
         (Some(_), Some(a), Some(b)) => {
             let fwd = crate::reproject::transformer(a, b)?;
@@ -890,10 +894,10 @@ pub fn warp(job: &WarpJob) -> Result<String> {
         9..=16 => Dtype::U16,
         _ => Dtype::F32,
     });
-    // source pixels per output pixel, for the size of the blocks
+    // píxeles de origen por píxel de salida, para el tamaño de los bloques
     let scale = (f.cell / src_in_out).max(1.0);
-    // about 24 million samples per block, and whole tile rows of the source where it can be
-    // (a tile is decoded once per block that touches it)
+    // unos 24 millones de muestras por bloque, y filas de tesela enteras del origen donde se pueda
+    // (una tesela se decodifica una vez por bloque que la toca)
     let step = ((24_000_000.0 / (f.cols * nb) as f64 / (scale * scale)) as usize).clamp(4, 4096);
     let tile_rows = crate::tiled::TILE as f64 * src_in_out / f.cell;
     let step = if tile_rows >= 1.0 && step as f64 >= 2.0 * tile_rows {
@@ -911,7 +915,7 @@ pub fn warp(job: &WarpJob) -> Result<String> {
         crate::progress::advance((r1 - r0) as u64);
         let n = r1 - r0;
         let mut out = vec![f32::NAN; n * f.cols * nb];
-        // the part of the source under the block, and where each pixel of it falls
+        // la parte del origen bajo el bloque y dónde cae cada píxel de ella
         let (win, map, fp) = match &inv {
             None => {
                 let m = pyr.cell * 3.0 + f.cell;
@@ -931,7 +935,7 @@ pub fn warp(job: &WarpJob) -> Result<String> {
                 let Some(b) = map.bounds() else {
                     return Ok(out);
                 };
-                // the output cell in source units, at the middle of the block
+                // la celda de salida en unidades de origen, en el centro del bloque
                 let (cx, cy) = (
                     f.x0 + f.cols as f64 / 2.0 * f.cell,
                     f.top - (r0 + r1) as f64 / 2.0 * f.cell,
@@ -1020,30 +1024,29 @@ pub fn warp(job: &WarpJob) -> Result<String> {
 
 // -------------------------------------------------------------------------------- align
 
-/// Puts rasters on the cells of another: same system, origin, cell and size, so that layer by
-/// layer they can be compared and stacked. A raster in another system is moved to the
-/// reference's.
+/// Pone rásteres sobre las celdas de otro: mismo sistema, origen, celda y tamaño, de modo que capa
+/// a capa se puedan comparar y apilar. Un ráster en otro sistema se lleva al de la referencia.
 #[derive(Clone, Debug)]
 pub struct AlignJob {
-    /// The raster whose cells every other one takes.
+    /// El ráster cuyas celdas toman todos los demás.
     pub reference: PathBuf,
-    /// Each raster to align and where its aligned copy goes.
+    /// Cada ráster que alinear y adónde va su copia alineada.
     pub inputs: Vec<(PathBuf, PathBuf)>,
-    /// How values are carried over; `None` chooses by the data and the cells: classes keep their
-    /// values (nearest cell, or the commonest when reducing), the rest is averaged when reduced
-    /// and bilinear otherwise.
+    /// Cómo se trasladan los valores; `None` elige según los datos y las celdas: las clases
+    /// conservan sus valores (celda más cercana o la más frecuente al reducir), el resto se
+    /// promedia al reducir y es bilineal en caso contrario.
     pub resample: Option<Resample>,
-    /// Sample type of the copies; that of each input when `None`.
+    /// Tipo de muestra de las copias; el de cada entrada cuando `None`.
     pub dtype: Option<Dtype>,
-    /// What cells outside the input hold.
+    /// Lo que contienen las celdas fuera de la entrada.
     pub nodata: f32,
-    /// A value of the inputs that means "no data" (besides what their files declare).
+    /// Un valor de las entradas que significa «sin datos» (además de lo que declaren sus archivos).
     pub src_nodata: Option<f32>,
-    /// How the copies are compressed; `None`: as [`RasterJob::compression`].
+    /// Cómo se comprimen las copias; `None`: como [`RasterJob::compression`].
     pub compression: Option<crate::tiled::Compression>,
 }
 
-/// Writes each raster of the job on the cells of the reference.
+/// Escribe cada ráster del trabajo sobre las celdas de la referencia.
 pub fn align(job: &AlignJob) -> Result<String> {
     let mut lines = Vec::new();
     for (input, output) in &job.inputs {
@@ -1065,7 +1068,7 @@ pub fn align(job: &AlignJob) -> Result<String> {
 
 // -------------------------------------------------------------------------------- mosaic
 
-/// A mosaic of rasters with the same bands, resolving overlaps as `job.overlap` says.
+/// Un mosaico de rásteres con las mismas bandas, que resuelve los solapes como dice `job.overlap`.
 pub fn mosaic(job: &RasterJob) -> Result<String> {
     let ins = open_all(job)?;
     let nb = ins[0].bands.len();
@@ -1090,7 +1093,7 @@ pub fn mosaic(job: &RasterJob) -> Result<String> {
     let mut overlapped = 0u64;
     write_frame(job, &f, ins[0].pyr.epsg, dtype, nb, step, |r0, r1| {
         let n = (r1 - r0) * f.cols;
-        // running value and number of layers with data, per sample
+        // valor acumulado y número de capas con datos, por muestra
         let mut acc = vec![0f32; n * nb];
         let mut cnt = vec![0u16; n * nb];
         let mut layers: Vec<Vec<f32>> = Vec::new();
@@ -1192,7 +1195,7 @@ mod tests {
         let img = ramp(10, 10, |x, y| (2.0 * x + 3.0 * y) as f32);
         let v = sample(&img, 0, 4.3, 5.8, 1.0, Resample::Cubic);
         assert!((f64::from(v) - (2.0 * 4.3 + 3.0 * 5.8)).abs() < 1e-4, "{v}");
-        // a pixel of 4x4 source cells: 10 cells of class 7, 6 of class 3
+        // un píxel de 4x4 celdas de origen: 10 celdas de clase 7, 6 de clase 3
         let mut img = ramp(8, 8, |_, _| 3.0);
         for r in 0..2 {
             for c in 0..4 {
@@ -1203,7 +1206,7 @@ mod tests {
             img.bands[0][2 * 8 + c] = 7.0;
         }
         assert_eq!(sample(&img, 0, 2.0, 6.0, 4.0, Resample::Mode), 7.0);
-        // a hole among the 16 cubic neighbours falls back to bilinear, not NaN
+        // un hueco entre los 16 vecinos cúbicos recurre al bilineal, no a NaN
         let mut img = ramp(10, 10, |x, _| x as f32);
         img.bands[0][4 * 10 + 4] = f32::NAN;
         assert!(sample(&img, 0, 4.6, 5.4, 1.0, Resample::Cubic).is_finite());
@@ -1222,7 +1225,7 @@ mod tests {
         let dir =
             std::env::temp_dir().join(format!("rl-mosaic-{}-{}", std::process::id(), how.tag()));
         std::fs::create_dir_all(&dir)?;
-        // a: x 0..4 = 2, b: x 2..6 = 6 and c: x 2..6 = 10 (both overlap a in x 2..4)
+        // a: x 0..4 = 2, b: x 2..6 = 6 y c: x 2..6 = 10 (ambos se solapan con a en x 2..4)
         let files = [
             ("a.tif", 0.0, 2.0),
             ("b.tif", 2.0, 6.0),
@@ -1289,17 +1292,17 @@ mod tests {
     fn align_puts_a_raster_on_the_reference_cells() -> Result<()> {
         let dir = std::env::temp_dir().join(format!("rl-align-{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
-        // reference: 1 m cells, x 100..106, y 200..204
+        // referencia: celdas de 1 m, x 100..106, y 200..204
         let mut r = Grid::new(100.0, 200.0, 1.0, 6, 4)?;
         r.data.fill(1.0);
         r.write_tiff(&dir.join("ref.tif"), Some(25830))?;
-        // input: 0.5 m cells, shifted by a quarter of a metre, bigger than the reference
+        // entrada: celdas de 0,5 m, desplazada un cuarto de metro, mayor que la referencia
         let mut g = Grid::new(99.0, 199.0, 0.5, 20, 14)?;
         for (i, v) in g.data.iter_mut().enumerate() {
             *v = if (i % 20) < 10 { 4.5 } else { 8.5 };
         }
         g.write_tiff(&dir.join("fine.tif"), Some(25830))?;
-        // and one that only covers part of the reference
+        // y una que solo cubre parte de la referencia
         let mut part = Grid::new(100.0, 200.0, 1.0, 3, 4)?;
         part.data.fill(5.0);
         part.write_tiff(&dir.join("part.tif"), Some(25830))?;
@@ -1332,16 +1335,16 @@ mod tests {
                 "{name} does not sit on the reference cells"
             );
         }
-        // the fine raster changes from 4 to 8 at x = 104 (cell 10 of 0.5 m from 99): the first
-        // four columns of the reference are 4 and the last two 8
+        // el ráster fino cambia de 4 a 8 en x = 104 (celda 10 de 0,5 m desde 99): las cuatro
+        // primeras columnas de la referencia son 4 y las dos últimas 8
         let a = Grid::read(&dir.join("fine_a.tif"))?;
         assert_eq!(&a.data[..6], &[4.5, 4.5, 4.5, 4.5, 8.5, 8.5]);
-        // the partial raster leaves the cells it does not cover empty
+        // el ráster parcial deja vacías las celdas que no cubre
         let p = Grid::read(&dir.join("part_a.tif"))?;
         assert_eq!(p.data[0], 5.0);
         assert!(p.data[5].is_nan());
-        // classes keep their values: whole numbers are carried by the nearest cell, or the
-        // commonest one when reducing (here 2 x 2 fine cells under each reference cell)
+        // las clases conservan sus valores: los números enteros los lleva la celda más cercana, o
+        // la más frecuente al reducir (aquí 2 x 2 celdas finas bajo cada celda de referencia)
         let mut cls = Grid::new(100.0, 200.0, 0.5, 12, 8)?;
         for (i, v) in cls.data.iter_mut().enumerate() {
             *v = if (i % 12) < 6 { 3.0 } else { 7.0 };
@@ -1354,8 +1357,8 @@ mod tests {
         assert!(text.contains("moda"), "{text}");
         let c = Grid::read(&dir.join("cls_a.tif"))?;
         assert_eq!(&c.data[..6], &[3.0, 3.0, 3.0, 7.0, 7.0, 7.0]);
-        // a raster in another system is moved to the reference's: the cells are the reference's
-        // and the values come from where each cell falls in the source
+        // un ráster en otro sistema se lleva al de la referencia: las celdas son las de la
+        // referencia y los valores vienen de donde cae cada celda en el origen
         let mut other = Grid::new(100.0, 200.0, 1.0, 6, 4)?;
         other.data.fill(1.5);
         other.write_tiff(&dir.join("other.tif"), Some(25829))?;

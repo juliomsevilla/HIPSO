@@ -1,5 +1,6 @@
-//! A tree cut by the edge between two canopy models is found once, whole, by the sheet that
-//! holds its top; on their own, the sheet that only has its flank finds a tree at the edge.
+//! Un árbol cortado por el borde entre dos modelos de copas lo encuentra una sola vez, entero, la
+//! hoja que contiene su cima; por sí sola, la hoja que solo tiene su flanco encuentra un árbol en
+//! el borde.
 
 use hipso_core::Result;
 use hipso_core::grid::Grid;
@@ -8,7 +9,7 @@ use hipso_core::paths::Formats;
 use hipso_core::trees::{CrownParams, Smoothing, TopParams};
 use std::path::{Path, PathBuf};
 
-/// Cones: (x, y, height, radius); the surface is the highest of them.
+/// Conos: (x, y, altura, radio); la superficie es la más alta de ellos.
 const TREES: [(f64, f64, f64, f64); 3] = [
     (48.0, 25.0, 20.0, 9.0),
     (75.0, 25.0, 18.0, 8.0),
@@ -71,7 +72,8 @@ fn count(csv: &Path) -> Result<Vec<(f64, f64)>> {
 fn a_tree_on_the_edge_is_found_once() -> Result<()> {
     let dir = std::env::temp_dir().join(format!("hipso_across_{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
-    // two sheets side by side, 50 m each: the first tree (48, 25) has its flank in the east one
+    // dos hojas lado a lado, de 50 m cada una: el primer árbol (48, 25) tiene su flanco en la del
+    // este
     let (west, east) = (dir.join("oeste.tif"), dir.join("este.tif"));
     sheet(0.0)?
         .crop([0.0, 0.0, 50.0, 50.0])?
@@ -84,15 +86,15 @@ fn a_tree_on_the_edge_is_found_once() -> Result<()> {
         trees(&job(chm.to_path_buf(), out.clone(), around))?;
         count(&out.with_extension("csv"))
     };
-    // each on its own: the east sheet makes up a tree from the flank at its edge
+    // cada una por sí sola: la hoja del este se inventa un árbol a partir del flanco en su borde
     let alone = run("sola_oeste", &west, vec![])?.len() + run("sola_este", &east, vec![])?.len();
     assert!(alone > TREES.len(), "on their own: {alone}");
-    // with the neighbours: the three trees, once each, at their own tops
+    // con las vecinas: los tres árboles, una vez cada uno, en sus propias cimas
     let w = run("con_oeste", &west, vec![east.clone()])?;
     let e = run("con_este", &east, vec![west.clone()])?;
     assert_eq!(w.len() + e.len(), TREES.len(), "west {w:?} east {e:?}");
     assert!(w.iter().all(|t| t.0 < 50.0) && e.iter().all(|t| t.0 >= 50.0));
-    // the one on the edge is where it was put, and it is on the west sheet
+    // el del borde está donde se puso, y está en la hoja del oeste
     assert!(
         w.iter().any(|t| (t.0 - 48.0).hypot(t.1 - 25.0) < 1.0),
         "{w:?}"

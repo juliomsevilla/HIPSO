@@ -1,19 +1,20 @@
-//! Colours, spacing and fonts: dark and light looks of HIPSO.
+//! Colores, espaciado y tipografías: aspectos oscuro y claro de HIPSO.
 
 use eframe::egui::{
     self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, Stroke, Vec2,
 };
 
-/// The orange of the mark, `#FC6309`: logo and, as text, on dark surfaces. Too bright for a fill
-/// in the interface (it would outshine the blue of the selection), hence `BRAND`.
+/// El naranja de la marca, `#FC6309`: logotipo y, como texto, sobre superficies oscuras. Demasiado
+/// brillante para un relleno en la interfaz (eclipsaría el azul de la selección), de ahí `BRAND`.
 pub const BRAND_PURE: Color32 = Color32::from_rgb(0xFC, 0x63, 0x09);
-/// Brand fill in the interface (the "Archivo" button): as heavy as the blue accent (luminance
-/// 0.177). White text on it reaches 4.6:1.
+/// Relleno de marca en la interfaz (el botón «Archivo»): tan pesado como el acento azul (luminancia
+/// 0,177). El texto blanco sobre él alcanza 4,6:1.
 pub const BRAND: Color32 = Color32::from_rgb(0xC9, 0x4D, 0x00);
-/// Hover of `BRAND`, and brand text on light surfaces (5.1:1 or more).
+/// Resalte de `BRAND`, y texto de marca sobre superficies claras (5,1:1 o más).
 pub const BRAND_HOVER: Color32 = Color32::from_rgb(0xA8, 0x3F, 0x00);
 
-/// The brand colour for text: the pure orange on dark surfaces, the deep one on light ones.
+/// El color de marca para texto: el naranja puro sobre superficies oscuras, el profundo sobre las
+/// claras.
 pub fn brand_text(t: &Tokens) -> Color32 {
     if t.dark { BRAND_PURE } else { BRAND_HOVER }
 }
@@ -118,8 +119,8 @@ pub fn apply(ctx: &egui::Context, t: &Tokens) {
     });
 }
 
-/// Segoe UI (Windows), SF/Helvetica (macOS) or Noto/DejaVu (Linux) in front of egui's own
-/// fonts, which stay as the fallback for symbols.
+/// Segoe UI (Windows), SF/Helvetica (macOS) o Noto/DejaVu (Linux) delante de las propias
+/// tipografías de egui, que quedan como respaldo para símbolos.
 pub fn install_fonts(ctx: &egui::Context) {
     let candidates = [
         "C:/Windows/Fonts/segoeui.ttf",
@@ -138,7 +139,8 @@ pub fn install_fonts(ctx: &egui::Context) {
             list.insert(0, "system".into());
         }
     }
-    // Segoe UI has no ▾ or ▶ (they drew as a square); the symbol fonts of the system do
+    // Segoe UI no tiene ▾ ni ▶ (se dibujaban como un cuadrado); las tipografías de símbolos del
+    // sistema sí
     let symbols = [
         "C:/Windows/Fonts/seguisym.ttf",
         "/System/Library/Fonts/Apple Symbols.ttf",

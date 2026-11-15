@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Checks hipso-crs against recorded reference values (scripts/conformance_cases.json).
+"""Comprueba hipso-crs contra valores de referencia registrados (scripts/conformance_cases.json).
 
     cargo build -p hipso-crs --release --example batch
     python3 scripts/conformance.py
 
-Exit status 1 when a case is off by more than its tolerance. The horizontal agreement with
-PROJ is checked by scripts/check_spain_crs.py and scripts/check_world_crs.py.
+Código de salida 1 cuando un caso se desvía más que su tolerancia. La concordancia horizontal
+con PROJ la comprueban scripts/check_spain_crs.py y scripts/check_world_crs.py.
 """
 import json, os, subprocess, sys, tempfile
 

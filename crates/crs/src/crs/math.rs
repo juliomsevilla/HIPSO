@@ -1,37 +1,38 @@
-//! Ellipsoids, units and the helper functions map projections share, after PROJ's
-//! (<https://proj.org>, MIT licence) definitions and algorithms; PROJ's notice is in `NOTICE`.
+//! Elipsoides, unidades y las funciones auxiliares que comparten las proyecciones cartográficas,
+//! según las definiciones y los algoritmos de PROJ (<https://proj.org>, licencia MIT); el aviso de
+//! PROJ está en `NOTICE`.
 
-// The constants are PROJ's, digit for digit.
+// Las constantes son las de PROJ, dígito por dígito.
 #![allow(clippy::excessive_precision)]
 
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
-/// An ellipsoid normalized to a semi-major axis of 1, as projections use it.
+/// Un elipsoide normalizado a un semieje mayor de 1, como lo usan las proyecciones.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Ell {
-    /// The semi-major axis in metres.
+    /// El semieje mayor en metros.
     pub a: f64,
-    /// The eccentricity squared.
+    /// La excentricidad al cuadrado.
     pub es: f64,
-    /// The eccentricity.
+    /// La excentricidad.
     pub e: f64,
     /// `1 - es`.
     pub one_es: f64,
 }
 
 impl Ell {
-    /// An ellipsoid from its semi-major axis and inverse flattening (0 for a sphere).
+    /// Un elipsoide a partir de su semieje mayor y el inverso del aplanamiento (0 para una esfera).
     pub fn from_a_rf(a: f64, rf: f64) -> Self {
         let f = if rf == 0.0 { 0.0 } else { 1.0 / rf };
         Self::from_a_es(a, 2.0 * f - f * f)
     }
 
-    /// An ellipsoid from its semi-major and semi-minor axes.
+    /// Un elipsoide a partir de sus semiejes mayor y menor.
     pub fn from_a_b(a: f64, b: f64) -> Self {
         Self::from_a_es(a, 1.0 - (b * b) / (a * a))
     }
 
-    /// An ellipsoid from its semi-major axis and eccentricity squared.
+    /// Un elipsoide a partir de su semieje mayor y su excentricidad al cuadrado.
     pub fn from_a_es(a: f64, es: f64) -> Self {
         let es = if es.abs() < 1e-15 { 0.0 } else { es };
         Self {
@@ -47,9 +48,9 @@ impl Ell {
         Self::from_a_rf(6378137.0, 298.257223563)
     }
 
-    /// One of PROJ's named ellipsoids (`+ellps=`).
+    /// Uno de los elipsoides con nombre de PROJ (`+ellps=`).
     pub fn named(name: &str) -> Option<Self> {
-        // (name, a, rf, or b when negative).
+        // (nombre, a, rf o b cuando es negativo).
         const ELLIPSOIDS: &[(&str, f64, f64)] = &[
             ("MERIT", 6378137.0, 298.257),
             ("SGS85", 6378136.0, 298.257),
@@ -107,7 +108,7 @@ impl Ell {
     }
 }
 
-/// The size in metres of one of PROJ's named linear units (`+units=`).
+/// El tamaño en metros de una de las unidades lineales con nombre de PROJ (`+units=`).
 pub(crate) fn unit_to_meter(name: &str) -> Option<f64> {
     Some(match name {
         "m" => 1.0,
@@ -135,7 +136,7 @@ pub(crate) fn unit_to_meter(name: &str) -> Option<f64> {
     })
 }
 
-/// The longitude of one of PROJ's named prime meridians (`+pm=`), in degrees.
+/// La longitud de uno de los meridianos origen con nombre de PROJ (`+pm=`), en grados.
 pub(crate) fn prime_meridian(name: &str) -> Option<f64> {
     Some(match name {
         "greenwich" => 0.0,
@@ -156,7 +157,7 @@ pub(crate) fn prime_meridian(name: &str) -> Option<f64> {
     })
 }
 
-/// Wraps a longitude in radians into [-π, π].
+/// Envuelve una longitud en radianes en [-π, π].
 pub(crate) fn adjlon(lon: f64) -> f64 {
     if lon.abs() <= PI + 1e-12 {
         return lon;
@@ -165,12 +166,12 @@ pub(crate) fn adjlon(lon: f64) -> f64 {
     if l == -PI && lon > 0.0 { PI } else { l }
 }
 
-/// `asin` clamped to [-1, 1].
+/// `asin` limitado a [-1, 1].
 pub(crate) fn aasin(v: f64) -> f64 {
     v.clamp(-1.0, 1.0).asin()
 }
 
-/// PROJ's `pj_tsfn`: the conformal latitude function t.
+/// `pj_tsfn` de PROJ: la función t de la latitud conforme.
 pub(crate) fn tsfn(phi: f64, sinphi: f64, e: f64) -> f64 {
     let c = e * sinphi;
     (0.5 * (FRAC_PI_2 - phi)).tan() / ((1.0 - c) / (1.0 + c)).powf(0.5 * e)
@@ -181,7 +182,7 @@ pub(crate) fn msfn(sinphi: f64, cosphi: f64, es: f64) -> f64 {
     cosphi / (1.0 - es * sinphi * sinphi).sqrt()
 }
 
-/// PROJ's `pj_qsfn`, for authalic latitudes.
+/// `pj_qsfn` de PROJ, para latitudes auténticas.
 pub(crate) fn qsfn(sinphi: f64, e: f64, one_es: f64) -> f64 {
     if e >= 1e-7 {
         let con = e * sinphi;
@@ -193,8 +194,8 @@ pub(crate) fn qsfn(sinphi: f64, e: f64, one_es: f64) -> f64 {
     }
 }
 
-/// tan φ from sinh ψ (ψ the isometric latitude), by Newton's method (PROJ's
-/// `pj_sinhpsi2tanphi`, after Karney).
+/// tan φ a partir de sinh ψ (ψ la latitud isométrica), por el método de Newton (`pj_sinhpsi2tanphi`
+/// de PROJ, según Karney).
 pub(crate) fn sinhpsi2tanphi(taup: f64, e: f64) -> f64 {
     let rooteps = f64::EPSILON.sqrt();
     let tol = rooteps / 10.0;
@@ -223,12 +224,12 @@ pub(crate) fn sinhpsi2tanphi(taup: f64, e: f64) -> f64 {
     tau
 }
 
-/// PROJ's `pj_phi2`: the latitude from the conformal function t.
+/// `pj_phi2` de PROJ: la latitud a partir de la función conforme t.
 pub(crate) fn phi2(ts: f64, e: f64) -> f64 {
     sinhpsi2tanphi((1.0 / ts - ts) / 2.0, e).atan()
 }
 
-/// Coefficients of the meridian distance (PROJ's `pj_enfn`).
+/// Coeficientes de la distancia meridiana (`pj_enfn` de PROJ).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Mlfn {
     en: [f64; 5],
@@ -260,7 +261,7 @@ impl Mlfn {
         Self { en, es }
     }
 
-    /// The meridian distance from the equator to φ, for a semi-major axis of 1.
+    /// La distancia meridiana desde el ecuador hasta φ, para un semieje mayor de 1.
     pub fn mlfn(&self, phi: f64, sphi: f64, cphi: f64) -> f64 {
         let en = &self.en;
         let cs = cphi * sphi;
@@ -268,7 +269,7 @@ impl Mlfn {
         en[0] * phi - cs * (en[1] + s2 * (en[2] + s2 * (en[3] + s2 * en[4])))
     }
 
-    /// The latitude at a meridian distance.
+    /// La latitud a una distancia meridiana.
     pub fn inv(&self, arg: f64) -> f64 {
         let k = 1.0 / (1.0 - self.es);
         let mut phi = arg;
@@ -285,9 +286,10 @@ impl Mlfn {
     }
 }
 
-/// Coefficients converting authalic to geodetic latitudes, as PROJ since 9.7: the Fourier series
-/// in the authalic latitude whose coefficients are Taylor series in the third flattening n, to
-/// order 6 (Karney, "On auxiliary latitudes", 2024; PROJ's `pj_auxlat_coeffs`, `C[phi,xi]`).
+/// Coeficientes que convierten latitudes auténticas en geodésicas, como PROJ desde la 9.7: la serie
+/// de Fourier en la latitud auténtica cuyos coeficientes son series de Taylor en el tercer
+/// aplanamiento n, hasta orden 6 (Karney, «On auxiliary latitudes», 2024; `pj_auxlat_coeffs`,
+/// `C[phi,xi]` de PROJ).
 pub(crate) fn authset(es: f64) -> [f64; 6] {
     const C: [f64; 21] = [
         4.0 / 3.0,
@@ -317,7 +319,7 @@ pub(crate) fn authset(es: f64) -> [f64; 6] {
     let mut apa = [0.0; 6];
     let (mut o, mut d) = (0, n);
     for (l, a) in apa.iter_mut().enumerate() {
-        // A polynomial in n of degree 5 - l, by Horner's method.
+        // Un polinomio en n de grado 5 - l, por el método de Horner.
         let p = &C[o..o + 6 - l];
         *a = d * p.iter().rev().fold(0.0, |y, c| y * n + c);
         o += 6 - l;
@@ -326,9 +328,9 @@ pub(crate) fn authset(es: f64) -> [f64; 6] {
     apa
 }
 
-/// The geodetic latitude of an authalic latitude: `beta + Σ apa[k] sin((2k + 2) beta)`, by
-/// Clenshaw summation (PROJ's `pj_authalic_lat_inverse`, for ellipsoids of flattening up to
-/// about 1/50).
+/// La latitud geodésica de una latitud auténtica: `beta + Σ apa[k] sin((2k + 2) beta)`, por suma de
+/// Clenshaw (`pj_authalic_lat_inverse` de PROJ, para elipsoides de aplanamiento hasta
+/// aproximadamente 1/50).
 pub(crate) fn authlat(beta: f64, apa: &[f64; 6]) -> f64 {
     let (s, c) = beta.sin_cos();
     let x = 2.0 * (c - s) * (c + s);
@@ -341,6 +343,6 @@ pub(crate) fn authlat(beta: f64, apa: &[f64; 6]) -> f64 {
     beta + 2.0 * s * c * u0
 }
 
-/// π/4, for the formulas below.
+/// π/4, para las fórmulas de abajo.
 pub(crate) const FORTPI: f64 = FRAC_PI_4;
 pub(crate) const HALFPI: f64 = FRAC_PI_2;
