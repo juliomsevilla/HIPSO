@@ -106,10 +106,10 @@ IMAGENES = {
     "cinta-lidar": ("03-cinta-lidar-estadio.jpg", "La pestaña LiDAR con sus seis grupos."),
     "cinta-vectorial": ("10-edicion-vectorial.jpg", "El panel Edición con una capa vectorial."),
     "cinta-flujos": ("09-constructor-de-flujos.jpg", "La pestaña Flujos con el constructor."),
-    "vistas": ("06-pnoa-chm-perfil-3d.jpg", "Planta, perfil y vista 3D con un ráster sobre el perfil."),
+    "vistas": ("06-pnoa-mdt-perfil-3d.jpg", "Planta, perfil y vista 3D con un ráster sobre el perfil."),
     "edicion": ("08-edicion-histograma.jpg", "Edición de puntos con el histograma de elevaciones que acota la reclasificación."),
     "preparar": ("03-cinta-lidar-estadio.jpg", "La pestaña LiDAR con las herramientas de preparación sobre una nube con color."),
-    "superficies": ("06-pnoa-chm-perfil-3d.jpg", "Una hoja del PNOA con su modelo de alturas: la línea del ráster se ve sobre el perfil y como superficie en 3D."),
+    "superficies": ("06-pnoa-mdt-perfil-3d.jpg", "Una hoja del PNOA con su modelo del terreno: la línea del ráster se ve sobre el perfil y como superficie en 3D."),
     "inventario": ("11-modelos-lineales.jpg", "Modelo lineal de una variable de inventario con sus gráficas de diagnóstico."),
     "vectorial": ("10-edicion-vectorial.jpg", "Edición de una capa de rodales sobre la nube y sus herramientas."),
     "raster": ("05-terreno-opengf.jpg", "Un modelo del terreno coloreado por elevación, con su vista 3D."),
@@ -173,7 +173,7 @@ def construir_paginas():
     cap(13, "manual/aba.html", "Encadenar un flujo de inventario (ABA)", g, clave="aba")
     P.append(Pagina("flujos-ejemplo.html", "Flujos de ejemplo", g, html_extra=pagina_flujos(), imagen=IMAGENES["flujos"]))
     cap(14, "manual/linea-de-comandos.html", "Línea de comandos", g)
-    P.append(Pagina("ordenes.html", "Órdenes de hipso", g, md=(DOCS / "CLI.md").read_text(encoding="utf-8").replace("# Órdenes de `hipso`\n", "# Órdenes de `hipso`\n", 1)))
+    P.append(Pagina("ordenes.html", "Referencia de herramientas", g, md=(DOCS / "CLI.md").read_text(encoding="utf-8").replace("# Órdenes de `hipso`\n", "# Órdenes de `hipso`\n", 1)))
     P.append(Pagina("recetas.html", "Recetas de clasificación", g, html_extra=pagina_recetas()))
 
     g = "Ayuda"

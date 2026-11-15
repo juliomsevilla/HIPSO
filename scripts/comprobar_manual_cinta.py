@@ -26,4 +26,10 @@ for linea in salida.splitlines():
 if faltan:
     print("Sin explicar en el capítulo 4 del manual:\n  " + "\n  ".join(faltan))
     sys.exit(1)
+# la referencia de herramientas debe estar al día con las opciones del programa
+antes = (RAIZ / "docs" / "CLI.md").read_text(encoding="utf-8")
+subprocess.run([sys.executable, str(RAIZ / "scripts" / "gen_cli_docs.py")], check=True, capture_output=True)
+if (RAIZ / "docs" / "CLI.md").read_text(encoding="utf-8") != antes:
+    print("docs/CLI.md estaba desfasada: se ha regenerado, hay que incluirla en el commit.")
+    sys.exit(1)
 print(f"Todos los elementos de la cinta ({len(salida.splitlines())}) están en el capítulo 4.")

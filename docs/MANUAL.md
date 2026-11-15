@@ -235,41 +235,205 @@ La pestaña *LiDAR* reúne lo que parte de una nube de puntos. Sus seis grupos s
 
 Botón grande. Clasifica ruido, suelo, edificios, vegetación por alturas, cables y postes, carreteras y agua, con varios métodos de suelo, reglas propias y recetas guardadas en un archivo. Es la herramienta central de la preparación, porque casi todo lo demás (MDT, CHM, métricas, árboles) parte de la clase de suelo. Véase el apartado 7.1, *Clasificar*.
 
+
+La ventana *Clasificar puntos (ruido, suelo, edificios)* tiene tres pestañas (*Clasificación*, *Reglas* y *Teselas y rendimiento*), una sección *Guardar en* (carpeta de resultados; vacía, junto a cada nube), el nombre de salida, el formato de salida y los botones *Guardar receta…* y *Cargar receta…*. Cada hoja se clasifica por separado y se escribe en su propio archivo. Las clases se aplican en un orden fijo (solape, ruido, suelo, edificios, carreteras y agua, vegetación, cables y postes, reglas), y cada paso solo ve lo que dejaron los anteriores.
+
+##### Pestaña Clasificación
+
+| Control | Qué hace |
+|---|---|
+| Apartar el solape (clase 12) | Donde varias pasadas cubren una celda, la de menor ángulo de barrido medio se queda con ella y los puntos de las otras pasan a la clase 12, que los pasos siguientes no usan. Requiere nubes con ángulo de escaneo. |
+| Solape: *Celda (m)* | Lado de la celda con la que se decide qué pasada se queda cada zona (5 m por defecto). |
+| Ruido: *Sin filtro*, *Puntos aislados*, *Estadístico (SOR)*, *Puntos bajos (ELM)* | Método con el que se marca el ruido (clase 7). *Puntos aislados* marca los puntos con pocos vecinos en celdas de 3×3×3; *Estadístico* los que están a más desviaciones típicas de lo normal de la distancia media a sus vecinos; *Puntos bajos* los puntos más bajos de una celda que quedan por debajo de todo lo que tienen alrededor. |
+| Ruido aislado: *Celda xy*, *Celda z* | Tamaño horizontal y vertical de las celdas en las que se cuentan los vecinos (4 m por defecto). |
+| Ruido estadístico: *Vecinos (k)* y *Desviaciones (m)* | Con cuántos vecinos se calcula la distancia media de cada punto (10) y cuántas desviaciones típicas por encima de la media hacen falta para llamarlo ruido (3). |
+| Puntos bajos: *Celda* y *Bajada mínima (m)* | Lado de la celda (10 m) y cuántos metros por debajo del resto de su celda y de las vecinas debe quedar el punto más bajo para ser ruido (3 m). |
+| Suelo: método | *Kraus y Pfeifer (iterativo)*, *MCC (curvatura multiescala)*, *CSF (simulación de tela)*, *PMF (morfológico progresivo)*, *SMRF (morfológico simple)*, *Axelsson (TIN progresivo)* o *Clase 2 existente* (no busca suelo: usa el que trae la nube). Véase *Suelo (clase 2)*. |
+| Kraus y Pfeifer | *Celda del filtro* (tamaño de las superficies intermedias, 5 m), *Iteraciones* (5). Los parámetros de la función de peso se dan por la línea de comandos. |
+| MCC | *Espaciado (s)* (celda del dominio de escala, aproximadamente el espaciado de los puntos, 1,5 m) y *Umbral de curvatura (t)* (0,3 m). |
+| CSF | *Resolución de la tela* (distancia entre partículas, 0,5 m), *Rigidez* (de 1, terreno abrupto, a 3, llano) y *Umbral* (altura sobre la tela hasta la que un punto es suelo, 0,5 m). |
+| PMF | *Ventana máxima* (m) y *Pendiente* del terreno que tolera. |
+| SMRF | *Celda*, *Ventana máxima (radio)* (mayor que el edificio más grande), *Pendiente máxima del terreno*, *Umbral de altura* y *Factor por pendiente* (lo que se suma al umbral por unidad de pendiente). |
+| Axelsson | *Celda de las semillas* (mayor que el edificio más grande), *Ángulo de iteración (°)*, *Distancia de iteración (m)* y *Tolerancia llana (m)* (cerca del plano de un triángulo es suelo sea cual sea el ángulo). |
+| Edificios: *Clasificar edificios (6) y vegetación alta (5)* | Quita los tejados del suelo y clasifica lo que está sobre él: edificios (6) y vegetación alta (5). |
+| Edificios: *Altura mínima* | Altura sobre el terreno a partir de la cual un punto es edificio o árbol (2,5 m). |
+| Edificios: *Edificio más ancho* | El mayor edificio esperado (60 m); fija la ventana con la que se separa el suelo de los tejados. |
+| Edificios: *Área mínima* | La menor planta, en unidades cuadradas del mapa, que se acepta como edificio (40). |
+| Carreteras (11) | Suelo liso, llano y de intensidad baja. *Intensidad máxima* (0: relativa al suelo), *Rugosidad máxima (m)* y *Pendiente máxima (°)*. |
+| Agua (9) | Superficies llanas extensas de intensidad muy baja y retorno único. *Intensidad máxima* (0: relativa al suelo), *Superficie mínima (m²)* y *Desviación máxima de la cota (m)*. |
+| Vegetación por alturas | Baja (3), media (4) y alta (5) según la altura sobre el suelo. *Baja hasta (m)* y *Media hasta (m)* fijan los dos cortes. |
+| Cables (14) | Líneas casi horizontales altas. *Altura mínima (m)*, *Radio del entorno (m, 0 = según la densidad)* y *Linealidad mínima (0–1)*. |
+| Postes y torres (15) | Estructuras verticales estrechas y aisladas. *Altura mínima (m)*, *Distancia de unión (m)*, *Anchura máxima (m)*, *Altura mínima de la estructura (m)* y *Cabeza de apoyo: longitud máxima (m, 0 = no)*. |
+
+##### Pestaña Reglas
+
+Cada regla cambia la clase de los puntos que cumplen todas sus condiciones, al final y en orden, de manera que una regla ve lo que hizo la anterior. Sirve para los estratos de vegetación (una regla por altura) y para casos que los métodos no cubren. El ruido (7 y 18) no se toca salvo que se pida en *De clases*.
+
+| Control | Qué hace |
+|---|---|
+| De clases | Clases de partida: una lista (1,2) o, con «~», todas menos esas (~7). Vacío: todas menos ruido. |
+| Eco: *Único*, *Primero*, *Intermedio*, *Último* | Número de retorno de los puntos afectados. |
+| Ángulo \|a\| de | Rango del ángulo de escaneo absoluto. |
+| Altura sobre el suelo | Rango de altura de los puntos afectados (m). |
+| Intensidad | Rango de intensidad. |
+| Forma del entorno | Rangos de *Pendiente*, *Planaridad*, *Linealidad*, *Esfericidad*, *Rugosidad* y *Vecinos*, calculados con los vecinos que caen dentro del *Radio*. |
+| A la clase | Clase que reciben los puntos que cumplen todo. |
+| Añadir regla, Quitar la última | Añade o quita una regla; las reglas se ejecutan en el orden de la lista. |
+
+##### Pestaña Teselas y rendimiento
+
+| Control | Qué hace |
+|---|---|
+| Tamaño de tesela | Lado (m) de las teselas en que se divide cada hoja para clasificarla en paralelo (250 por defecto). |
+| Búfer | Margen (m) que se lee alrededor de cada tesela para que sus bordes salgan como saldrían de toda la hoja (30 m). |
+| Hilos | Núcleos que se usan; 0 es todos. |
+
+##### Receta y formato
+
+*Guardar receta…* escribe esta clasificación en un archivo de texto (se aplica otra vez con *Cargar receta…* o con `hipso classify --recipe`); si la ventana tiene algún parámetro sin opción equivalente en la línea de comandos, el programa lo avisa y ese parámetro vuelve a su valor por defecto al cargarla. *Formato de salida* ofrece LAS o LAZ, y la variante «más rápido y ligero en procesos muy grandes».
+
+Todas las opciones equivalentes de la línea de comandos, con sus valores por defecto, están en *Referencia de herramientas*, orden `hipso classify`.
+
 ##### Asignar proyección
 
 Da a una nube sin sistema de coordenadas el de otra nube o un código EPSG, sin tocar los puntos, solo la cabecera. Se usa cuando el archivo no declara el suyo (el aviso aparece en *Información*). Véase el apartado 7.1.
+
+
+| Control | Qué hace |
+|---|---|
+| Lista de nubes | Indica con ✔ las nubes cargadas que ya tienen sistema de coordenadas y con ✖ las que no. |
+| Copiar de otra nube | Toma el sistema de coordenadas de una nube que lo tiene. |
+| Código EPSG | Escribe el código de un sistema, por ejemplo 25830. |
+| Reemplazar también el de las nubes que ya lo tienen | Por defecto solo se asigna a las nubes sin sistema; marcada, sustituye también el existente. |
+
+Se escribe una copia nueva (`…_crs`) y los puntos no cambian: solo cambia la cabecera. La orden es `hipso crs`.
 
 ##### Exportar puntos
 
 Saca los puntos a otro formato: LAZ (por defecto), LAS, texto con las columnas que se elijan o shapefile 3D, con filtro por clases, uno de cada *n* puntos y, si se marca *Normalizar*, alturas sobre el suelo. Véase el apartado 7.1, *Exportar puntos*. El panel *Edición* tiene otro *Exportar puntos…* que exporta solo la selección.
 
+
+| Control | Qué hace |
+|---|---|
+| Formato | *LAZ*, *LAS*, *Texto (ASCII)*, *Shapefile 3D* o *COPC*. |
+| Salida | Nombre del archivo (o carpeta, con varias nubes); vacío, junto a cada nube. |
+| Normalizar | Exporta alturas sobre el suelo: a la cota de cada punto se le resta la del MDT de su nube. Sin MDT elegido, se usa el último calculado para cada nube, y los puntos fuera del MDT no se exportan. |
+| Columnas | En el texto, qué columnas se escriben y en qué orden (x, y, z, intensidad, retorno, número de retornos, clase, fuente, rojo, verde y azul). |
+| Separador | Coma, tabulador, espacio o punto y coma. |
+| Línea de cabecera | Escribe los nombres de las columnas en la primera línea. |
+| Decimales | Decimales de las coordenadas del texto. |
+| Un punto de cada | Conserva un punto de cada tantos. |
+| Clases | Qué clases se exportan (2,5 o ~7,18). |
+| Retornos, elevaciones mínima y máxima | Filtran por número de retorno y por rango de cota. |
+
+La orden es `hipso export` (y `hipso copc` para el formato COPC).
+
 ##### Recortar con polígonos
 
 Recorta las nubes con una capa de polígonos: una nube por polígono, o una sola ajustada al perímetro de todos, con búfer opcional. Véase el apartado 9, *Recortar con polígonos*.
+
+
+| Control | Qué hace |
+|---|---|
+| Capa de polígonos | Un archivo, o una de las capas ya cargadas. |
+| Una nube por cada polígono | Escribe un archivo por polígono. |
+| Una sola nube ajustada al perímetro de todos | Escribe un archivo con los puntos de todos los polígonos. |
+| Campo con el nombre de cada archivo | Campo cuyo valor nombra el archivo de cada polígono; vacío, el número del polígono. |
+| Búfer sobre el perímetro (m) | Zona de seguridad alrededor del borde; con un valor negativo, estrecha el recorte. |
+| Un punto va solo al primer polígono que lo contiene | Evita que un punto se repita cuando los polígonos se solapan. |
+
+Se escribe una copia nueva (`…_recorte…`) y la original no cambia. La orden es `hipso clip`.
 
 ##### Adelgazar nube
 
 Reduce la densidad sin cambiar la extensión, para igualar nubes de coberturas distintas o aligerar las demasiado densas. Véase el apartado 7.1.
 
+
+| Control | Qué hace |
+|---|---|
+| Método | *Densidad objetivo* (al azar hasta unos puntos por m²), *Un punto por celda* (el más cercano al centro, el más bajo, el más alto o el de un percentil de la elevación), *Celdas 3D* (conserva paredes y pendientes), *Conservar un punto de cada n*, *Eliminar un punto de cada n* o *Muestreo al azar (fracción)*. |
+| Puntos por m² que quedan | Con la densidad objetivo. Una nube que ya es menos densa se deja como está. |
+| Celda (m) | Lado de la celda en los métodos por celda. |
+| Percentil | Del 0 al 100 (50 es la mediana) en el método por percentil. |
+| Celda horizontal y vertical (m) | Tamaño del vóxel en las celdas 3D. |
+| n | Cada cuántos puntos se conserva o se quita uno. |
+| Fracción que se conserva (0–1) | En el muestreo al azar. |
+| Semilla | Misma semilla, mismo resultado, en los métodos al azar. |
+
+Se escribe una copia nueva por hoja (`…_delgada_…`). La orden es `hipso thin`.
+
 ##### Alturas sobre suelo
 
 Calcula la altura de cada punto sobre el suelo. Véase el apartado 6.3.
+
+
+| Control | Qué hace |
+|---|---|
+| Guardar la altura como atributo «HeightAboveGround» y conservar las cotas | La nube sigue con sus cotas y gana un atributo con la altura sobre el suelo. |
+| Poner la altura en lugar de la cota (nube normalizada) | Sustituye la cota por la altura sobre el suelo. |
+| Celda del suelo (m) | Tamaño de la superficie de suelo (0,5 m por defecto). |
+| Clase del suelo | Clase de los puntos que forman el suelo (2). |
+
+Un TIN de los puntos de suelo da el suelo bajo cada punto, de modo que no hace falta un MDT aparte. La orden es `hipso hag`.
 
 ##### Quitar duplicados
 
 Elimina los puntos repetidos y escribe una nube nueva. Véase el apartado 6.4.
 
+
+Quita los puntos que están en el mismo sitio (X, Y y Z iguales). Las casillas añaden atributos que también deben coincidir para que dos puntos cuenten como repetidos.
+
+| Control | Qué hace |
+|---|---|
+| Misma clase, Mismo tiempo GPS, Misma intensidad | Exigen que coincidan además esos atributos. |
+| Mismo número de retorno, Mismo número de retornos | Exigen que coincida el retorno y el total de retornos. |
+| Mismo ID de fuente (pasada) | Exige que sean de la misma pasada. |
+| Quitar todas las copias | Sin marcar, se deja un punto de cada grupo; marcada, se quitan todos. |
+
+La orden es `hipso dedup`.
+
 ##### Colorear con imagen
 
 Da a cada punto el color del píxel de una imagen del mismo sitio, normalmente una ortofoto. Véase el apartado 7.1.
+
+
+| Control | Qué hace |
+|---|---|
+| Imagen | Ortofoto (`.tif` o `.jp2`), en el mismo sistema de coordenadas que la nube. |
+| Bandas: rojo, verde y azul | Qué banda de la imagen da cada color (1, 2 y 3 por defecto). |
+| Los puntos fuera de la imagen conservan su color | Si no se marca, quedan en negro. |
+
+Una nube sin color (formatos 0, 1 y 6) se guarda en formato 7. Si la nube es de formato 8 y la imagen tiene banda de infrarrojo cercano, también se asigna. La orden es `hipso colorize`.
 
 ##### Normalizar intensidad
 
 Corrige la intensidad por la distancia al escáner (Höfle y Pfeifer, 2007), de manera que la misma superficie tenga el mismo valor en el borde de una pasada que en el centro. Véase el apartado 7.1.
 
+
+| Control | Qué hace |
+|---|---|
+| Trayectoria del vuelo | Archivo de texto («tiempo x y z», con el tiempo GPS de la nube): es lo más exacto, porque da la distancia real al escáner de cada punto. |
+| Altura de vuelo constante y ángulo de escaneo | Alternativa cuando no hay trayectoria: se estima la distancia con la altitud del vuelo y el ángulo de cada punto. |
+| Altitud del vuelo (m) | Con la alternativa anterior, en el mismo sistema de alturas que la nube. |
+| Exponente a | 2 para suelo y copas, en torno a 3 para cables y bordes. |
+| Distancia de referencia R_ref (m) | Distancia a la que se normaliza; 0 es la media de la nube. |
+
+Cada intensidad se multiplica por (R / R_ref)^a (Höfle y Pfeifer, 2007). La orden es `hipso intensity`.
+
 ##### Imagen de intensidad
 
 Genera, por cada nube, un GeoTIFF en tonos de gris con la intensidad media por celda, útil como fondo para digitalizar. Véase el apartado 7.1.
+
+
+| Control | Qué hace |
+|---|---|
+| Celda de la imagen (m) | Tamaño del píxel; el botón *Celda automática* pone tres veces la separación media de los puntos. Entre 2 y 4 veces deja pocas celdas vacías y conserva el detalle. |
+| Rellenar huecos de hasta (celdas) | Las celdas sin puntos se rellenan con la media de sus vecinas hasta ese número de celdas; los huecos mayores quedan vacíos y transparentes. |
+| Retornos | *Primeros*, *Últimos*, *Todos*, o una lista (F, L, A o números como 1,2). |
+| Clases | *Todas*, *Suelo*, *Vegetación*, *Edificios* o una lista (2,5 o ~7,18); vacío deja fuera el ruido. |
+| Unir las hojas en un mosaico | Escribe además un mosaico con todas las hojas. |
+
+Se escribe un GeoTIFF por nube con la intensidad media por celda.
 
 #### LiDAR → Calidad
 
@@ -277,21 +441,78 @@ Genera, por cada nube, un GeoTIFF en tonos de gris con la intensidad media por c
 
 Escribe los puntos de una nube que están a más de una distancia de todos los de otra de referencia, y da la distancia media, el RMS y la compleción. Detecta cortas, cambios de obra o crecimiento entre dos vuelos. Véase el apartado 7.1.
 
+
+| Control | Qué hace |
+|---|---|
+| Nube de referencia | La nube con la que se compara la cargada. |
+| Distancia mínima de cambio (m) | Un punto cuenta como cambiado si está a más de esta distancia de todos los de la referencia. |
+| Vecinos cambiados que necesita un punto | Los puntos de cambio aislados se descartan: cada uno necesita este número de vecinos también cambiados. |
+
+Escribe los puntos que han cambiado y da la distancia media, el RMS y la compleción. La orden es `hipso compare`.
+
 ##### Ajustar nubes
 
 Mueve una nube para que encaje con otra de referencia mediante el punto más cercano iterativo (ICP), solo desplazando o desplazando y girando. Resuelve vuelos del mismo sitio con un desfase sistemático. Véase el apartado 7.1.
+
+
+| Control | Qué hace |
+|---|---|
+| Nube de referencia | La nube sobre la que se ajusta la cargada. |
+| Adelgazar para calcular (m) | Separación de los puntos que se usan para hallar el movimiento (1 m por defecto); más grande es más rápido. |
+| Distancia horizontal máxima (m) y vertical máxima (m) | Un punto solo se empareja con otro de la referencia dentro de estas distancias. |
+| Iteraciones máximas | Tope de iteraciones del ajuste. |
+| Parar con distancia media menor de (m) | El ajuste termina cuando el movimiento baja de este valor. |
+| Solo desplazar (sin girar) | El ajuste solo traslada. |
+| Punto a plano | Mide la distancia al plano tangente del punto de referencia: mejor en superficies y converge antes. |
+| Pares que se usan, los más cercanos (%) | Descarta los pares más lejanos para que los valores atípicos no desvíen el ajuste. |
+
+Usa los últimos retornos de ambas nubes y escribe una copia (`…_ajustada`). La orden es `hipso fit`.
 
 ##### Entre pasadas
 
 Produce un ráster con la diferencia de altura entre pasadas de vuelo y el porcentaje de celdas por encima de 8 y 16 cm. Es un control de calidad que debe hacerse antes de modelar. Véase el apartado 7.1.
 
+
+| Control | Qué hace |
+|---|---|
+| Celda (m) | Tamaño de la celda en la que se comparan las pasadas. |
+| Retornos | *Últimos y únicos* (por defecto), *Todos* o *Solo únicos*. |
+| Cada nube cargada es una pasada | Usa cada archivo como una pasada, en lugar del ID de fuente. |
+| Las pasadas salen de los huecos en el tiempo GPS, mayores de (s) | Útil cuando el ID de fuente no distingue las pasadas (todos los puntos con el mismo valor). |
+
+Guarda un ráster (`…_pasadas`) con la mayor diferencia de elevación media entre las pasadas que cubren cada celda, y da el porcentaje de celdas por encima de 8 y 16 cm. La orden es `hipso swath`.
+
 ##### Líneas de vuelo
 
 Encuentra las líneas de vuelo de una nube aérea a partir de los huecos del tiempo GPS, y escribe una tabla y los contornos de cada una. Véase el apartado 7.1.
 
+
+| Control | Qué hace |
+|---|---|
+| Hueco que separa dos líneas (s) | El tiempo GPS sin puntos a partir del cual se corta una línea (30 s por defecto). |
+| Puntos mínimos de una línea | Un tramo con menos puntos no es una línea (1 000). |
+| Escribir el número de línea en | *ninguna parte*, *ID de fuente* (hasta 65 535) o *dato de usuario* (hasta 255). |
+| Capa de polígonos con el contorno de cada línea | Escribe un shapefile con la huella de cada línea. |
+| Tabla de las líneas (CSV) | Escribe la tabla con inicio, fin, duración, puntos, caja y ángulo medio de cada línea. |
+
+La orden es `hipso flightlines`.
+
 ##### Densidad de Voronoi
 
 Densidad de puntos por celda de Voronoi en lugar de por cuadrícula. Véase el apartado 7.1.
+
+
+| Control | Qué hace |
+|---|---|
+| Celda del ráster (m) | Tamaño del ráster de salida (5 m por defecto). |
+| Umbral (puntos/m²) | Densidad mínima que debe tener una celda para cumplir. |
+| Hueco de datos: celda de Voronoi mayor que (m²) | Una celda de Voronoi mayor que esta superficie se considera un hueco de datos. |
+| Retornos | F primeros y únicos (los pulsos), L últimos, A todos, o los números de retorno. |
+| Clases | Una lista como 2,5 o, con «~», todas menos esas; vacío deja fuera el ruido (7 y 18) y los puntos retenidos. |
+| Ráster de cumple / no cumple | Escribe el ráster que marca qué celdas alcanzan el umbral. |
+| Tabla (CSV) | Escribe la tabla de resultados. |
+
+La orden es `hipso voronoi-density`.
 
 #### LiDAR → Superficies
 
@@ -299,13 +520,54 @@ Densidad de puntos por celda de Voronoi en lugar de por cuadrícula. Véase el a
 
 Botón grande. Calcula el modelo digital del terreno a partir de los puntos de suelo, por promedio de las celdas, TIN o ponderación por el inverso de la distancia. Véase el apartado 7.2.
 
+
+| Control | Qué hace |
+|---|---|
+| Resultado | Nombre del archivo que se escribe; por defecto lleva la celda, el método y el método de suelo. |
+| Celda | Tamaño de celda del MDT (m; 1 por defecto). |
+| Método | *Triangulación (TIN)*: superficie continua, el mejor equilibrio; *Ponderado por distancia (IDW)*: suave y rápido; *Media por celda*: la más rápida, en una sola pasada. |
+| Suelo | *Clase 2 que trae la nube* (por defecto), o un método que vuelve a buscar el suelo solo para este MDT (*Kraus y Pfeifer*, *MCC*, *CSF*, *PMF*, *SMRF* o *Axelsson*), con los mismos parámetros que *Clasificar*. Sirve para probar varios modelos con distinta clasificación; no modifica la nube. |
+| Suavizado (m, 0 = sin suavizar) | Ventana con la que se suaviza el MDT, con *Media*, *Mediana* o *Gauss*. |
+| Líneas de rotura | Capa de líneas (bordes de camino, taludes, cunetas, orillas) que el MDT sigue en lugar de redondear. Con cotas (PolylineZ) fijan la altura; sin cotas, toman el suelo más bajo junto a ellas. Solo con TIN o IDW. |
+| Hojas vecinas hasta (m, 0 = cada hoja sola) | Calcula cada hoja con las que tiene a esa distancia y se queda solo con lo suyo: sin costura en los bordes, a costa de leer también las vecinas. |
+| Hacer además un mosaico con todas las hojas | Escribe también un mosaico de los MDT de las hojas. |
+
+La orden es `hipso dtm`.
+
 ##### MDS / CHM
 
 Botón grande. Calcula el modelo digital de superficie y el modelo de alturas de la vegetación (el CHM, la altura de lo más alto sobre el terreno en cada celda, tanto de árboles como de arbustos o cultivos), con el método del punto más alto o la pila de TIN sin picos. Véase el apartado 7.2.
 
+
+| Control | Qué hace |
+|---|---|
+| Restar el MDT (altura sobre el suelo, CHM) | Marcada, resta el MDT y sale la altura sobre el suelo (CHM); sin marcar, la elevación absoluta (MDS). Cada hoja usa el último MDT hecho con ella, y si falta, se hace el MDS y el programa avisa de que hay que calcular antes el MDT. |
+| Celda | Tamaño de celda (m; 1 por defecto). |
+| Método | *Triangulación (TIN) de los puntos más altos*: superficie continua; *Máximo por celda*: el más rápido, en una sola pasada; *Ponderado por distancia (IDW) de los puntos más altos*; *Sin huecos (pit-free, Khosravipour et al., 2014)*, que trabaja con alturas sobre el suelo y por eso necesita el MDT. |
+| Arista máxima | Con el método sin huecos, el mayor lado de triángulo que se admite. |
+| Rellenar celdas vacías | Rellena las celdas sin puntos con las vecinas. |
+| Suavizado (m) | Ventana de suavizado, con *Media*, *Mediana* o *Gauss*. |
+| Hacer además un mosaico con todas las hojas | Escribe también un mosaico de las hojas. |
+
+Las órdenes son `hipso chm` y `hipso dsm`.
+
 ##### Cambio de la cubierta vegetal
 
 Botón grande. Compara los CHM de dos fechas y mide la pérdida y la ganancia de altura y de cubierta vegetal. Véase el apartado 7.3.
+
+
+| Control | Qué hace |
+|---|---|
+| CHM de la primera y de la segunda fecha | Los dos modelos de alturas, que deben coincidir celda a celda (*Raster → Igualar rásteres*). |
+| Años entre fechas | Opcional, para las tasas anuales. |
+| Cambio mínimo | Un cambio de altura menor que este valor es ruido (1 m). |
+| Cubierta desde | Altura a partir de la cual una celda cuenta como cubierta vegetal (2 m). |
+| Mancha mínima de pérdida (celdas) | Las manchas de cubierta perdida menores no se comunican (10). |
+| Unidades de gestión | Opcional: capa para resumir por unidad, con *Campo del nombre*. |
+| Emparejar los individuos de las dos fechas y medir su crecimiento | Detecta los árboles de las dos fechas y los empareja; con *Altura mínima*, *Ventana a + b·h*, *Suavizar* y *Mismo individuo si dista menos de*. |
+| Salida | Manchas (shp), manchas (csv) y base del nombre. |
+
+La orden es `hipso change`.
 
 #### LiDAR → ALS
 
@@ -313,21 +575,134 @@ Botón grande. Compara los CHM de dos fechas y mide la pérdida y la ganancia de
 
 Botón grande. Corta las nubes por unidades de muestreo (generadas, dibujadas o de un archivo) y calcula sus métricas. Véase el apartado 7.3.
 
+
+La ventana se divide en dos partes, *1 · De dónde salen las unidades de muestreo* y *2 · Qué se obtiene*.
+
+##### De dónde salen las unidades de muestreo
+
+| Control | Qué hace |
+|---|---|
+| Archivo vectorial | Usa un archivo: polígonos (se usan tal cual) o puntos con el centro de cada unidad, cuya forma y tamaño se dan abajo. |
+| Generarlas (muestreo) | Las crea el programa, al azar o en malla, y guarda su ubicación como capa vectorial. |
+| AOI dibujadas | Usa los polígonos dibujados con la herramienta AOI. |
+| Forma | *Circular* o *Cuadrada / rectangular*. |
+| Campo con el número de unidad de muestreo | Campo que nombra cada unidad. |
+| Campo con el lado X, lado Y, o lado fijo (m) | Cómo se da el tamaño de las unidades cuadradas o rectangulares cuando las regiones son puntos. |
+| Campo con el radio, o radio fijo (m) | Ídem para las circulares. |
+| Solo las unidades de muestreo con CAMPO=VALOR | Filtra las regiones por el valor de un campo. |
+| Partir las multipartes | Una unidad por cada parte, nombradas nombre_p1, nombre_p2… |
+| Lado (m), Radio (m) | Tamaño de las unidades generadas. |
+| Aleatorio | Número de unidades, *Distancia mínima entre centros* (0: el doble del tamaño) y *Semilla* (la misma semilla da las mismas unidades). |
+| Sistemático (malla regular) | *Separación en X* y *en Y* (m) entre centros. |
+| Limitar a los polígonos de | Las unidades generadas se quedan dentro de estos polígonos (un rodal, por ejemplo). |
+
+##### Qué se obtiene
+
+| Control | Qué hace |
+|---|---|
+| Capa vectorial con las unidades de muestreo y sus métricas | Escribe la capa de unidades con sus métricas. |
+| Nubes recortadas | *ninguna*, *una por unidad de muestreo* o *una con todas*. |
+| Clases, Retornos | Qué puntos se usan (2,5 o ~7,18; F, L, A o números). |
+| Alturas sobre el suelo | Cada nube menos su MDT (recomendado). Marcada, las métricas salen con alturas normalizadas y hace falta el MDT de cada nube. |
+| Puntos en el solape de dos unidades | Se cuentan en todas las que los contienen, o se asignan solo a la primera. |
+| Métricas | Todas, o las que se marquen en el selector (con buscador, *Marcar las visibles* y *Quitar todas*). La tabla lleva solo las columnas marcadas en el orden en que se marcaron; el nombre, el área y la fecha de captura van siempre. |
+
+La orden es `hipso clip`.
+
 ##### Métricas por celda
 
 Botón grande. Métricas de altura y densidad de la vegetación por celda. Véase el apartado 7.3.
+
+
+| Control | Qué hace |
+|---|---|
+| Celda | Lado de las celdas en las que se calculan las métricas (15 m por defecto). |
+| Altura de corte (cobertura) | Altura a partir de la cual un retorno cuenta para las métricas de cobertura (2 m). |
+| Métricas de intensidad (_intensity) | Escribe además un archivo con las métricas de la intensidad. |
+| Métricas por estratos (_strata) | Escribe además un archivo con las métricas por estratos de altura. |
+| Métricas de estructura (_estructura) | Escribe además la fracción de huecos, el índice de área foliar, la diversidad de alturas del follaje, la complejidad vertical y la altura de la base de la copa. |
+| Capa del perfil, Altura del perfil, Hueco bajo, Extinción k, Base de copa sobre, proporción | Parámetros de las métricas de estructura: el grosor de las capas del perfil, la altura bajo la que se cuenta como hueco (1 m), el coeficiente de extinción del índice foliar (0,5) y el suelo (2 m) y la proporción (10 %) con los que se busca la base de la copa. |
+| Memoria máxima (MB) | Memoria que se dedica a las alturas de los puntos (512 MB por defecto); las nubes mayores requieren más pasadas. |
+
+Sin MDT para las hojas, el programa avisa de que hay que calcularlo antes. La orden es `hipso metrics`.
 
 ##### Modelos lineales
 
 Botón grande. Relaciona una variable medida en campo (volumen, biomasa, área basimétrica…) con las métricas LiDAR de las mismas unidades de muestreo, para estimarla en toda la superficie, y valida el modelo por validación cruzada. Véase el apartado 7.3.
 
+
+| Control | Qué hace |
+|---|---|
+| Capa o tabla de unidades de muestreo | La capa que da *Extraer muestras* (modo solo métricas, shapefile): un polígono por unidad con sus métricas. Puede estar ya cargada. |
+| Datos de campo | Excel o CSV con una fila por unidad de muestreo; su nombre debe coincidir con el de la unidad. |
+| Muestra en métricas, en campo | Columnas que nombran la unidad en cada tabla. |
+| Variable a estimar | Columna de la tabla de campo que se estima. |
+| Transformación | Ninguna, logaritmo de la respuesta, o logaritmo de la respuesta y de las métricas. |
+| Variables del modelo | *Automático* (el programa elige las métricas) o *Elegir variables* (se marcan en una tabla). |
+| Criterio | AICc o BIC para la elección automática. |
+| Variables como mucho | Máximo de métricas del modelo (0: una por cada diez unidades, entre dos y cinco). |
+| Colinealidad máxima \|r\| | Correlación máxima entre dos métricas; si se supera, se deja la más relacionada con la variable. |
+| VIF máximo | Factor de inflación de la varianza máximo que se admite. |
+| Probar también las métricas de intensidad | Las incluye entre las candidatas; la intensidad de casi todos los vuelos no está calibrada entre pasadas. |
+| Elegir variables… | Analiza la normalidad de la variable y de las métricas y las muestra para marcarlas (*Sugeridas*, *Ninguna*). |
+| Hacer el mapa de la variable | Estima la variable en todas las celdas, con las tablas de *Métricas por celda* (deben calcularse igual que las de las unidades de muestreo). |
+| Guardar también el intervalo de predicción del 95 % | Escribe la semianchura del intervalo. |
+| Estimar también las celdas fuera del rango | Por defecto esas celdas quedan vacías. |
+| Ajustar y validar, Gráficas | Ajusta el modelo y lo valida dejando fuera una unidad cada vez; las gráficas de diagnóstico muestran lo ajustado y los residuos. |
+
+La orden es `hipso model`.
+
 ##### Segmentar individuos
 
 Detecta los individuos y sus copas en un modelo de alturas. Véase el apartado 7.3.
 
+
+La ventana se organiza en cinco pasos.
+
+| Control | Qué hace |
+|---|---|
+| Ráster | El CHM que se segmenta; con varias nubes cargadas, se segmenta el de cada una y cada hoja da su resultado. |
+| Individuos (base del nombre) | Nombre de los archivos de salida. |
+| 1 · Ventana del suavizado (m, 0 = sin suavizar) | Suaviza el CHM antes de buscar cimas, con *Media*, *Mediana* o *Gauss*. |
+| 2 · Origen | *Buscar en el CHM* (máximos locales) o *Archivo de ápices (x,y)…* (cimas dadas a mano). |
+| Altura mínima | Altura mínima de una cima para contarla como árbol (2 m). |
+| Ventana (diámetro) = a + b·h + c·h² | Diámetro de la ventana de búsqueda de cimas como función de la altura (b = c = 0: fija); *Circular* o *Cuadrada*. |
+| 3 · Copas: método | *Dalponte y Coomes 2016* (crecimiento de regiones), *Silva et al. 2016* (Voronoi acotado por altura) o *Cuencas (watershed)*. |
+| th_seed, th_cr, max_cr | Dalponte: proporción de la altura de la cima y de la altura media de la copa por encima de la cual un píxel se une, y alcance de la copa en píxeles. |
+| max_cr_factor, exclusión | Silva: radio de la copa como proporción de la altura, y proporción de la altura por debajo de la cual se descartan los píxeles. |
+| tolerancia (m), ext (píxeles) | Cuenca: escalón mínimo de altura entre copas y radio de búsqueda de picos. |
+| 4 · Resultados | Marca qué se escribe además de las cimas: *Ráster de copas*, *Polígonos de copa*, *Ápices (shapefile PointZ)*, *GeoPackage* (ápices y copas en un archivo), *Métricas de la nube en cada copa* (más lento, con alturas normalizadas) y *Nube LAS/LAZ con atributo treeID por punto*. |
+| Margen hacia las vecinas (m) | Con varias hojas, cada árbol una sola vez: se busca con lo que tienen las vecinas y se deja a la hoja de su cima. |
+| 5 · Inventario de campo | Archivo con X_arbol, Y_arbol, Ht, Muestra, X_Muestra e Y_Muestra, para comprobar la detección; con *Radio de la unidad de muestreo (m)* y *Distancia de emparejado (m)* (una detección coincide con un árbol de campo a esa distancia como máximo). |
+
+La orden es `hipso trees`.
+
 ##### Análisis por objetos
 
 Agrupa el modelo de alturas en objetos y los clasifica (OBIA). Véase el apartado 7.3.
+
+
+| Control | Qué hace |
+|---|---|
+| Ráster (CHM) | El CHM, de un archivo o de las capas cargadas. Todas las capas deben coincidir celda a celda. |
+| Otras capas ráster | Capas adicionales (intensidad, retornos, rugosidad…) con las que describir los objetos. |
+| 1 · Rellenar celdas sin puntos hasta (celdas) | Evita huecos entre objetos (0: no). |
+| 1 · Suavizar con radio (celdas) | Reduce el ruido de sal y pimienta (0: no). |
+| 1 · Rugosidad del CHM (radio, celdas) | Añade la rugosidad local del CHM como capa (0: no). |
+| 2 · Fusión de regiones | Crea los objetos fusionando manchas mientras el coste sea menor que la escala al cuadrado. |
+| Escala | Mayor, objetos más grandes (conviene probar entre 5 y 15). |
+| Peso de la forma, compacidad | Peso de la forma frente al valor (0 a 0,9) y de la compacidad frente a la suavidad dentro de la forma (0 a 1). |
+| Peso de la rugosidad | 1 pesa como las demás capas; 0 la deja fuera. |
+| 2 · Rango de valores del CHM | Alternativa a la fusión: un objeto es el conjunto de celdas contiguas del CHM entre dos valores (*Entre*), con *unir en diagonal*. |
+| Objeto mínimo (celdas) | Los objetos menores se unen a un vecino. |
+| 3 · Clasificación | *Solo describir*, *Con reglas* (archivo de texto), *Con muestras (bosque aleatorio)* (shapefile con el campo de la clase) o *Agrupar por similitud* (con *Número de estratos*; el estrato 1 es el más bajo). |
+| Campo de la clase | Campo del shapefile de muestras que nombra la clase. Un objeto cuenta como muestra si los polígonos cubren al menos la mitad de sus celdas. |
+| 4 · Unir los objetos vecinos de la misma clase en estratos | Estratos homogéneos. *Estrato mínimo (celdas)*: los menores toman la clase de sus vecinos. |
+| Unidades de muestreo a repartir | Reparto de unidades por estrato (asignación de Neyman); 0 no reparte. |
+| Cobertura desde | Altura a partir de la cual una celda cuenta como cubierta vegetal. |
+| Salida | Polígonos (shp), tabla (csv) o GeoPackage (gpkg), con *Simplificar* y la base del nombre. |
+
+La orden es `hipso obia`.
 
 #### LiDAR → TLS
 
@@ -335,11 +710,54 @@ Agrupa el modelo de alturas en objetos y los clasifica (OBIA). Véase el apartad
 
 Botón grande. Mide los troncos en nubes de escáner terrestre, móvil o fotogramétrico, estima su volumen y clasifica troncos y ramas. Véase el apartado 7.3.
 
+
+| Control | Qué hace |
+|---|---|
+| Equipo | *Terrestre estático (vóxel 3 cm)*: escáner sobre trípode, nubes densas y de poco ruido. *Móvil o SLAM (vóxel 5 cm)*: escáner de mano o de mochila, con ruido de varios centímetros. |
+| Altura de la base sobre el suelo (cm) | Donde empieza la primera troza (10 cm). |
+| Diámetro en punta delgada (cm) | Donde termina el fuste comercial (7 cm). |
+| Longitud de la troza (m) | Distancia entre los diámetros medidos (0,5 m). |
+| La nube ya tiene alturas sobre el suelo | No hay que calcular el terreno. |
+| Franja: desde, hasta (m sobre el suelo) | Franja donde se buscan los troncos (0,7 a 3,5 m). |
+| Hueco máximo sin medir (m) | Tras él se da el tronco por perdido (2 m). |
+| Altura libre de ramas esperada (%) | Proporción de la altura del árbol que se espera que sea su altura comercial; sirve para estimarla en un tronco que se perdió cuando aún era grueso y muy por debajo de la cima (por ejemplo, 65 % en eucalipto). 0: sin estimación, y el tronco queda truncado. |
+| Vóxel (cm) | La nube se reduce a un punto por vóxel. |
+| Diámetro máximo esperado (m) | El mayor diámetro de tronco que se acepta (1 m). |
+| Pasadas de poda de ramas | Rondas de filtrado vertical y de agrupación con las que se quitan las ramas de los puntos de tronco (2). |
+| Verticalidad mínima (0–1) | Menor verticalidad que debe tener un punto para contarse como tronco (0,7), medida en un entorno de 10 cm. |
+| Vóxeles mínimos de un tronco en la franja | Menor número de vóxeles de un grupo de puntos de tronco dentro de la franja (300); con menos no se cuenta como tronco. |
+| Semigrosor de la sección (cm) | Semigrosor de la rebanada horizontal a la que se ajusta cada círculo (5 cm). |
+| Puntos mínimos por sección | Menor número de vóxeles de una sección (25); con menos no vale. |
+| Sectores ocupados (de 16) | Cuántos de los 16 sectores alrededor del círculo deben tener puntos (9), para que la sección esté repartida y no sea un arco. |
+| Malla del terreno simulado (m) | Distancia entre las partículas de la tela con la que se simula el suelo cuando la nube no trae clase 2 (0,5 m). |
+| Altura máxima medida (m) | La sección más alta que se mide (40 m). |
+| Altura del diámetro (m) | Los troncos separados a esta altura son brotes de una cepa, cada uno un árbol; los que son uno a esa altura y se bifurcan por encima son un solo árbol bifurcado (1,30 m). |
+| Distancia entre las bases de una cepa (m) | Distancia entre las bases de los troncos que crecen en una misma cepa (brotes de monte bajo o ramas de una bifurcación), 0,6 m. |
+| Guardar la nube con troncos (clase 64) y ramas (clase 65) | Para editar: los puntos dentro del círculo medido pasan a la clase 64 y los demás próximos a un tronco a la 65, hasta la *Distancia máxima al eje (m)*. |
+| Guardar también la nube de puntos de cada individuo | Escribe una nube por árbol. |
+
+El resultado son puntos en la base de cada tronco con diámetro a 1,30 m, alturas, volumen, número de trozas, inclinación y calidad (`.shp` o `.csv`), y `<nombre>_trozas.csv` con el detalle de cada troza. La orden es `hipso stem-volume`.
+
 #### LiDAR → Infraestructuras
 
 ##### Corredores eléctricos
 
 Botón grande. Mide el peligro de la vegetación bajo una línea eléctrica cuyos cables y postes ya están clasificados. Véase el apartado 7.3.
+
+
+| Control | Qué hace |
+|---|---|
+| MDT | Modelo del suelo (archivo o capa cargada); por defecto, el último MDT hecho con la primera nube. |
+| Distancia de seguridad | Dentro de esta distancia de un conductor hay invasión (3 m). Depende de la tensión de la línea y de la normativa aplicable. |
+| Margen de caída | Un árbol cuya altura más este margen alcanza la posición del conductor podría golpearlo (1 m). |
+| Franja a cada lado | La vegetación a más de esta distancia de todo conductor no se mira (30 m). |
+| Altura mínima de la vegetación | La vegetación más baja sobre el suelo se ignora (2 m). |
+| Unir puntos de cable a menos de | Los puntos de cable más cercanos que esto son un solo conductor (2,5 m). |
+| Rellenar huecos de hasta | Mayor hueco de puntos de cable que se rellena (30 m). |
+| Clases de vegetación | 3, 4 y 5 por defecto. |
+| Salida | Capas (shp) y base del nombre. |
+
+Las opciones que la ventana no muestra (clases de cable y de poste, longitud y número de puntos mínimos de un conductor, altura mínima y alcance de un poste, celda de agrupación) están en la orden `hipso corridor`.
 
 ### 4.6 Pestaña Vectorial
 
@@ -351,9 +769,31 @@ La pestaña *Vectorial* reúne lo que opera sobre capas de puntos, líneas y pol
 
 Botón grande. Crea una capa vacía de puntos, líneas o polígonos, con los campos y los tipos que se le den (texto, entero, decimal, sí/no, fecha o hipervínculo). Se rellena después con *Digitalizar* en el panel *Edición*. Véase el apartado 9, *Tipos de campo*.
 
+
+| Control | Qué hace |
+|---|---|
+| Nombre | Nombre de la capa y del archivo. |
+| Tipo | *Puntos*, *Líneas* o *Polígonos*. |
+| Campos de la tabla | Lista de campos con su nombre y su tipo (texto, entero, decimal, sí/no, fecha o hipervínculo); se añaden y se quitan antes de crear la capa. |
+
+La capa se crea vacía y se rellena con *Digitalizar* en el panel *Edición*. Los tipos de campo se explican en el apartado 9, *Tipos de campo*.
+
 ##### Tabla de atributos
 
 Botón grande. Abre la tabla de la capa vectorial elegida. Sus celdas se editan con una comprobación del tipo de cada campo, y desde ella se seleccionan filas (*Seleccionar todo*, *Invertir*, *Limpiar* y *Seleccionar por atributo*), se hace *Zoom a la selección*, se *Elimina*, se *Añade campo* y se *Guarda*; la casilla *Solo seleccionados* limita la vista a la selección. Véase el apartado 9.
+
+
+| Control | Qué hace |
+|---|---|
+| Seleccionar todo, Invertir, Limpiar | Operan sobre la selección de filas, que es la misma de elementos del mapa. |
+| Zoom a la selección | Encuadra los elementos seleccionados. |
+| Eliminar | Elimina los elementos seleccionados. |
+| Deshacer, Rehacer | Recorren las ediciones de la capa. |
+| Guardar | Guarda la capa en su archivo. |
+| Seleccionar por atributo | Selecciona las filas cuyo valor cumple una condición sobre un campo (según su tipo), como *Nueva selección*, ampliando la anterior o *Dentro de la selección*. |
+| Añadir campo | Añade un campo con nombre y tipo. |
+| Solo seleccionados | Muestra solo las filas seleccionadas. |
+| Celdas | Un clic abre el valor (o el hipervínculo); un doble clic lo edita, y la tabla comprueba lo escrito contra el tipo del campo (por ejemplo, las fechas se escriben AAAA-MM-DD). Las columnas se ordenan pulsando su cabecera. |
 
 #### Vectorial → Geometría
 
@@ -361,9 +801,15 @@ Botón grande. Abre la tabla de la capa vectorial elegida. Sus celdas se editan 
 
 Busca polígonos con anillos sin cerrar, autointersecciones y otros defectos que hacen fallar las operaciones posteriores, y lista dónde están. Véase el apartado 9, *Geoprocesos con polígonos*.
 
+
+Elige la capa de polígonos y busca anillos sin cerrar, autointersecciones, huecos fuera del polígono y partes solapadas, y lista cada uno. No modifica la capa. La orden es `hipso is-valid`.
+
 ##### Reparar geometrías
 
 Repara los polígonos no válidos y escribe una capa nueva, conservando los atributos. Véase el apartado 9.
+
+
+Elige la capa de polígonos y repara los no válidos con la regla par-impar: un lazo se convierte en dos partes y los bordes repetidos se cancelan. Los válidos no se tocan y la tabla de atributos se conserva. La orden es `hipso make-valid`.
 
 #### Vectorial → Geoprocesos
 
@@ -371,45 +817,129 @@ Repara los polígonos no válidos y escribe una capa nueva, conservando los atri
 
 Para cada polígono resume las celdas de un ráster cuyo centro cae dentro de él (recuento, mínimo, máximo, media, suma, desviación típica y mediana), como el CHM medio de cada rodal. Véase el apartado 9, *Estadística zonal*.
 
+
+| Control | Qué hace |
+|---|---|
+| Ráster | El ráster cuyas celdas se resumen, de un archivo o de las capas cargadas. |
+| Capa | La capa de polígonos. |
+| Prefijo de los campos nuevos | Por ejemplo, `chm_` da `chm_mean`; un campo de shapefile tiene 10 caracteres como máximo. |
+| Reparar antes los polígonos no válidos | Evita que un polígono inválido falle. |
+
+El resultado es una capa nueva con los campos originales y un campo más por estadístico (`count`, `min`, `max`, `mean`, `sum`, `stddev` y `median`). La orden es `hipso zonal`.
+
 ##### Búfer
 
 Amplía cada elemento la distancia indicada (negativa, lo reduce), también sobre puntos y líneas. Véase el apartado 9.
+
+
+| Control | Qué hace |
+|---|---|
+| Capa | La capa que se amplía. Con puntos, da un círculo de ese radio alrededor de cada punto (la distancia debe ser mayor que 0). |
+| Distancia | En las unidades de la capa: metros en un sistema proyectado, grados en uno geográfico. Negativa, reduce el polígono. |
+| Reparar antes los polígonos no válidos | Corrige los polígonos inválidos antes de operar. |
+
+Las esquinas quedan redondeadas. La orden es `hipso buffer`.
 
 ##### Disolver
 
 Une los polígonos que comparten el valor de un campo, o todos, en uno solo. Véase el apartado 9.
 
+
+| Control | Qué hace |
+|---|---|
+| Capa | La capa de polígonos. |
+| Campo (vacío: todos en uno) | Une los polígonos que comparten el valor de este campo; sin campo, une todos. |
+
+El campo `n` del resultado cuenta cuántos polígonos se unieron. La orden es `hipso dissolve`.
+
 ##### Unión
 
 Superpone dos capas y da las piezas que están en las dos y las que están solo en una. Véase el apartado 9.
+
+
+| Control | Qué hace |
+|---|---|
+| Primera capa, Segunda capa | Las dos capas de polígonos. |
+| Reparar antes los polígonos no válidos | Corrige los polígonos inválidos antes de operar. |
+
+Da las piezas que están en las dos capas (con los campos de ambas, los de la segunda precedidos por `b_`), solo en la primera y solo en la segunda. La orden es `hipso union`.
 
 ##### Intersección
 
 Se queda solo con las piezas que están en las dos capas, con los atributos de ambas. Véase el apartado 9.
 
+
+| Control | Qué hace |
+|---|---|
+| Primera capa, Segunda capa | Las dos capas de polígonos. |
+| Reparar antes los polígonos no válidos | Corrige los polígonos inválidos antes de operar. |
+
+Se queda solo con las piezas que están en las dos capas, con los campos de ambas (los de la segunda con el prefijo `b_`). Lo que solo está en una se descarta. La orden es `hipso intersect`.
+
 ##### Diferencia
 
 A la primera capa le quita lo que cubre la segunda. Véase el apartado 9.
+
+
+| Control | Qué hace |
+|---|---|
+| Primera capa, Segunda capa | Las dos capas de polígonos. |
+| Reparar antes los polígonos no válidos | Corrige los polígonos inválidos antes de operar. |
+
+A la primera capa le quita lo que cubre la segunda; cada pieza que queda conserva los campos de la primera, y los polígonos cubiertos del todo desaparecen. Esta operación no tiene orden de la línea de comandos.
 
 ##### Diferencia simétrica
 
 Se queda con lo que está solo en una de las dos capas. Véase el apartado 9.
 
+
+| Control | Qué hace |
+|---|---|
+| Primera capa, Segunda capa | Las dos capas de polígonos. |
+| Reparar antes los polígonos no válidos | Corrige los polígonos inválidos antes de operar. |
+
+Se queda con lo que está solo en una de las dos capas: lo de la primera con sus campos y lo de la segunda con los suyos precedidos por `b_`. Lo que está en las dos se descarta. No tiene orden de la línea de comandos.
+
 ##### Centroides
 
 Una capa de puntos con el centroide de cada elemento. Véase el apartado 9.
+
+
+Elige la capa (de polígonos o de líneas) y escribe una capa de puntos con el centroide de cada elemento y sus mismos atributos. En un polígono cóncavo o con huecos el centroide puede caer fuera de él: para eso están los *Puntos en superficie*. No tiene orden de la línea de comandos.
 
 ##### Puntos en superficie
 
 Una capa de puntos con un punto que cae siempre dentro de cada polígono, a diferencia del centroide, que puede caer fuera en formas cóncavas. Véase el apartado 9.
 
+
+Elige la capa y escribe una capa de puntos con un punto que cae siempre dentro de cada polígono (o sobre cada línea), aunque sea cóncavo o tenga huecos, con los mismos atributos. Sirve para etiquetar o para extraer valores de un ráster. No tiene orden de la línea de comandos.
+
 ##### Unir por localización
 
 Copia a cada elemento de la primera capa los atributos del elemento de la segunda con el que se relaciona espacialmente. Véase el apartado 9.
 
+
+| Control | Qué hace |
+|---|---|
+| Primera capa, Segunda capa | La capa que recibe los campos y la que los da. |
+| Un elemento de la primera capa cumple si… | La relación espacial con la segunda: que intersecte, esté dentro de, contenga, toque, cruce o no toque («…de la segunda»). |
+| Campos | *Los del primer coincidente* o *Suma y media de los numéricos* de todos los que coinciden. |
+| Prefijo de los campos nuevos | Prefijo con el que se copian los campos de la segunda capa. |
+
+Añade siempre `n_coinc` con cuántos elementos coinciden. No tiene orden de la línea de comandos.
+
 ##### Voronoi
 
 Un polígono de Voronoi por cada punto de una capa (la zona más cercana a él), con los atributos del punto. Sirve para repartir el territorio entre estaciones o medir el área que le toca a cada árbol. Véase el apartado 9.
+
+
+| Control | Qué hace |
+|---|---|
+| Capa | Una capa de puntos. |
+| Recorte | *Sin recorte* (las celdas de los puntos del borde, que no tienen fin, se dejan fuera), *Una caja algo mayor que los puntos* o *Una capa de polígonos* (*Polígonos de recorte*). |
+| Guardar también las aristas de Delaunay | Escribe además una capa con las líneas entre los puntos vecinos. |
+
+Da la celda de Voronoi de cada punto (el área que está más cerca de él que de ningún otro), con los atributos del punto. La orden es `hipso voronoi`.
 
 #### Vectorial → Capas y tablas
 
@@ -417,29 +947,102 @@ Un polígono de Voronoi por cada punto de una capa (la zona más cercana a él),
 
 Añade a una capa un campo por banda de uno o varios rásteres, con el valor bajo cada elemento (el CHM en cada parcela o árbol). Véase el apartado 9, *Capas y tablas*.
 
+
+La ventana se genera a partir de la orden `hipso extract`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `LAYER` | archivo o carpeta | ninguno | La capa (puntos, líneas o polígonos), en el mismo sistema que los rásteres. **Obligatoria.** |
+| `--raster` | archivo o carpeta | ninguno | Un ráster (se repite para varios) **Obligatoria.** Se puede repetir. |
+| `--bands` | texto o número | ninguno | Bandas que extraer, contando desde 1 (por defecto, todas) Se puede repetir. |
+| `--bilinear` | casilla | desactivada | Interpola entre los cuatro centros de celda más cercanos en lugar de tomar la celda que contiene el punto. |
+| `--prefix` | texto | ninguno | Prefijo de los campos nuevos. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_valores.<ext>. |
+
 ##### Unir tabla
 
 Une a una capa las columnas de una tabla (csv, texto o Excel) por un campo clave, como el inventario de campo a las parcelas. Véase el apartado 9.
+
+
+La ventana se genera a partir de la orden `hipso join-table`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `LAYER` | archivo o carpeta | ninguno | La capa a la que se añaden las columnas (.shp, .gpkg o .geojson) **Obligatoria.** |
+| `TABLE` | archivo o carpeta | ninguno | La tabla (.csv, texto o .xlsx) de la que salen las columnas. **Obligatoria.** |
+| `--layer-key` | texto o número | ninguno | Campo clave de la capa. **Obligatoria.** |
+| `--table-key` | texto o número | ninguno | Columna clave de la tabla (por defecto, el mismo nombre) |
+| `--prefix` | texto | ninguno | Prefijo de los campos nuevos. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_union.<ext>. |
 
 ##### Combinar capas
 
 Junta varias capas del mismo tipo de geometría en una; los campos son la unión de los de todas. Véase el apartado 9.
 
+
+La ventana se genera a partir de la orden `hipso merge`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Las capas que combinar. **Obligatoria.** Se puede repetir. |
+| `--origin` | texto o número | ninguno | Añade un campo con el nombre del archivo de origen de cada elemento. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<primera>_combinada.<ext>. |
+
 ##### Dividir por campo
 
 Escribe una capa por cada valor distinto de un campo (un archivo por rodal, por especie…). Véase el apartado 9.
+
+
+La ventana se genera a partir de la orden `hipso split`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | La capa que se divide (.shp, .gpkg o .geojson) **Obligatoria.** |
+| `--field` | texto o número | ninguno | El campo por el que dividir. **Obligatoria.** |
+| `--dir` | archivo o carpeta | ninguno | Carpeta de salida; por defecto: <resultados>/<capa>_partes. |
 
 ##### Recortar capa
 
 Recorta una capa de puntos, líneas o polígonos con los polígonos de otra, o borra de ella lo que cubren. Véase el apartado 9.
 
+
+La ventana se genera a partir de la orden `hipso clip-vector`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | La capa que recortar. **Obligatoria.** |
+| `--mask` | archivo o carpeta | ninguno | Los polígonos con los que recortar. **Obligatoria.** |
+| `--erase` | casilla | desactivada | Borra lo que cubren los polígonos en lugar de conservarlo. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_recortada.<ext> (o _borrada) |
+
 ##### Cercanía
 
 Añade a cada elemento la distancia al elemento más cercano de otra capa, su número de orden y, si se pide, uno de sus campos. Véase el apartado 9.
 
+
+La ventana se genera a partir de la orden `hipso near`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | La capa. **Obligatoria.** |
+| `--to` | archivo o carpeta | ninguno | La capa de la que se busca el elemento más cercano. **Obligatoria.** |
+| `--carry` | texto o número | ninguno | Campo de la otra capa que se copia del elemento más cercano. |
+| `--max` | texto o número | ninguno | Distancia máxima: los más lejanos quedan sin valor. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_cercania.<ext>. |
+
 ##### Resumen estadístico
 
 Recuento, suma, media, mínimo, máximo y desviación de campos numéricos de una capa o tabla, por grupos de un campo. Véase el apartado 9.
+
+
+La ventana se genera a partir de la orden `hipso summary`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | La capa o la tabla (csv, texto, xlsx) **Obligatoria.** |
+| `--by` | texto o número | ninguno | Campo por el que agrupar (sin él, un solo grupo) |
+| `--fields` | texto o número | ninguno | Campos numéricos que resumir, separados por comas (por defecto, todos los numéricos) Se puede repetir. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Tabla CSV de salida; por defecto: <resultados>/<entrada>_resumen.csv. |
 
 ### 4.7 Pestaña Raster
 
@@ -451,21 +1054,66 @@ La pestaña *Raster* tiene tres grupos. *Imagen* trabaja con bandas, *Geoproceso
 
 Botón grande. Elige qué bandas de una imagen multibanda se muestran como rojo, verde y azul (color natural, falso color infrarrojo y otras), con estirado del contraste, brillo y gamma. Véase el apartado 8.
 
+
+La ventana *Bandas e índices…* de una imagen multibanda (y la pestaña *Bandas* de *Simbología*) elige qué banda se pinta como rojo, verde y azul. Con *Estirado* se reparte el contraste (*Sin estirar*, *Mínimo–máximo*, *Percentiles 2–98 %*, *±2 desviaciones* o *Cortes manuales*, con el mínimo y el máximo que se pintan, iguales para las tres bandas), y *Brillo*, *Contraste* y *Gamma* los ajustan; *Restablecer* los devuelve a sus valores iniciales. Véase el apartado 4.9, *Simbología de una imagen*.
+
 ##### Índices espectrales
 
 Botón grande. Calcula índices como NDVI, GNDVI, NDWI, EVI, SAVI, NDMI, NBR, VARI o ExG a partir de las bandas, o una expresión propia, y los guarda como GeoTIFF. Véase el apartado 8.
+
+
+| Control | Qué hace |
+|---|---|
+| Imagen | La imagen multibanda; si es muy grande, el índice se calcula con 1 de cada n píxeles. |
+| ¿Qué banda es cada una? | Asigna a cada banda su papel (rojo, verde, azul, infrarrojo cercano, SWIR1, SWIR2). |
+| Índice | NDVI, GNDVI, NDWI, EVI, SAVI, NDMI, NBR, VARI, ExG o una *Expresión* propia con RED, GREEN, BLUE, NIR, SWIR1, SWIR2 o B1…Bn, con + − × ÷ y paréntesis. |
+| Calcular índice | Calcula el índice y lo añade como capa. |
+| Guardar como GeoTIFF… | Guarda el último índice calculado. |
 
 ##### Mosaico
 
 Botón grande. Une varios rásteres en uno, eligiendo qué hacer donde se solapan (primero, último, media, mínimo, máximo, mediana, suma o número de capas). Véase el apartado 8.
 
+
+| Control | Qué hace |
+|---|---|
+| Rásteres | Lista de rásteres con el mismo número de bandas (se pueden subir, bajar o quitar). |
+| Donde se solapan | Qué valor queda donde hay píxeles de varios rásteres: *primero*, *último*, *media*, *mínimo*, *máximo*, *mediana*, *suma* o *número de capas*. |
+| Zona que cubre | *Unión de todos*, *Solo donde coinciden todos* o *La del primero*. |
+| Remuestreo | *Vecino más cercano*, *Bilineal*, *Media (para reducir)*, *Cúbico* o *Moda (clases, para reducir)*. |
+| Tipo de dato | *Como el primero*, *8 bits*, *16 bits* o *Decimal de 32 bits*. |
+| Tamaño de píxel | El menor de los rásteres, o uno propio. |
+| Sin datos en la entrada, en la salida | Valor de las entradas que significa «sin datos» y valor que se escribe donde no hay datos. |
+| Salida | GeoTIFF. |
+
+La salida se escribe por franjas comprimidas, sin cargar las imágenes enteras. La orden es `hipso mosaic`.
+
 ##### Crear multibanda
 
 Une varias imágenes de una banda en una sola multibanda, en el orden de la lista. Véase el apartado 8.
 
+
+| Control | Qué hace |
+|---|---|
+| Rásteres | Lista de rásteres (archivos o capas cargadas) que se pueden subir, bajar o quitar. El orden de la lista es el de las bandas. |
+| Bandas | Qué bandas de cada ráster pasan a la imagen nueva (por ejemplo 1,3); vacío, todas. Admite hasta 64 bandas. |
+| Salida | GeoTIFF; por defecto, junto a los datos. |
+
+Cada banda de cada ráster de la lista pasa a ser una banda de la imagen nueva, como al apilar canales sueltos R, G, B y NIR en un solo archivo. La salida se escribe por franjas comprimidas (deflate), sin cargar las imágenes enteras. La orden es `hipso stack`.
+
 ##### Igualar rásteres
 
 Reproyecta, recorta a la extensión y remuestrea varios rásteres sobre las celdas de uno de referencia, de modo que coincidan celda a celda y se puedan apilar. Véase el apartado 8.
+
+
+| Control | Qué hace |
+|---|---|
+| Referencia | El ráster cuyas celdas se copian (origen, tamaño de celda y dimensiones), de un archivo o de las capas cargadas. |
+| Rásteres a igualar | Lista de rásteres (se añaden archivos o capas, y se vacía o se quita uno). Debajo de cada uno la ventana avisa de si ya coincide con la referencia o si está en otro sistema, en cuyo caso se reproyecta. |
+| Remuestreo | *Automático* (vecino más próximo para clases y bilineal para el resto), *Vecino más próximo*, *Bilineal*, *Media*, *Cúbico* o *Moda*. |
+| Valor de «sin datos» en la salida | Lo que contienen las celdas que quedan fuera de un ráster (-9999 por defecto). |
+
+Cada resultado se guarda junto al original como `<nombre>_alineado.tif`, sin pisar nunca uno anterior. La orden es `hipso align`.
 
 #### Raster → Geoprocesos
 
@@ -473,53 +1121,200 @@ Reproyecta, recorta a la extensión y remuestrea varios rásteres sobre las celd
 
 Botón grande. Pasa nubes y rásteres a otro sistema de coordenadas y, si se pide, cambia también la referencia vertical de las alturas. Véase el apartado 8.
 
+
+| Control | Qué hace |
+|---|---|
+| Archivos | Nubes y rásteres, de archivos o de las capas cargadas. Junto a cada uno se ve su sistema y su referencia vertical. |
+| Destino: *Código EPSG* | Escribe el código del sistema de destino. |
+| Destino: *Sistema de un ráster* | Toma solo el sistema de un ráster de referencia. |
+| Destino: *Celdas de un ráster* | El resultado coincide celda a celda con el ráster de referencia: los rásteres toman su sistema, extensión, origen y celda, y las nubes solo su sistema. |
+| Origen, si el archivo no lo declara | Sistema (EPSG) de los archivos sin sistema declarado. |
+| Celda del resultado | Tamaño de celda de los rásteres (por defecto, el de cada entrada o su equivalente en el sistema nuevo). |
+| Remuestreo | Método con el que se calculan los valores de los rásteres. |
+| Alturas de entrada | *Las del archivo*, *Elipsoidal* o un *Código EPSG vertical*. |
+| Alturas de salida | *No cambiar las alturas*, *Elipsoidal* o un *Código EPSG vertical*. Pasar de elipsoidales (las que da el GNSS) a ortométricas exige un modelo de geoide. |
+| Aceptar aproximaciones | Sin ajuste de datum, o con la altura sin corregir donde no hay geoide. |
+| Aceptar una transformación menos precisa si falta la mejor | Por ejemplo, si falta una rejilla. Sin marcar, una transformación imprecisa se rechaza con un error. |
+
+Las rejillas de geoide y de datum se buscan en `HIPSO_GRID_DIR`, `PROJ_DATA` y `PROJ_LIB`; las de España vienen incluidas. Cada resultado se guarda junto al original como `<nombre>_epsg<código>`. La orden es `hipso reproject`.
+
 ##### Calculadora
 
 Botón grande. Calcula una expresión celda a celda con varios rásteres (`A`, `B`, `C`… o las bandas `B1`…`Bn`). Véase el apartado 8, *Calculadora ráster*.
+
+
+| Control | Qué hace |
+|---|---|
+| Rásteres | Lista de rásteres, que se llaman A, B, C… en el orden de la lista; una banda concreta es `A.2`. |
+| Expresión | Operaciones, comparaciones, funciones y condiciones, por ejemplo `if(A > 0, A - B, 0)`. Funciones: abs, sqrt, ln, log10, exp, pow, min, max, floor, ceil, round, sin, cos, tan, atan2, clamp, if e isnan; comparaciones, and, or, not, % y ^. Una celda vacía da vacío, salvo dentro de isnan(). |
+| Ejemplos | Carga una expresión de muestra: diferencia, máscara, quitar negativos, reescalar a 0–255, rellenar vacíos o NDVI de una imagen de cuatro bandas. |
+| Resultado | *Decimales*, *Enteros 0-255* o *Enteros 0-65535*. |
+| Es un ráster de clases | Las vistas reducidas no promedian. |
+| Si las celdas de los rásteres difieren, poner los demás sobre las del primero | También reproyecta los que estén en otro sistema. |
+
+La orden es `hipso calc`.
 
 ##### Cortar por máscara
 
 Botón grande. Vacía lo que queda fuera de una capa de polígonos o de otro ráster y, si se quiere, corta el ráster a su caja. Véase el apartado 8.
 
+
+| Control | Qué hace |
+|---|---|
+| Ráster, Banda | Ráster que se recorta. |
+| Máscara | Una capa de polígonos o un ráster (se conservan las celdas donde tiene datos distintos de cero), de un archivo o de las capas cargadas. |
+| Cortar el ráster a la caja de la máscara | Si no, conserva su tamaño. |
+| Conservar lo que queda fuera de la máscara | Invierte la máscara: vacía lo de dentro. |
+| Valor de las celdas vacías | El del archivo, o 0 / -9999 según el tipo. |
+
+Las celdas son las del ráster original: no se remuestrea nada. La orden es `hipso clip-raster`.
+
 ##### Reclasificar
 
 Cambia los valores de un ráster con una tabla de reglas (intervalos, comparaciones o valores). Véase el apartado 8.
+
+
+| Control | Qué hace |
+|---|---|
+| Ráster, Banda | Ráster y banda que se reclasifican. |
+| Reglas | Una regla por línea: «valor = nuevo», «a..b = nuevo» (ambos extremos incluidos), «< b», «<= b», «> a», «>= a» o «nodata»; como resultado, un número o «nodata». «else = …» da el valor de las demás celdas. Manda la primera regla que vale para una celda. |
+| Ejemplos | Unir clases, intervalos a clases, valores negativos a «sin datos», máscara 1/0 o rellenar vacíos con 0. |
+| Una regla por clase | Rellena una regla «valor = valor» por cada clase del ráster, para cambiar solo las que se quieran. |
+| Las celdas que ninguna regla recoge | *Conservan su valor*, *Quedan vacías* o *Pasan a* un valor. |
+
+El resultado usa el tipo entero más pequeño que cabe. La orden es `hipso reclass`.
 
 ##### Tamizar
 
 Quita los parches pequeños de un ráster de clases: toman el valor de su vecino mayor. Véase el apartado 8.
 
+
+| Control | Qué hace |
+|---|---|
+| Ráster | Ráster de clases, de un archivo o de las capas cargadas. |
+| Umbral (celdas) | Los parches conexos del mismo valor con menos celdas que el umbral toman el valor del parche vecino más grande. |
+| Las celdas se tocan también por las esquinas (8 vecinas) | Cuenta también las conexiones diagonales. |
+
+Las celdas vacías no se tocan. La orden es `hipso sieve`.
+
 ##### Proximidad
 
 Calcula para cada celda la distancia a la celda más cercana de un valor dado. Véase el apartado 8.
+
+
+| Control | Qué hace |
+|---|---|
+| Ráster | Ráster de entrada. |
+| Valores objetivo | Valores de los que se mide la distancia (2, 5…); vacío, toda celda distinta de 0. Las celdas objetivo valen 0. |
+| Distancia máxima | Hasta dónde se calcula; sin límite por defecto. |
+| Distancias en celdas | Si no, las distancias salen en unidades del mapa. |
+
+La distancia es euclídea exacta. La orden es `hipso proximity`.
 
 ##### Rellenar huecos
 
 Rellena las celdas vacías de un ráster con las de su entorno. Véase el apartado 8.
 
+
+| Control | Qué hace |
+|---|---|
+| Ráster | Ráster con celdas vacías. |
+| Alcance (celdas) | Hasta qué distancia se buscan celdas con valor a su alrededor. |
+| Pasadas de suavizado | Pasadas de una media 3×3 sobre las celdas rellenadas (0: ninguna). |
+
+Rellena ponderando por el inverso del cuadrado de la distancia en ocho direcciones; lo que no tiene ninguna celda a su alcance sigue vacío. La orden es `hipso fill-nodata`.
+
 ##### Vectorizar
 
 Convierte un ráster en polígonos con el valor como atributo. Véase el apartado 8.
+
+
+| Control | Qué hace |
+|---|---|
+| Agrupar | *Por clase (mismo valor)*: un polígono por conjunto de celdas contiguas con el mismo valor. *Rango de valores*: las celdas entre *Desde* y *hasta*. *Intervalos entre cortes*: un polígono por intervalo definido por los *Cortes*. |
+| Celdas mínimas por polígono | Los polígonos menores se descartan. |
+| Simplificar | En unidades del mapa; 0 sigue las celdas. |
+| Las celdas se tocan también por las esquinas (8 vecinas) | Cuenta también las conexiones diagonales. |
+| Guardar como GeoPackage | Si no, shapefile. |
+
+Los polígonos llevan el valor, el área y las celdas como atributos. La orden es `hipso vectorize`.
 
 ##### Rasterizar
 
 Convierte una capa vectorial en ráster: cada celda recibe el valor de un campo del último elemento que la cubre. Véase el apartado 8, *Análisis ráster*.
 
+
+La ventana se genera a partir de la orden `hipso rasterize`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `LAYER` | archivo o carpeta | ninguno | La capa. **Obligatoria.** |
+| `--reference` | archivo o carpeta | ninguno | Ráster de referencia: toma sus celdas. |
+| `--cell` | texto o número | ninguno | Tamaño de celda cuando no hay referencia. |
+| `--field` | texto o número | ninguno | Campo con el valor que se pinta (sin él, 1) |
+| `-o`, `--output` | archivo o carpeta | ninguno | GeoTIFF de salida; por defecto: <resultados>/<capa>_raster.tif. |
+
 ##### Filtro focal
 
 Media, mediana, mínimo, máximo, suma, rango, desviación, mayoría o suavizado gaussiano de cada celda sobre una ventana a su alrededor. Véase el apartado 8.
+
+
+La ventana se genera a partir de la orden `hipso focal`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | El ráster (GeoTIFF) **Obligatoria.** |
+| `--stat` | texto | `mean` | mean, median, min, max, sum, range, std, majority o gaussian. |
+| `--radius` | número | `1` | Radio de la ventana en celdas. |
+| `--circle` | casilla | desactivada | Ventana circular en lugar de cuadrada. |
+| `--sigma` | texto o número | ninguno | Desviación típica del filtro gaussiano, en celdas (por defecto, la mitad del radio) |
+| `--min-valid` | número | `1` | Menos celdas con valor que esto dejan la celda vacía. |
+| `-o`, `--output` | archivo o carpeta | ninguno | GeoTIFF de salida; por defecto: <resultados>/<entrada>_focal.tif. |
 
 ##### Estadísticas ráster
 
 Recuento, mínimo, máximo, media, desviación, mediana, percentiles e histograma de un ráster. Véase el apartado 8.
 
+
+La ventana se genera a partir de la orden `hipso rstats`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | El ráster (GeoTIFF) **Obligatoria.** |
+| `--bins` | número | `20` | Intervalos del histograma. |
+| `-o`, `--output` | archivo o carpeta | ninguno | CSV del histograma; por defecto: <resultados>/<entrada>_histograma.csv. |
+
 ##### Tabular áreas
 
 Área de cada clase de un ráster dentro de cada zona de otro, como tabla CSV. Véase el apartado 8.
 
+
+La ventana se genera a partir de la orden `hipso tabulate`: cada control es una de sus opciones, con la misma ayuda, y las que son archivos tienen botón para elegirlos de las capas cargadas (*Del mapa…*). Todas las opciones son estas.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `ZONES` | archivo o carpeta | ninguno | El ráster de zonas (clases enteras) **Obligatoria.** |
+| `--values` | archivo o carpeta | ninguno | El ráster de clases que se mide dentro de cada zona. **Obligatoria.** |
+| `-o`, `--output` | archivo o carpeta | ninguno | CSV de salida; por defecto: <resultados>/<zonas>_tabulado.csv. |
+
 #### Raster → Análisis del terreno
 
 Cinco menús reparten los productos que se derivan de un MDT (o de cualquier ráster de alturas en metros). Todos funcionan igual: se elige el MDT (un archivo o una capa cargada) y la salida, un GeoTIFF del mismo tamaño, y las celdas sin dato siguen sin dato. Véase el apartado 7.2, *Análisis de terreno*.
+
+
+Los menús de *Análisis del terreno* abren una ventana con los mismos controles de fondo. Cada ventana pide un MDT (archivo o capa cargada), la carpeta de resultados y los siguientes ajustes, según el producto.
+
+| Control | Productos | Qué hace |
+|---|---|---|
+| Grados, Porcentaje | Pendiente | Unidad de la pendiente. |
+| Dirección de la luz, Altura de la luz | Sombreado | Azimut en grados desde el norte en sentido horario (315 por defecto) y altura sobre el horizonte (45). |
+| Radio | Posición topográfica (TPI) | Radio del entorno en unidades del mapa (10). |
+| Superficie mínima que vierte | Red de drenaje, Subcuencas | Superficie drenada (m²) que forma un cauce (10 000). |
+| Observador X / Y, Altura de los ojos, Altura a ver, Alcance | Cuenca visual | Posición del observador en coordenadas del mapa, altura del ojo (1,7 m), altura sobre el suelo que debe verse (0 m) y hasta dónde mira (1000). |
+| Bordes y huecos | Productos de ventana 3×3 | *Sin dato* (por defecto), *Repetir el borde* (da valor a las del borde) o *Rellenar con la celda central* (también a las vecinas de un hueco, aplanando la superficie ahí). |
+| Factor Z | Todos | Multiplica las alturas cuando no están en las unidades de la celda; 1 si están en metros. |
+
+La orden es `hipso terrain`, con `--product` para elegir el producto.
 
 ##### Relieve
 
@@ -529,17 +1324,109 @@ Menú con *Pendiente* (inclinación en grados o porcentaje), *Orientación* (hac
 
 Menú con *Curvatura en planta*, *Curvatura de perfil* y *Curvatura total* (positivas en cumbres y lomas, negativas en vaguadas), *Rugosidad* (diferencia entre la celda más alta y la más baja de la ventana de 3×3), *Índice de rugosidad (TRI)* (media de las diferencias con las ocho vecinas), *Posición topográfica (TPI)* (altura menos la media del círculo de radio dado) y *Crestas y drenaje* (traza las líneas de cresta o de drenaje).
 
+###### Crestas y drenaje
+
+| Control | Qué hace |
+|---|---|
+| Líneas de | *Cresta* o *Drenaje*. |
+| Superficie mínima que recoge | Una línea nace donde se recoge esta superficie. |
+| Longitud mínima | Los tramos más cortos se descartan. |
+| Suavizado | Pasadas de Chaikin; 0 sigue las celdas. |
+
+Traza líneas 3D con el orden de Strahler (las cabeceras son 1; dos tramos del mismo orden que se juntan dan el siguiente), la longitud y la pendiente media de cada tramo. La orden es `hipso ridges`.
+
 ##### Hidrología
 
 Menú con *Profundidad de depresiones* (cuánto hay que rellenar cada depresión para que el agua salga), *Acumulación de flujo* (superficie que vierte a cada celda), *Índice de humedad (TWI)*, *Red de drenaje* (celdas por las que vierte al menos la superficie mínima indicada), *Subcuencas*, *Zonas encharcadas* (cada charco con su área, profundidad, volumen y cota de desborde) e *Inundación* (simula el agua de uno o varios niveles sobre el modelo).
+
+###### Zonas encharcadas
+
+| Control | Qué hace |
+|---|---|
+| MDT | El modelo del terreno (archivo o capa cargada), en metros y en un sistema métrico (UTM). |
+| Terreno | *Nivelado (cultivo)*: 5 cm de profundidad y 1 m² de área mínimos. *Irregular (monte)*: pide 15 cm, 4 m² y que el suelo bajo el charco sea casi llano, porque un MDT de monte tiene hoyos que no son charcos. *A medida*: valores propios. Son puntos de partida que conviene ajustar al MDT. |
+| Profundidad mínima | Una mancha de agua menos honda que esto no es un charco. |
+| Área mínima | Una mancha menor que esto no es un charco. |
+| Suelo casi llano: pendiente media máxima | El suelo bajo el charco debe ser casi llano. |
+| Descartar balsas y zanjas: área máxima, profundidad máxima | Quita las masas de agua mayores o más hondas, que son balsas o zanjas. |
+| Suavizar el MDT antes | 0: no. En campos con caballones no conviene suavizar, porque borra las calles. |
+| Resultados | *Ráster de charcos*, *Profundidad del agua*, *Polígonos (shp)* y *GeoPackage*. |
+
+Se rellenan las depresiones hasta su punto de desborde, y cada mancha de agua más honda que el mínimo es un charco, con su área, profundidad, volumen y cota de desborde. La orden es `hipso ponds`.
+
+###### Inundación
+
+| Control | Qué hace |
+|---|---|
+| Origen del agua | *Uno o varios puntos* (un río, una rotura, el mar; un punto por línea, «x y» con coordenadas del mapa), *El borde del modelo* o *Bañera: sin conectividad* (se inunda todo lo que está bajo el nivel, llegue o no el agua). |
+| Niveles | *Nivel* único o *Una serie* (*Desde*, *hasta*, *cada*; de menor a mayor, con paso positivo y 1000 niveles como máximo). |
+| Medidos como | *Cota*, *Altura sobre la celda más baja* o *Altura sobre el origen*. |
+| El agua pasa también por las esquinas de las celdas (8 vecinas) | Conectividad de 8 vecinos en lugar de 4. |
+| Resultados | *Profundidad por nivel*, *Polígonos de la extensión* y *Tabla (CSV)*. Se guarda también el ráster de alcance, la cota mínima del agua que llega a cada celda, útil como mapa de peligro. |
+
+El agua solo llena lo que puede alcanzar pasando por celdas que no superan el nivel: un hoyo detrás de una loma queda seco. La orden es `hipso flood`.
 
 ##### Visibilidad y rutas
 
 Menú con *Cuenca visual* (qué celdas ve un observador a una altura y con un alcance dados) y *Ruta de menor coste* (el camino más barato entre puntos por pendiente, tiempo de marcha o un ráster de costes).
 
+###### Ruta de menor coste
+
+| Control | Qué hace |
+|---|---|
+| Origen, «x y» | Punto de partida, en coordenadas del mapa. |
+| Paradas intermedias | Una por línea, opcional, en orden. |
+| Varios destinos: ir al más barato | Con varios destinos, la ruta va al más barato. |
+| Destino(s) | Uno por línea. |
+| Qué cuesta | *La pendiente* (1 + (pendiente / referencia) ^ potencia por metro), *Tiempo de marcha a pie* (función de Tobler, que distingue subida y bajada), *Nada: la ruta más corta* o *Un ráster de costes por metro*. |
+| Potencia, Pendiente de referencia | Con el modelo de la pendiente: exponente, y pendiente (%) a la que el coste por metro se duplica. |
+| No cruzar pendientes mayores de | Las celdas más empinadas que esto (%) no se pueden cruzar. |
+| Barreras | Polígonos que no se pueden cruzar. |
+| Zonas preferidas | Polígonos donde el coste se multiplica por el factor indicado. |
+| Guardar también el ráster de coste acumulado desde el origen | Escribe el coste de llegar a cada celda. |
+
+Se mueve por las ocho celdas vecinas, de modo que la ruta puede ser hasta un 8 % más larga que la recta. Da una línea 3D con su longitud, pendientes, subida y bajada. La orden es `hipso leastcost`.
+
 ##### Volúmenes
 
 Menú con *Volumen sobre MDT* (volumen entre una superficie y el terreno, celda a celda), *Cubicación de pilas* (volumen de cada pila de material) y *Desmonte y terraplén* (la tierra a quitar y a añadir para llegar a una cota o a una superficie de proyecto).
+
+###### Volumen sobre MDT
+
+| Control | Qué hace |
+|---|---|
+| Fuente | *CHM de cada nube* (alturas sobre el suelo), *MDS menos MDT (de cada nube)* o *MDS sobre una cota horizontal* (*Cota de referencia*). Con un CHM las alturas ya son sobre el suelo y no hace falta MDT. |
+| Altura mínima que cuenta (m) | Las celdas más cerca del MDT que esto no suman: quita el ruido del terreno. |
+| Zonas | *Todo el ráster*, *AOI dibujadas* (un volumen por AOI) o *Polígonos de un archivo vectorial* (el resultado es la capa con los volúmenes en su tabla). |
+
+El volumen es V = Σ (altura de la superficie − MDT) · celda². Las celdas por encima del MDT suman al volumen sobre él y las que quedan por debajo, al volumen bajo él (vaciados). Todas las hojas dan una sola tabla (`.csv`); con polígonos de un archivo, una copia de la capa con `Area_m2`, `Vol_sobre`, `Vol_bajo`, `Vol_neto`, `H_media`, `H_max` y `Sin_MDT`.
+
+###### Cubicación de pilas
+
+| Control | Qué hace |
+|---|---|
+| Modelo de superficie | El MDS, en un sistema métrico. |
+| Contornos de las pilas | Capa de polígonos, uno por pila. El contorno debe rodear el pie de la pila: lo que mida a lo largo de él se toma como suelo. |
+| Superficie base | *Plano ajustado al contorno (mínimos cuadrados)*, *Cota más baja del contorno*, *Cota mediana del contorno*, *Superficie interpolada desde el contorno*, *Cota fija* o *MDT del terreno de partida*. |
+| Altura mínima | Las celdas más bajas que esto sobre la base no cuentan. |
+| Densidad del material | Con ella, la tabla da también la masa. |
+| Resultados | *Tabla (CSV)*, *Superficie base* y *Altura sobre la base*. |
+
+Mide por pila el volumen, el área en planta y sobre la pendiente, y la altura media y máxima. El volumen se decide por el centro de cada celda: el error es del orden del perímetro por media celda por la altura del borde, y baja con celdas más finas. La orden es `hipso piles`.
+
+###### Desmonte y terraplén
+
+| Control | Qué hace |
+|---|---|
+| Terreno existente | El MDT de partida. |
+| Diseño | *Otro modelo (un MDT de diseño)*, *Plano horizontal a una cota* o *Plano inclinado*. |
+| Cota | Cota del plano horizontal. |
+| Cota en el origen, Pendiente, Hacia, Origen X / Y | Plano inclinado: cota en un punto, pendiente y orientación hacia la que baja (grados desde el norte, en sentido horario, como correría el agua), con las coordenadas del mapa del punto de origen. |
+| Polígonos | Opcional: un resultado por polígono. |
+| Tolerancia | Las diferencias de hasta esta cantidad cuentan como sin cambio. |
+| Resultados | *Tabla (CSV)* y *Ráster de clases*. |
+
+La diferencia es diseño menos terreno: positiva es terraplén y negativa es desmonte. La orden es `hipso cutfill`.
 
 ### 4.8 Pestaña Flujos
 
@@ -657,6 +1544,25 @@ La **Selección** tiene ocho herramientas, que se eligen por su icono: *Seleccio
 
 **Editar** tiene *Eliminar* (Supr) para quitar los puntos seleccionados, *Cambiar clase* con un selector de clase y atajos para las más frecuentes (*Suelo*, *Veg. baja*, *Veg. media*, *Veg. alta*, *Edificio*, *Ruido* y *Sin clasificar*), *Quitar duplicados* (apartado 6.4) e *Histogramas* (apartado 6.1). *Guardar nube editada…* escribe una nube nueva con las ediciones, y *Descartar todo* vuelve a la nube original. *Deshacer* (Ctrl+Z) y *Rehacer* (Ctrl+Y) recorren las ediciones, y el *Historial* lista las hechas. Todo el detalle de la edición está en el capítulo 6.
 
+###### Histogramas de atributos
+
+La ventana *Histogramas de atributos* se abre desde el botón *Histogramas* del panel *Edición*.
+
+| Control | Qué hace |
+|---|---|
+| Atributo | Atributo que se cuenta: elevación, intensidad, retorno, clase, ángulo de escaneo, etc. |
+| Barras | Número de intervalos del histograma. |
+| Escala logarítmica | Deja ver las barras con pocos puntos, que son las de los valores raros. |
+| Solo los puntos seleccionados | Cuenta únicamente la selección. |
+| Marcar barras | Un clic o arrastrar marca barras. |
+| Valores raros según un estadístico | Marca automáticamente las barras de los valores raros con *Tukey* (fuera de Q1 − k·RIC … Q3 + k·RIC), *Robusto* (lejos de la mediana, con MAD), *Desviaciones típicas* (media ± k·σ) o *Percentiles* (las colas más extremas), con su parámetro (k, z robusto, % en cada cola). |
+| Marcar los raros de este atributo, Quitar las marcas de este atributo | Aplican el estadístico elegido o quitan las marcas. |
+| Seleccionar puntos | Selecciona los puntos que caen en las barras marcadas de todos los atributos. |
+| Seleccionar de cualquier atributo | Selecciona los puntos que caen en las barras marcadas de cualquiera de los atributos. |
+| Eliminar, Asignar clase | Elimina los puntos seleccionados o les cambia la clase. |
+
+Debajo del gráfico se ven el número de puntos, el mínimo, el máximo, la media, la desviación típica, la mediana, los cuartiles y el MAD, y cuántas barras y puntos hay marcados. Véase el apartado 6.1.
+
 ##### Edición de capas vectoriales
 
 Con una capa vectorial el panel tiene cuatro grupos.
@@ -668,6 +1574,52 @@ Con una capa vectorial el panel tiene cuatro grupos.
 *Selección* tiene *Seleccionar* (por rectángulo), *Seleccionar todo*, *Invertir selección*, *Limpiar selección*, *Seleccionar por localización* (los elementos que intersectan, están dentro de, contienen, tocan o cruzan a los de otra capa) y *Seleccionar por expresión* (una expresión sobre los campos).
 
 *Geometría y atributos* tiene *Unir seleccionados* (junta los polígonos seleccionados en uno solo, con los atributos del primero), *Separar partes* (convierte cada parte de un elemento de varias partes en un elemento propio), *Agrupar en multiparte* (junta los seleccionados en uno sin unir la geometría), *Transformar selección* (mueve, gira y escala alrededor del centro de la selección), *Copiar*, *Pegar* (en la capa activa, emparejando los campos por nombre) y *Pegar como capa*, *Comprobar topología* (polígonos que se solapan, huecos entre ellos, contornos que se cruzan y, en líneas, cabos sueltos), *Eliminar seleccionados*, *Tabla de atributos* y *Calculadora de campos* (rellena un campo con una expresión). Véase el apartado 9.
+
+###### Calculadora de campos
+
+| Control | Qué hace |
+|---|---|
+| Campo | El campo que se rellena; si no existe, se crea. *Existentes* ofrece los de la capa. |
+| Expresión | Números, textos entre comillas simples, campos (`"especie"`), variables y funciones. |
+| Variables | `$area` (superficie del polígono, en unidades de la capa), `$perimeter`, `$length`, `$x` y `$y` (centroide), `$id` (número de fila) y `$npoints` (número de vértices). |
+| Funciones | `round(x, 2)`, `floor`, `ceil`, `sqrt`, `upper`, `lower`, `trim`, `concat`, `left`, `right`, `substr`, `replace`, `if(cond, si, no)` y `coalesce`; operaciones `+ - * / % ^`, `\|\|` para unir textos, comparaciones, `and`, `or` y `not`. |
+| Solo los seleccionados | Calcula solo los elementos seleccionados. |
+| Probar | Evalúa la expresión con algunas filas sin escribir nada. |
+| Calcular | Escribe el resultado. |
+
+`$area` está en las unidades de la capa (m² en un sistema proyectado; 1 ha = 10 000 m²).
+
+###### Seleccionar por expresión
+
+Se selecciona los elementos para los que la expresión es verdadera. Usa los campos de la capa y las variables `$area`, `$perimeter`, `$length` y `$npoints`, por ejemplo `"especie" = 'Pino'` o `"n" >= 3 and $area < 5000`. Con *Selección nueva*, *Añadir a la selección* o *Quitar de la selección* se decide cómo se combina con la selección previa.
+
+###### Seleccionar por localización
+
+| Control | Qué hace |
+|---|---|
+| Elementos de la capa activa que… | La relación: intersectan, están dentro de, contienen, tocan (solo por el borde), cruzan o no tocan. |
+| …algún elemento de la capa | La otra capa cargada con la que se compara. |
+| Selección nueva, Añadir a la selección, Quitar de la selección | Cómo se combina con la selección previa. |
+
+###### Transformar selección
+
+| Control | Qué hace |
+|---|---|
+| Desplazamiento en X, en Y | Traslada la selección (unidades de la capa). |
+| Giro (grados, antihorario) | Gira la selección alrededor de su centro. |
+| Escala | Escala la selección alrededor de su centro (1 la deja igual). |
+| Aplicar | Aplica los tres a la vez. |
+
+Se puede deshacer.
+
+###### Comprobar topología
+
+| Control | Qué hace |
+|---|---|
+| Tolerancia | En polígonos, superficie mínima de un solape o un hueco; en líneas, la distancia a la que dos extremos se tienen por unidos. |
+| Comprobar | Lista los incumplimientos (hasta 500) y permite exportarlos; si no hay, dice «Sin incumplimientos». |
+
+En polígonos busca solapes, huecos entre ellos y contornos que se cruzan consigo mismos; en líneas, extremos que no tocan ninguna otra línea (cabos sueltos). La orden es `hipso topology`.
 
 #### Panel → Simbología
 

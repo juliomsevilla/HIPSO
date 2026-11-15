@@ -110,7 +110,7 @@ LAS y LAZ (también **COPC**, leído solo en la parte que hace falta y escrito c
     <td width="50%"><img src="assets/social/04-linea-electrica-clasificada.jpg" alt="Línea eléctrica clasificada con cables y torres"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="assets/social/06-pnoa-chm-perfil-3d.jpg" alt="Hoja del PNOA con su modelo de alturas sobre el perfil y en 3D"></td>
+    <td width="50%"><img src="assets/social/06-pnoa-mdt-perfil-3d.jpg" alt="Hoja del PNOA con su modelo del terreno sobre el perfil y en 3D"></td>
     <td width="50%"><img src="assets/social/07-tls-troncos-y-ramas.jpg" alt="Escáner terrestre con troncos y ramas clasificados"></td>
   </tr>
   <tr>

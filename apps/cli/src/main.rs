@@ -87,27 +87,40 @@ enum ClipModeArg {
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum SampleArg {
+    /// Parcelas al azar (--count), con una distancia mínima entre centros
     Random,
+    /// Parcelas en una cuadrícula regular (--spacing)
     Systematic,
 }
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum ViewArg {
+    /// Planta, vista desde arriba
     Plan,
     #[value(name = "3d")]
+    /// Vista 3D, orientada con --yaw y --pitch
     Three,
+    /// Perfil de una caja (--profile)
     Profile,
 }
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum ColorArg {
+    /// Elevación, con la rampa azul-rojo
     Elevation,
+    /// Elevación, con la rampa de tierra
     Earth,
+    /// Clase de cada punto
     Class,
+    /// Intensidad
     Intensity,
+    /// Número de retorno
     Return,
+    /// ID de fuente (la pasada)
     Source,
+    /// Archivo de origen
     File,
+    /// Color RGB del punto
     Rgb,
     /// Crown number (treeID extra attribute)
     Tree,
@@ -137,44 +150,75 @@ enum ThinArg {
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum OverlapArg {
+    /// El valor del primer ráster de la lista
     First,
+    /// El valor del último ráster de la lista
     Last,
+    /// La media de los rásteres
     Mean,
+    /// El mínimo
     Min,
+    /// El máximo
     Max,
+    /// La mediana
     Median,
+    /// La suma
     Sum,
+    /// Cuántos rásteres cubren la celda
     Count,
 }
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum TerrainArg {
+    /// Pendiente, en grados o en porcentaje (--percent)
     Slope,
+    /// Orientación de la ladera, en grados desde el norte
     Aspect,
+    /// Sombreado de 0 a 255 con la luz de --azimuth y --altitude
     Hillshade,
+    /// Curvatura en planta (1/m)
     PlanCurvature,
+    /// Curvatura de perfil (1/m)
     ProfileCurvature,
+    /// Curvatura total (1/m)
     Curvature,
+    /// Rugosidad: la celda más alta menos la más baja de la ventana de 3×3
     Roughness,
+    /// Índice de rugosidad del terreno: media de las diferencias con las ocho vecinas
     Tri,
+    /// Posición topográfica: altura menos la media del entorno de radio --radius
     Tpi,
+    /// Profundidad de depresiones: lo que hay que rellenar para que el agua salga
     FillDepth,
+    /// Acumulación de flujo (D8): superficie que vierte a cada celda, en m²
     FlowAccumulation,
+    /// Índice topográfico de humedad ln(a / tan β)
     Twi,
+    /// Red de drenaje: las celdas que drenan al menos --threshold m²
     Streams,
+    /// Subcuencas: la cuenca de cada tramo de la red de drenaje
     Subbasins,
+    /// Cuenca visual de un observador (--observer)
     Viewshed,
 }
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum StatArg {
+    /// Puntos por m²
     Density,
+    /// Número de puntos
     Count,
+    /// Elevación media
     MeanZ,
+    /// Elevación máxima
     MaxZ,
+    /// Elevación mínima
     MinZ,
+    /// Diferencia entre la elevación máxima y la mínima
     RangeZ,
+    /// Intensidad media
     MeanIntensity,
+    /// Intensidad máxima
     MaxIntensity,
 }
 
@@ -194,8 +238,11 @@ struct TileArgs {
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum CompressArg {
+    /// JPEG en imágenes de 8 bits y tres bandas, deflate en los demás casos
     Auto,
+    /// Sin pérdidas
     Deflate,
+    /// Con pérdidas, para imágenes de 8 bits de una o tres bandas
     Jpeg,
 }
 
@@ -218,8 +265,10 @@ struct SelArgs {
     /// Retornos que se conservan: A, F, L o números (p. ej. 1,2)
     #[arg(long)]
     returns: Option<String>,
+    /// Elevación mínima (m) de los puntos que se usan
     #[arg(long, allow_negative_numbers = true)]
     zmin: Option<f64>,
+    /// Elevación máxima (m) de los puntos que se usan
     #[arg(long, allow_negative_numbers = true)]
     zmax: Option<f64>,
     /// Conserva un punto de cada tantos
@@ -249,8 +298,11 @@ impl SelArgs {
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum SegArg {
+    /// Crecimiento de regiones desde las cimas (Dalponte y Coomes, 2016)
     Dalponte,
+    /// Polígonos de Voronoi acotados por la altura de cada árbol (Silva et al., 2016)
     Silva,
+    /// Cuencas (watershed) sobre el CHM invertido
     Watershed,
 }
 
@@ -274,17 +326,23 @@ enum FloodRelative {
 
 #[derive(Clone, Copy, ValueEnum)]
 enum CalcDtype {
+    /// Decimal de 32 bits
     F32,
+    /// Entero sin signo de 8 bits
     U8,
+    /// Entero sin signo de 16 bits
     U16,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
 enum AlignResample {
+    /// Según el tipo de dato: vecino más próximo para clases y bilineal para el resto
     Auto,
     /// Para clases e identificadores
     Nearest,
+    /// Interpolación bilineal (superficies continuas)
     Bilinear,
+    /// Media de las celdas que cubre cada celda nueva
     Average,
     /// Cubic convolution (smooth surfaces)
     Cubic,
@@ -332,20 +390,27 @@ enum TransformArg {
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum CriterionArg {
+    /// Criterio de información bayesiano (BIC): castiga más los modelos con muchas métricas
     Bic,
+    /// Criterio de Akaike corregido para muestras pequeñas (AICc)
     Aicc,
 }
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum SmoothArg {
+    /// Media de la ventana
     Mean,
+    /// Mediana de la ventana
     Median,
+    /// Suavizado gaussiano
     Gaussian,
 }
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum ShapeArg {
+    /// Ventana circular
     Circle,
+    /// Ventana cuadrada
     Square,
 }
 
@@ -378,7 +443,7 @@ struct GroundArgs {
     /// Kraus-Pfeifer: tamaño de celda de las superficies intermedias del filtro
     #[arg(long, default_value_t = 5.0)]
     filter_cell: f64,
-    /// Kraus-Pfeifer: filter iterations
+    /// Kraus-Pfeifer: número de iteraciones del filtro
     #[arg(long, default_value_t = 5)]
     iterations: u32,
     /// Kraus-Pfeifer: desplazamiento g de la función de peso (los residuos por debajo pesan 1);
@@ -402,7 +467,7 @@ struct GroundArgs {
     /// MCC: tamaño de celda del dominio de escala 2 (aproximadamente el espaciado de los puntos)
     #[arg(long, default_value_t = 1.5)]
     mcc_spacing: f64,
-    /// MCC: curvature threshold
+    /// MCC: umbral de curvatura (m) por encima del cual un punto deja de ser suelo
     #[arg(long, default_value_t = 0.3)]
     mcc_threshold: f64,
     /// CSF: distancia entre las partículas de la tela
@@ -414,13 +479,13 @@ struct GroundArgs {
     /// CSF: altura sobre la tela hasta la que los puntos son suelo
     #[arg(long, default_value_t = 0.5)]
     csf_threshold: f64,
-    /// PMF: mayor ventana
+    /// PMF: mayor tamaño de ventana (m) de la apertura morfológica progresiva
     #[arg(long, default_value_t = 20.0)]
     pmf_window: f64,
-    /// PMF: pendiente del terreno (subida sobre recorrido)
+    /// PMF: pendiente del terreno (subida sobre recorrido) que tolera el filtro
     #[arg(long, default_value_t = 1.0)]
     pmf_slope: f64,
-    /// SMRF: celda de las superficies
+    /// SMRF: lado de celda (m) de las superficies que se comparan
     #[arg(long, default_value_t = 1.0)]
     smrf_cell: f64,
     /// SMRF: mayor radio de ventana (mayor que el edificio más grande)
@@ -439,10 +504,10 @@ struct GroundArgs {
     /// edificio)
     #[arg(long, default_value_t = 20.0)]
     axelsson_seed_cell: f64,
-    /// Axelsson: iteration angle (degrees)
+    /// Axelsson: ángulo máximo (grados) entre un punto y el plano de la triangulación para aceptarlo como suelo
     #[arg(long, default_value_t = 8.0)]
     axelsson_angle: f64,
-    /// Axelsson: iteration distance (m)
+    /// Axelsson: distancia máxima (m) de un punto al plano de la triangulación para aceptarlo como suelo
     #[arg(long, default_value_t = 1.4)]
     axelsson_dist: f64,
     /// Axelsson: los puntos a esta distancia (m) de un triángulo son suelo sea cual sea el ángulo
@@ -468,7 +533,7 @@ struct StepArgs {
     /// Clasifica primero el ruido (clase 7) con este método
     #[arg(long, value_enum)]
     noise: Option<NoiseMethod>,
-    /// Ruido (sor): vecinos por punto
+    /// Ruido (sor): número de vecinos con los que se calcula la distancia media de cada punto
     #[arg(long, default_value_t = 10)]
     sor_k: usize,
     /// Ruido (sor): desviaciones típicas por encima de la distancia media
@@ -477,7 +542,7 @@ struct StepArgs {
     /// Ruido (isolated): tamaño de celda en x e y
     #[arg(long, default_value_t = 4.0)]
     noise_step: f64,
-    /// Ruido: tamaño de celda en z
+    /// Ruido (isolated): tamaño de celda en z
     #[arg(long, default_value_t = 4.0)]
     noise_step_z: f64,
     /// Ruido (elm): lado de celda en metros
@@ -526,13 +591,13 @@ struct StepArgs {
     /// Edificios: altura sobre el terreno a partir de la cual los puntos son edificios o árboles
     #[arg(long, default_value_t = 2.5)]
     building_offset: f64,
-    /// Buildings: widest building expected
+    /// Edificios: el mayor edificio esperado (m); fija el tamaño de la ventana con la que se separa el suelo de los tejados
     #[arg(long, default_value_t = 60.0)]
     building_window: f64,
-    /// Buildings: smallest footprint (square units)
+    /// Edificios: la menor planta (en unidades cuadradas del mapa) que se acepta como edificio
     #[arg(long, default_value_t = 40.0)]
     building_area: f64,
-    /// Tamaño de tesela
+    /// Lado (m) de las teselas en que se divide cada hoja para clasificarla en paralelo
     #[arg(long, default_value_t = 250.0)]
     tile: f64,
     /// Margen que se lee alrededor de cada tesela (elevado a la mitad de la ventana de edificios al
@@ -682,6 +747,7 @@ impl StepArgs {
 enum Cmd {
     /// Informe completo de archivos LAS/LAZ: cabecera, clases, retornos, densidad, avisos
     Info {
+        /// Archivos LAS o LAZ de los que se saca el informe
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
     },
@@ -689,6 +755,7 @@ enum Cmd {
     /// de coordenadas, hojas repetidas, solapes, huecos dentro del bloque. Una carpeta equivale a
     /// sus LAS/LAZ.
     Catalog {
+        /// Archivos LAS/LAZ (o carpetas con ellos) de la entrega que se revisa
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Cuánto (m) pueden solaparse las hojas o quedarse cortas unas de otras sin que cuente
@@ -697,6 +764,7 @@ enum Cmd {
     },
     /// Clasifica ruido, suelo y edificios, tesela a tesela en paralelo, y escribe los puntos
     Classify {
+        /// Nubes LAS o LAZ que clasificar; cada una es una hoja
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// LAS de salida, o LAZ si termina en .laz; por defecto:
@@ -714,6 +782,7 @@ enum Cmd {
     /// MDT como GeoTIFF, uno por hoja. Por defecto: la clase de suelo (2) que ya trae la nube;
     /// --ground prueba otro método
     Dtm {
+        /// Nubes LAS o LAZ de las que se calcula el MDT; cada una da un GeoTIFF
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// GeoTIFF de salida; por defecto: <resultados>/<entrada>_mdt_<celda>m<ajustes>.tif
@@ -728,6 +797,7 @@ enum Cmd {
         /// Suaviza el MDT con una ventana de este tamaño en unidades del mapa (0: nada)
         #[arg(long, default_value_t = 0.0)]
         smooth: f64,
+        /// Suavizado del modelo: media, mediana o gaussiano
         #[arg(long, value_enum, default_value_t = SmoothArg::Mean)]
         smoothing: SmoothArg,
         /// Une además los MDT de las hojas en un mosaico (por defecto cada hoja conserva el suyo)
@@ -747,6 +817,7 @@ enum Cmd {
     },
     /// Modelo de altura de copas como GeoTIFF, uno por hoja
     Chm {
+        /// Nubes LAS o LAZ de las que se calcula el CHM; cada una da un GeoTIFF
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Modelo del suelo (GeoTIFF o rejilla ASCII); por defecto: el MDT más reciente hecho con
@@ -756,6 +827,7 @@ enum Cmd {
         /// GeoTIFF de salida; por defecto: <resultados>/<entrada>_chm_<celda>m.tif
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Tamaño de celda del CHM (m)
         #[arg(long, default_value_t = 1.0)]
         cell: f64,
         /// Deja vacías las celdas sin puntos (método max)
@@ -776,6 +848,7 @@ enum Cmd {
         /// Suaviza el CHM con una ventana de este tamaño en unidades del mapa (0: nada)
         #[arg(long, default_value_t = 0.0)]
         smooth: f64,
+        /// Suavizado del modelo: media, mediana o gaussiano
         #[arg(long, value_enum, default_value_t = SmoothArg::Mean)]
         smoothing: SmoothArg,
         /// Une además los CHM de las hojas en un mosaico (por defecto cada hoja conserva el suyo)
@@ -789,14 +862,17 @@ enum Cmd {
     },
     /// Modelo digital de superficie (retornos más altos) como GeoTIFF, uno por hoja
     Dsm {
+        /// Nubes LAS o LAZ de las que se calcula el MDS; cada una da un GeoTIFF
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// GeoTIFF de salida (solo una entrada); por defecto:
         /// <resultados>/<entrada>_mds_<celda>m_<método>.tif
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Tamaño de celda del MDS (m)
         #[arg(long, default_value_t = 1.0)]
         cell: f64,
+        /// Cómo se calcula la superficie: punto más alto por celda o TIN de los primeros retornos
         #[arg(long, value_enum, default_value_t = DsmArg::Tin)]
         method: DsmArg,
         /// Deja vacías las celdas sin puntos (método max)
@@ -811,6 +887,7 @@ enum Cmd {
         /// Suaviza con una ventana de este tamaño en unidades del mapa (0: nada)
         #[arg(long, default_value_t = 0.0)]
         smooth: f64,
+        /// Suavizado del modelo: media, mediana o gaussiano
         #[arg(long, value_enum, default_value_t = SmoothArg::Mean)]
         smoothing: SmoothArg,
         /// Lee las hojas que estén a menos de tantos metros de cada hoja como contexto, de modo que
@@ -853,20 +930,22 @@ enum Cmd {
         /// Cimas dadas a mano: CSV con líneas x,y (en lugar de buscarlas)
         #[arg(long)]
         tops_file: Option<PathBuf>,
-        /// Cima de árbol más baja
+        /// Altura mínima (m) de una cima para contarla como árbol
         #[arg(long, default_value_t = 2.0)]
         hmin: f64,
         /// Diámetro de ventana = a + b h + c h² (unidades del mapa)
         #[arg(long, default_value_t = 3.0)]
         ws_a: f64,
+        /// Coeficiente de la altura (b) del diámetro de la ventana de búsqueda de cimas
         #[arg(long, default_value_t = 0.1)]
         ws_b: f64,
+        /// Coeficiente del cuadrado de la altura (c) del diámetro de la ventana de búsqueda de cimas
         #[arg(long, default_value_t = 0.0)]
         ws_c: f64,
         /// Forma de la ventana de búsqueda de cimas
         #[arg(long, value_enum, default_value_t = ShapeArg::Circle)]
         shape: ShapeArg,
-        /// Crown method
+        /// Método con el que se reparten las copas entre las cimas: Dalponte, Silva o cuenca
         #[arg(long, value_enum, default_value_t = SegArg::Dalponte)]
         method: SegArg,
         /// Dalponte: un píxel se une por encima de esta proporción de la altura de su cima...
@@ -893,22 +972,29 @@ enum Cmd {
         /// Suaviza antes el CHM con una ventana de este tamaño (unidades del mapa; 0: nada)
         #[arg(long, default_value_t = 0.0)]
         smooth: f64,
+        /// Suavizado del CHM antes de buscar cimas: media, mediana o gaussiano
         #[arg(long, value_enum, default_value_t = SmoothArg::Mean)]
         smoothing: SmoothArg,
         /// Inventario de campo (delimitado por tabuladores, ; o ,, se admiten comas decimales) con
         /// el que comprobar
         #[arg(long)]
         field: Option<PathBuf>,
+        /// Columna del inventario de campo con la coordenada X del árbol
         #[arg(long, default_value = "X_arbol")]
         field_x: String,
+        /// Columna del inventario de campo con la coordenada Y del árbol
         #[arg(long, default_value = "Y_arbol")]
         field_y: String,
+        /// Columna del inventario de campo con la altura del árbol (m)
         #[arg(long, default_value = "Ht")]
         field_h: String,
+        /// Columna del inventario de campo con el nombre de la parcela
         #[arg(long, default_value = "Muestra")]
         field_plot: String,
+        /// Columna del inventario de campo con la coordenada X del centro de la parcela
         #[arg(long, default_value = "X_Muestra")]
         plot_x: String,
+        /// Columna del inventario de campo con la coordenada Y del centro de la parcela
         #[arg(long, default_value = "Y_Muestra")]
         plot_y: String,
         /// Radio de la parcela para la comprobación
@@ -965,8 +1051,10 @@ enum Cmd {
         /// Máscara: la capa y el rango de valores que forman un objeto
         #[arg(long)]
         mask_layer: Option<String>,
+        /// Máscara: valor mínimo de la capa elegida que forma un objeto
         #[arg(long, default_value_t = f32::NEG_INFINITY, allow_hyphen_values = true)]
         min: f32,
+        /// Máscara: valor máximo de la capa elegida que forma un objeto
         #[arg(long, default_value_t = f32::INFINITY)]
         max: f32,
         /// Máscara: las celdas que se tocan por una esquina van juntas
@@ -1005,15 +1093,17 @@ enum Cmd {
         /// Campo de las muestras que da nombre a la clase
         #[arg(long, default_value = "clase")]
         class_field: String,
-        /// Árboles del bosque
+        /// Número de árboles del bosque aleatorio
         #[arg(long, default_value_t = 100)]
         trees: usize,
+        /// Semilla del bosque aleatorio: la misma semilla da el mismo resultado
         #[arg(long, default_value_t = 1)]
         seed: u64,
         /// Ruta base de los resultados (.shp o .csv); por defecto:
         /// <resultados>/<ráster>_objetos.shp
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Formato de salida: shapefile de objetos, tabla de texto o ambos
         #[arg(long, value_enum)]
         format: Option<FormatArg>,
         /// Simplifica los polígonos en tantas unidades del mapa (0: contornos exactos)
@@ -1062,12 +1152,13 @@ enum Cmd {
         /// Empareja además los árboles de las dos fechas y mide su crecimiento
         #[arg(long)]
         trees: bool,
-        /// Árboles: cima de árbol más baja
+        /// Árboles: altura mínima (m) de una cima para contarla como árbol
         #[arg(long, default_value_t = 2.0)]
         hmin: f64,
         /// Árboles: diámetro de ventana = a + b h (unidades del mapa)
         #[arg(long, default_value_t = 3.0)]
         ws_a: f64,
+        /// Coeficiente de la altura (b) del diámetro de la ventana de búsqueda de cimas
         #[arg(long, default_value_t = 0.1)]
         ws_b: f64,
         /// Árboles: suaviza antes los dos modelos con una ventana de este tamaño (0: nada)
@@ -1076,6 +1167,7 @@ enum Cmd {
         /// Árboles: es el mismo árbol cuando están más cerca que esto
         #[arg(long, default_value_t = 3.0)]
         match_dist: f64,
+        /// Formato de salida: shapefile, tabla de texto o ambos
         #[arg(long, value_enum)]
         format: Option<FormatArg>,
     },
@@ -1097,6 +1189,7 @@ enum Cmd {
     /// nodos de un octree, para visores y servidores que leen solo la parte y el detalle que
     /// necesitan
     Copc {
+        /// Nubes LAS o LAZ que convertir a COPC
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Salida (solo una entrada); por defecto: <resultados>/<entrada>.copc.laz
@@ -1106,6 +1199,7 @@ enum Cmd {
     /// Colorea los puntos a partir de una imagen del mismo lugar (una ortofoto): cada punto toma el
     /// rojo, el verde y el azul de su píxel. Los formatos sin color se escriben como formato 7
     Colorize {
+        /// Nubes LAS o LAZ a las que se da el color de la imagen
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// La imagen (GeoTIFF, JPEG 2000…), en el sistema de coordenadas de las nubes
@@ -1127,6 +1221,7 @@ enum Cmd {
     /// Normaliza la intensidad por la distancia al escáner, I · (R / R_ref)^a, a partir de la
     /// trayectoria (tiempo GPS, x, y, z) o de la altitud de vuelo y el ángulo de barrido
     Intensity {
+        /// Nubes LAS o LAZ cuya intensidad se normaliza
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Trayectoria del escáner: un archivo de texto con líneas «tiempo x y z»
@@ -1167,6 +1262,7 @@ enum Cmd {
     /// (clase 14), postes (clase 15) y la vegetación que se acerca demasiado o que podría alcanzar
     /// la línea si cayera, con un informe por vano. Se clasifican antes los cables y los postes
     Corridor {
+        /// Nubes LAS o LAZ de la línea eléctrica, con los cables (clase 14) y los postes (clase 15) ya clasificados
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Modelo del suelo (GeoTIFF o rejilla ASCII); por defecto: el MDT más reciente hecho con
@@ -1205,7 +1301,7 @@ enum Cmd {
         /// árboles)
         #[arg(long, default_value_t = 25.0)]
         min_length: f64,
-        /// Lowest pole
+        /// Altura mínima (m) de un poste o una torre para aceptarlo
         #[arg(long, default_value_t = 6.0)]
         min_pole_height: f64,
         /// Lado de las celdas en las que se agrupa la vegetación
@@ -1220,11 +1316,13 @@ enum Cmd {
         /// Un poste a más de esta distancia de un conductor no es uno de sus apoyos
         #[arg(long, default_value_t = 8.0)]
         pole_reach: f64,
+        /// Formato de salida: shapefile, tabla de texto o ambos
         #[arg(long, value_enum)]
         format: Option<FormatArg>,
     },
     /// Recorta nubes con polígonos, parcelas o rectángulos
     Clip {
+        /// Nubes LAS o LAZ que recortar
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Polígonos (.shp), centros de parcelas (.shp de puntos, con --radius) o una lista
@@ -1261,8 +1359,10 @@ enum Cmd {
         /// Lado de las parcelas cuadradas, en metros (o los campos que guardan los lados)
         #[arg(long)]
         side: Option<f64>,
+        /// Campo de las regiones con el lado X de la parcela cuadrada (m)
         #[arg(long)]
         side_x_field: Option<String>,
+        /// Campo de las regiones con el lado Y de la parcela cuadrada (m)
         #[arg(long)]
         side_y_field: Option<String>,
         /// Genera las parcelas en lugar de leerlas: al azar o en una cuadrícula regular
@@ -1281,7 +1381,7 @@ enum Cmd {
         /// Semilla del muestreo aleatorio: la misma semilla da las mismas parcelas
         #[arg(long, default_value_t = 1)]
         seed: u64,
-        /// Generated plots stay inside these polygons (a stand)
+        /// Las parcelas generadas se quedan dentro de estos polígonos (un rodal, por ejemplo)
         #[arg(long)]
         limit: Option<PathBuf>,
         /// Dónde se guarda la capa con las parcelas; por defecto: junto a los resultados
@@ -1290,6 +1390,7 @@ enum Cmd {
         /// Conserva solo las regiones cuyo atributo tiene un valor: CAMPO=VALOR
         #[arg(long = "where")]
         where_: Option<String>,
+        /// Qué se escribe: una nube con todo (merge), una nube por región (each) o solo la capa con las métricas (metrics)
         #[arg(long, value_enum, default_value_t = ClipModeArg::Merge)]
         mode: ClipModeArg,
         /// Archivo de salida (un nombre base con --mode each); por defecto: junto a los resultados
@@ -1301,14 +1402,16 @@ enum Cmd {
         /// Retornos que se conservan: A, F, L o números (p. ej. 1,2)
         #[arg(long)]
         returns: Option<String>,
+        /// Elevación mínima (m) de los puntos que se conservan
         #[arg(long, allow_negative_numbers = true)]
         zmin: Option<f64>,
+        /// Elevación máxima (m) de los puntos que se conservan
         #[arg(long, allow_negative_numbers = true)]
         zmax: Option<f64>,
         /// Modelo del suelo: escribe alturas sobre el suelo en lugar de elevaciones
         #[arg(long)]
         dtm: Option<PathBuf>,
-        /// Se suma a cada elevación escrita
+        /// Se suma a cada elevación escrita (m)
         #[arg(long, default_value_t = 0.0, allow_negative_numbers = true)]
         z_offset: f64,
         /// Conserva un punto de cada tantos
@@ -1343,9 +1446,10 @@ enum Cmd {
     /// Une, filtra, normaliza o convierte nubes en una pasada (LAS o LAZ según la extensión de la
     /// salida)
     Filter {
+        /// Nubes LAS o LAZ que unir, filtrar o convertir
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
-        /// Output; default: <results>/<input>_filtrada.<ext>
+        /// Salida; por defecto: <resultados>/<entrada>_filtrada.<ext>
         #[arg(short, long)]
         output: Option<PathBuf>,
         #[command(flatten)]
@@ -1353,7 +1457,7 @@ enum Cmd {
         /// Escribe alturas sobre este modelo del suelo en lugar de elevaciones
         #[arg(long)]
         dtm: Option<PathBuf>,
-        /// Se suma a cada elevación escrita
+        /// Se suma a cada elevación escrita (m)
         #[arg(long, default_value_t = 0.0, allow_negative_numbers = true)]
         z_offset: f64,
     },
@@ -1361,10 +1465,13 @@ enum Cmd {
     /// densidad. Cada entrada tiene su propio archivo adelgazado salvo que se dé -o (entonces se
     /// unen).
     Thin {
+        /// Nubes LAS o LAZ que adelgazar
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
+        /// Archivo de salida (las entradas se unen); por defecto: un archivo adelgazado por cada entrada
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Cómo se adelgaza la nube: un punto por celda (más bajo, más alto, central o percentil), por celda 3D, uno de cada n, quitando uno de cada n, al azar o hasta una densidad
         #[arg(long, value_enum, default_value_t = ThinArg::Lowest)]
         method: ThinArg,
         /// Tamaño de celda en metros (métodos por celda)
@@ -1373,10 +1480,10 @@ enum Cmd {
         /// Altura de la celda 3D en metros (vóxel)
         #[arg(long, default_value_t = 1.0)]
         vcell: f64,
-        /// Percentile 0-100 (percentile; 50 = median)
+        /// Percentil, de 0 a 100, que se conserva en cada celda (50 es la mediana)
         #[arg(long, default_value_t = 50.0)]
         percentile: f64,
-        /// n de cada / quitar
+        /// Con `every` y `remove`: cada cuántos puntos se conserva (o se quita) uno
         #[arg(long, default_value_t = 2)]
         n: u64,
         /// Proporción de puntos que se conservan, de 0 a 1 (aleatorio)
@@ -1394,12 +1501,16 @@ enum Cmd {
     /// Rejilla de una estadística de los puntos (densidad, recuento, elevación, intensidad) como
     /// GeoTIFF
     Raster {
+        /// Nubes LAS o LAZ de las que se calcula la rejilla
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
+        /// GeoTIFF de salida; por defecto, en la carpeta de resultados con el nombre de la entrada y el estadístico
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Tamaño de celda de la rejilla (m)
         #[arg(long, default_value_t = 1.0)]
         cell: f64,
+        /// Estadístico de cada celda: densidad, recuento, elevación media, máxima, mínima o rango, o intensidad media o máxima
         #[arg(long, value_enum, default_value_t = StatArg::Density)]
         stat: StatArg,
         #[command(flatten)]
@@ -1407,43 +1518,56 @@ enum Cmd {
     },
     /// PNG de sombreado de un MDT o un CHM
     Hillshade {
+        /// El MDT o el CHM (GeoTIFF)
         input: PathBuf,
+        /// PNG de salida; por defecto: <resultados>/<entrada>_sombreado.png
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Dirección de la luz, en grados en el sentido de las agujas del reloj desde el norte
         #[arg(long, default_value_t = 315.0)]
         azimuth: f64,
+        /// Altura de la luz sobre el horizonte, en grados
         #[arg(long, default_value_t = 45.0)]
         altitude: f64,
     },
     /// Curvas de nivel de un MDT o un CHM como shapefile de polilíneas 3D
     Contour {
+        /// El MDT o el CHM (GeoTIFF)
         input: PathBuf,
+        /// Shapefile de salida; por defecto: <resultados>/<entrada>_curvas_<equidistancia>m.shp
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Equidistancia de las curvas de nivel (m)
         #[arg(long, default_value_t = 5.0)]
         interval: f64,
     },
     /// Divide las nubes en teselas cuadradas (con un margen opcional), un archivo por tesela
     Tile {
+        /// Nubes LAS o LAZ que dividir en teselas
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Nombre base de las teselas; por defecto: <resultados>/<entrada>_tile.<ext>
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Lado de cada tesela (m)
         #[arg(long, default_value_t = 1000.0)]
         size: f64,
+        /// Margen (m) que cada tesela toma de sus vecinas
         #[arg(long, default_value_t = 0.0)]
         buffer: f64,
     },
     /// Edita puntos como si fueran elementos: borra o reclasifica los puntos dentro de polígonos
     /// que cumplen las pruebas de atributos; escribe un archivo nuevo, nunca el original
     Edit {
+        /// Nube LAS o LAZ que editar
         input: PathBuf,
+        /// Nube de salida; por defecto, en la carpeta de resultados con el nombre de la entrada
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Polígonos, centros de parcelas (con --radius) o una lista; por defecto: toda la nube
         #[arg(long)]
         regions: Option<PathBuf>,
+        /// Radio (m) de las parcelas cuando las regiones son puntos
         #[arg(long)]
         radius: Option<f64>,
         /// Selecciona en cambio los puntos fuera de las regiones
@@ -1452,8 +1576,10 @@ enum Cmd {
         /// Solo se seleccionan los puntos de estas clases (2,5 o ~7,18)
         #[arg(long)]
         class: Option<String>,
+        /// Elevación mínima (m) de los puntos que se seleccionan
         #[arg(long, allow_negative_numbers = true)]
         zmin: Option<f64>,
+        /// Elevación máxima (m) de los puntos que se seleccionan
         #[arg(long, allow_negative_numbers = true)]
         zmax: Option<f64>,
         /// Borra los puntos seleccionados
@@ -1465,12 +1591,13 @@ enum Cmd {
     },
     /// Da a las nubes sin sistema de coordenadas el de otra nube o un código EPSG
     Crs {
+        /// Nubes LAS o LAZ a las que se asigna el sistema de coordenadas
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Una nube que tiene el sistema de coordenadas que copiar
         #[arg(long, conflicts_with = "epsg")]
         from: Option<PathBuf>,
-        /// EPSG code, e.g. 25830
+        /// Código EPSG del sistema de coordenadas, p. ej. 25830
         #[arg(long)]
         epsg: Option<u16>,
         /// Sustituye el sistema de coordenadas de nubes que ya tienen uno
@@ -1485,6 +1612,7 @@ enum Cmd {
     /// opcionalmente, nubes por árbol)
     #[command(alias = "cubicar")]
     StemVolume {
+        /// Nubes LAS o LAZ de escáner terrestre; cada una es una unidad de muestreo
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Tabla de árboles (.shp o .csv); por defecto: <resultados>/<entrada>_volumen.shp
@@ -1511,9 +1639,10 @@ enum Cmd {
         /// Franja (m sobre el suelo) donde se buscan los troncos
         #[arg(long, default_value_t = 0.7)]
         stripe_low: f64,
+        /// Límite superior (m sobre el suelo) de la franja donde se buscan los troncos
         #[arg(long, default_value_t = 3.5)]
         stripe_high: f64,
-        /// Largest stem diameter expected (m)
+        /// Mayor diámetro de tronco esperado (m)
         #[arg(long, default_value_t = 1.0)]
         max_diameter: f64,
         /// Escribe además una nube por árbol
@@ -1565,6 +1694,7 @@ enum Cmd {
         /// Métricas que se usan, separadas por comas; por defecto: elegidas automáticamente
         #[arg(long, value_delimiter = ',')]
         predictors: Vec<String>,
+        /// Transformación antes del ajuste: ninguna, logaritmo de la respuesta, o logaritmo de la respuesta y de las métricas
         #[arg(long, value_enum, default_value_t = TransformArg::None)]
         transform: TransformArg,
         /// Criterio de la elección automática
@@ -1611,8 +1741,10 @@ enum Cmd {
     /// Imagen multibanda a partir de rásteres: cada banda de cada entrada pasa a ser una banda de
     /// la salida
     Stack {
+        /// Rásteres que apilar; sus bandas se colocan en el orden de la lista
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
+        /// Ráster multibanda de salida
         #[arg(short, long)]
         output: PathBuf,
         /// Tamaño de píxel de la salida; por defecto: el de la entrada más fina
@@ -1631,6 +1763,7 @@ enum Cmd {
     /// (un TIN con ellos): se escribe como el atributo adicional HeightAboveGround o, con
     /// --replace-z, en lugar de la elevación
     Hag {
+        /// Nubes LAS o LAZ con el suelo ya clasificado (clase 2)
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Salida (solo una entrada); por defecto: <resultados>/<entrada>_alturas.<ext>
@@ -1650,6 +1783,7 @@ enum Cmd {
     /// con la rejilla del IGN español. Las alturas se conservan salvo que --vertical-out pida otra
     /// referencia vertical (p. ej. de elipsoidal a ortométrica con el modelo de geoide)
     Reproject {
+        /// La nube (LAS/LAZ) o el ráster que reproyectar
         input: PathBuf,
         /// Archivo de salida (LAS/LAZ, o GeoTIFF para rásteres)
         #[arg(short, long)]
@@ -1714,16 +1848,22 @@ enum Cmd {
     },
     /// Mosaico de rásteres con las mismas bandas; --overlap dice qué hacer donde se solapan
     Mosaic {
+        /// Rásteres que unir
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
+        /// Ráster de salida
         #[arg(short, long)]
         output: PathBuf,
+        /// Qué valor queda donde los rásteres se solapan: el primero, el último, la media, el mínimo, el máximo…
         #[arg(long, value_enum, default_value_t = OverlapArg::First)]
         overlap: OverlapArg,
+        /// Tamaño de píxel de la salida; por defecto: el de la entrada más fina
         #[arg(long)]
         cell: Option<f64>,
+        /// Valor de las entradas que significa sin datos
         #[arg(long)]
         src_nodata: Option<f32>,
+        /// Valor que se escribe donde no hay datos
         #[arg(long, default_value_t = 0.0)]
         nodata: f32,
         /// La salida cubre solo donde coinciden todas las entradas
@@ -1741,9 +1881,10 @@ enum Cmd {
     Terrain {
         /// El MDT (un GeoTIFF en un sistema proyectado, celda en metros)
         input: PathBuf,
+        /// Producto que se calcula: pendiente, orientación, sombreado, curvaturas, rugosidad, TRI, TPI, depresiones, flujo, TWI, cauces, subcuencas o cuenca visual
         #[arg(long, value_enum)]
         product: TerrainArg,
-        /// GeoTIFF; default: <results>/<input>_<product>.tif
+        /// GeoTIFF; por defecto: <resultados>/<entrada>_<producto>.tif
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Pendiente en porcentaje en lugar de grados
@@ -1808,7 +1949,7 @@ enum Cmd {
         /// elevaciones
         #[arg(long, value_enum)]
         relative: Option<FloodRelative>,
-        /// 4 u 8 vecinos dejan pasar el agua
+        /// Conectividad del agua: con 4 vecinos pasa solo por los lados; con 8, también por las diagonales
         #[arg(long, default_value_t = 8)]
         connectivity: u8,
         /// Una capa de polígonos con la superficie inundada de cada nivel
@@ -1817,7 +1958,7 @@ enum Cmd {
         /// Sin ráster de profundidad por nivel
         #[arg(long)]
         no_depth: bool,
-        /// Sin tabla CSV
+        /// No escribe la tabla de resultados en CSV
         #[arg(long)]
         no_csv: bool,
         /// Ruta base de los resultados; por defecto: <resultados>/<entrada>_inundacion
@@ -1850,7 +1991,7 @@ enum Cmd {
     LeastCost {
         /// El MDT (un GeoTIFF en un sistema proyectado)
         input: PathBuf,
-        /// El origen `x,y`
+        /// El punto de origen `x,y`, en las coordenadas del MDT
         #[arg(long = "from", value_name = "X,Y")]
         from: String,
         /// El destino `x,y`; se repite con --nearest para ir al más barato de varios
@@ -1865,6 +2006,7 @@ enum Cmd {
         /// Modelo de pendiente: exponente y pendiente (%) donde el coste por metro se duplica
         #[arg(long, default_value_t = 2.0)]
         power: f64,
+        /// Modelo de pendiente: pendiente (%) a la que el coste por metro se duplica
         #[arg(long, default_value_t = 10.0)]
         reference_slope: f64,
         /// Las celdas más empinadas que esto (%) no se pueden cruzar
@@ -1876,6 +2018,7 @@ enum Cmd {
         /// Polígonos donde el coste se multiplica por --prefer-factor
         #[arg(long)]
         prefer: Option<PathBuf>,
+        /// Factor por el que se multiplica el coste dentro de los polígonos preferidos
         #[arg(long, default_value_t = 0.5)]
         prefer_factor: f64,
         /// Va al más barato de los destinos
@@ -1910,7 +2053,7 @@ enum Cmd {
         /// Ruta base de los resultados; por defecto: <resultados>/<superficie>_pilas
         #[arg(short, long)]
         output: Option<PathBuf>,
-        /// Sin tabla CSV
+        /// No escribe la tabla de resultados en CSV
         #[arg(long)]
         no_csv: bool,
         /// Escribe también un ráster con la superficie base
@@ -1939,7 +2082,7 @@ enum Cmd {
         /// Ruta base de los resultados; por defecto: <resultados>/<existente>_cutfill
         #[arg(short, long)]
         output: Option<PathBuf>,
-        /// Sin tabla CSV
+        /// No escribe la tabla de resultados en CSV
         #[arg(long)]
         no_csv: bool,
         /// Escribe también un ráster de números enteros: 1 desmonte, 2 terraplén, 0 sin cambio
@@ -2077,14 +2220,16 @@ enum Cmd {
     /// Repara polígonos inválidos (regla par-impar: un lazo pasa a ser dos partes y los bordes
     /// duplicados se cancelan). Los válidos no se tocan; los atributos se conservan
     MakeValid {
+        /// Capa de polígonos (.shp, .geojson, .gpkg) que reparar
         input: PathBuf,
-        /// Shapefile; default: <results>/<input>_valido.shp
+        /// Shapefile; por defecto: <resultados>/<entrada>_valido.shp
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
     /// Amplía (o, si es negativa, reduce) cada polígono una distancia en unidades del mapa, con
     /// esquinas redondeadas
     Buffer {
+        /// Capa que ampliar o reducir (.shp, .geojson, .gpkg)
         input: PathBuf,
         /// Distancia en las unidades de la capa (metros en un sistema proyectado; grados si es
         /// geográfico)
@@ -2093,13 +2238,14 @@ enum Cmd {
         /// Repara antes los polígonos inválidos
         #[arg(long)]
         make_valid: bool,
-        /// Shapefile; default: <results>/<input>_buffer.shp
+        /// Shapefile; por defecto: <resultados>/<entrada>_buffer.shp
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
     /// Une polígonos: los que comparten el valor de un campo pasan a ser un solo elemento (con el
     /// número de unidos en `n`); sin campo, toda la capa pasa a ser uno
     Dissolve {
+        /// Capa de polígonos que disolver (.shp, .geojson, .gpkg)
         input: PathBuf,
         /// Campo por el que disolver
         #[arg(long)]
@@ -2107,7 +2253,7 @@ enum Cmd {
         /// Repara antes los polígonos inválidos
         #[arg(long)]
         make_valid: bool,
-        /// Shapefile; default: <results>/<input>_disuelto.shp
+        /// Shapefile; por defecto: <resultados>/<entrada>_disuelto.shp
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
@@ -2115,7 +2261,9 @@ enum Cmd {
     /// (atributos de ambas, los de la segunda con el prefijo `b_`), solo en la primera y solo en la
     /// segunda
     Union {
+        /// La primera capa de polígonos
         first: PathBuf,
+        /// La segunda capa de polígonos
         second: PathBuf,
         /// Repara antes los polígonos inválidos
         #[arg(long)]
@@ -2127,7 +2275,9 @@ enum Cmd {
     /// Intersección de dos capas de polígonos: solo las piezas que están en las dos (atributos de
     /// ambas, los de la segunda con el prefijo `b_`)
     Intersect {
+        /// La primera capa de polígonos
         first: PathBuf,
+        /// La segunda capa de polígonos
         second: PathBuf,
         /// Repara antes los polígonos inválidos
         #[arg(long)]
@@ -2140,7 +2290,7 @@ enum Cmd {
     /// una por línea o separadas por `;`: `10 = 1`, `0..5 = 2`, `< 0 = nodata`, `>= 100 = 4`,
     /// `nodata = 0`; decide la primera regla que coincide con una celda
     Reclass {
-        /// Ráster (GeoTIFF y otros)
+        /// Ráster que reclasificar (GeoTIFF y otros)
         input: PathBuf,
         /// Las reglas, como texto (p. ej. "0..10 = 1; 10..50 = 2; else = nodata")
         #[arg(long, conflicts_with = "rules_file", required_unless_present = "rules_file")]
@@ -2162,7 +2312,7 @@ enum Cmd {
         /// el tipo elegido)
         #[arg(long, allow_hyphen_values = true)]
         nodata: Option<f32>,
-        /// GeoTIFF; default: <results>/<input>_reclass.tif
+        /// GeoTIFF; por defecto: <resultados>/<entrada>_reclass.tif
         #[arg(short, long)]
         output: Option<PathBuf>,
         #[command(flatten)]
@@ -2187,7 +2337,7 @@ enum Cmd {
         /// según el tipo)
         #[arg(long, allow_hyphen_values = true)]
         nodata: Option<f32>,
-        /// GeoTIFF; default: <results>/<input>_recorte.tif
+        /// GeoTIFF; por defecto: <resultados>/<entrada>_recorte.tif
         #[arg(short, long)]
         output: Option<PathBuf>,
         #[command(flatten)]
@@ -2204,13 +2354,13 @@ enum Cmd {
         /// Las celdas se tocan por aristas y esquinas (8) en lugar de solo por aristas (4)
         #[arg(long)]
         eight: bool,
-        /// GeoTIFF; default: <results>/<input>_sieve.tif
+        /// GeoTIFF; por defecto: <resultados>/<entrada>_sieve.tif
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
     /// Distancia de cada celda a la celda más cercana de algunas clases (euclídea, exacta)
     Proximity {
-        /// Ráster (GeoTIFF)
+        /// Ráster (GeoTIFF) del que se calcula la distancia
         input: PathBuf,
         /// Valores que cuentan como objetivos (por defecto: toda celda distinta de cero)
         #[arg(long, num_args = 1..)]
@@ -2221,14 +2371,14 @@ enum Cmd {
         /// Distancias en celdas en lugar de unidades del mapa
         #[arg(long)]
         cells: bool,
-        /// GeoTIFF; default: <results>/<input>_proximity.tif
+        /// GeoTIFF; por defecto: <resultados>/<entrada>_proximity.tif
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
     /// Rellena las celdas vacías a partir de las celdas con valor que las rodean (pesos por el
     /// inverso de la distancia en ocho direcciones)
     FillNodata {
-        /// Ráster (GeoTIFF)
+        /// Ráster (GeoTIFF) cuyos huecos se rellenan
         input: PathBuf,
         /// Hasta dónde se buscan celdas con valor, en celdas
         #[arg(long, default_value_t = 100)]
@@ -2236,14 +2386,16 @@ enum Cmd {
         /// Pasadas de una media 3x3 sobre las celdas rellenadas
         #[arg(long, default_value_t = 0)]
         smoothing: usize,
-        /// GeoTIFF; default: <results>/<input>_relleno.tif
+        /// GeoTIFF; por defecto: <resultados>/<entrada>_relleno.tif
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
     /// Quita los puntos duplicados (mismas x, y, z y los atributos pedidos)
     Dedup {
+        /// Nubes LAS o LAZ de las que se quitan los puntos repetidos
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
+        /// Archivo de salida (solo una entrada); por defecto, en la carpeta de resultados
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Borra todas las copias, no solo las sobrantes
@@ -2255,11 +2407,12 @@ enum Cmd {
     },
     /// Puntos de una nube que han cambiado frente a una nube de referencia (detección de cambios)
     Compare {
-        /// Nube en la que buscar cambios
+        /// Nube en la que se buscan cambios
         input: PathBuf,
-        /// Nube(s) de referencia
+        /// Nube(s) de referencia con las que se compara
         #[arg(long, required = true)]
         reference: Vec<PathBuf>,
+        /// Nube de salida con los puntos que han cambiado; por defecto, en la carpeta de resultados
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Distancia (m) a partir de la cual un punto ha cambiado
@@ -2272,20 +2425,27 @@ enum Cmd {
     /// Lleva una nube sobre una nube de referencia (punto más cercano iterativo) y escribe el
     /// resultado
     Fit {
+        /// Nube que se mueve para que encaje con la de referencia
         input: PathBuf,
+        /// Nube(s) de referencia sobre las que se ajusta
         #[arg(long, required = true)]
         reference: Vec<PathBuf>,
+        /// Nube ajustada; por defecto, en la carpeta de resultados
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Adelgazamiento (m) de los puntos usados para hallar el movimiento
         #[arg(long, default_value_t = 1.0)]
         thin: f64,
+        /// Máximo desplazamiento horizontal (m) que se admite entre un punto y su pareja
         #[arg(long, default_value_t = 5.0)]
         max_xy: f64,
+        /// Máxima diferencia de altura (m) que se admite entre un punto y su pareja
         #[arg(long, default_value_t = 2.0)]
         max_z: f64,
+        /// Máximo de iteraciones del ajuste
         #[arg(long, default_value_t = 30)]
         iterations: usize,
+        /// Se detiene cuando el movimiento de una iteración baja de este valor (m)
         #[arg(long, default_value_t = 0.01)]
         stop: f64,
         /// Solo traslada, no gira
@@ -2301,10 +2461,13 @@ enum Cmd {
     },
     /// Diferencia de altura entre pasadas como GeoTIFF, con las cifras del solape
     Swath {
+        /// Nubes LAS o LAZ aéreas con ID de fuente o tiempo GPS
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
+        /// Ráster de salida; por defecto, en la carpeta de resultados
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Tamaño de celda del ráster de diferencias (m)
         #[arg(long, default_value_t = 1.0)]
         cell: f64,
         /// Retornos que se usan: all, last, single
@@ -2323,6 +2486,7 @@ enum Cmd {
     /// número de pasada
     #[command(name = "flightlines")]
     FlightLines {
+        /// Nubes LAS o LAZ aéreas con tiempo GPS
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Un silencio del tiempo GPS mayor que esto (s) separa dos pasadas
@@ -2337,7 +2501,7 @@ enum Cmd {
         /// Escribe el número de pasada en copias de las nubes: `source-id` o `user-data`
         #[arg(long)]
         assign: Option<String>,
-        /// Sin tabla CSV
+        /// No escribe la tabla de resultados en CSV
         #[arg(long)]
         no_csv: bool,
         /// Sin capa de polígonos con el contorno de cada pasada
@@ -2370,6 +2534,7 @@ enum Cmd {
     /// umbral
     #[command(name = "voronoi-density")]
     VoronoiDensity {
+        /// Nubes LAS o LAZ de las que se mide la densidad
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Celda del ráster de densidad (m)
@@ -2390,12 +2555,13 @@ enum Cmd {
         /// Sin ráster de 1 donde se alcanza el umbral y 0 donde no
         #[arg(long)]
         no_pass_fail: bool,
-        /// Sin tabla CSV
+        /// No escribe la tabla de resultados en CSV
         #[arg(long)]
         no_csv: bool,
         /// Lado de las teselas y su margen (m)
         #[arg(long, default_value_t = 250.0)]
         tile: f64,
+        /// Margen (m) que cada tesela toma de sus vecinas
         #[arg(long, default_value_t = 20.0)]
         buffer: f64,
         /// Ruta base de los resultados; por defecto: <resultados>/<primera nube>_vdensidad
@@ -2404,13 +2570,16 @@ enum Cmd {
     },
     /// Dibuja una nube (planta, 3D o perfil) en un PNG, como hace el visor
     Render {
+        /// Nubes LAS o LAZ que dibujar
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// PNG que escribir; por defecto: junto a la primera entrada
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Vista: planta, 3D o perfil
         #[arg(long, value_enum, default_value_t = ViewArg::Plan)]
         view: ViewArg,
+        /// Atributo con el que se colorean los puntos
         #[arg(long, value_enum, default_value_t = ColorArg::Elevation)]
         color: ColorArg,
         /// Tamaño de la imagen: ANCHOxALTO
@@ -2419,14 +2588,16 @@ enum Cmd {
         /// Puntos que se guardan en memoria (se carga uno de cada N)
         #[arg(long, default_value_t = 8_000_000)]
         max_points: usize,
+        /// Tamaño del punto, en píxeles
         #[arg(long, default_value_t = 1)]
         point_size: usize,
         /// 3D: rotación y elevación en grados
         #[arg(long, default_value_t = 30.0, allow_negative_numbers = true)]
         yaw: f64,
+        /// 3D: elevación de la cámara, en grados
         #[arg(long, default_value_t = 35.0)]
         pitch: f64,
-        /// Profile: x1,y1,x2,y2,width
+        /// Perfil: x1,y1,x2,y2,ancho de la caja del perfil
         #[arg(long)]
         profile: Option<String>,
         /// Planta: TIN sombreado bajo los puntos, a partir de las clases dadas (p. ej. 2; vacío:
@@ -2442,10 +2613,10 @@ enum Cmd {
     },
     /// Extrae puntos de LAS/LAZ a LAS/LAZ, a columnas ASCII o a un shapefile de puntos 3D
     Export {
+        /// Nubes LAS o LAZ que exportar
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
-        /// Archivo (o, con varias entradas, una carpeta). .laz/.las escriben una nube, .shp un
-        /// shapefile PointZ y cualquier otro, texto
+        /// Archivo (o, con varias entradas, una carpeta). .laz y .las escriben una nube, .shp un shapefile PointZ y cualquier otro, texto
         #[arg(short, long)]
         output: PathBuf,
         /// Exporta alturas sobre el suelo: cada nube menos su MDT
@@ -2458,18 +2629,25 @@ enum Cmd {
         /// Columnas en orden: x,y,z,intensity,return,returns,class,source,red,green,blue
         #[arg(long, value_delimiter = ',', default_values_t = ["x".to_string(), "y".to_string(), "z".to_string()])]
         items: Vec<String>,
+        /// Separador de columnas del texto
         #[arg(long, default_value = ",")]
         delimiter: String,
+        /// Escribe una primera línea con los nombres de las columnas
         #[arg(long)]
         header: bool,
+        /// Decimales de las coordenadas
         #[arg(long, default_value_t = 2)]
         decimals: usize,
+        /// Clases que se exportan: 2,5 o ~7,18
         #[arg(long)]
         class: Option<String>,
+        /// Retornos que se exportan: A, F, L o números
         #[arg(long)]
         returns: Option<String>,
+        /// Elevación mínima (m) de los puntos que se exportan
         #[arg(long, allow_negative_numbers = true)]
         zmin: Option<f64>,
+        /// Elevación máxima (m) de los puntos que se exportan
         #[arg(long, allow_negative_numbers = true)]
         zmax: Option<f64>,
         /// Conserva un punto de cada tantos
@@ -2516,9 +2694,9 @@ enum Cmd {
     },
     /// Une a una capa las columnas de una tabla (csv, texto o xlsx) por un campo clave
     JoinTable {
-        /// La capa
+        /// La capa a la que se añaden las columnas (.shp, .gpkg o .geojson)
         layer: PathBuf,
-        /// La tabla
+        /// La tabla (.csv, texto o .xlsx) de la que salen las columnas
         table: PathBuf,
         /// Campo clave de la capa
         #[arg(long)]
@@ -2547,7 +2725,7 @@ enum Cmd {
     },
     /// Divide una capa en una por cada valor distinto de un campo (un archivo por rodal, por especie...)
     Split {
-        /// La capa
+        /// La capa que se divide (.shp, .gpkg o .geojson)
         input: PathBuf,
         /// El campo por el que dividir
         #[arg(long)]
@@ -2676,6 +2854,7 @@ enum Cmd {
     },
     /// Métricas por celda de la rejilla: elevación y, opcionalmente, intensidad y estratos
     Metrics {
+        /// Nubes LAS o LAZ de las que se calculan las métricas
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Modelo del suelo (GeoTIFF o rejilla ASCII); por defecto: el MDT más reciente hecho con
@@ -2686,6 +2865,7 @@ enum Cmd {
         /// <resultados>/<entrada>_metricas_<celda>m.shp
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Lado de las celdas en las que se calculan las métricas (m)
         #[arg(long, default_value_t = 15.0)]
         cell: f64,
         /// Altura de corte para las métricas de cobertura
@@ -2695,6 +2875,7 @@ enum Cmd {
         /// menos de tantos metros (al menos una celda) y escribe cada celda una sola vez
         #[arg(long, default_value_t = 0.0)]
         neighbors: f64,
+        /// Menor número de puntos con que una celda tiene métricas; con menos queda vacía
         #[arg(long, default_value_t = 4)]
         min_points: u32,
         /// Máximo de memoria, en MiB, para las alturas de los puntos (las nubes mayores requieren
