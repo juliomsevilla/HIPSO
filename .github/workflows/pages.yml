@@ -1,0 +1,36 @@
+name: pages
+# Publica la web (manual, referencia y órdenes) en GitHub Pages cada vez que cambia la documentación.
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", "site/**", "assets/social/**", "assets/brand/**", "Cargo.toml", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  construir:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install markdown
+      - run: python site/build.py _sitio
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _sitio
+  publicar:
+    needs: construir
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.despliegue.outputs.page_url }}
+    steps:
+      - id: despliegue
+        uses: actions/deploy-pages@v4

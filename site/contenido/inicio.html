@@ -1,0 +1,65 @@
+<section class="heroe">
+  <h1>Nubes de puntos LiDAR, ráster y vectorial en un solo programa</h1>
+  <p>HIPSO abre, clasifica y edita nubes de cientos de millones de puntos, deriva de ellas los modelos del terreno y de la vegetación, mide árboles y parcelas, y encadena todo ello en flujos que se repiten sobre cualquier zona. Es gratuito, funciona en Windows, macOS y Linux, y cada herramienta existe también como orden de la línea de comandos.</p>
+  <div class="acciones">
+    <a class="boton" href="{{repo}}/releases/latest">Descargar la versión {{version}}</a>
+    <a class="boton suave" href="manual/primeros-pasos.html">Primeros pasos</a>
+    <a class="boton suave" href="manual/que-es.html">Qué es HIPSO</a>
+  </div>
+  <div class="insignia">Windows · macOS (Apple Silicon e Intel) · Linux</div>
+</section>
+
+<div class="maqueta"><img src="img/15-planta-perfil-3d-nube-y-chm.jpg" alt="HIPSO con una nube de puntos y su modelo de alturas en planta, perfil y 3D"></div>
+
+<section class="bloque">
+  <h2>Tres premisas, deducidas de un mismo problema</h2>
+  <p>Una nube LiDAR de un territorio tiene cientos de millones de puntos, y un programa que no esté pensado para ese tamaño se bloquea justo cuando el trabajo importa. De ahí salen tres decisiones de diseño. La primera es la rapidez, porque lo que se mide se puede mejorar y lo que no, no. La segunda es la eficiencia, de modo que la memoria dependa del área que se está viendo y no del número de puntos del archivo. La tercera es la comodidad de edición, porque una clasificación automática nunca es perfecta y el último tramo lo cierra una persona con el ratón.</p>
+  <div class="cifras">
+    <div class="cifra"><b>Por franjas</b><span>Los pasos globales leen la nube como flujo: la memoria no crece con los puntos.</span></div>
+    <div class="cifra"><b>Todos los puntos</b><span>El perfil nunca decima ni usa niveles de detalle: lo que se ve es lo que hay.</span></div>
+    <div class="cifra"><b>Reproducible</b><span>Lo que hace la interfaz lo hace la orden equivalente, con los mismos resultados.</span></div>
+    <div class="cifra"><b>Contrastado</b><span>Validado contra lidR, terra y otras referencias libres (véase la referencia técnica).</span></div>
+  </div>
+</section>
+
+<section class="bloque">
+  <h2>Qué se puede hacer</h2>
+  <p>El programa se organiza en cuatro áreas que comparten el mismo mapa y las mismas capas, de modo que el resultado de una sirve de entrada a la siguiente sin exportar nada por el camino.</p>
+  <div class="tarjetas">
+    <a class="tarjeta" href="manual/preparar.html"><h3>Nubes de puntos</h3><p>Clasificación de ruido, suelo, edificios, cables y vegetación, edición con polígonos e histograma, recorte, unión, adelgazado y asignación de proyección.</p></a>
+    <a class="tarjeta" href="manual/superficies.html"><h3>Superficies</h3><p>Modelo digital del terreno, de superficie y de alturas de la vegetación, con varios métodos de interpolación y análisis de terreno e hidrología.</p></a>
+    <a class="tarjeta" href="manual/inventario.html"><h3>Inventario forestal</h3><p>Árboles individuales, métricas por parcela y por celda, modelos lineales con validación cruzada, análisis por objetos y medición de troncos en nubes terrestres.</p></a>
+    <a class="tarjeta" href="manual/raster.html"><h3>Ráster</h3><p>Composiciones, índices espectrales, mosaicos, reproyección, calculadora, reclasificación, filtros focales, estadísticas y tabulación de áreas.</p></a>
+    <a class="tarjeta" href="manual/vectorial.html"><h3>Vectorial</h3><p>Edición de capas con tipos de campo, geoprocesos con polígonos, extracción de valores, unión de tablas, cercanía, topología y simbología.</p></a>
+    <a class="tarjeta" href="manual/aba.html"><h3>Flujos de trabajo</h3><p>Un constructor de nodos donde cada herramienta es un paso y el flujo completo se guarda, se comparte y se ejecuta sin interfaz.</p></a>
+    <a class="tarjeta" href="ordenes.html"><h3>Línea de comandos</h3><p>Más de setenta órdenes con la misma ayuda que muestra la interfaz, listas para lotes, servidores y cadenas de procesado.</p></a>
+    <a class="tarjeta" href="referencia.html"><h3>Referencia técnica</h3><p>Validación frente a otros programas, rendimiento medido, límites conocidos y formatos admitidos.</p></a>
+  </div>
+</section>
+
+<section class="bloque">
+  <h2>Un vistazo al programa</h2>
+  <p>Las capturas son del programa real, abierto sobre hojas del PNOA, líneas eléctricas y escáneres terrestres.</p>
+  <div class="galeria">
+    <figure><img loading="lazy" src="img/01-tres-hojas-pnoa-planta-perfil-3d.jpg" alt=""><figcaption>Tres hojas del PNOA en planta, perfil y 3D.</figcaption></figure>
+    <figure><img loading="lazy" src="img/03-clasificacion-de-puntos.jpg" alt=""><figcaption>Clasificación de puntos por clases.</figcaption></figure>
+    <figure><img loading="lazy" src="img/02-linea-electrica-corredor.jpg" alt=""><figcaption>Corredor eléctrico con conductores, postes y vegetación en riesgo.</figcaption></figure>
+    <figure><img loading="lazy" src="img/04-obia-segmentacion-transparente.jpg" alt=""><figcaption>Segmentación por objetos sobre la nube transparente.</figcaption></figure>
+    <figure><img loading="lazy" src="img/16-constructor-de-flujos.jpg" alt=""><figcaption>El constructor de flujos.</figcaption></figure>
+    <figure><img loading="lazy" src="img/08-analisis-de-terreno.jpg" alt=""><figcaption>Análisis de terreno de un modelo digital.</figcaption></figure>
+    <figure><img loading="lazy" src="img/07-cubicado-tls.jpg" alt=""><figcaption>Cubicación de troncos en una nube terrestre.</figcaption></figure>
+    <figure><img loading="lazy" src="img/06-edicion-vectorial.jpg" alt=""><figcaption>Edición vectorial sobre la nube.</figcaption></figure>
+    <figure><img loading="lazy" src="img/05-modelo-lineal-residuos.jpg" alt=""><figcaption>Modelo lineal con sus residuos.</figcaption></figure>
+  </div>
+</section>
+
+<section class="bloque">
+  <h2>Por dónde empezar</h2>
+  <p>Quien llega por primera vez debe seguir un orden, porque cada paso condiciona el siguiente. Se instala el programa y se abre una hoja de prueba (<a href="manual/instalacion.html">Instalación</a> y <a href="manual/primeros-pasos.html">Primeros pasos</a>), se reconoce la ventana y sus tres vistas (<a href="manual/interfaz.html">La interfaz</a>), se clasifica la nube y se derivan sus modelos (<a href="manual/preparar.html">Preparar</a> y <a href="manual/superficies.html">Superficies</a>), y solo entonces tiene sentido repetirlo sobre una entrega completa con un <a href="flujos-ejemplo.html">flujo guardado</a> o con la <a href="manual/linea-de-comandos.html">línea de comandos</a>.</p>
+  <p>Quien busca una orden concreta encuentra todas, con sus opciones, en <a href="ordenes.html">Órdenes de hipso</a>, y el buscador de esta página (tecla <kbd style="border:1px solid var(--borde);border-radius:4px;padding:0 .4rem">/</kbd>) recorre el manual entero.</p>
+</section>
+
+<section class="cierre">
+  <h2>Un programa libre y verificable</h2>
+  <p>Cada método está reimplementado a partir de la bibliografía publicada, que se lista y se comprueba una por una en el apartado de <a href="manual/bibliografia.html">Bibliografía</a>, y cada resultado se contrasta con una referencia libre antes de darlo por bueno. El código, las versiones y las incidencias están en <a href="{{repo}}">GitHub</a>. Si una herramienta no hace lo que dice el manual, el error es del programa y conviene notificarlo allí con los datos que permiten reproducirlo.</p>
+</section>

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{titulo}} · HIPSO</title>
+<meta name="description" content="HIPSO: procesamiento y edición de nubes de puntos LiDAR, ráster y vectorial. Manual y referencia.">
+<link rel="icon" href="{{raiz}}img/hipso-favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="{{raiz}}static/estilo.css">
+<script>
+try { var t = localStorage.getItem('hipso-tema'); if (t) document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+</script>
+</head>
+<body class="{{clase}}" data-raiz="{{raiz}}">
+<header class="cabecera">
+  <button class="boton-menu" aria-label="Abrir el menú" id="abrir-menu">☰</button>
+  <a class="marca" href="{{raiz}}index.html">
+    <img class="logo-claro" src="{{raiz}}img/hipso-logo-completo.svg" alt="HIPSO">
+    <img class="logo-oscuro" src="{{raiz}}img/hipso-logo-completo-blanco.svg" alt="HIPSO">
+  </a>
+  <button class="buscar" id="abrir-busqueda" aria-label="Buscar">Buscar en la documentación <kbd>/</kbd></button>
+  <nav class="enlaces">
+    <a href="{{raiz}}manual/primeros-pasos.html">Primeros pasos</a>
+    <a href="{{raiz}}ordenes.html">Órdenes</a>
+    <a href="{{repo}}/releases/latest">Descargar</a>
+    <a href="{{repo}}">GitHub</a>
+    <button id="tema" aria-label="Cambiar entre tema claro y oscuro">◐</button>
+  </nav>
+</header>
+<div class="pagina">
+  <aside class="lateral" id="lateral">{{menu}}</aside>
+  <main class="contenido">
+    <article>{{cuerpo}}</article>
+    {{pasos}}
+    <footer class="pie">HIPSO {{version}} · Licencia en el repositorio · {{editar}}</footer>
+  </main>
+  <aside class="derecha">{{toc}}</aside>
+</div>
+<div class="busqueda" id="busqueda" hidden>
+  <div class="caja">
+    <input id="consulta" type="search" placeholder="Buscar: clasificar, MDT, árboles, calculadora, proyección…" autocomplete="off">
+    <div id="resultados"></div>
+  </div>
+</div>
+<script src="{{raiz}}static/app.js" defer></script>
+</body>
+</html>
