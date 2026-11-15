@@ -13,8 +13,6 @@ Su diseño responde a tres premisas, y las tres se deducen de un mismo problema:
 
 Funciona en Windows, macOS y Linux, y es gratuito (las condiciones están en el archivo `LICENSE`).
 
-Dos términos del programa conviene explicarlos. El CHM es el *modelo de alturas de la vegetación*: la altura de lo más alto sobre el terreno en cada celda, tanto de árboles como de arbustos o cultivos. Los modelos lineales relacionan una variable medida en campo (volumen, biomasa, área basimétrica…) con las métricas LiDAR de las mismas unidades de muestreo, para estimarla en toda la superficie; son los que se ajustan por regresión lineal.
-
 ## 2. Instalación
 
 El programa no necesita instalador, y por lo tanto basta con tres pasos. Primero se descomprime el ZIP del sistema en una carpeta con permisos de escritura. Después se ejecuta `hipso-gui` (`hipso-gui.exe` en Windows); en macOS y Linux, si no arranca, hay que darle permiso de ejecución con `chmod +x hipso-gui hipso`. Por último, `hipso` es la versión de línea de comandos, descrita en el capítulo 14.

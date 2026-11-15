@@ -95,17 +95,17 @@ class Pagina:
 
 
 IMAGENES = {
-    "que-es": ("01-tres-hojas-pnoa-planta-perfil-3d.jpg", "Tres hojas del PNOA en planta, perfil y 3D, con la nube coloreada por elevación."),
-    "interfaz": ("11-programa-planta-perfil-3d.jpg", "La ventana de HIPSO con la vista en planta, el perfil y la vista 3D de una misma nube."),
-    "edicion": ("10-edicion-histograma.jpg", "Edición de puntos con el histograma de elevaciones que acota la reclasificación."),
-    "preparar": ("03-clasificacion-de-puntos.jpg", "Clasificación de los puntos de una hoja en suelo, vegetación, edificios y cables."),
-    "superficies": ("14-raster-chm-en-3d.jpg", "Modelo de alturas de la vegetación dibujado en 3D sobre la nube."),
-    "inventario": ("04-obia-segmentacion-transparente.jpg", "Segmentación por objetos con la clase de cada objeto sobre la nube transparente."),
-    "vectorial": ("06-edicion-vectorial.jpg", "Edición de una capa de polígonos sobre la nube y sus atributos."),
-    "raster": ("08-analisis-de-terreno.jpg", "Análisis de terreno de un modelo digital: relieve, curvaturas e hidrología."),
-    "aba": ("05-modelo-lineal-residuos.jpg", "Modelo lineal de una variable de inventario con sus residuos."),
-    "flujos": ("16-constructor-de-flujos.jpg", "El constructor de flujos con un inventario dibujado como grafo de nodos."),
-    "tls": ("07-cubicado-tls.jpg", "Cubicación de troncos a partir de una nube terrestre."),
+    "que-es": ("01-dales-planta-perfil-3d.jpg", "Una nube urbana clasificada (DALES) en planta, perfil y 3D."),
+    "interfaz": ("01-dales-planta-perfil-3d.jpg", "La ventana de HIPSO con la vista en planta, el perfil y la vista 3D de una misma nube."),
+    "edicion": ("08-edicion-histograma.jpg", "Edición de puntos con el histograma de elevaciones que acota la reclasificación."),
+    "preparar": ("03-cinta-lidar-estadio.jpg", "La pestaña LiDAR con las herramientas de preparación sobre una nube con color."),
+    "superficies": ("06-pnoa-chm-perfil-3d.jpg", "Una hoja del PNOA con su modelo de alturas: la línea del ráster se ve sobre el perfil y como superficie en 3D."),
+    "inventario": ("11-modelos-lineales.jpg", "Modelo lineal de una variable de inventario con sus gráficas de diagnóstico."),
+    "vectorial": ("10-edicion-vectorial.jpg", "Edición de una capa de rodales sobre la nube y sus herramientas."),
+    "raster": ("05-terreno-opengf.jpg", "Un modelo del terreno coloreado por elevación, con su vista 3D."),
+    "aba": ("11-modelos-lineales.jpg", "Modelo lineal de una variable de inventario con sus residuos."),
+    "flujos": ("09-constructor-de-flujos.jpg", "El constructor de flujos con un inventario por área dibujado como grafo de nodos."),
+    "tls": ("07-tls-troncos-y-ramas.jpg", "Troncos y ramas clasificados en una nube de escáner terrestre."),
 }
 
 

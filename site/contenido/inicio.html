@@ -1,6 +1,6 @@
 <section class="heroe">
   <h1>Nubes de puntos LiDAR, ráster y vectorial en un solo programa</h1>
-  <p>HIPSO abre, clasifica y edita nubes de cientos de millones de puntos, deriva de ellas los modelos del terreno y de la vegetación, mide árboles y parcelas, y encadena todo ello en flujos que se repiten sobre cualquier zona. Es gratuito, funciona en Windows, macOS y Linux, y cada herramienta existe también como orden de la línea de comandos.</p>
+  <p>HIPSO abre, clasifica y edita nubes de cientos de millones de puntos, deriva de ellas los modelos del terreno y de la vegetación, mide árboles y parcelas y encadena todo en flujos que se repiten sobre cualquier zona. Es gratuito, funciona en Windows, macOS y Linux, y cada herramienta existe también como orden de la línea de comandos.</p>
   <div class="acciones">
     <a class="boton" href="{{repo}}/releases/latest">Descargar la versión {{version}}</a>
     <a class="boton suave" href="manual/primeros-pasos.html">Primeros pasos</a>
@@ -9,16 +9,30 @@
   <div class="insignia">Windows · macOS (Apple Silicon e Intel) · Linux</div>
 </section>
 
-<div class="maqueta"><img src="img/15-planta-perfil-3d-nube-y-chm.jpg" alt="HIPSO con una nube de puntos y su modelo de alturas en planta, perfil y 3D"></div>
+<div class="maqueta"><img src="img/01-dales-planta-perfil-3d.jpg" alt="HIPSO con una nube clasificada en planta, perfil y 3D"></div>
 
 <section class="bloque">
-  <h2>Tres premisas, deducidas de un mismo problema</h2>
-  <p>Una nube LiDAR de un territorio tiene cientos de millones de puntos, y un programa que no esté pensado para ese tamaño se bloquea justo cuando el trabajo importa. De ahí salen tres decisiones de diseño. La primera es la rapidez, porque lo que se mide se puede mejorar y lo que no, no. La segunda es la eficiencia, de modo que la memoria dependa del área que se está viendo y no del número de puntos del archivo. La tercera es la comodidad de edición, porque una clasificación automática nunca es perfecta y el último tramo lo cierra una persona con el ratón.</p>
+  <h2>Pensado para que lo use cualquiera</h2>
+  <p>HIPSO se apoya en tres ideas: rapidez, eficiencia y comodidad de edición. Una nube LiDAR de un territorio tiene cientos de millones de puntos, y el programa está diseñado para que ese tamaño no sea un obstáculo: la memoria depende del área que se ve y no del número de puntos del archivo, y cualquier clasificación automática se puede corregir a mano sin esperas.</p>
+  <p>A ellas se suma una convicción: un programa LiDAR no tiene por qué ser caro para hacer muchas cosas, y tiene que estar al alcance de todo el mundo. Por eso HIPSO es gratuito, no necesita licencias ni instalación con permisos de administrador, y reúne en una sola aplicación lo que normalmente exige varias. Está pensado para quien trabaja con vegetación y territorio: personal técnico forestal, ambiental y agrícola, ingeniería, topografía, investigación y docencia.</p>
   <div class="cifras">
-    <div class="cifra"><b>Por franjas</b><span>Los pasos globales leen la nube como flujo: la memoria no crece con los puntos.</span></div>
+    <div class="cifra"><b>Todo en uno</b><span>Nubes, ráster y vectorial comparten mapa y capas, y el resultado de una herramienta sirve de entrada a la siguiente.</span></div>
     <div class="cifra"><b>Todos los puntos</b><span>El perfil nunca decima ni usa niveles de detalle: lo que se ve es lo que hay.</span></div>
     <div class="cifra"><b>Reproducible</b><span>Lo que hace la interfaz lo hace la orden equivalente, con los mismos resultados.</span></div>
-    <div class="cifra"><b>Contrastado</b><span>Validado contra lidR, terra y otras referencias libres (véase la referencia técnica).</span></div>
+    <div class="cifra"><b>Contrastado</b><span>Validado contra lidR, terra y otras referencias libres.</span></div>
+  </div>
+</section>
+
+<section class="bloque">
+  <h2>Lo que pocos programas reúnen</h2>
+  <p>Pocos programas integran en un mismo sitio la edición de nubes, la vista en perfil y en 3D de los ráster, el análisis de escáner terrestre, varias formas de clasificar, un constructor de flujos y los modelos lineales de inventario. HIPSO los ofrece juntos.</p>
+  <div class="tarjetas">
+    <div class="tarjeta"><h3>Edición de puntos</h3><p>Reclasificar, borrar o recortar con polígonos, con histograma de elevaciones y deshacer, sobre nubes enormes.</p></div>
+    <div class="tarjeta"><h3>Ráster en perfil y en 3D</h3><p>Un modelo de alturas o del terreno se dibuja como línea sobre el perfil de la nube y como superficie en 3D.</p></div>
+    <div class="tarjeta"><h3>Escáner terrestre</h3><p>Troncos, diámetros por altura, volumen por individuo y clasificación de fustes y ramas.</p></div>
+    <div class="tarjeta"><h3>Muchas formas de clasificar</h3><p>Suelo, ruido, edificios, vegetación y cables, con recetas, filtros y comprobaciones contra datos de referencia.</p></div>
+    <div class="tarjeta"><h3>Flujos de trabajo</h3><p>Un lienzo de nodos donde cada herramienta es un paso; el flujo se guarda, se comparte y se ejecuta sin interfaz.</p></div>
+    <div class="tarjeta"><h3>Modelos lineales</h3><p>Relación entre variables de campo y métricas LiDAR, con validación cruzada y diagnóstico de residuos.</p></div>
   </div>
 </section>
 
@@ -28,7 +42,7 @@
   <div class="tarjetas">
     <a class="tarjeta" href="manual/preparar.html"><h3>Nubes de puntos</h3><p>Clasificación de ruido, suelo, edificios, cables y vegetación, edición con polígonos e histograma, recorte, unión, adelgazado y asignación de proyección.</p></a>
     <a class="tarjeta" href="manual/superficies.html"><h3>Superficies</h3><p>Modelo digital del terreno, de superficie y de alturas de la vegetación, con varios métodos de interpolación y análisis de terreno e hidrología.</p></a>
-    <a class="tarjeta" href="manual/inventario.html"><h3>Inventario forestal</h3><p>Árboles individuales, métricas por parcela y por celda, modelos lineales con validación cruzada, análisis por objetos y medición de troncos en nubes terrestres.</p></a>
+    <a class="tarjeta" href="manual/inventario.html"><h3>Inventario del arbolado y la vegetación</h3><p>Árboles individuales, métricas por parcela y por celda, modelos lineales con validación cruzada, análisis por objetos y medición de troncos en nubes terrestres.</p></a>
     <a class="tarjeta" href="manual/raster.html"><h3>Ráster</h3><p>Composiciones, índices espectrales, mosaicos, reproyección, calculadora, reclasificación, filtros focales, estadísticas y tabulación de áreas.</p></a>
     <a class="tarjeta" href="manual/vectorial.html"><h3>Vectorial</h3><p>Edición de capas con tipos de campo, geoprocesos con polígonos, extracción de valores, unión de tablas, cercanía, topología y simbología.</p></a>
     <a class="tarjeta" href="manual/aba.html"><h3>Flujos de trabajo</h3><p>Un constructor de nodos donde cada herramienta es un paso y el flujo completo se guarda, se comparte y se ejecuta sin interfaz.</p></a>
@@ -39,17 +53,18 @@
 
 <section class="bloque">
   <h2>Un vistazo al programa</h2>
-  <p>Las capturas son del programa real, abierto sobre hojas del PNOA, líneas eléctricas y escáneres terrestres.</p>
   <div class="galeria">
-    <figure><img loading="lazy" src="img/01-tres-hojas-pnoa-planta-perfil-3d.jpg" alt=""><figcaption>Tres hojas del PNOA en planta, perfil y 3D.</figcaption></figure>
-    <figure><img loading="lazy" src="img/03-clasificacion-de-puntos.jpg" alt=""><figcaption>Clasificación de puntos por clases.</figcaption></figure>
-    <figure><img loading="lazy" src="img/02-linea-electrica-corredor.jpg" alt=""><figcaption>Corredor eléctrico con conductores, postes y vegetación en riesgo.</figcaption></figure>
-    <figure><img loading="lazy" src="img/04-obia-segmentacion-transparente.jpg" alt=""><figcaption>Segmentación por objetos sobre la nube transparente.</figcaption></figure>
-    <figure><img loading="lazy" src="img/16-constructor-de-flujos.jpg" alt=""><figcaption>El constructor de flujos.</figcaption></figure>
-    <figure><img loading="lazy" src="img/08-analisis-de-terreno.jpg" alt=""><figcaption>Análisis de terreno de un modelo digital.</figcaption></figure>
-    <figure><img loading="lazy" src="img/07-cubicado-tls.jpg" alt=""><figcaption>Cubicación de troncos en una nube terrestre.</figcaption></figure>
-    <figure><img loading="lazy" src="img/06-edicion-vectorial.jpg" alt=""><figcaption>Edición vectorial sobre la nube.</figcaption></figure>
-    <figure><img loading="lazy" src="img/05-modelo-lineal-residuos.jpg" alt=""><figcaption>Modelo lineal con sus residuos.</figcaption></figure>
+    <figure><img loading="lazy" src="img/01-dales-planta-perfil-3d.jpg" alt=""><figcaption>Nube urbana clasificada (DALES) en planta, perfil y 3D.</figcaption></figure>
+    <figure><img loading="lazy" src="img/02-estadio-3d.jpg" alt=""><figcaption>Un estadio y su entorno en 3D con el color de la propia nube.</figcaption></figure>
+    <figure><img loading="lazy" src="img/04-linea-electrica-clasificada.jpg" alt=""><figcaption>Línea eléctrica clasificada: suelo, vegetación por estratos, cables y torres.</figcaption></figure>
+    <figure><img loading="lazy" src="img/05-terreno-opengf.jpg" alt=""><figcaption>Terreno de una prueba de filtrado de suelo (OpenGF), por elevación.</figcaption></figure>
+    <figure><img loading="lazy" src="img/06-pnoa-chm-perfil-3d.jpg" alt=""><figcaption>Hoja del PNOA con su modelo de alturas sobre el perfil y en 3D.</figcaption></figure>
+    <figure><img loading="lazy" src="img/07-tls-troncos-y-ramas.jpg" alt=""><figcaption>Escáner terrestre: troncos y ramas clasificados.</figcaption></figure>
+    <figure><img loading="lazy" src="img/08-edicion-histograma.jpg" alt=""><figcaption>Edición de puntos con histograma de atributos.</figcaption></figure>
+    <figure><img loading="lazy" src="img/09-constructor-de-flujos.jpg" alt=""><figcaption>El constructor de flujos: un inventario por área.</figcaption></figure>
+    <figure><img loading="lazy" src="img/10-edicion-vectorial.jpg" alt=""><figcaption>Edición vectorial de rodales sobre la nube.</figcaption></figure>
+    <figure><img loading="lazy" src="img/11-modelos-lineales.jpg" alt=""><figcaption>Modelos lineales con diagnóstico de residuos.</figcaption></figure>
+    <figure><img loading="lazy" src="img/03-cinta-lidar-estadio.jpg" alt=""><figcaption>La pestaña LiDAR de la cinta de opciones.</figcaption></figure>
   </div>
 </section>
 

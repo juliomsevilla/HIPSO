@@ -106,32 +106,28 @@ LAS y LAZ (también **COPC**, leído solo en la parte que hace falta y escrito c
 
 <table>
   <tr>
-    <td width="50%"><img src="assets/social/01-tres-hojas-pnoa-planta-perfil-3d.jpg" alt="Planta, perfil y 3D de tres hojas del PNOA"></td>
-    <td width="50%"><img src="assets/social/03-clasificacion-de-puntos.jpg" alt="Clasificación de puntos"></td>
+    <td width="50%"><img src="assets/social/01-dales-planta-perfil-3d.jpg" alt="Nube urbana clasificada en planta, perfil y 3D"></td>
+    <td width="50%"><img src="assets/social/04-linea-electrica-clasificada.jpg" alt="Línea eléctrica clasificada con cables y torres"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="assets/social/04-obia-segmentacion-transparente.jpg" alt="Segmentación por objetos (OBIA)"></td>
-    <td width="50%"><img src="assets/social/05-modelo-lineal-residuos.jpg" alt="Modelo lineal y diagnóstico de residuos"></td>
+    <td width="50%"><img src="assets/social/06-pnoa-chm-perfil-3d.jpg" alt="Hoja del PNOA con su modelo de alturas sobre el perfil y en 3D"></td>
+    <td width="50%"><img src="assets/social/07-tls-troncos-y-ramas.jpg" alt="Escáner terrestre con troncos y ramas clasificados"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="assets/social/10-edicion-histograma.jpg" alt="Edición de puntos con histogramas"></td>
-    <td width="50%"><img src="assets/social/07-cubicado-tls.jpg" alt="Estimación de volumen de individuos con escáner terrestre"></td>
+    <td width="50%"><img src="assets/social/08-edicion-histograma.jpg" alt="Edición de puntos con histograma de atributos"></td>
+    <td width="50%"><img src="assets/social/09-constructor-de-flujos.jpg" alt="Constructor de flujos"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="assets/social/06-edicion-vectorial.jpg" alt="Edición de vectores: vértices de polígonos y tabla de atributos"></td>
-    <td width="50%"><img src="assets/social/13-TLS-clasificado.png" alt="Nube TLS con troncos y ramas clasificados, en 3D"></td>
+    <td width="50%"><img src="assets/social/10-edicion-vectorial.jpg" alt="Edición vectorial de rodales sobre la nube"></td>
+    <td width="50%"><img src="assets/social/11-modelos-lineales.jpg" alt="Modelos lineales con diagnóstico de residuos"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="assets/social/14-raster-chm-en-3d.jpg" alt="Modelo de alturas de la vegetación (CHM) como superficie en 3D"></td>
-    <td width="50%"><img src="assets/social/15-planta-perfil-3d-nube-y-chm.jpg" alt="Planta, perfil y 3D con una nube de puntos y un CHM; el perfil muestra la línea del CHM sobre los puntos"></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="assets/social/08-analisis-de-terreno.jpg" alt="Análisis de terreno: pendiente y curvas de nivel de un MDT"></td>
-    <td width="50%"><img src="assets/social/09-cinta-lidar.jpg" alt="Pestaña LiDAR de la cinta de opciones"></td>
+    <td width="50%"><img src="assets/social/02-estadio-3d.jpg" alt="Un estadio y su entorno en 3D"></td>
+    <td width="50%"><img src="assets/social/05-terreno-opengf.jpg" alt="Terreno por elevación, con su vista 3D"></td>
   </tr>
 </table>
 
-<sub>Datos del PNOA LiDAR 2024 (© Instituto Geográfico Nacional, CC BY 4.0) y unidades de muestreo de campo propias.</sub>
+<sub>Datos del PNOA LiDAR (© Instituto Geográfico Nacional, CC BY 4.0), DALES, OpenGF, el estadio de Autzen y datos propios de campo y de escáner terrestre.</sub>
 
 ---
 

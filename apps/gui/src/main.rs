@@ -506,6 +506,8 @@ struct App {
     select_all_pending: bool,
     /// Línea de comandos `--view x,y,escala`: la vista que se toma una vez que todo se ha cargado.
     forced_view: Option<Plan>,
+    /// Coloreado pedido en la línea de comandos: manda sobre el RGB automático al cargar.
+    forced_color: Option<ColorBy>,
     rs: rs::RsState,
     table_new_field: String,
     line_weight: f32,
@@ -660,6 +662,7 @@ impl Default for App {
             vm: vecmore::State::default(),
             select_all_pending: false,
             forced_view: None,
+            forced_color: None,
             rs: rs::RsState::default(),
             table_new_field: String::new(),
             line_weight: 2.0,
@@ -857,7 +860,8 @@ impl App {
                         Some("earth") => ColorBy::ElevationEarth,
                         Some("return") => ColorBy::Return,
                         _ => ColorBy::Elevation,
-                    }
+                    };
+                    self.forced_color = Some(self.style.color_by);
                 }
                 "--tool" => {
                     self.tools.open = match it.next().as_deref() {
@@ -1000,6 +1004,10 @@ impl App {
                     Some("settings") => Action::Settings,
                     Some("flows") => Action::Flows,
                     Some("flowrun") => Action::FlowRun,
+                    // abre la pestaña de flujos con uno de los ejemplos, por su posición
+                    Some(n) if n.starts_with("flow-example-") => {
+                        Action::FlowExample(n["flow-example-".len()..].parse().unwrap_or(0))
+                    }
                     Some("clitool") => Action::CliTool(0),
                     Some("clitool-near") => Action::CliTool(5),
                     _ => continue,
@@ -1765,7 +1773,9 @@ impl App {
                         self.class_counts[usize::from(*c)] += 1;
                     }
                     let mut st = Style::fit(&s);
-                    st.color_by = if !s.rgb.iter().any(|c| *c != [0, 0, 0]) {
+                    st.color_by = if let Some(c) = self.forced_color {
+                        c
+                    } else if !s.rgb.iter().any(|c| *c != [0, 0, 0]) {
                         self.style.color_by
                     } else {
                         ColorBy::Rgb
