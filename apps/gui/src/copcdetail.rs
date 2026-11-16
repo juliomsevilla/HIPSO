@@ -55,6 +55,21 @@ impl App {
     pub fn update_detail(&mut self, ctx: &egui::Context, vw: [f64; 4], interactive: bool) {
         let px = 1.0 / self.plan.scale.max(1e-9);
         self.step_detail(ctx, vw, px, interactive);
+        self.mark_detail_selection();
+    }
+
+    /// Marca en los puntos de la ventana de detalle los que la selección actual alcanza: la
+    /// ventana es otra lectura de la nube y no hereda la selección del almacén base.
+    fn mark_detail_selection(&mut self) {
+        let rev = self.ed.sel_rev;
+        for d in [self.detail.as_mut(), self.detail3.as_mut()].into_iter().flatten() {
+            if d.sel_rev == rev {
+                continue;
+            }
+            d.sel_rev = rev;
+            let sel = hipso_core::edit::selection(&d.store, &self.ed.ops);
+            Arc::make_mut(&mut d.store).selected = sel;
+        }
     }
 
     /// Lo mismo para la vista 3D: `vw` es el terreno alrededor del objetivo que abarca la cámara,
@@ -71,6 +86,7 @@ impl App {
         self.step_detail(ctx, vw, px, interactive);
         std::mem::swap(&mut self.detail, &mut self.detail3);
         std::mem::swap(&mut self.detail_job, &mut self.detail3_job);
+        self.mark_detail_selection();
     }
 
     fn step_detail(&mut self, ctx: &egui::Context, vw: [f64; 4], px: f64, interactive: bool) {
@@ -90,6 +106,7 @@ impl App {
                         spacing,
                         level_spacing,
                         id: self.detail_id,
+                        sel_rev: u64::MAX,
                     });
                 }
                 Ok(_) => {}

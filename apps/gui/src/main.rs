@@ -288,6 +288,8 @@ struct Detail {
     /// Espaciado del nivel del octree que se leyó: los puntos de la vista 3D lo siguen.
     level_spacing: f64,
     id: u64,
+    /// Revisión de la selección con la que se marcaron los puntos de esta ventana.
+    sel_rev: u64,
 }
 
 /// Una carga de nubes terminada: los puntos, los archivos de los que vinieron (las copias
