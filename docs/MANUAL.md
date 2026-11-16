@@ -7,17 +7,17 @@ Autor: Julio M. Sevilla · julio@jsevilla.es · https://es.linkedin.com/in/julio
 
 ## 1. Qué es HIPSO
 
-HIPSO es un programa para abrir nubes de puntos LiDAR (LAS y LAZ), clasificarlas y editarlas, generar modelos del terreno y de alturas de la vegetación, calcular métricas e inventarios de la vegetación, medir troncos y estimar el volumen de los individuos en nubes de escáner terrestre y trabajar, además, con las imágenes y las capas propias de un sistema de información geográfica.
+HIPSO es un programa para abrir nubes de puntos LiDAR (LAS y LAZ entre otros), clasificarlas y editarlas, generar modelos del terreno y de alturas de la vegetación, calcular métricas e inventarios de la vegetación, medir troncos y estimar el volumen de los individuos en nubes de escáner terrestre y trabajar, además, con las imágenes y los datos vectoriales propios de un sistema de información geográfica.
 
-Su diseño responde a tres premisas, y las tres se deducen de un mismo problema: una nube LiDAR de un territorio tiene cientos de millones de puntos, y un programa que no esté pensado para ese tamaño se queda sin memoria o sin paciencia del usuario. La primera premisa es la rapidez, que no se declara, se mide, y por eso este manual da el tiempo de cada herramienta allí donde se ha medido. La segunda es la eficiencia con nubes enormes: los procesos leen la nube como un flujo, de modo que la memoria depende del área y del tamaño de celda, no del número de puntos, y los pasos locales trabajan por teselas, en paralelo, una por núcleo. La tercera es la edición cómoda: seleccionar, reclasificar y borrar con pocos clics, deshacer y rehacer, y ver el resultado al instante en planta, perfil y 3D.
+Su diseño responde a tres premisas, y las tres se deducen de un mismo problema: una nube LiDAR de un territorio tiene cientos de millones de puntos. La primera premisa es la rapidez, que no se declara, se mide, y por eso este manual da el tiempo de cada herramienta allí donde se ha medido. La segunda es la eficiencia con nubes enormes: los procesos leen la nube como un flujo, de modo que la memoria depende del área y del tamaño de celda, no del número de puntos, y los pasos locales trabajan por teselas, en paralelo, una por núcleo. La tercera es la edición cómoda: seleccionar, reclasificar y borrar con pocos clics, deshacer y rehacer, y ver el resultado al instante en planta, perfil y 3D.
 
 Funciona en Windows, macOS y Linux, y es gratuito (las condiciones están en el archivo `LICENSE`).
 
 ## 2. Instalación
 
-El programa no necesita instalador, y por lo tanto basta con tres pasos. Primero se descomprime el ZIP del sistema en una carpeta con permisos de escritura. Después se ejecuta `hipso-gui` (`hipso-gui.exe` en Windows); en macOS y Linux, si no arranca, hay que darle permiso de ejecución con `chmod +x hipso-gui hipso`. Por último, `hipso` es la versión de línea de comandos, descrita en el capítulo 14.
+El programa no necesita instalador y basta con tres pasos. Primero se descomprime el ZIP del sistema en una carpeta con permisos de escritura. Después se ejecuta `hipso-gui` (`hipso-gui.exe` en Windows); en macOS y Linux, si no arranca, hay que darle permiso de ejecución con `chmod +x hipso-gui hipso`. Por último, `hipso` es la versión de línea de comandos, descrita en el capítulo 14.
 
-La primera vez en macOS se abre `HIPSO.app`, el sistema lo bloquea y hay que ir a Ajustes del Sistema, Privacidad y seguridad, y pulsar Abrir igualmente. En Windows, si aparece el aviso azul de SmartScreen, se pulsa Más información y después Ejecutar de todas formas. Ambos avisos tienen el mismo origen (el programa no está firmado por un editor reconocido por el sistema) y ninguno indica un problema del archivo.
+La primera vez en macOS se abre `HIPSO.app`, el sistema lo bloquea y hay que ir a Ajustes del Sistema, Privacidad y seguridad, y pulsar Abrir igualmente. En Windows, si aparece el aviso azul de SmartScreen, se pulsa Más información y después Ejecutar de todas formas. Ambos avisos tienen el mismo origen, el programa aún esta en estado beta y no está firmado por un editor reconocido por el sistema. Ten la abosulta seguridad que ninguno indica un problema del archivo o un virus.
 
 Los requisitos son Windows 10/11, macOS 12 o superior, o un Linux con X11 o Wayland y OpenGL 2 o superior. En Linux hacen falta además las bibliotecas GTK 3, porque de ellas dependen los diálogos de archivo.
 
@@ -27,11 +27,11 @@ El flujo de trabajo normal tiene cuatro momentos, y conviene conocerlos en orden
 
 El primero es abrir los datos. El icono de la carpeta de la cabecera (Ctrl+O), el botón *Añadir nubes y capas* de *Archivo*, o arrastrar los archivos a la ventana, admiten nubes de puntos, rásteres e imágenes, shapefiles, GeoJSON, GeoPackage y KML/KMZ, varios a la vez, y los añaden a lo que ya está abierto (*Cerrar todo* empieza de nuevo). Cada nube es una hoja. *Recientes*, en *Archivo*, guarda los diez últimos archivos, y todos los diálogos de archivo empiezan en la carpeta del último abierto; el programa lo recuerda entre sesiones en `preferencias.txt`, dentro de la carpeta de configuración del sistema. Lo abierto aparece en el panel *Contenido*, a la izquierda.
 
-El segundo es mirar. La nube se dibuja en la planta (y, si se elige en *Vista → Visualización → Ventanas*, también en el perfil y en 3D). La rueda del ratón acerca y aleja, el botón central desplaza y *Vista → Visualización → Color* cambia el atributo con el que se colorean los puntos. El apartado 4.4 explica cada botón de la pestaña *Vista*.
+El segundo es revisar. La nube se dibuja en la planta (y, si se elige en *Vista → Visualización → Ventanas*, también en el perfil y en 3D). La rueda del ratón acerca y aleja, el botón central desplaza y *Vista → Visualización → Color* cambia el atributo con el que se colorean los puntos. El apartado 4.4 explica cada botón de la pestaña *Vista*.
 
 El tercero es procesar. La pestaña *LiDAR* reúne las herramientas en seis grupos (*Preparar*, *Calidad*, *Superficies*, *ALS*, *TLS* e *Infraestructuras*), la pestaña *Raster* las de rásteres y la pestaña *Vectorial* las de capas vectoriales. Cada herramienta abre una ventana con sus parámetros y el botón *▶ Ejecutar*, y el apartado 4.5 y siguientes explican cada una. Para repetir un proceso sobre otra zona, la pestaña *Flujos* encadena las herramientas.
 
-El cuarto es recoger el resultado. Los resultados se guardan junto a los datos, en la carpeta de la nube de origen y con otro nombre, y se cargan solos en el visor al terminar. El primer resultado queda el primero de la lista, encima y seleccionado; una nube resultado pasa a ser la primera nube, y la original se queda cargada (si no hace falta, se quita a mano). Si un proceso produce más de 8 nubes, se cargan las 8 primeras, un aviso lo indica y el resto queda en disco.
+El cuarto es evaluar el resultado. Los resultados se guardan junto a los datos, en la carpeta de la nube de origen y con otro nombre, y se cargan solos en el visor al terminar. El primer resultado queda el primero de la lista, encima y seleccionado; una nube resultado pasa a ser la primera nube, y la original se queda cargada (si no hace falta, se quita a mano). Si un proceso produce más de 8 nubes, se cargan las 8 primeras, un aviso lo indica y el resto queda en disco.
 
 Todo trabajo se puede detener con *■ Detener*, y lo que se hubiera escrito a medias se borra. Mientras corre, la barra de estado y el Registro dicen cuánto falta (apartado 7).
 
@@ -443,7 +443,7 @@ Se escribe un GeoTIFF por nube con la intensidad media por celda, en el sistema 
 
 ##### Comparar nubes
 
-Escribe los puntos de una nube que están a más de una distancia de todos los de otra de referencia, y da la distancia media, el RMS y la compleción. Detecta cortas, cambios de obra o crecimiento entre dos vuelos. Véase el apartado 7.1.
+Escribe los puntos de una nube que están a más de una distancia de todos los de otra de referencia, y da la distancia media, el RMS y la compleción. Detecta cambios de toda índole o crecimiento de la vegetación entre dos vuelos. Véase el apartado 7.1.
 
 
 | Control | Qué hace |
@@ -522,7 +522,7 @@ La orden es `hipso voronoi-density`.
 
 ##### MDT
 
-Botón grande. Calcula el modelo digital del terreno a partir de los puntos de suelo, por promedio de las celdas, TIN o ponderación por el inverso de la distancia. Véase el apartado 7.2.
+Calcula el modelo digital del terreno a partir de los puntos de suelo, por promedio de las celdas, TIN o ponderación por el inverso de la distancia. Véase el apartado 7.2.
 
 
 | Control | Qué hace |
@@ -540,7 +540,7 @@ La orden es `hipso dtm`.
 
 ##### MDS / CHM
 
-Botón grande. Calcula el modelo digital de superficie y el modelo de alturas de la vegetación (el CHM, la altura de lo más alto sobre el terreno en cada celda, tanto de árboles como de arbustos o cultivos), con el método del punto más alto o la pila de TIN sin picos. Véase el apartado 7.2.
+Calcula el modelo digital de superficie y el modelo de alturas de la vegetación (el CHM, la altura de lo más alto sobre el terreno en cada celda, tanto de árboles como de arbustos o cultivos), con el método del punto más alto o la pila de TIN sin picos. Véase el apartado 7.2.
 
 
 | Control | Qué hace |
@@ -557,7 +557,7 @@ Las órdenes son `hipso chm` y `hipso dsm`.
 
 ##### Cambio de la cubierta vegetal
 
-Botón grande. Compara los CHM de dos fechas y mide la pérdida y la ganancia de altura y de cubierta vegetal. Véase el apartado 7.3.
+Compara los CHM de dos fechas y mide la pérdida y la ganancia de altura y de cubierta vegetal. Véase el apartado 7.3.
 
 
 | Control | Qué hace |
@@ -577,7 +577,7 @@ La orden es `hipso change`.
 
 ##### Extraer muestras
 
-Botón grande. Corta las nubes por unidades de muestreo (generadas, dibujadas o de un archivo) y calcula sus métricas. Véase el apartado 7.3.
+Corta las nubes por unidades de muestreo (generadas, dibujadas o de un archivo) y calcula sus métricas. Véase el apartado 7.3.
 
 
 La ventana se divide en dos partes, *1 · De dónde salen las unidades de muestreo* y *2 · Qué se obtiene*.
@@ -616,7 +616,7 @@ La orden es `hipso clip`.
 
 ##### Métricas por celda
 
-Botón grande. Métricas de altura y densidad de la vegetación por celda. Véase el apartado 7.3.
+Métricas de altura y densidad de la vegetación por celda. Véase el apartado 7.3.
 
 
 | Control | Qué hace |
@@ -634,7 +634,7 @@ Sin MDT para las hojas, el programa avisa de que hay que calcularlo antes. La or
 
 ##### Modelos lineales
 
-Botón grande. Relaciona una variable medida en campo (volumen, biomasa, área basimétrica…) con las métricas LiDAR de las mismas unidades de muestreo, para estimarla en toda la superficie, y valida el modelo por validación cruzada. Véase el apartado 7.3.
+Relaciona una variable medida en campo (volumen, biomasa, área basimétrica…) con las métricas LiDAR de las mismas unidades de muestreo, para estimarla en toda la superficie, y valida el modelo por validación cruzada. Véase el apartado 7.3.
 
 
 | Control | Qué hace |
@@ -716,7 +716,7 @@ La orden es `hipso obia`.
 
 ##### Medición de troncos
 
-Botón grande. Mide los troncos en nubes de escáner terrestre, móvil o fotogramétrico, estima su volumen y clasifica troncos y ramas. Véase el apartado 7.3.
+Mide los troncos en nubes de escáner terrestre, móvil o fotogramétrico, estima su volumen y clasifica troncos y ramas. Véase el apartado 7.3.
 
 
 | Control | Qué hace |
@@ -752,7 +752,7 @@ El resultado son puntos en la base de cada tronco con diámetro a 1,30 m, altura
 
 ##### Corredores eléctricos
 
-Botón grande. Mide el peligro de la vegetación bajo una línea eléctrica cuyos cables y postes ya están clasificados. Véase el apartado 7.3.
+Mide el peligro de la vegetación bajo una línea eléctrica cuyos cables y postes ya están clasificados. Véase el apartado 7.3.
 
 
 | Control | Qué hace |
@@ -771,13 +771,13 @@ Las opciones que la ventana no muestra (clases de cable y de poste, longitud y n
 
 ### 4.6 Pestaña Vectorial
 
-La pestaña *Vectorial* reúne lo que opera sobre capas de puntos, líneas y polígonos (shapefile, GeoPackage, GeoJSON y KML). Solo los botones imprescindibles son grandes. La edición de elementos (dibujar, mover vértices, seleccionar, copiar) no está en la cinta, porque depende de la capa elegida: está en el panel lateral *Edición* (apartado 4.9). Todas las herramientas de los grupos *Geometría*, *Geoprocesos* y *Capas y tablas* abren su ventana, trabajan sobre capas ya cargadas o sobre archivos, y escriben una capa nueva sin modificar las originales.
+La pestaña *Vectorial* reúne lo que opera sobre capas de puntos, líneas y polígonos (shapefile, GeoPackage, GeoJSON y KML). La edición de elementos (dibujar, mover vértices, seleccionar, copiar) no está en la cinta, porque depende de la capa elegida: está en el panel lateral *Edición* (apartado 4.9). Todas las herramientas de los grupos *Geometría*, *Geoprocesos* y *Capas y tablas* abren su ventana, trabajan sobre capas ya cargadas o sobre archivos, y escriben una capa nueva sin modificar las originales.
 
 #### Vectorial → Capa
 
 ##### Nueva capa
 
-Botón grande. Crea una capa vacía de puntos, líneas o polígonos, con los campos y los tipos que se le den (texto, entero, decimal, sí/no, fecha o hipervínculo). Se rellena después con *Digitalizar* en el panel *Edición*. Véase el apartado 9, *Tipos de campo*.
+Crea una capa vacía de puntos, líneas o polígonos, con los campos y los tipos que se le den (texto, entero, decimal, sí/no, fecha o hipervínculo). Se rellena después con *Digitalizar* en el panel *Edición*. Véase el apartado 9, *Tipos de campo*.
 
 
 | Control | Qué hace |
@@ -790,7 +790,7 @@ La capa se crea vacía y se rellena con *Digitalizar* en el panel *Edición*. Lo
 
 ##### Tabla de atributos
 
-Botón grande. Abre la tabla de la capa vectorial elegida. Sus celdas se editan con una comprobación del tipo de cada campo, y desde ella se seleccionan filas (*Seleccionar todo*, *Invertir*, *Limpiar* y *Seleccionar por atributo*), se hace *Zoom a la selección*, se *Elimina*, se *Añade campo* y se *Guarda*; la casilla *Solo seleccionados* limita la vista a la selección. Véase el apartado 9.
+Abre la tabla de la capa vectorial elegida. Sus celdas se editan con una comprobación del tipo de cada campo, y desde ella se seleccionan filas (*Seleccionar todo*, *Invertir*, *Limpiar* y *Seleccionar por atributo*), se hace *Zoom a la selección*, se *Elimina*, se *Añade campo* y se *Guarda*; la casilla *Solo seleccionados* limita la vista a la selección. Véase el apartado 9.
 
 
 | Control | Qué hace |
@@ -1081,7 +1081,7 @@ Botón grande. Calcula índices como NDVI, GNDVI, NDWI, EVI, SAVI, NDMI, NBR, VA
 
 ##### Mosaico
 
-Botón grande. Une varios rásteres en uno, eligiendo qué hacer donde se solapan (primero, último, media, mínimo, máximo, mediana, suma o número de capas). Véase el apartado 8.
+Une varios rásteres en uno, eligiendo qué hacer donde se solapan (primero, último, media, mínimo, máximo, mediana, suma o número de capas). Véase el apartado 8.
 
 
 | Control | Qué hace |
@@ -1133,7 +1133,7 @@ Cada resultado se guarda junto al original como `<nombre>_alineado.tif`, sin pis
 
 ##### Reproyectar
 
-Botón grande. Pasa nubes y rásteres a otro sistema de coordenadas y, si se pide, cambia también la referencia vertical de las alturas. Véase el apartado 8.
+Pasa nubes y rásteres a otro sistema de coordenadas y, si se pide, cambia también la referencia vertical de las alturas. Véase el apartado 8.
 
 
 | Control | Qué hace |
@@ -1154,7 +1154,7 @@ Las rejillas de geoide y de datum se buscan en `HIPSO_GRID_DIR`, `PROJ_DATA` y `
 
 ##### Calculadora
 
-Botón grande. Calcula una expresión celda a celda con varios rásteres (`A`, `B`, `C`… o las bandas `B1`…`Bn`). Véase el apartado 8, *Calculadora ráster*.
+Calcula una expresión celda a celda con varios rásteres (`A`, `B`, `C`… o las bandas `B1`…`Bn`). Véase el apartado 8, *Calculadora ráster*.
 
 
 | Control | Qué hace |
@@ -1170,7 +1170,7 @@ La orden es `hipso calc`.
 
 ##### Cortar por máscara
 
-Botón grande. Vacía lo que queda fuera de una capa de polígonos o de otro ráster y, si se quiere, corta el ráster a su caja. Véase el apartado 8.
+Vacía lo que queda fuera de una capa de polígonos o de otro ráster y, si se quiere, corta el ráster a su caja. Véase el apartado 8.
 
 
 | Control | Qué hace |
@@ -1450,19 +1450,19 @@ La pestaña *Flujos* abre el constructor de flujos, un lienzo donde cada herrami
 
 ##### Nuevo flujo
 
-Botón grande. Vacía el lienzo para empezar otro flujo.
+Vacía el lienzo para empezar otro flujo.
 
 ##### Abrir flujo
 
-Botón grande. Abre un archivo `.model.json` guardado.
+Abre un archivo `.model.json` guardado.
 
 ##### Guardar flujo
 
-Botón grande. Guarda el flujo en su archivo, o pide uno si aún no lo tiene.
+Guarda el flujo en su archivo, o pide uno si aún no lo tiene.
 
 ##### Ejemplos
 
-Botón grande con menú. Carga uno de los seis flujos que trae el programa: *MDT, CHM y árboles*, *MDT y derivados del terreno*, *Volumen de acopios*, *Inventario por área*, *Cambio entre dos fechas* y *Estadística por rodales*. Son el mejor punto de partida porque se ven funcionar enseguida; se explican en *Flujos de ejemplo*.
+Botón con menú. Carga uno de los seis flujos que trae el programa: *MDT, CHM y árboles*, *MDT y derivados del terreno*, *Volumen de acopios*, *Inventario por área*, *Cambio entre dos fechas* y *Estadística por rodales*. Son el mejor punto de partida porque se ven funcionar enseguida; se explican en *Flujos de ejemplo*.
 
 ##### Guardar flujo como…
 
@@ -1472,11 +1472,11 @@ Guarda el flujo con otro nombre.
 
 ##### Ejecutar
 
-Botón grande. Ejecuta el flujo en segundo plano. No empieza mientras la lista de problemas bajo el lienzo no esté vacía. Cada nodo muestra su estado (en curso, hecho o con error), y si un paso falla se borra todo lo que esa ejecución había escrito.
+Ejecuta el flujo en segundo plano. No empieza mientras la lista de problemas bajo el lienzo no esté vacía. Cada nodo muestra su estado (en curso, hecho o con error), y si un paso falla se borra todo lo que esa ejecución había escrito.
 
 ##### Cancelar
 
-Botón grande. Detiene el proceso en marcha y borra lo escrito a medias.
+Detiene el proceso en marcha y borra lo escrito a medias.
 
 #### Flujos → Edición
 
@@ -1496,11 +1496,11 @@ Quita los nodos seleccionados (Supr).
 
 ##### Ordenar
 
-Botón grande. Coloca los nodos en columnas según su distancia a las entradas.
+Coloca los nodos en columnas según su distancia a las entradas.
 
 ##### Encuadrar
 
-Botón grande. Pone todos los nodos a la vista.
+Pone todos los nodos a la vista.
 
 ### 4.9 El panel lateral
 
@@ -1717,15 +1717,33 @@ Un MDT, un CHM o cualquier ráster de una banda (también los grandes, con su co
 
 ##### Abrir desde la copia
 
-Cuando una nube ya tiene su copia COPC, el programa saca la muestra de pantalla de los primeros niveles del octree en vez de leer el archivo entero: QULTIVA Z2 (51 millones de puntos) pasa de 14 s a 0,4 s, y el TLS de 94 millones, de 4 s a 0,2 s. La primera apertura de una nube grande sigue leyéndola entera. Con nubes de más de unos 30 millones de puntos la copia se escribe en dos pasadas para gastar menos memoria (QULTIVA Z3 de 90 millones: unos 4,5 GB y 28 s), y por encima de 100 millones por celdas: el cubo de la nube se parte en las celdas de un nivel de su octree, los registros de cada celda esperan en un archivo temporal junto a la copia, y cada celda se construye y se escribe por separado, de modo que la memoria es la de una celda (una décima parte de la RAM) y no depende del tamaño de la nube. Una de las nubes de escáner terrestre de 226 millones de puntos (7,8 GB) se convierte en 5,7 minutos (casi todo es lectura del disco externo) con 1,3 GB de memoria, y da una copia de 1,9 GB que después se abre en 0,27 s y da detalle al acercar en 0,1 s. Hace falta disco libre para el archivo temporal (el registro avisa si no hay); si no hay memoria o disco suficientes, la copia no se crea y el registro lo dice.
+Cuando una nube ya tiene su copia COPC, el programa saca la muestra de pantalla de los primeros niveles del octree en vez de leer el archivo entero: por ejemplo, en un fichero de 51 millones de puntos pasa de 14 s a 0,4 s, y el TLS de 94 millones, de 4 s a 0,2 s. La primera apertura de una nube grande sigue leyéndola entera. Con nubes de más de unos 30 millones de puntos la copia se escribe en dos pasadas para gastar menos memoria (por ejemplo con una nube de 90 millones: unos 4,5 GB y 28 s), y por encima de 100 millones por celdas: el cubo de la nube se parte en las celdas de un nivel de su octree, los registros de cada celda esperan en un archivo temporal junto a la copia, y cada celda se construye y se escribe por separado, de modo que la memoria es la de una celda (una décima parte de la RAM) y no depende del tamaño de la nube. Una de las nubes de escáner terrestre de 226 millones de puntos (7,8 GB) se convierte en 5,7 minutos (casi todo es lectura del disco externo) con 1,3 GB de memoria, y da una copia de 1,9 GB que después se abre en 0,27 s y da detalle al acercar en 0,1 s. Hace falta disco libre para el archivo temporal (el registro avisa si no hay); si no hay memoria o disco suficientes, la copia no se crea y el registro lo dice. En *Inicio → Ajustes → Borrar caché* se pueden eliminar estos temporales si se desea.
 
 ##### Rellenar huecos
 
-Las líneas de vuelo dejan puntos muy juntos a lo largo de la pasada y muy separados entre pasadas, y la imagen se vería a rayas. Por eso el programa da a cada píxel vacío el color del punto más cercano, hasta dos veces el espaciado de los puntos en pantalla (de 2 a 8 píxeles), en la planta y en el 3D. Solo rellena entre puntos que están a la misma profundidad (un hueco entre un tronco y el follaje de detrás se respeta), solo en nubes aéreas (las que traen ángulo de escaneo: en una nube de escáner terrestre, con puntos dispersos en todas direcciones, rellenar solo forma bloques) y solo cuando la vista está quieta, y su coste es lineal en los píxeles (unos milisegundos). No tiene control en la interfaz: actúa siempre. La planta pinta siempre lo más alto encima.
+Las líneas de vuelo dejan puntos muy juntos a lo largo de la pasada y muy separados entre pasadas, y la imagen se vería a rayas. Por eso el programa da a cada píxel vacío el color del punto más cercano, hasta dos veces el espaciado de los puntos en pantalla (de 2 a 8 píxeles), en la planta y en el 3D. Solo rellena entre puntos que están a la misma profundidad (un hueco entre un tronco y el follaje de detrás se respeta), solo en nubes aéreas (las que traen ángulo de escaneo: en una nube de escáner terrestre, con puntos dispersos en todas direcciones, rellenar solo forma bloques) y solo cuando la vista está quieta, y su coste es lineal en los píxeles (unos milisegundos). No tiene control en la interfaz: actúa siempre. La planta dibuja siempre lo más alto encima.
 
 #### Mapa base
 
-Se enciende y se apaga en el panel *Contenido*, con la casilla de la última fila (*Mapa base*). Es un mapa de fondo que queda siempre bajo todas las capas, colocado en el sistema de coordenadas de la nube (por lo que la primera nube debe declararlo). Las fuentes son OpenStreetMap (mundial), la ortofoto PNOA y el mapa base del IGN (ambos de España) o bien otro servidor de teselas con una dirección del tipo `https://…/{z}/{x}/{y}.png`.
+Se enciende y se apaga en el panel *Contenido*, con la casilla de la última fila (*Mapa base*). Es un mapa de fondo que queda siempre bajo todas las capas, colocado en el sistema de coordenadas de la nube (por lo que la primera nube debe declararlo). Las fuentes son OpenStreetMap (mundial), la ortofoto PNOA y el mapa base del IGN (ambos de España) o bien otro servidor de teselas con una dirección del tipo `https://…/{z}/{x}/{y}.png`. A continuación se listan otros ejemplos:
+
+1. OpenStreetMap
+• Estándar: http://a.tile.openstreetmap.org/{z}/{x}/{y}.png
+• Mapnik / Claro: http://tile.openstreetmap.org/{z}/{x}/{y}.png
+
+2. CARTO
+• CARTO Positron (Claro): https://fastly.net{z}/{x}/{y}.png
+• CARTO Dark Matter (Oscuro): https://fastly.net{z}/{x}/{y}.png
+
+3. Google Maps
+• Google Maps (Callejero): https://mt1.google.com/vt/lyrs=r&x={x}&y={y}&z={z}
+• Google Satellite (Satélite): https://google.com{x}&y={y}&z={z}
+• Google Hybrid (Híbrido): https://google.com{x}&y={y}&z={z}
+• Google Terrain (Relieve): https://google.com{x}&y={y}&z={z}
+
+4. ESRI
+• ESRI World Street Map: https://arcgisonline.com{z}/{y}/{x}
+• ESRI World Imagery (Satélite): https://arcgisonline.com{z}/{y}/{x}
 
 Las teselas se descargan en segundo plano de los servidores del proveedor (con el mapa apagado no se descarga nada), con el nombre del programa en la petición y como mucho dos descargas a la vez. Se guardan una semana en la carpeta de caché del sistema (en macOS, `~/Library/Caches/HIPSO/tiles`), por lo que se reutilizan sin conexión; *Inicio → Ajustes → Borrar caché* las elimina. El crédito del proveedor se dibuja en la esquina del mapa. Conviene respetar los términos de cada proveedor, y en particular OpenStreetMap no admite descargas masivas.
 
@@ -1754,13 +1772,13 @@ El acercamiento llega hasta 2 cm del centro de giro, lo suficiente para ver un t
 
 ### 4.11 Ajustes
 
-*Inicio → Ajustes* reúne lo que el programa guarda en el disco para ir más deprisa. Hoy es la **caché**: las copias COPC con el detalle de las nubes grandes (la primera apertura las crea en segundo plano y las siguientes las encuentran) y las teselas descargadas del mapa base. La página muestra la *carpeta de la caché* (que se escribe, se elige con *Elegir carpeta…* o se devuelve a la de siempre con *Por defecto*), el *tamaño máximo de las copias* en gigabytes (20 GB por defecto; al superarlo se borran las copias que más tiempo llevan sin usarse, y las de las nubes abiertas se respetan) y lo que ocupan ahora las copias y las teselas.
+*Inicio → Ajustes* reúne lo que el programa guarda en el disco para ir más deprisa. *Caché*: las copias COPC con el detalle de las nubes grandes (la primera apertura las crea en segundo plano y las siguientes las encuentran) y las teselas descargadas del mapa base. La página muestra la *carpeta de la caché* (que se escribe, se elige con *Elegir carpeta…* o se devuelve a la de siempre con *Por defecto*), el *tamaño máximo de las copias* en gigabytes (20 GB por defecto; al superarlo se borran las copias que más tiempo llevan sin usarse, y las de las nubes abiertas se respetan) y lo que ocupan ahora las copias y las teselas.
 
 *Borrar caché…* abre un aviso que explica lo que implica antes de borrar nada: los archivos originales, los proyectos y los resultados no se tocan, y lo único que cambia es que la copia de una nube grande tarda de nuevo en prepararse la próxima vez que se abra, y que el mapa base vuelve a descargarse. Las copias de las nubes abiertas en ese momento se conservan, y no se puede deshacer. Cambiar de carpeta no mueve las copias que ya existen (se rehacen en la nueva al abrir las nubes), y en una carpeta elegida por el usuario el programa solo borra sus propios archivos (`*.copc.laz` y las copias a medio escribir), nunca otros que haya en ella. Los ajustes se guardan en el archivo de preferencias; la variable `HIPSO_CACHE_DIR` sigue fijando la carpeta por defecto, y lo elegido en la página tiene preferencia sobre ella.
 
 ## 5. Herramientas de consulta
 
-Las herramientas de consulta no modifican la nube, solo la interrogan, y se agrupan según lo que miden.
+Las herramientas de consulta no modifican la nube, solo la preguntan, y se agrupan según lo que miden.
 
 ### Consultar (Q)
 
@@ -1778,7 +1796,7 @@ Además, el mismo clic identifica todas las capas visibles en ese lugar y las li
 
 ### TIN sombreado (T) y curvas de nivel
 
-*TIN* (*Vista → Herramientas → TIN*, tecla T) sustituye los puntos por una superficie triangulada y sombreada de la nube, coloreada con el mismo atributo y la misma rampa que los puntos (*Vista → Visualización → Color* y *Rango Z*), con la luz fija a 315° y 45°. Mientras está activo, los puntos se ocultan. El engranaje contiguo fija con qué puntos se construye el TIN: *suelo* (solo la clase 2, para ver el terreno) o *todas las clases* (para ver el dosel y los edificios). Se calcula sobre una rejilla de hasta 1400 píxeles de lado y se rehace cuando cambian la nube, las clases o los colores.
+*TIN* (*Vista → Herramientas → TIN*, tecla T) sustituye los puntos por una superficie triangulada y sombreada de la nube, coloreada con el mismo atributo y la misma rampa que los puntos (*Vista → Visualización → Color* y *Rango Z*), con la luz fija a 315° y 45°. Mientras está activo, los puntos se ocultan. El engranaje contiguo fija con qué puntos se construye el TIN: *suelo* (solo la clase 2, para ver el terreno) o *todas las clases* (para ver el dosel y los edificios). Se calcula sobre una rejilla de hasta 1400 píxeles de lado y se rehace cuando cambian la nube, las clases o los colores. 
 
 *Curvas de nivel* (*Vista → Herramientas → Curvas de nivel*) dibuja las curvas de esa misma superficie, con la *Equidistancia* (de 0,1 a 500 m, 5 por defecto) que se fija en el engranaje del TIN. Se pueden usar solas o sobre el TIN. Son solo una ayuda visual en pantalla: para escribir las curvas de nivel de un MDT o un CHM como shapefile de polilíneas 3D, la herramienta es `hipso contour`, y para un PNG de sombreado, `hipso hillshade`.
 
@@ -1798,7 +1816,7 @@ Además, el mismo clic identifica todas las capas visibles en ese lugar y las li
 Arriba a la derecha de la ventana del perfil se lee el rango de cotas, la longitud y el ancho de la caja y el número de puntos que dibuja. Los rásteres visibles se dibujan como una línea sobre los puntos (véase más abajo).
 
 
-Desde la 0.7.5, los ráster visibles (MDT, MDS…) se dibujan como una línea sobre el perfil, muestreados a lo largo del eje de la caja, con su nombre en la esquina inferior derecha y el eje vertical ampliado para abarcarlos. Si mezclas alturas absolutas con una nube o un ráster normalizado, la escala sale desproporcionada: no son comparables. La casilla *Cuadrícula* del grupo *Perfil* (*Vista → Perfil*) dibuja líneas horizontales con las cotas en el lado izquierdo; se puede quitar.
+Los ráster visibles (MDT, MDS…) se dibujan como una línea sobre el perfil, muestreados a lo largo del eje de la caja, con su nombre en la esquina inferior derecha y el eje vertical ampliado para abarcarlos. Si mezclas alturas absolutas con una nube o un ráster normalizado, la escala sale desproporcionada: no son comparables. La casilla *Cuadrícula* del grupo *Perfil* (*Vista → Perfil*) dibuja líneas horizontales con las cotas en el lado izquierdo; se puede quitar.
 
 El perfil merece una explicación más detenida, porque no se comporta como el resto de la vista. Las flechas lo desplazan a lo largo de la nube y su ancho se ajusta en *Vista → Perfil*. Lo decisivo es que **no usa los puntos decimados de la planta y el 3D**: lee de los archivos, en segundo plano, **todos** los de la franja de su caja (y un margen lateral de tres anchos, para poder moverla sin releer; el margen se encoge en nubes muy densas, hasta cero, antes de renunciar a un solo punto). El tope de memoria es un octavo de la RAM del equipo (unos 89 millones de puntos en uno de 16 GB); solo si la caja por sí sola lo supera se dibuja 1 de cada 2, 4… y el registro lo dice. En el TLS, una caja de 300 × 10 m tiene 9,2 millones de puntos y se lee entera en 0,7 s. Mientras llegan se dibuja con los de pantalla, y arriba a la derecha se indica cuántos puntos hay ('leyendo todos…' mientras tanto). La caja del perfil se marca en rojo sobre la planta, pero solo mientras la ventana del perfil está a la vista (diseños *2D + perfil* y *2D + perfil + 3D*): en cualquier otro diseño la marca desaparece, y reaparece al volver a uno que lo incluya.
 
@@ -1971,41 +1989,10 @@ Trabaja sobre la rejilla del punto más bajo de cada celda. Unas aperturas con v
 
 Parte de una red triangular de semillas, que son el punto más bajo de cada celda grande (mayor que el edificio más grande, 20 m por defecto). Después añade los puntos que están cerca del plano de su triángulo (*distancia de iteración*, 1,4 m) y cuyas líneas a los tres vértices forman con el plano un ángulo pequeño (*ángulo de iteración*, 8°); se rehace la red y se repite hasta que no entra ningún punto. Los puntos a menos de la *tolerancia llana* (10 cm) del plano son suelo sea cual sea el ángulo, porque cerca de un vértice el ángulo sale grande incluso para un punto que está sobre la superficie (Axelsson, 2000). Los puntos que quedan fuera del casco de las semillas no los examina ningún triángulo, y las semillas, interiores a sus celdas, dejan sin cubrir una franja a lo largo del borde de los datos; por eso se añaden como semillas el punto más bajo de cada tramo de media celda en una banda junto al borde y cuatro vértices virtuales en las esquinas.
 
-###### Prueba de filtrado de la ISPRS
-
-Se han repetido los seis métodos con las 15 muestras de la prueba de filtrado del grupo de trabajo III/3 de la ISPRS (Sithole y Vosselman, 2004), que tienen referencia manual del suelo: ocho sitios urbanos y de bosque con 0,2 a 0,7 puntos/m², con pendientes fuertes y discontinuidades, un caso mucho más duro que el PNOA actual. Con los parámetros por defecto, promedio de las 15 muestras (el error total es 100 menos la exactitud global):
-
-| Método | Error total | Suelo perdido (tipo I) | No suelo tomado por suelo (tipo II) | Kappa |
-|---|---|---|---|---|
-| SMRF | 5,3 % | 5,1 % | 8,3 % | 0,82 |
-| PMF | 5,8 % | 4,0 % | 12,0 % | 0,81 |
-| Kraus y Pfeifer | 11,2 % | 11,0 % | 10,0 % | 0,69 |
-| MCC | 14,8 % | 21,4 % | 4,4 % | 0,63 |
-| Axelsson | 14,8 % | 19,4 % | 6,2 % | 0,63 |
-| CSF | 15,8 % | 17,2 % | 7,2 % | 0,62 |
-
-Los dos morfológicos (SMRF y PMF) se ajustan bien incluso con tan pocos puntos. Los demás dejan sin clasificar mucho suelo en las laderas empinadas, porque sus parámetros por defecto están pensados para nubes densas y de poco ruido: Axelsson, por ejemplo, tolera 10 cm de ruido del sensor, y con 50 cm la exactitud de sus resultados sube del 85 al 89 %. Ajustar las escalas a la separación de los puntos con una sola regla (celdas iguales a la separación, de 1,5 o 2,5 m, y rigidez 2 en CSF) no mejoró ninguno de los seis, y con 2,5 m empeoraron todos. Quitar antes el ruido bajo con ELM mejora poco (hasta 1,4 puntos de exactitud, en Axelsson y CSF). Las muestras son de 2001 y pequeñas (7 000 a 52 000 puntos), por lo que el resultado dice poco sobre el comportamiento en una hoja entera y mucho sobre la robustez ante el relieve.
-
-La elección depende más del terreno que del método. Con relieve fuerte o zona urbana y pocos puntos, SMRF o PMF (ISPRS); en bosque denso con pocos puntos de suelo, Kraus y Pfeifer o MCC, donde los morfológicos pueden tomar vegetación baja por suelo.
-
-###### Prueba con OpenGF
-
-OpenGF (Qin et al., 2023) es un conjunto de nubes ALS abiertas de varios países con el suelo etiquetado con detalle. Se han usado dos de sus tres hojas de prueba (T1 y T3), de 5 a 8,5 puntos/m², la densidad del PNOA, en una ventana de 1 000 × 1 000 m en el centro de cada una (7,6 y 6,8 millones de puntos; el suelo de la referencia es el 35 % y el 29 %). Con los parámetros por defecto, sin búfer ni limpieza previa del ruido, promedio de las dos hojas:
-
-| Método | Exactitud | Suelo perdido (tipo I) | No suelo tomado por suelo (tipo II) | Kappa | Error del MDT (RMSE) | Tiempo por ventana |
-|---|---|---|---|---|---|---|
-| PMF | 96,8 % | 1,7 % | 3,9 % | 0,93 | 0,59 m | 0,8 s |
-| MCC | 96,3 % | 9,6 % | 1,1 % | 0,91 | 0,52 m | de 21 a 26 s |
-| Kraus y Pfeifer | 96,2 % | 8,4 % | 1,8 % | 0,91 | 0,71 m | 0,3 s |
-| SMRF | 94,7 % | 1,1 % | 7,2 % | 0,88 | 1,58 m | 0,2 s |
-| Axelsson | 92,9 % | 7,5 % | 7,1 % | 0,84 | 2,63 m | de 18 a 25 s |
-| CSF | 92,3 % | 0,7 % | 10,9 % | 0,83 | 1,74 m | de 22 a 30 s |
-
-Con esta densidad PMF, MCC y Kraus y Pfeifer se parecen mucho a la referencia (más del 96 %). SMRF y CSF pierden muy poco suelo, pero toman por suelo vegetación y estructuras bajas (el 7 % y el 11 % del no suelo), y por eso el MDT sale 1 o 2 m más alto en la hoja con más relieve (T3). Axelsson queda por detrás, a un coste de decenas de segundos. Es solo una referencia de dos hojas: la referencia es una clasificación hecha con detalle, no una medida de campo, y la tercera hoja de prueba (T2) no se ha usado: es una zona urbana con una plataforma plana de unos 200 × 200 m a 13 m sobre el suelo, que la referencia no da por suelo y que ningún filtro con una ventana de hasta 80 m distingue del terreno (la precisión del suelo no pasa del 76 % ni quitando antes el ruido bajo). La prueba se repite con `cargo run --release -p hipso-core --example ground_bench -- hoja.laz --size 1000`.
 
 ###### Límites y comprobaciones
 
-Los seis métodos se han probado además sobre escenas sintéticas de suelo conocido (llano, ladera de 25°, colinas, ciudad con tejados de 15 × 12 m a 7 m de altura y bosque con copas de 10 a 14 m), con tres comprobaciones que un método no debe fallar. Mover la nube a coordenadas UTM no cambia la clase de ningún punto en ninguno. Barajar el orden de los puntos tampoco, salvo en MCC, que cambia hasta el 0,9 % de los puntos en el bosque, porque su ajuste de splines toma el primer punto como origen. Y en el interior de la nube el suelo conocido se clasifica sin pérdidas, salvo MCC (3 a 7 % en ladera fuerte y bosque), que es un límite del propio método.
+Los seis métodos se han probado sobre escenas sintéticas de suelo conocido (llano, ladera de 25°, colinas, ciudad con tejados de 15 × 12 m a 7 m de altura y bosque con copas de 10 a 14 m), con tres comprobaciones que un método no debe fallar. Mover la nube a coordenadas UTM no cambia la clase de ningún punto en ninguno. Barajar el orden de los puntos tampoco, salvo en MCC, que cambia hasta el 0,9 % de los puntos en el bosque, porque su ajuste de splines toma el primer punto como origen. Y en el interior de la nube el suelo conocido se clasifica sin pérdidas, salvo MCC (3 a 7 % en ladera fuerte y bosque), que es un límite del propio método.
 
 En el borde de los datos faltan los vecinos de un lado, y los métodos de Kraus y Pfeifer, PMF y SMRF lo notan en las laderas: en la ladera de 25°, dentro de la franja de 10 m del borde pierden el 17 %, el 11 % y el 7 % del suelo (en el interior, el 0,1 % o menos). CSF y MCC no muestran esa diferencia, y Axelsson solo la muestra en el bosque (1,4 % en la franja frente a 0,02 % en el interior). Por eso se trabaja por teselas con un búfer de 30 m y, en un bloque de hojas, con `--neighbors`: solo el contorno exterior de todo el bloque queda sin vecinos.
 
@@ -2021,20 +2008,6 @@ Los puntos del edificio hasta 1,5 m por encima de su tejado son clase 6; lo que 
 
 Funciona con edificios de tejado plano o a dos aguas, y con tejados con algo de arbolado encima; los tejados muy irregulares o más pequeños que la superficie mínima quedan como vegetación. Necesita densidad: pide al menos tres semillas por celda de 1 m, y con una nube de 0,7 puntos/m² no encuentra ningún edificio.
 
-###### Prueba de edificios con DALES
-
-DALES (Varney et al., 2020) es un conjunto de nubes ALS urbanas y rurales etiquetadas a mano por técnicos, y su versión 2, con las etiquetas revisadas, está publicada con licencia MIT. Se han usado seis de sus hojas de prueba de 500 × 500 m (de la 5080_54470 a la 5175_54395), con unos 45 puntos/m², y la misma nube reducida a una de cada cinco puntos (unos 9 puntos/m², la densidad del PNOA). Los puntos se clasifican sin tener en cuenta la clase que traen (ruido de puntos aislados, suelo SMRF, edificios, cables y postes con sus valores por defecto) y se compara punto a punto, en el interior de 400 × 400 m de cada hoja, con las clases 12 a 14 de la referencia (los tres tipos de edificio), con el suelo (clase 0) y con los cables y los postes. Las clases de vehículos y las vallas de la referencia se cuentan como «otros».
-
-| Clase | 45 puntos/m², precisión / exhaustividad | 9 puntos/m², precisión / exhaustividad |
-|---|---|---|
-| Edificios | 95 % / 91 % | 96 % / 87 % |
-| Suelo | 96 % / 100 % | 95 % / 100 % |
-| Cables | 66 % / 41 % | 56 % / 33 % |
-| Postes | 68 % / 27 % | 48 % / 33 % |
-
-Los edificios se encuentran bien con las dos densidades (la exhaustividad baja cuatro puntos al reducir los puntos). El suelo no deja casi nada sin marcar, pero toma por suelo parte del resto (un 4 o 5 % de los puntos marcados no lo son). Los cables se encuentran mal y los postes, regular. Con 45 puntos/m² se recoge el 41 % de los puntos de cable con un 66 % de precisión, y con 9 puntos/m² el 33 % con un 56 % (con el radio de entorno fijado en 3 m en lugar de ajustarse a varias escalas se llegó al 63 % con un 85 %, pero en las hojas del PNOA ese radio fijo da peor resultado, de modo que se prefirió la búsqueda a varias escalas). Los postes de DALES (farolas, postes de servicio y algunas torres, entre árboles y edificios) se recogen en algo más de una cuarta parte de sus puntos, con una precisión del 68 % con 45 puntos/m² y del 48 % con 9. Sobre las hojas NPC03 con cables (dos hojas completas), el paso de cables da una precisión del 86 % y una exhaustividad del 60 %, en las que el proveedor ya los clasifica (con el radio de una sola escala era del 71 % y el 29 %). Esos pasos no deben darse por buenos sin revisarlos: sirven para proponer una clasificación que se corrige a mano. La prueba se repite con `cargo run --release -p hipso-core --example pnoa_bench -- --dales --recipe receta.txt hoja.laz`, con `--thin 5` para reducir los puntos.
-
-Cables y postes se probaron además en dos líneas eléctricas reales sin etiquetas a mano. En QULTIVA (un dron con 99 puntos/m², clasificado con otro programa) la torre y los cables de una línea de alta tensión estaban marcados como edificio: de los 4 013 puntos de la primera torre, 3 952 salen como poste, y la segunda torre (814 puntos, entre cultivos bajos) sale como poste entera. Los cables salen con el 86 % de los puntos que el otro programa había marcado como edificio sobre la traza de la línea, y todos los puntos de cable quedan a menos de 1,3 m de ella; esa referencia no es una verdad limpia, porque es la clasificación errónea de un programa. En las tiras de Powerlines (290 puntos/m², cuatro pasadas) salen de cinco a seis conductores con su catenaria y un poste en cada apoyo, comprobado a ojo en la vista de perfil, y con 471 puntos/m² (RAILDATA, una vía con catenaria, 42,9 millones de puntos) salen 384 337 puntos de cable y 105 estructuras de poste, de entre 290 y 4 300 puntos, con una altura mediana de 5,9 m y una separación mediana de 12 m entre vecinas, que encaja con los mástiles de una catenaria; sin etiquetas a mano no se sabe cuántos son falsos ni cuántos faltan, y con esa densidad los postes de mayor tamaño hay que revisarlos. Con las hojas del PNOA de la zona de QULTIVA (NPC02, 12 puntos/m², de las que se tienen los nueve apeos de la línea) la receta de ejemplo con el paso de postes marca torre en ocho de los nueve apeos con 150 a 1 480 puntos (el centro de los puntos queda de 1,4 a 4,3 m del apeo; en el noveno solo hay 7 puntos); fuera de los apeos marca otras estructuras de 20 puntos o más, de las que no se sabe cuántas son torres de otras líneas. El proveedor marca los nueve apeos, con unos 130 a 440 puntos cada uno. Los cables suman 5 177 puntos frente a 8 228 del proveedor. El corredor sobre la clasificación de HIPSO reconoce cinco de los nueve apeos y marca dos postes más, y sobre la del proveedor reconoce ocho: un poste solo cuenta si hay un conductor a menos de 8 m, y los cables de la clasificación de HIPSO no llegan a todos los apoyos.
 
 ##### Vegetación por alturas
 
@@ -2045,6 +2018,7 @@ Se mide la altura del punto sobre el suelo de su entorno: baja (3) por debajo de
 Un punto es cable si está a más de una altura mínima sobre el suelo (5 m) y tiene vecinos alineados (linealidad = (λ₁ − λ₂)/λ₁ de la matriz de covarianza del entorno, mínimo 0,7), con poca anchura a lo ancho de esa línea y de dirección casi horizontal. Los puntos de un conductor llegan en racimos con huecos entre ellos (las líneas de barrido del vuelo), de modo que el radio del entorno se toma de la densidad de la nube: seis veces la separación de los puntos, entre 0,6 y 3 m (1 m con 45 puntos/m² y unos 2 m con 9). Con 0,25 m entre puntos o más (menos de unos 16 puntos/m²), donde un conductor tiene un punto cada metro o dos y las copas de al lado lo hacen una línea con unos radios y con otros no, un punto cuenta como candidato si parece de un cable con alguno de los radios (una vez, una vez y media y dos veces ese, hasta 4,5 m). Las cadenas de puntos de cable se aceptan si miden al menos 10 m y son rectas (su largo es diez veces su ancho), porque las líneas de barrido hacen que un trozo de copa parezca recto durante uno o dos metros. Los postes y torres son estructuras verticales estrechas (poco anchas para su altura, de al menos 6 m), sin puntos alrededor que las unan a las copas y que arrancan del suelo; además se buscan postes finos (farolas y postes de servicio) como líneas verticales de al menos 3 m. Con pocas pasadas sobre una línea alta, el vuelo solo ve el conductor donde lo cruzan las líneas de barrido: trozos de uno o dos metros con metros sin ningún punto entre ellos, que no llegan a 10 m seguidos. Esos trozos (a más de 10 m sobre el suelo, finos, planos y sin más puntos a su alrededor) se unen cuando tres o más van en fila, a menos de 15 m uno del siguiente y sin girar más de 8° en el del medio, y la fila mide al menos 20 m. Una estructura se mide por su núcleo: la anchura y el recuento de puntos no incluyen lo que le cuelga (los conductores que llegan a una torre, una rama que toca un poste), que solo ensancharía la caja. En una torre de transmisión hay de 30 a 40 puntos por metro de altura con 9 puntos/m² y miles con 100 puntos/m², así que en las estructuras de 15 m o más el límite de puntos es de 40 por metro de altura y crece con la densidad, y las filas de puntos de la celosía, separadas hasta 8 m en vertical, se unen en una sola estructura; los cultivos bajos al pie no cuentan como copa (la copa que descalifica es la que sube a más de un tercio de la altura de la torre). Con más de unos 180 puntos/m² los troncos se ven como líneas verticales, y un poste fino con una copa a su alrededor, que sube hasta su remate, se descarta.
 
 Con la densidad del PNOA suele volver solo la cabeza del apoyo (una cruceta de unos metros, a más de 8 m, sin nada debajo). Una cadena corta, recta y aislada a esa altura se toma por cabeza de apoyo y se clasifica como 15 (la longitud máxima es ajustable, y 0 la desactiva). El método se ha contrastado con tres apoyos marcados sobre ortofoto en una hoja PNOA: en uno volvió la cabeza y se clasifica, y en los otros dos no volvió ni un solo punto, de manera que no hay nada que clasificar. Es útil para limpiar el CHM de líneas eléctricas, que de otro modo salen como árboles estrechos.
+
 
 ##### Carreteras (clase 11)
 
@@ -2057,6 +2031,58 @@ Solo mira la forma y la intensidad del suelo: no sabe si los puntos forman una r
 El agua es una lámina llana que devuelve casi nada al láser. Se toman los puntos de suelo de un solo retorno y de intensidad baja (por defecto hasta el 37,5 % de la intensidad mediana del suelo de la tesela; también puede darse un valor absoluto) cuyo entorno es llano (pendiente local de hasta 3°), se unen las celdas de 2 m que los contienen en regiones, y una región es agua si ocupa al menos 30 m² y la desviación típica de las cotas de sus puntos no pasa de 20 cm. Se activa con *Agua* en la ventana de clasificación (apartado *Carreteras y agua*) o con `--water`.
 
 Es una herramienta sin validar y de partida. Contra la clase 9 de las hojas NPC03, que son charcas pequeñas y con pocos puntos, coincide muy poco (precisión del 5 % y exhaustividad del 28 %): encuentra algo de agua, pero marca también como agua otro suelo llano y oscuro, y por eso no está en la receta de ejemplo. Conviene revisar el resultado antes de usarlo, y probar con el máximo de intensidad y la superficie mínima del lago que se quiere recoger.
+
+##### Pruebas de filtrado
+
+###### Filtrado de suelo con datos de la ISPRS
+
+Se han repetido los seis métodos con las 15 muestras de la prueba de filtrado del grupo de trabajo III/3 de la ISPRS (Sithole y Vosselman, 2004), que tienen referencia manual del suelo: ocho sitios urbanos y de bosque con 0,2 a 0,7 puntos/m², con pendientes fuertes y discontinuidades, un caso mucho más duro que el PNOA actual, por ejemplo. Con los parámetros por defecto, promedio de las 15 muestras (el error total es 100 menos la exactitud global):
+
+| Método | Error total | Suelo perdido (tipo I) | No suelo tomado por suelo (tipo II) | Kappa |
+|---|---|---|---|---|
+| SMRF | 5,3 % | 5,1 % | 8,3 % | 0,82 |
+| PMF | 5,8 % | 4,0 % | 12,0 % | 0,81 |
+| Kraus y Pfeifer | 11,2 % | 11,0 % | 10,0 % | 0,69 |
+| MCC | 14,8 % | 21,4 % | 4,4 % | 0,63 |
+| Axelsson | 14,8 % | 19,4 % | 6,2 % | 0,63 |
+| CSF | 15,8 % | 17,2 % | 7,2 % | 0,62 |
+
+Los dos morfológicos (SMRF y PMF) se ajustan bien incluso con tan pocos puntos. Los demás dejan sin clasificar mucho suelo en las laderas empinadas, porque sus parámetros por defecto están pensados para nubes densas y de poco ruido: Axelsson, por ejemplo, tolera 10 cm de ruido del sensor, y con 50 cm la exactitud de sus resultados sube del 85 al 89 %. Ajustar las escalas a la separación de los puntos con una sola regla (celdas iguales a la separación, de 1,5 o 2,5 m, y rigidez 2 en CSF) no mejoró ninguno de los seis, y con 2,5 m empeoraron todos. Quitar antes el ruido bajo con ELM mejora poco (hasta 1,4 puntos de exactitud, en Axelsson y CSF). Las muestras son de 2001 y pequeñas (7 000 a 52 000 puntos), por lo que el resultado dice poco sobre el comportamiento en una hoja entera y mucho sobre la robustez ante el relieve.
+
+La elección depende más del terreno que del método. Con relieve fuerte o zona urbana y pocos puntos, SMRF o PMF (ISPRS); en bosque denso con pocos puntos de suelo, Kraus y Pfeifer o MCC, donde los morfológicos pueden tomar vegetación baja por suelo.
+
+###### Filtrado de suelo con OpenGF
+
+OpenGF (Qin et al., 2023) es un conjunto de nubes ALS abiertas de varios países con el suelo etiquetado con detalle. Se han usado dos de sus tres hojas de prueba (T1 y T3), de 5 a 8,5 puntos/m², la densidad del PNOA, en una ventana de 1 000 × 1 000 m en el centro de cada una (7,6 y 6,8 millones de puntos; el suelo de la referencia es el 35 % y el 29 %). Con los parámetros por defecto, sin búfer ni limpieza previa del ruido, promedio de las dos hojas:
+
+| Método | Exactitud | Suelo perdido (tipo I) | No suelo tomado por suelo (tipo II) | Kappa | Error del MDT (RMSE) | Tiempo por ventana |
+|---|---|---|---|---|---|---|
+| PMF | 96,8 % | 1,7 % | 3,9 % | 0,93 | 0,59 m | 0,8 s |
+| MCC | 96,3 % | 9,6 % | 1,1 % | 0,91 | 0,52 m | de 21 a 26 s |
+| Kraus y Pfeifer | 96,2 % | 8,4 % | 1,8 % | 0,91 | 0,71 m | 0,3 s |
+| SMRF | 94,7 % | 1,1 % | 7,2 % | 0,88 | 1,58 m | 0,2 s |
+| Axelsson | 92,9 % | 7,5 % | 7,1 % | 0,84 | 2,63 m | de 18 a 25 s |
+| CSF | 92,3 % | 0,7 % | 10,9 % | 0,83 | 1,74 m | de 22 a 30 s |
+
+Con esta densidad PMF, MCC y Kraus y Pfeifer se parecen mucho a la referencia (más del 96 %). SMRF y CSF pierden muy poco suelo, pero toman por suelo vegetación y estructuras bajas (el 7 % y el 11 % del no suelo), y por eso el MDT sale 1 o 2 m más alto en la hoja con más relieve (T3). Axelsson queda por detrás, a un coste de decenas de segundos. Es solo una referencia de dos hojas: la referencia es una clasificación hecha con detalle, no una medida de campo, y la tercera hoja de prueba (T2) no se ha usado: es una zona urbana con una plataforma plana de unos 200 × 200 m a 13 m sobre el suelo, que la referencia no da por suelo y que ningún filtro con una ventana de hasta 80 m distingue del terreno (la precisión del suelo no pasa del 76 % ni quitando antes el ruido bajo). La prueba se repite con `cargo run --release -p hipso-core --example ground_bench -- hoja.laz --size 1000`.
+
+
+###### Filtrado de edificios, cables y postes con DALES
+
+DALES (Varney et al., 2020) es un conjunto de nubes ALS urbanas y rurales etiquetadas a mano por técnicos, y su versión 2, con las etiquetas revisadas, está publicada con licencia MIT. Se han usado seis de sus hojas de prueba de 500 × 500 m (de la 5080_54470 a la 5175_54395), con unos 45 puntos/m², y la misma nube reducida a una de cada cinco puntos (unos 9 puntos/m², la densidad del PNOA). Los puntos se clasifican sin tener en cuenta la clase que traen (ruido de puntos aislados, suelo SMRF, edificios, cables y postes con sus valores por defecto) y se compara punto a punto, en el interior de 400 × 400 m de cada hoja, con las clases 12 a 14 de la referencia (los tres tipos de edificio), con el suelo (clase 0) y con los cables y los postes. Las clases de vehículos y las vallas de la referencia se cuentan como «otros».
+
+| Clase | 45 puntos/m², precisión / exhaustividad | 9 puntos/m², precisión / exhaustividad |
+|---|---|---|
+| Edificios | 95 % / 91 % | 96 % / 87 % |
+| Suelo | 96 % / 100 % | 95 % / 100 % |
+| Cables | 66 % / 41 % | 56 % / 33 % |
+| Postes | 68 % / 27 % | 48 % / 33 % |
+
+Los edificios se encuentran bien con las dos densidades (la exhaustividad baja cuatro puntos al reducir los puntos). El suelo no deja casi nada sin marcar, pero toma por suelo parte del resto (un 4 o 5 % de los puntos marcados no lo son). Los cables se encuentran mal y los postes, regular. Con 45 puntos/m² se recoge el 41 % de los puntos de cable con un 66 % de precisión, y con 9 puntos/m² el 33 % con un 56 % (con el radio de entorno fijado en 3 m en lugar de ajustarse a varias escalas se llegó al 63 % con un 85 %, pero en las hojas del PNOA ese radio fijo da peor resultado, de modo que se prefirió la búsqueda a varias escalas). Los postes de DALES (farolas, postes de servicio y algunas torres, entre árboles y edificios) se recogen en algo más de una cuarta parte de sus puntos, con una precisión del 68 % con 45 puntos/m² y del 48 % con 9. Sobre las hojas NPC03 con cables (dos hojas completas), el paso de cables da una precisión del 86 % y una exhaustividad del 60 %, en las que el proveedor ya los clasifica (con el radio de una sola escala era del 71 % y el 29 %). Esos pasos no deben darse por buenos sin revisarlos: sirven para proponer una clasificación que se corrige a mano. La prueba se repite con `cargo run --release -p hipso-core --example pnoa_bench -- --dales --recipe receta.txt hoja.laz`, con `--thin 5` para reducir los puntos.
+
+Cables y postes se probaron además en dos líneas eléctricas reales sin etiquetas a mano. En una finca en Cádiz (un dron con 99 puntos/m²), clasificado con otro programa, la torre y los cables de una línea de alta tensión estaban marcados como edificio: de los 4 013 puntos de la primera torre, 3 952 salen como poste, y la segunda torre (814 puntos, entre cultivos bajos) sale como poste entera. Los cables salen con el 86 % de los puntos que el otro programa había marcado como edificio sobre la traza de la línea, y todos los puntos de cable quedan a menos de 1,3 m de ella; esa referencia no es una verdad limpia, porque es la clasificación errónea de un programa. En otro ejemplo, una línea eléctrica con 290 puntos/m² en cuatro pasadas, salen de cinco a seis conductores con su catenaria y un poste en cada apoyo, comprobado a ojo en la vista de perfil, y con 471 puntos/m² (una vía con catenaria, 42,9 millones de puntos) salen 384 337 puntos de cable y 105 estructuras de poste, de entre 290 y 4 300 puntos, con una altura mediana de 5,9 m y una separación mediana de 12 m entre vecinas, que encaja con los mástiles de una catenaria; sin etiquetas a mano no se sabe cuántos son falsos ni cuántos faltan, y con esa densidad los postes de mayor tamaño hay que revisarlos. Con las hojas del PNOA de la zona de la finca de Cádiz (NPC02, 12 puntos/m², de las que se tienen los nueve apeos de la línea) la receta de ejemplo con el paso de postes marca torre en ocho de los nueve apeos con 150 a 1 480 puntos (el centro de los puntos queda de 1,4 a 4,3 m del apeo; en el noveno solo hay 7 puntos); fuera de los apeos marca otras estructuras de 20 puntos o más, de las que no se sabe cuántas son torres de otras líneas. El proveedor marca los nueve apeos, con unos 130 a 440 puntos cada uno. Los cables suman 5 177 puntos frente a 8 228 del proveedor. El corredor sobre la clasificación de HIPSO reconoce cinco de los nueve apeos y marca dos postes más, y sobre la del proveedor reconoce ocho: un poste solo cuenta si hay un conductor a menos de 8 m, y los cables de la clasificación de HIPSO no llegan a todos los apoyos.
+
+
 
 ##### Reglas
 
@@ -2291,7 +2317,7 @@ El MDT, el MDS y el CHM se calculan sobre la caja que envuelve la nube, pero **n
 
 Se calcula a partir de los puntos de suelo (la clase 2 de la nube, o el método que se elija al clasificar) y hay tres formas de dar valor a cada celda, con la triangulación por defecto.
 
-La triangulación (TIN) es la opción de referencia y casi siempre la mejor. Por teselas, se queda con el punto de suelo más cercano al centro de cada celda, se triangula (Delaunay) y se interpola linealmente dentro de cada triángulo, lo que da una superficie continua que respeta los puntos. No se interpola a través de triángulos con aristas de más de 50 m, y esos huecos se rellenan al final con la media de las celdas vecinas. Su problema aparece cuando hay muy pocos puntos de suelo bajo copas densas: los triángulos son grandes y la superficie se alisa.
+La triangulación (TIN) es la opción de referencia y casi siempre la mejor, salvo que la densidad de puntos de suelo sea escasa. Por teselas, se queda con el punto de suelo más cercano al centro de cada celda, se triangula (Delaunay) y se interpola linealmente dentro de cada triángulo, lo que da una superficie continua que respeta los puntos. No se interpola a través de triángulos con aristas de más de 50 m, y esos huecos se rellenan al final con la media de las celdas vecinas. Su problema aparece cuando hay muy pocos puntos de suelo bajo copas densas: los triángulos son grandes y la superficie se alisa.
 
 El ponderado por distancia (IDW) toma en cada celda la media de los 8 puntos de suelo más cercanos ponderada por 1/d² (Shepard, 1968). Antes de calcular, el suelo se reduce a un punto (la media) por cada media celda, así que el tiempo depende de la malla y no de la densidad. Da una superficie suave y muy rápida, con un alcance de 30 celdas (entre 10 y 50 m), y conviene en nubes muy densas o con ruido donde se quiere un suelo alisado. Suaviza las rupturas de pendiente (taludes, cunetas) y no pasa por los puntos.
 
@@ -2567,7 +2593,7 @@ Dalponte y Silva se han contrastado con el paquete lidR 4.3 (Roussel et al., 202
 
 Los buenos resultados exigen un CHM limpio (mejor *pit-free* que el máximo por celda), una celda de 0,5 m y una ventana de cimas ajustada al tamaño de las copas. Con inventario de campo se puede calibrar la ventana: en una zona de prueba, una ventana variable `3 + 0,1·h` acertó el 86 % de los árboles con una precisión del 76 %.
 
-Conviene conocer los límites, y todos se deducen de que la segmentación trabaja sobre el CHM y no sobre los puntos. Solo ve lo que asoma por arriba, de modo que los árboles dominados bajo otros no aparecen, y en masas cerradas de frondosas varias copas se funden en una. Las copas con varias cimas se parten en dos si la ventana es pequeña, y dos árboles pequeños se funden en uno si es grande, por lo que no hay una ventana buena para todo y se prueba en una unidad de muestreo con árboles contados. La vegetación arbustiva alta se detecta como árboles bajos, y se corrige subiendo la altura mínima (`hmin`) o filtrando después por altura y por área de copa. El CHM debe proceder de un MDT correcto, ya que un error de suelo de decímetros desplaza todas las alturas. Y las alturas son las del CHM (máximo de la celda), algo menores, por tanto, que la altura real del árbol, sobre todo con celdas gruesas.
+Conviene saber que todos se deducen de que la segmentación trabaja sobre el CHM y no sobre los puntos. Solo ve lo que asoma por arriba, de modo que los árboles dominados bajo otros no aparecen, y en masas cerradas de frondosas varias copas se funden en una. Las copas con varias cimas se parten en dos si la ventana es pequeña, y dos árboles pequeños se funden en uno si es grande, por lo que no hay una ventana buena para todo y se prueba en una unidad de muestreo con árboles contados. La vegetación arbustiva alta se detecta como árboles bajos, y se corrige subiendo la altura mínima (`hmin`) o filtrando después por altura y por área de copa. El CHM debe proceder de un MDT correcto, ya que un error de suelo de decímetros desplaza todas las alturas. Y las alturas son las del CHM (máximo de la celda), algo menores, por tanto, que la altura real del árbol, sobre todo con celdas gruesas.
 
 ##### Enlace con los volúmenes
 
@@ -2619,7 +2645,7 @@ En los dos casos el informe empieza con el análisis previo: normalidad de la va
 
 Es una regresión lineal múltiple por mínimos cuadrados. Las métricas pueden darse a mano (la opción con más criterio: por ejemplo, un percentil alto de altura y una medida de cobertura) o elegirse automáticamente por selección progresiva con BIC (el criterio más estricto contra el sobreajuste) o AICc, con un máximo de variables (por defecto una por cada diez unidades de muestreo, entre dos y cinco) y un límite de colinealidad (VIF ≤ 5). Las métricas absolutas (recuentos de puntos y de retornos) no se ofrecen como candidatas, porque dependen del tamaño de la unidad de muestreo y un modelo ajustado con unidades de muestreo no valdría para celdas de otro tamaño. Las de intensidad tampoco, porque en casi todos los vuelos no está calibrada entre pasadas (se pueden pedir expresamente). Si se pide el mapa, solo se ofrecen las métricas que están también en la tabla de las celdas. La transformación puede ser ninguna, el logaritmo de la variable (cuando el error crece con el tamaño de la unidad de muestreo) o el logaritmo de la variable y de las métricas (relación potencial); con logaritmos se deshace la transformación con la corrección de sesgo exp(s²/2).
 
-##### Cómo se juzga
+##### Cómo se eavlua
 
 Un modelo siempre se ve bien con las unidades de muestreo con las que se ajustó, sobre todo si sus variables se eligieron entre decenas de candidatas con pocas unidades de muestreo. Por eso el informe pone en primer plano siete elementos.
 
@@ -2629,7 +2655,7 @@ Los coeficientes se dan con su error típico, t, p y VIF (cuánto se infla la va
 
 Los tres supuestos de la regresión lineal se contrastan sobre los residuos y se resumen en una línea ('se cumplen los tres' o cuáles no): la normalidad de los residuos (Shapiro–Wilk), la linealidad (RESET de Ramsey: si añadir al modelo los cuadrados y cubos de sus valores ajustados lo mejora, la relación no es lineal) y la varianza constante (Breusch–Pagan). Si alguno falla, los errores típicos, los valores p y los intervalos de predicción no son fiables, y el informe sugiere el logaritmo cuando puede ayudar. Por último, los avisos en lenguaje llano señalan cuándo algo no cuadra: pocas unidades de muestreo, menos de diez por variable, validación muy por debajo del ajuste, sesgo, colinealidad o unidades de muestreo influyentes.
 
-##### El mapa
+##### Aplicación de modelos
 
 Aplica el modelo a cada celda. Las celdas con alguna métrica fuera del rango de las unidades de muestreo quedan vacías (el modelo no ha visto nada similar; se puede desactivar), y el informe dice qué porcentaje y por qué métrica. Una variable que no puede ser negativa se deja en 0 si el modelo da un valor negativo. Opcionalmente se guarda el intervalo de predicción del 95 % (semiancho, en las unidades de la variable) en otro ráster. La suma que da el informe es una estimación con el error indicado, no un inventario.
 
@@ -2665,7 +2691,7 @@ Es el primer paso del enfoque por área (capítulo 13) y sirve para preparar nub
 
 #### Medición de troncos
 
-Es la herramienta que antes se llamaba *Cubicar árboles* (en la línea de comandos, `stem-volume`; el nombre anterior, `cubicar`, sigue funcionando). Está pensada para nubes de escáner terrestre, móvil o fotogramétrico de una unidad de muestreo, y cada nube es una hoja. El procedimiento tiene siete pasos encadenados.
+Es la herramienta que permite estimar la ubicación y volumen maderable de árboles en pie (en la línea de comandos, `stem-volume`). Está pensada para nubes de escáner terrestre, móvil o fotogramétrico. El procedimiento tiene siete pasos encadenados.
 
 Primero, la nube se reduce a un punto por vóxel (3 cm por defecto). Segundo, se calcula el terreno (con la clase 2 si la nube la tiene, o simulando una tela) y las alturas sobre el suelo; si la nube ya viene normalizada, se marca la casilla. Tercero, se buscan troncos en una franja (de 0,7 a 3,5 m): puntos de entorno vertical, agrupados y limpiados de ramas. Cuarto, se sigue cada tronco hacia arriba y hacia abajo, ajustando un círculo a una rebanada horizontal cada pocos centímetros. Una sección vale si tiene puntos suficientes, repartidos alrededor y sin puntos dentro, y el centro de la siguiente se predice, así que el seguimiento sigue troncos inclinados o curvos. Si una zona del tronco no se ve (una oclusión, follaje, una parte con pocos puntos), el seguimiento sigue más allá, ensanchando la búsqueda, hasta un hueco máximo sin medir (2 m por defecto); a partir de ahí se da el tronco por perdido, y las secciones del hueco se rellenan por interpolación (`INTERPOLADO`).
 
@@ -2719,7 +2745,7 @@ Cuando los sistemas son distintos, la transformación se calcula exacta en una m
 
 ### Reproyectar
 
-Pasa nubes (LAS y LAZ) y rásteres a otro sistema de coordenadas y, si se pide, cambia también la referencia vertical de las alturas. Se añaden los archivos (o se toman de las capas cargadas), se escribe el EPSG de destino y, cuando el archivo no declara el suyo, el de origen. Las alturas se tratan aparte porque son una operación distinta de la horizontal: pasar de alturas elipsoidales (las que da el GNSS) a ortométricas (las que miden las cotas) exige un modelo de geoide, y mezclar unas con otras produce errores de decenas de metros (en Madrid, la diferencia es de unos 51 m). Por eso las alturas solo cambian cuando se elige una *altura de salida*, que puede ser elipsoidal o un código EPSG vertical (5782 para las alturas ortométricas de la Península, 9398 para las de Canarias, 3855 para EGM2008). La *altura de entrada* se toma del propio archivo si la declara; si no la declara y se pide un cambio, la herramienta se niega y pide indicarla, porque no puede adivinarse. Las nubes y los rásteres de salida llevan escrita la referencia vertical (clave 4096 de GeoTIFF), de modo que el camino de vuelta no necesita preguntar nada. Las cotas de un ráster se transforman celda a celda.
+Funciona tanto en nubes de puntos (LAS y LAZ) como en rásteres y es capaz de pasar a otro sistema de coordenadas y, si se pide, cambia también la referencia vertical de las alturas. Se añaden los archivos (o se toman de las capas cargadas), se escribe el EPSG de destino y, cuando el archivo no declara el suyo, el de origen. Las alturas se tratan aparte porque son una operación distinta de la horizontal: pasar de alturas elipsoidales (las que da el GNSS) a ortométricas (las que miden las cotas) exige un modelo de geoide, y mezclar unas con otras produce errores de decenas de metros (en Madrid, la diferencia es de unos 51 m). Por eso las alturas solo cambian cuando se elige una *altura de salida*, que puede ser elipsoidal o un código EPSG vertical (5782 para las alturas ortométricas de la Península, 9398 para las de Canarias, 3855 para EGM2008). La *altura de entrada* se toma del propio archivo si la declara; si no la declara y se pide un cambio, la herramienta se niega y pide indicarla, porque no puede adivinarse. Las nubes y los rásteres de salida llevan escrita la referencia vertical (clave 4096 de GeoTIFF), de modo que el camino de vuelta no necesita preguntar nada. Las cotas de un ráster se transforman celda a celda.
 
 El **destino** puede darse de tres maneras: un *código EPSG*; el *sistema de un ráster* de referencia (se toma su EPSG, y los archivos conservan su extensión); o las *celdas de un ráster* de referencia, en cuyo caso los rásteres toman también su extensión, su origen y su celda y coinciden con él celda a celda (las nubes solo toman su sistema). Para los rásteres hay además el mismo *remuestreo* que en *Igualar rásteres*, con su ayuda, y la *celda del resultado*, que por defecto es la del original (o su equivalente en el sistema nuevo si las unidades cambian). La reproyección de rásteres es una sola pasada por franjas, que no depende del tamaño del ráster.
 
@@ -2737,7 +2763,7 @@ Estas herramientas leen las imágenes por ventana y escriben un Cloud Optimized 
 
 ### Tamizar, proximidad y relleno de huecos
 
-Tres operaciones sobre un ráster, en el grupo *Geoprocesos* de la pestaña *Raster* (que reúne también *Vectorizar* y *Calculadora*; cada operación abre su propia ventana) y por la línea de comandos. `hipso sieve` elimina las manchas pequeñas de un ráster de clases: cada conjunto de celdas conexas del mismo valor y con menos celdas que `--threshold` toma el valor de su vecino mayor (con preferencia por los vecinos que no son pequeños, y con `--eight` se cuentan también las conexiones por esquina). `hipso proximity` calcula la distancia euclídea exacta de cada celda a la más próxima de las clases pedidas (`--values`, o toda celda distinta de cero), en unidades del mapa o en celdas, con un alcance máximo opcional. `hipso fill-nodata` rellena las celdas sin dato con la media ponderada por el inverso del cuadrado de la distancia de la celda con valor más cercana en cada una de las ocho direcciones, hasta `--max-distance` celdas, con `--smoothing` pasadas de suavizado sobre lo rellenado. Ninguna de las tres se ha contrastado con las herramientas equivalentes de GDAL, que no estaban disponibles; se han comprobado con casos de resultado conocido. Contrastadas con GDAL 3.13 sobre un MDT real de 501 × 501 celdas: *proximidad* es exacta y coincide con la transformada de distancia euclídea exacta de SciPy con una diferencia máxima de 8·10⁻⁶ (la de `gdal_proximity.py` es aproximada y se aparta hasta 0,39 m con celdas de 2 m); *tamizar* deja sin manchas menores que el umbral, como `gdal_sieve.py`, y da el mismo resultado salvo cuando una mancha pequeña toca vecinos de igual tamaño (el desempate es distinto) y en cadenas de manchas pequeñas, un 2,1 % de las celdas con 4 vecinos y un 0,24 % con 8; el *relleno de huecos* implementa exactamente su fórmula (media ponderada por el inverso del cuadrado de la distancia en ocho direcciones; coincide con una referencia independiente a 2·10⁻⁵) y no cambia ninguna celda con dato, pero no es el algoritmo de `gdal_fillnodata.py`, que rellena menos celdas y da valores distintos (media de 0,37 m y máximo de 6 m en huecos de un MDT de relieve variado).
+Hay tres operaciones sobre un ráster, en el grupo *Geoprocesos* de la pestaña *Raster* (que reúne también *Vectorizar* y *Calculadora*; cada operación abre su propia ventana) y por la línea de comandos. `hipso sieve` elimina las manchas pequeñas de un ráster de clases: cada conjunto de celdas conexas del mismo valor y con menos celdas que `--threshold` toma el valor de su vecino mayor (con preferencia por los vecinos que no son pequeños, y con `--eight` se cuentan también las conexiones por esquina). `hipso proximity` calcula la distancia euclídea exacta de cada celda a la más próxima de las clases pedidas (`--values`, o toda celda distinta de cero), en unidades del mapa o en celdas, con un alcance máximo opcional. `hipso fill-nodata` rellena las celdas sin dato con la media ponderada por el inverso del cuadrado de la distancia de la celda con valor más cercana en cada una de las ocho direcciones, hasta `--max-distance` celdas, con `--smoothing` pasadas de suavizado sobre lo rellenado. Ninguna de las tres se ha contrastado con las herramientas equivalentes de GDAL, que no estaban disponibles; se han comprobado con casos de resultado conocido. Contrastadas con GDAL 3.13 sobre un MDT real de 501 × 501 celdas: *proximidad* es exacta y coincide con la transformada de distancia euclídea exacta de SciPy con una diferencia máxima de 8·10⁻⁶ (la de `gdal_proximity.py` es aproximada y se aparta hasta 0,39 m con celdas de 2 m); *tamizar* deja sin manchas menores que el umbral, como `gdal_sieve.py`, y da el mismo resultado salvo cuando una mancha pequeña toca vecinos de igual tamaño (el desempate es distinto) y en cadenas de manchas pequeñas, un 2,1 % de las celdas con 4 vecinos y un 0,24 % con 8; el *relleno de huecos* implementa exactamente su fórmula (media ponderada por el inverso del cuadrado de la distancia en ocho direcciones; coincide con una referencia independiente a 2·10⁻⁵) y no cambia ninguna celda con dato, pero no es el algoritmo de `gdal_fillnodata.py`, que rellena menos celdas y da valores distintos (media de 0,37 m y máximo de 6 m en huecos de un MDT de relieve variado).
 
 ### Reclasificar
 
@@ -2777,7 +2803,7 @@ Sirve para pasar a polígonos una clasificación, una máscara de agua o el resu
 
 ## 9. Vectorial
 
-El tratamiento vectorial cubre lo necesario para acompañar a la nube: abrir capas, crearlas, editarlas y simbolizarlas.
+El tratamiento vectorial cubre lo necesario para acompañar a las nubes LiDAR: abrir capas, crearlas, editarlas y simbolizarlas.
 
 Las capas se abren con *Abrir* de la cabecera (o *Archivo → Añadir nubes y capas*), y admiten imágenes y rásteres (GeoTIFF, JPEG 2000, PNG y JPEG con archivo de coordenadas, ENVI, SRTM), shapefiles, GeoJSON, GeoPackage y KML/KMZ; también se pueden arrastrar a la ventana. Una capa nueva puede ser de puntos, líneas o polígonos, con los campos de su tabla y el **tipo de cada uno** (véase *Tipos de campo*): se digitaliza en la capa activa (con ajuste a vértices), se edita su tabla de atributos y se guarda como shapefile, GeoJSON o GeoPackage (según la extensión que se elija) con la proyección de la nube. La simbología puede ser de color único, por categorías (cada valor tiene su botón de color, que se cambia uno a uno) o por rampa, con clasificación y etiquetas, y la edición vectorial incluye seleccionar, mover, editar vértices, deshacer y rehacer. Las capas de polígonos visibles alimentan la herramienta de unidades de muestreo.
 
@@ -2979,21 +3005,10 @@ hipso metrics $hojas --cell 20 --strata
 
 Los comandos que reciben varias hojas dan un resultado por hoja. Para paralelizar entre máquinas, se reparten las hojas en lotes y se lanza un proceso por lote y por carpeta de resultados.
 
-## 13. Encadenar un flujo de inventario por área (ABA)
 
-El enfoque por área (*area-based approach*, ABA) modela una variable de inventario (volumen, área basimétrica, biomasa, altura dominante…) con las métricas LiDAR de unidades de muestreo de campo y aplica el modelo a toda la superficie, celda a celda. El orden de los pasos no es arbitrario, porque cada uno fija una condición que el siguiente necesita, y con HIPSO se encadena en siete.
+### 13. El constructor de flujos
 
-En el primer paso se preparan las hojas: se abre una hoja de prueba y se revisa *Información* (proyección, densidad, clases, fecha de captura). Si falta la proyección, se usa *Asignar proyección*, y si las coberturas son de densidades distintas, *Adelgazar nube* las lleva a una densidad común. El segundo paso es clasificar (ruido y suelo), o usar la clase 2 de la entrega, y generar el MDT de cada hoja. El tercero obtiene las métricas de las unidades de muestreo de campo con *Extraer muestras*, con el archivo de unidades de muestreo (o con centros y radio), en modo solo métricas. Da una capa con un polígono por unidad de muestreo y todas las métricas de *Métricas por celda* (7.3), con el número de unidad de muestreo, y opcionalmente una nube por unidad de muestreo para revisarlas. Debe dejarse marcado *Alturas sobre el suelo*, porque las métricas de las unidades de muestreo y las de toda la superficie tienen que calcularse igual.
-
-El cuarto paso es el modelo. *Modelos lineales* une (por el nombre de la unidad de muestreo) la tabla de métricas con la tabla del inventario de campo (Excel, CSV o texto), ajusta la regresión, la valida dejando una unidad de muestreo fuera cada vez y enseña si la elección de variables es estable y qué unidades de muestreo mandan. Lo que debe mirarse es la validación cruzada, no el ajuste. Si se prefiere otro programa estadístico, la tabla de métricas y la de campo se pueden unir igualmente por el nombre. Hay que usar los mismos parámetros (límite de cobertura, tamaño de unidad de muestreo, MDT) en las unidades de muestreo y en el resto del territorio.
-
-El quinto paso calcula las métricas de toda la superficie: *Métricas por celda* en todas las hojas, con el tamaño de celda igual al de la unidad de muestreo (por ejemplo, 400 m² son celdas de 20 m, o de 15 m para unidades de muestreo de radio 7,98 m). Cada hoja da su capa de celdas con las mismas columnas que las unidades de muestreo. El sexto aplica el modelo: en la misma herramienta, marcando *Hacer el mapa* y dando las tablas de texto de las celdas del paso anterior, sale el ráster de la variable y, opcionalmente, el del intervalo de predicción. Las celdas fuera del rango de las unidades de muestreo quedan vacías. El séptimo es el contraste, que compara con las unidades de muestreo retenidas para validar y con el CHM o la segmentación de árboles si se quiere un segundo criterio.
-
-Hay tres cautelas finales. Las unidades de muestreo y la cobertura LiDAR deben ser de fechas próximas (la columna `Date` ayuda a comprobarlo). La unidad de muestreo debe tener el tamaño de la celda. Y conviene excluir las celdas con menos de unos cientos de puntos, las que tienen agua o edificios y las que caen en el borde de las hojas.
-
-### El constructor de flujos
-
-Encadenar a mano los pasos de un inventario (clasificar, MDT, CHM, árboles, métricas) obliga a repetirlos con cada zona. La pestaña *Flujos* los dibuja como un grafo: cada herramienta es un **nodo**, cada archivo que una produce y otra consume es un **hilo**, y el flujo entero se guarda en un archivo `.model.json` que se vuelve a ejecutar sobre otros datos.
+Encadenar los pasos de un trabajo (clasificar, MDT, CHM, árboles, métricas) obliga a repetirlos con cada zona. La pestaña *Flujos* los dibuja como un grafo: cada herramienta es un **nodo**, cada archivo que una produce y otra consume es un **hilo**, y el flujo entero se guarda en un archivo `.model.json` que se vuelve a ejecutar sobre otros datos.
 
 A la izquierda está la paleta, con las herramientas agrupadas como en la cinta y un buscador, y las entradas (*Archivo…*, *Carpeta de hojas…* y *Del mapa…*, que toma una capa o nube ya cargada). Un clic añade un nodo en el centro del lienzo. Cada herramienta muestra como **puertos** sus opciones que reciben archivos (la nube, el MDT, el polígono…), con un asterisco los obligatorios; se arrastra desde el puerto de salida de un nodo hasta uno de entrada para conectarlos, y solo se iluminan los puertos que admiten lo que el nodo produce (una herramienta ráster no recibe lo que produce una vectorial). Una entrada que recibe varios archivos, como una carpeta de hojas, ejecuta la herramienta una vez por archivo cuando la opción solo admite uno. A la derecha, el nodo seleccionado muestra sus opciones (las mismas de la línea de comandos, con su ayuda, y las poco usadas plegadas en *Más opciones*) y, sin ningún nodo seleccionado, la carpeta de resultados y si se abren en el mapa al terminar. En el lienzo se desplaza arrastrando el fondo, se acerca con Ctrl y la rueda o con el gesto de pellizco, y *Ordenar* coloca los nodos en columnas según su distancia a las entradas y *Encuadrar* los pone todos a la vista. Supr quita lo seleccionado, Ctrl+D lo duplica y Ctrl+Z y Ctrl+Y deshacen y rehacen.
 
@@ -3232,7 +3247,7 @@ Las comparaciones con otros programas (FUSION, MCC-LIDAR, lidR) están en `docs/
 
 ## 18. Acerca de
 
-**HIPSO** · Procesamiento y edición de nubes de puntos.
+**HIPSO** · Procesamiento y edición de nubes de puntos LiDAR.
 Autor: Julio M. Sevilla.
 Contacto: julio@jsevilla.es · https://es.linkedin.com/in/juliomsevilla
 
