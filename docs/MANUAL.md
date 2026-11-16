@@ -1664,6 +1664,8 @@ La pestaña tiene cuatro grupos. Los cambios se ven al instante y se guardan en 
 | Bandas | *Color natural*, *Infrarrojo*, *Gris* | Preajustes: rojo-verde-azul, falso color con el infrarrojo cercano o una sola banda en gris. |
 | Bandas | Banda de cada color | Elige qué banda de la imagen se pinta como rojo, como verde y como azul. |
 | Bandas | Índices espectrales | Abre la ventana del índice (apartado 4.7). |
+| Pseudocolor | Una banda en color | Pinta la banda elegida como *R* con una rampa de color (pseudocolor monobanda) en lugar del compuesto de tres bandas. |
+| Pseudocolor | Rampa, Invertir | La rampa de color y su inversión; el estirado fija los valores que van a los extremos. |
 | Estirado | Modo | *Sin estirar*, *Mínimo–máximo*, *Percentiles 2–98 %*, *±2 desviaciones* o *Cortes manuales*. |
 | Estirado | Mín y Máx | Con *Cortes manuales*, los valores que se pintan de negro y de blanco (los mismos para las tres bandas); lo que queda fuera se satura. Al elegirlos parten de los límites en uso. |
 | Estirado | Brillo, Contraste, Gamma | Retoques de la imagen ya estirada. |

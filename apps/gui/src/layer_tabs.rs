@@ -463,6 +463,25 @@ impl App {
                 });
             });
         });
+        ribbon::group(ui, t, "Pseudocolor", |ui| {
+            ui.vertical(|ui| {
+                let mut on = il.pseudo.is_some();
+                if ui.checkbox(&mut on, "Una banda en color").changed() {
+                    il.pseudo = on.then_some((0, false));
+                    changed = true;
+                }
+                if let Some((ramp, invert)) = &mut il.pseudo {
+                    ui.horizontal(|ui| {
+                        changed |= ramp_combo(ui, "img_ramp", ramp, 120.0);
+                        changed |= ui.checkbox(invert, "Invertir").changed();
+                    });
+                    ui.label(
+                        egui::RichText::new("Pinta la banda R con la rampa; el estirado fija los valores de los extremos.")
+                            .size(11.0),
+                    );
+                }
+            });
+        });
         ribbon::group(ui, t, "Estirado", |ui| {
             ui.vertical(|ui| {
                 let before = il.style();

@@ -199,6 +199,9 @@ pub struct RgbStyle {
     pub brightness: f32,
     pub contrast: f32,
     pub gamma: f32,
+    /// Pseudocolor monobanda: 256 colores de bajo a alto con los que se pinta la primera banda
+    /// elegida en lugar del compuesto de tres.
+    pub palette: Option<Vec<[u8; 3]>>,
 }
 
 /// Una imagen RGBA de la imagen: los píxeles NaN son transparentes.
@@ -229,8 +232,13 @@ pub fn composite_style(img: &Image, st: &RgbStyle) -> Vec<u8> {
                 if src[0][i].is_nan() {
                     continue;
                 }
-                for k in 0..3 {
-                    px[k] = map(src[k][i], k);
+                if let Some(pal) = &st.palette {
+                    let c = pal[usize::from(map(src[0][i], 0)).min(pal.len() - 1)];
+                    px[..3].copy_from_slice(&c);
+                } else {
+                    for k in 0..3 {
+                        px[k] = map(src[k][i], k);
+                    }
                 }
                 px[3] = 255;
             }
@@ -448,9 +456,17 @@ mod tests {
             brightness: 0.0,
             contrast: 1.0,
             gamma: 1.0,
+            palette: None,
         };
         let px = composite_style(&img, &st);
         assert_eq!(&px[..4], &[0, 0, 0, 255]);
         assert_eq!(px[7], 0);
+        // en pseudocolor la primera banda se pinta con la paleta
+        let st = RgbStyle {
+            palette: Some((0..=255).map(|k| [k as u8, 255 - k as u8, 7]).collect()),
+            ..st
+        };
+        let px = composite_style(&img, &st);
+        assert_eq!(&px[..4], &[0, 255, 7, 255]);
     }
 }

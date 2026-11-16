@@ -77,6 +77,9 @@ pub struct ImageLayer {
     pub brightness: f32,
     pub contrast: f32,
     pub gamma: f32,
+    /// Pseudocolor monobanda: la rampa (índice en `RAMPS`) y si va invertida; sin ella, gris o
+    /// compuesto de tres bandas.
+    pub pseudo: Option<(usize, bool)>,
     rev: u64,
     preview: egui::TextureHandle,
     view: Option<ViewTex>,
@@ -157,6 +160,7 @@ impl ImageLayer {
             brightness: 0.0,
             contrast: 1.0,
             gamma: 1.0,
+            pseudo: None,
             rev: 0,
             preview: ctx.load_texture(
                 name,
@@ -202,6 +206,11 @@ impl ImageLayer {
             brightness: self.brightness,
             contrast: self.contrast,
             gamma: self.gamma,
+            palette: self.pseudo.map(|(ramp, invert)| {
+                (0..256)
+                    .map(|k| crate::symbology::ramp_rgb(ramp, f64::from(k) / 255.0, invert))
+                    .collect()
+            }),
         }
     }
 
