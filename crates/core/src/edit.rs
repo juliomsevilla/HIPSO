@@ -43,6 +43,9 @@ pub enum Region {
         a: [f64; 2],
         b: [f64; 2],
         above: bool,
+        /// Alto de la franja que se toma, en las unidades de z, a partir de la línea (0: sin
+        /// límite, todo lo que queda por encima o por debajo).
+        height: f64,
     },
 }
 
@@ -125,8 +128,9 @@ impl Brush {
 }
 
 /// Si `(u, z)` está por encima (o por debajo) del segmento de `a` a `b`, dentro del alcance del
-/// segmento a lo largo de `u`.
-pub fn beside_line(a: [f64; 2], b: [f64; 2], above: bool, u: f64, z: f64) -> bool {
+/// segmento a lo largo de `u`. Con `height` mayor que 0 solo cuenta la franja de esa altura junto
+/// a la línea.
+pub fn beside_line(a: [f64; 2], b: [f64; 2], above: bool, height: f64, u: f64, z: f64) -> bool {
     let (u0, u1) = (a[0].min(b[0]), a[0].max(b[0]));
     if u < u0 || u > u1 {
         return false;
@@ -137,7 +141,12 @@ pub fn beside_line(a: [f64; 2], b: [f64; 2], above: bool, u: f64, z: f64) -> boo
     } else {
         a[1] + (b[1] - a[1]) * (u - a[0]) / (b[0] - a[0])
     };
-    if above { z > zl } else { z < zl }
+    let limit = if height > 0.0 { height } else { f64::INFINITY };
+    if above {
+        z > zl && z - zl <= limit
+    } else {
+        z < zl && zl - z <= limit
+    }
 }
 
 /// Un polígono dibujado en píxeles en una vista 3D, con la cámara que lo mostró y, opcionalmente,
@@ -346,12 +355,18 @@ impl SelOp {
                 let (u, t) = bx.local(p.x, p.y);
                 u >= 0.0 && u <= bx.length() && t.abs() <= bx.width / 2.0 && brush.contains(u, p.z)
             }
-            Region::Side { bx, a, b, above } => {
+            Region::Side {
+                bx,
+                a,
+                b,
+                above,
+                height,
+            } => {
                 let (u, t) = bx.local(p.x, p.y);
                 u >= 0.0
                     && u <= bx.length()
                     && t.abs() <= bx.width / 2.0
-                    && beside_line(*a, *b, *above, u, p.z)
+                    && beside_line(*a, *b, *above, *height, u, p.z)
             }
         }
     }
@@ -841,6 +856,7 @@ mod tests {
                     a: [0.0, 5.0],
                     b: [10.0, 5.0],
                     above,
+                    height: 0.0,
                 },
                 Attr::default(),
             )]
@@ -854,11 +870,16 @@ mod tests {
         assert_eq!(down, [true, false, false, false, true]);
         // solo a lo largo de la línea: una línea que abarca la mitad de la caja deja en paz a la
         // otra mitad
-        assert!(beside_line([0.0, 5.0], [5.0, 5.0], true, 3.0, 6.0));
-        assert!(!beside_line([0.0, 5.0], [5.0, 5.0], true, 7.0, 6.0));
+        assert!(beside_line([0.0, 5.0], [5.0, 5.0], true, 0.0, 3.0, 6.0));
+        assert!(!beside_line([0.0, 5.0], [5.0, 5.0], true, 0.0, 7.0, 6.0));
         // una línea inclinada: por encima es relativo a la línea a esa distancia
-        assert!(beside_line([0.0, 0.0], [10.0, 10.0], true, 2.0, 3.0));
-        assert!(!beside_line([0.0, 0.0], [10.0, 10.0], true, 8.0, 3.0));
+        assert!(beside_line([0.0, 0.0], [10.0, 10.0], true, 0.0, 2.0, 3.0));
+        assert!(!beside_line([0.0, 0.0], [10.0, 10.0], true, 0.0, 8.0, 3.0));
+        // con altura, solo la franja junto a la línea
+        assert!(beside_line([0.0, 5.0], [5.0, 5.0], true, 2.0, 3.0, 6.0));
+        assert!(!beside_line([0.0, 5.0], [5.0, 5.0], true, 2.0, 3.0, 8.0));
+        assert!(beside_line([0.0, 5.0], [5.0, 5.0], false, 2.0, 3.0, 4.0));
+        assert!(!beside_line([0.0, 5.0], [5.0, 5.0], false, 2.0, 3.0, 2.0));
     }
 
     #[test]

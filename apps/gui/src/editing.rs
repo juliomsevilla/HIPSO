@@ -37,6 +37,8 @@ pub struct Editing {
     pub d3start: Option<Pos2>,
     /// Radio de los pinceles en la pantalla, en píxeles.
     pub brush_px: f64,
+    /// Alto de la franja de «por encima/por debajo de una línea» en el perfil (0: sin límite).
+    pub side_height: f64,
     /// Las selecciones en 3D alcanzan solo tantos metros a cada lado del plano del objetivo.
     pub slab: bool,
     pub slab_half: f64,
@@ -71,6 +73,7 @@ impl Default for Editing {
             d3draft: Vec::new(),
             d3start: None,
             brush_px: 18.0,
+            side_height: 0.0,
             slab: false,
             slab_half: 1.0,
             sel_rev: 0,
@@ -566,6 +569,7 @@ impl App {
                         a: to(a),
                         b: to(b),
                         above,
+                        height: self.ed.side_height.max(0.0),
                     },
                     attr: self.ed.attr.clone(),
                 };
@@ -577,12 +581,24 @@ impl App {
                 resp.interact_pointer_pos(),
             ) {
                 painter.line_segment([a, b], Stroke::new(2.0, color));
-                // el lado que se toma, sombreado a lo largo de la línea
-                let off = if above { -14.0 } else { 14.0 };
-                painter.line_segment(
-                    [a + Vec2::new(0.0, off), b + Vec2::new(0.0, off)],
-                    Stroke::new(6.0, color.gamma_multiply(0.25)),
-                );
+                // el lado que se toma, sombreado a lo largo de la línea (con la altura elegida,
+                // la franja a escala)
+                let hgt = self.ed.side_height.max(0.0);
+                if hgt > 0.0 {
+                    let (pa, pb) = (to(a), to(b));
+                    let dz = if above { hgt } else { -hgt };
+                    painter.add(egui::Shape::convex_polygon(
+                        vec![a, b, back(pb[0], pb[1] + dz), back(pa[0], pa[1] + dz)],
+                        color.gamma_multiply(0.18),
+                        Stroke::NONE,
+                    ));
+                } else {
+                    let off = if above { -14.0 } else { 14.0 };
+                    painter.line_segment(
+                        [a + Vec2::new(0.0, off), b + Vec2::new(0.0, off)],
+                        Stroke::new(6.0, color.gamma_multiply(0.25)),
+                    );
+                }
             }
             if resp.drag_stopped_by(egui::PointerButton::Primary) {
                 self.ed.pstart = None;
@@ -1018,6 +1034,22 @@ impl App {
                                 .color(t.weak),
                             );
                         } else if is_line(self.nav) {
+                            ui.horizontal(|ui| {
+                                ui.label(if self.nav == Nav::SelAbove {
+                                    "Altura sobre la línea"
+                                } else {
+                                    "Altura bajo la línea"
+                                });
+                                ui.add(
+                                    egui::DragValue::new(&mut self.ed.side_height)
+                                        .range(0.0..=100_000.0)
+                                        .speed(0.1)
+                                        .suffix(" m")
+                                        .custom_formatter(|v, _| {
+                                            if v <= 0.0 { "sin límite".to_string() } else { format!("{v:.2}") }
+                                        }),
+                                );
+                            });
                             ui.label(
                                 egui::RichText::new(
                                     "En el perfil, arrastra para trazar una línea: se selecciona todo lo que queda por encima (o por debajo) a lo largo de ella, dentro de la caja del perfil.",
