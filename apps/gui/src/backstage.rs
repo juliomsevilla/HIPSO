@@ -201,6 +201,11 @@ pub struct Settings {
     confirm: bool,
     /// Lo que hizo la última acción.
     result: String,
+    /// Los ajustes avanzados tal como se están editando, y las carpetas de rejillas como texto
+    /// (una por línea).
+    adv: prefs::Advanced,
+    grid_dirs_text: String,
+    grid_cache_text: String,
 }
 
 /// Un tamaño para personas: gigabytes, megabytes o kilobytes.
@@ -249,6 +254,159 @@ impl App {
         self.settings.stats = None;
     }
 
+    /// Las rejillas de transformación y los demás ajustes que sin la aplicación se darían con
+    /// variables de entorno.
+    fn advanced_settings(&mut self, ui: &mut egui::Ui) {
+        let t = self.tokens();
+        let weak = |s: &str| egui::RichText::new(s.to_string()).size(11.5).color(t.weak);
+        // un valor «automático / sí / no»
+        fn tri(ui: &mut egui::Ui, id: &str, v: &mut Option<bool>, auto: &str) -> bool {
+            let text = |v: Option<bool>| match v {
+                None => auto.to_string(),
+                Some(true) => "Sí".to_string(),
+                Some(false) => "No".to_string(),
+            };
+            let mut changed = false;
+            egui::ComboBox::from_id_salt(id)
+                .width(230.0)
+                .selected_text(text(*v))
+                .show_ui(ui, |ui| {
+                    for o in [None, Some(true), Some(false)] {
+                        changed |= ui.selectable_value(v, o, text(o)).changed();
+                    }
+                });
+            changed
+        }
+        let mut before = self.settings.adv.clone();
+        let mut apply = false;
+        ui.add_space(18.0);
+        ui.label(egui::RichText::new("Rejillas de transformación").size(16.0).strong().color(t.text));
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new(
+                "Para pasar nubes y rásteres de un sistema de coordenadas a otro (y de alturas \
+                 elipsoidales a ortométricas) hacen falta a veces rejillas de ajuste de datum o de \
+                 geoide: NTv2 (.gsb), GTX (.gtx) o GeoTIFF de PROJ-data (.tif). Las de España vienen \
+                 incluidas; aquí se añaden las de otros países.",
+            )
+            .color(t.weak),
+        );
+        ui.add_space(8.0);
+        ui.label("Carpetas con rejillas (una por línea)");
+        ui.add(
+            egui::TextEdit::multiline(&mut self.settings.grid_dirs_text)
+                .desired_rows(2)
+                .desired_width((ui.available_width() - 130.0).max(200.0))
+                .hint_text("Se buscan antes que las carpetas habituales de PROJ"),
+        );
+        ui.horizontal(|ui| {
+            if ui.button("Añadir carpeta…").clicked()
+                && let Some(d) = rfd::FileDialog::new().pick_folder()
+            {
+                if !self.settings.grid_dirs_text.trim().is_empty() {
+                    self.settings.grid_dirs_text.push('\n');
+                }
+                self.settings.grid_dirs_text.push_str(&d.display().to_string());
+                apply = true;
+            }
+            if ui.button("Aplicar carpetas").clicked() {
+                apply = true;
+            }
+        });
+        ui.label(weak("También se buscan las carpetas de las variables PROJ_DATA y PROJ_LIB y la de la caché de descargas."));
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.label("Descargar las rejillas que falten de la CDN de PROJ");
+            apply |= tri(ui, "adv_net", &mut self.settings.adv.grid_network, "Automático (variable HIPSO_NETWORK; por defecto, no)");
+        });
+        ui.horizontal(|ui| {
+            ui.label("Descargarlas enteras");
+            apply |= tri(ui, "adv_dl", &mut self.settings.adv.grid_download, "Automático (solo los bloques que se usan)");
+        });
+        ui.label("Dirección de la CDN");
+        let r = ui.add(
+            egui::TextEdit::singleline(&mut self.settings.adv.grid_endpoint)
+                .hint_text("https://cdn.proj.org")
+                .desired_width((ui.available_width() - 130.0).max(200.0)),
+        );
+        if r.lost_focus() {
+            apply = true;
+        }
+        ui.label("Carpeta de las rejillas descargadas");
+        ui.horizontal(|ui| {
+            let r = ui.add(
+                egui::TextEdit::singleline(&mut self.settings.grid_cache_text)
+                    .hint_text("Por defecto, la caché del usuario")
+                    .desired_width((ui.available_width() - 200.0).max(200.0)),
+            );
+            if r.lost_focus() {
+                apply = true;
+            }
+            if ui.button("Elegir carpeta…").clicked()
+                && let Some(d) = rfd::FileDialog::new().pick_folder()
+            {
+                self.settings.grid_cache_text = d.display().to_string();
+                apply = true;
+            }
+        });
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.label("Transformaciones aproximadas si falta la rejilla");
+            apply |= tri(ui, "adv_ball", &mut self.settings.adv.allow_ballpark, "Automático (no: se rechaza)");
+        });
+        ui.horizontal(|ui| {
+            ui.label("Solo la mejor operación disponible");
+            apply |= tri(ui, "adv_best", &mut self.settings.adv.only_best, "Automático (no: se admite la siguiente)");
+        });
+        ui.label(weak("Cada ventana de reproyección puede relajar la política para ese trabajo."));
+        ui.add_space(18.0);
+        ui.label(egui::RichText::new("Rendimiento").size(16.0).strong().color(t.text));
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.label("Procesar rásteres grandes por franjas");
+            apply |= tri(ui, "adv_stream", &mut self.settings.adv.stream, "Automático (a partir de 32 millones de celdas)");
+        });
+        ui.label(weak("Por franjas no hace falta que el ráster quepa en memoria, a costa de algo de tiempo."));
+        ui.horizontal(|ui| {
+            ui.label("Dibujo de la interfaz");
+            let name = |r: &str| match r {
+                "wgpu" => "wgpu (tarjeta gráfica moderna)",
+                "glow" => "OpenGL (equipos antiguos)",
+                _ => "Automático",
+            };
+            egui::ComboBox::from_id_salt("adv_renderer")
+                .width(230.0)
+                .selected_text(name(&self.settings.adv.renderer))
+                .show_ui(ui, |ui| {
+                    for o in ["", "wgpu", "glow"] {
+                        apply |= ui
+                            .selectable_value(&mut self.settings.adv.renderer, o.to_string(), name(o))
+                            .changed();
+                    }
+                });
+        });
+        ui.label(weak("Se aplica al volver a abrir HIPSO."));
+        // el texto de la CDN se aplica al salir de la casilla, no a cada letra
+        before.grid_endpoint.clone_from(&self.settings.adv.grid_endpoint);
+        if apply || self.settings.adv != before {
+            let dirs = self
+                .settings
+                .grid_dirs_text
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(PathBuf::from)
+                .collect();
+            let cache = self.settings.grid_cache_text.trim();
+            let mut a = self.settings.adv.clone();
+            a.grid_dirs = dirs;
+            a.grid_cache = (!cache.is_empty()).then(|| PathBuf::from(cache));
+            a.grid_endpoint = a.grid_endpoint.trim().to_string();
+            prefs::set_advanced(a.clone());
+            self.settings.adv = a;
+        }
+    }
+
     /// La página «Ajustes».
     fn settings_body(&mut self, ui: &mut egui::Ui) {
         let t = self.tokens();
@@ -256,6 +414,21 @@ impl App {
             let (dir, gb) = prefs::cache();
             self.settings.dir_text = dir.map_or(String::new(), |d| d.display().to_string());
             self.settings.gb = gb;
+            self.settings.adv = prefs::advanced();
+            self.settings.grid_dirs_text = self
+                .settings
+                .adv
+                .grid_dirs
+                .iter()
+                .map(|d| d.display().to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+            self.settings.grid_cache_text = self
+                .settings
+                .adv
+                .grid_cache
+                .as_ref()
+                .map_or(String::new(), |d| d.display().to_string());
             self.settings.started = true;
         }
         if self.settings.stats.is_none() {
@@ -349,6 +522,7 @@ impl App {
             ui.add_space(6.0);
             ui.label(egui::RichText::new(&self.settings.result).color(theme::brand_text(&t)));
         }
+        self.advanced_settings(ui);
         if self.settings.confirm {
             let mut answer = None;
             egui::Window::new("Borrar la caché")

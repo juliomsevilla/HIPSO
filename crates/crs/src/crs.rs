@@ -55,7 +55,10 @@ mod wkt1_write;
 mod wkt2;
 
 pub(crate) use def::Def;
-pub use grid::{register_grid, reset_grid_cache, set_grid_search_paths, set_network_enabled};
+pub use grid::{
+    GridOptions, register_grid, reset_grid_cache, set_grid_options, set_grid_search_paths,
+    set_network_enabled,
+};
 pub(crate) use wkt1_write::{describe, epsg_ellipsoid, from_proj_on};
 
 /// Empieza a cargar en segundo plano la tabla EPSG de terrio, para trabajos que la necesitarán una

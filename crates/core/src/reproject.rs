@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 
 use hipso_crs::SpatialRef;
 pub use hipso_crs::Transformer;
-pub use hipso_crs::policy::{Approximation, Policy};
+pub use hipso_crs::{GridOptions, set_grid_options};
+pub use hipso_crs::policy::{Approximation, Policy, set_policy_overrides};
 use rayon::prelude::*;
 
 use crate::grid::Grid;

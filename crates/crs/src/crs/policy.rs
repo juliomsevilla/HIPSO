@@ -91,7 +91,8 @@ impl Policy {
     /// La política del entorno, sobre los valores estrictos por defecto: `HIPSO_ALLOW_BALLPARK` y
     /// `HIPSO_ONLY_BEST` (`YES`/`NO`, `1`/`0`, `TRUE`/`FALSE`).
     pub fn from_env() -> Policy {
-        let flag = |name: &str, default: bool| match std::env::var(name) {
+        let set = overrides().lock().map(|o| *o).unwrap_or_default();
+        let flag = |name: &str, default: bool, fixed: Option<bool>| match fixed.map_or_else(|| std::env::var(name), |b| Ok(b.to_string())) {
             Ok(v) => match v.trim().to_ascii_uppercase().as_str() {
                 "YES" | "1" | "TRUE" | "ON" => true,
                 "NO" | "0" | "FALSE" | "OFF" => false,
@@ -100,9 +101,24 @@ impl Policy {
             Err(_) => default,
         };
         Policy {
-            allow_ballpark: flag("HIPSO_ALLOW_BALLPARK", Policy::STRICT.allow_ballpark),
-            only_best: flag("HIPSO_ONLY_BEST", Policy::STRICT.only_best),
+            allow_ballpark: flag("HIPSO_ALLOW_BALLPARK", Policy::STRICT.allow_ballpark, set.0),
+            only_best: flag("HIPSO_ONLY_BEST", Policy::STRICT.only_best, set.1),
         }
+    }
+}
+
+/// Los valores que la aplicación fija en lugar de las variables de entorno (`None`: la variable).
+fn overrides() -> &'static std::sync::Mutex<(Option<bool>, Option<bool>)> {
+    static O: std::sync::OnceLock<std::sync::Mutex<(Option<bool>, Option<bool>)>> =
+        std::sync::OnceLock::new();
+    O.get_or_init(|| std::sync::Mutex::new((None, None)))
+}
+
+/// Fija la política de aproximaciones de la aplicación en lugar de `HIPSO_ALLOW_BALLPARK` y
+/// `HIPSO_ONLY_BEST`; `None` en un campo deja actuar a la variable de entorno.
+pub fn set_policy_overrides(allow_ballpark: Option<bool>, only_best: Option<bool>) {
+    if let Ok(mut o) = overrides().lock() {
+        *o = (allow_ballpark, only_best);
     }
 }
 

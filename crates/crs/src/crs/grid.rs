@@ -851,6 +851,14 @@ fn read_file(name: &str, bytes: Arc<[u8]>) -> Option<GridFile> {
 struct Config {
     paths: Option<Vec<std::path::PathBuf>>,
     network: Option<bool>,
+    /// Directorios que se buscan además de los habituales, antes que ellos.
+    extra_paths: Vec<std::path::PathBuf>,
+    /// Descargar enteras las rejillas de la CDN en lugar de leerlas por rangos.
+    download: Option<bool>,
+    /// La CDN de rejillas, en lugar de la de PROJ.
+    endpoint: Option<String>,
+    /// La carpeta donde se guardan las rejillas descargadas.
+    cache: Option<std::path::PathBuf>,
 }
 
 fn config() -> &'static Mutex<Config> {
@@ -875,6 +883,34 @@ pub fn set_grid_search_paths(paths: Option<Vec<std::path::PathBuf>>) {
 pub fn set_network_enabled(enabled: Option<bool>) {
     if let Ok(mut c) = config().lock() {
         c.network = enabled;
+    }
+    reset_grid_cache();
+}
+
+/// Los ajustes de rejillas que el usuario puede cambiar en la aplicación y que, sin ella, se dan
+/// con variables de entorno. Cada campo vacío (`None`) deja actuar a la variable de entorno.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GridOptions {
+    /// Carpetas con rejillas (`.tif`, `.gsb`, `.gtx`) que se buscan antes que las habituales.
+    pub extra_dirs: Vec<std::path::PathBuf>,
+    /// Descargar de la CDN las rejillas que no están en el equipo (`HIPSO_NETWORK`).
+    pub network: Option<bool>,
+    /// Descargar enteras las rejillas de la CDN (`HIPSO_GRID_DOWNLOAD`).
+    pub download: Option<bool>,
+    /// Dirección de la CDN (`HIPSO_CDN_ENDPOINT`).
+    pub endpoint: Option<String>,
+    /// Carpeta donde se guardan las rejillas descargadas (`HIPSO_GRID_CACHE`).
+    pub cache_dir: Option<std::path::PathBuf>,
+}
+
+/// Fija los ajustes de rejillas de la aplicación. Los transformadores creados después los usan.
+pub fn set_grid_options(o: GridOptions) {
+    if let Ok(mut c) = config().lock() {
+        c.extra_paths = o.extra_dirs;
+        c.network = o.network;
+        c.download = o.download;
+        c.endpoint = o.endpoint.filter(|e| !e.trim().is_empty());
+        c.cache = o.cache_dir;
     }
     reset_grid_cache();
 }
@@ -946,6 +982,9 @@ fn home() -> Option<std::path::PathBuf> {
 /// El directorio en el que se guardan las rejillas descargadas.
 #[cfg(not(target_family = "wasm"))]
 pub(crate) fn cache_dir() -> Option<std::path::PathBuf> {
+    if let Some(d) = config().lock().ok().and_then(|c| c.cache.clone()) {
+        return Some(d);
+    }
     if let Some(d) = std::env::var_os("HIPSO_GRID_CACHE") {
         return Some(d.into());
     }
@@ -963,6 +1002,18 @@ pub(crate) fn cache_dir() -> Option<std::path::PathBuf> {
 /// Los directorios en los que se buscan las rejillas.
 #[cfg(not(target_family = "wasm"))]
 fn search_dirs() -> Vec<std::path::PathBuf> {
+    let extra = config()
+        .lock()
+        .ok()
+        .map(|c| c.extra_paths.clone())
+        .unwrap_or_default();
+    let mut dirs = extra;
+    dirs.extend(base_search_dirs());
+    dirs
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn base_search_dirs() -> Vec<std::path::PathBuf> {
     if let Some(p) = config().lock().ok().and_then(|c| c.paths.clone()) {
         return p;
     }
@@ -1057,7 +1108,12 @@ fn cdn_url(name: &str) -> Option<String> {
     if name.contains(['/', '\\']) || !name.ends_with(".tif") {
         return None;
     }
-    let endpoint = std::env::var("HIPSO_CDN_ENDPOINT")
+    let endpoint = config()
+        .lock()
+        .ok()
+        .and_then(|c| c.endpoint.clone())
+        .ok_or(())
+        .or_else(|_| std::env::var("HIPSO_CDN_ENDPOINT"))
         .or_else(|_| std::env::var("PROJ_NETWORK_ENDPOINT"))
         .unwrap_or_else(|_| "https://cdn.proj.org".into());
     Some(format!("{}/{name}", endpoint.trim_end_matches('/')))
@@ -1067,6 +1123,9 @@ fn cdn_url(name: &str) -> Option<String> {
 /// por rangos.
 #[cfg(remote)]
 fn download_whole() -> bool {
+    if let Some(d) = config().lock().ok().and_then(|c| c.download) {
+        return d;
+    }
     std::env::var("HIPSO_GRID_DOWNLOAD").is_ok_and(|v| {
         matches!(
             v.trim().to_ascii_uppercase().as_str(),

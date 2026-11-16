@@ -95,6 +95,12 @@ fn choose_renderer() -> eframe::Renderer {
         Ok("wgpu") => return eframe::Renderer::Wgpu,
         _ => {}
     }
+    // lo elegido en Ajustes, cuando la variable de entorno no dice nada
+    match prefs::advanced().renderer.as_str() {
+        "glow" => return eframe::Renderer::Glow,
+        "wgpu" => return eframe::Renderer::Wgpu,
+        _ => {}
+    }
     if std::env::var_os("WGPU_BACKEND").is_some() {
         return eframe::Renderer::Wgpu;
     }

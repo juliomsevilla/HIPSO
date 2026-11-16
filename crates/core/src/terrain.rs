@@ -334,6 +334,19 @@ fn run_streamed(job: &TerrainJob, pyr: &crate::pyramid::Pyramid, margin: usize) 
     })
 }
 
+static STREAM_MODE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Fija si los rásteres grandes se procesan por franjas (`Some(true)`: siempre; `Some(false)`:
+/// nunca) o lo decide su tamaño (`None`, salvo que `HIPSO_STREAM` diga otra cosa).
+pub fn set_stream_mode(forced: Option<bool>) {
+    let v = match forced {
+        None => 0,
+        Some(true) => 1,
+        Some(false) => 2,
+    };
+    STREAM_MODE.store(v, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Lee la entrada, calcula el producto y lo escribe como GeoTIFF junto al sistema de la entrada.
 pub fn run(job: &TerrainJob) -> Result<String> {
     if let Ok(pyr) = crate::pyramid::Pyramid::open(&job.input)
@@ -344,11 +357,16 @@ pub fn run(job: &TerrainJob) -> Result<String> {
         let cells = (((e[2] - e[0]) / pyr.cell) * ((e[3] - e[1]) / pyr.cell)) as u64;
         // HIPSO_STREAM=1 fuerza las franjas, =0 las prohíbe (para comparar las dos maneras)
         let forced = std::env::var("HIPSO_STREAM").ok();
-        if match forced.as_deref() {
+        let by_mode = match STREAM_MODE.load(std::sync::atomic::Ordering::Relaxed) {
+            1 => Some(true),
+            2 => Some(false),
+            _ => None,
+        };
+        if by_mode.unwrap_or(match forced.as_deref() {
             Some("0") => false,
             Some(_) => true,
             None => cells > STREAM_CELLS,
-        } {
+        }) {
             return run_streamed(job, &pyr, margin);
         }
     }
