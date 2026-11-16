@@ -117,7 +117,12 @@ impl App {
                     Page::About => return self.about_body(ui),
                     Page::Manual => return self.manual.show(ui),
                     Page::Shortcuts => return shortcuts(ui),
-                    Page::Settings => return self.settings_body(ui),
+                    Page::Settings => {
+                        return egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| self.settings_body(ui))
+                            .inner;
+                    }
                 }
                 ui.horizontal(|ui| {
                     brand::paint(ui, brand::Art::Wordmark, self.dark, 22.0);
