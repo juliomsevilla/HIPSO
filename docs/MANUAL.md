@@ -2649,7 +2649,7 @@ En los dos casos el informe empieza con el análisis previo: normalidad de la va
 
 Es una regresión lineal múltiple por mínimos cuadrados. Las métricas pueden darse a mano (la opción con más criterio: por ejemplo, un percentil alto de altura y una medida de cobertura) o elegirse automáticamente por selección progresiva con BIC (el criterio más estricto contra el sobreajuste) o AICc, con un máximo de variables (por defecto una por cada diez unidades de muestreo, entre dos y cinco) y un límite de colinealidad (VIF ≤ 5). Las métricas absolutas (recuentos de puntos y de retornos) no se ofrecen como candidatas, porque dependen del tamaño de la unidad de muestreo y un modelo ajustado con unidades de muestreo no valdría para celdas de otro tamaño. Las de intensidad tampoco, porque en casi todos los vuelos no está calibrada entre pasadas (se pueden pedir expresamente). Si se pide el mapa, solo se ofrecen las métricas que están también en la tabla de las celdas. La transformación puede ser ninguna, el logaritmo de la variable (cuando el error crece con el tamaño de la unidad de muestreo) o el logaritmo de la variable y de las métricas (relación potencial); con logaritmos se deshace la transformación con la corrección de sesgo exp(s²/2).
 
-##### Cómo se eavlua
+##### Cómo se evalúa
 
 Un modelo siempre se ve bien con las unidades de muestreo con las que se ajustó, sobre todo si sus variables se eligieron entre decenas de candidatas con pocas unidades de muestreo. Por eso el informe pone en primer plano siete elementos.
 

@@ -170,7 +170,7 @@ def construir_paginas():
     cap(12, "manual/teselas.html", "Trabajar con miles de teselas", g)
 
     g = "Flujos y automatización"
-    cap(13, "manual/aba.html", "Encadenar un flujo de inventario (ABA)", g, clave="aba")
+    cap(13, "manual/aba.html", "El constructor de flujos", g, clave="aba")
     P.append(Pagina("flujos-ejemplo.html", "Flujos de ejemplo", g, html_extra=pagina_flujos(), imagen=IMAGENES["flujos"]))
     cap(14, "manual/linea-de-comandos.html", "Línea de comandos", g)
     P.append(Pagina("ordenes.html", "Referencia de herramientas", g, md=(DOCS / "CLI.md").read_text(encoding="utf-8").replace("# Órdenes de `hipso`\n", "# Órdenes de `hipso`\n", 1)))
