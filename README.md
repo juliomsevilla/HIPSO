@@ -34,9 +34,13 @@ En la página de **[Releases](https://github.com/juliomsevilla/HIPSO/releases/la
 
 ### Premisas
 
-HIPSO persigue tres cosas, por este orden. La primera es la rapidez: lo nuevo se mide y no puede lastrarla. La segunda es la eficiencia con nubes de puntos enormes, y por eso los procesos leen la nube como un flujo, la memoria depende del área y de la celda (no del número de puntos) y los pasos locales trabajan por teselas en paralelo.
+HIPSO persigue tres cosas por este orden:
 
-La tercera es la comodidad de edición. Seleccionar, reclasificar y borrar exige pocos clics, se puede deshacer y rehacer, y el resultado se ve al instante en planta, perfil y 3D.
+1. **Rapidez**: cualquier nueva implementación se testea para ver si mejora frente a otros desarrollos y softwares libres.
+2. **Eficiencia con nubes de puntos enormes**: los procesos leen la nube como un flujo, la memoria depende del área y de la celda (no del número de puntos) y los pasos locales trabajan por teselas en paralelo.
+3. **Edición cómoda y asequible**: Seleccionar, reclasificar y borrar exige pocos clics, se puede deshacer y rehacer, y el resultado se ve al instante en planta, perfil y 3D.
+
+Y, además... creemos que un software que aúne estas tres premisas debe estar disponible para cualquier técnico de este ámbito **sin tener que pagar licencias desorbitadas**.
 
 ### Visor y edición
 
@@ -133,7 +137,7 @@ LAS y LAZ (también **COPC**, leído solo en la parte que hace falta y escrito c
 
 ## Manual
 
-El manual completo está en [`docs/MANUAL.md`](docs/MANUAL.md) y dentro del programa: **Inicio → Manual** o la tecla **F1**. La referencia de la línea de comandos está en [`docs/REFERENCIA.md`](docs/REFERENCIA.md).
+El manual completo está en [`la web del programa`](https://juliomsevilla.github.io/HIPSO/) y dentro del software: **Inicio → Manual** o la tecla **F1**. La referencia de la línea de comandos está en el apartado de  [`Referencia de la línea de comandos`](https://juliomsevilla.github.io/HIPSO/referencia.html) de la web.
 
 ## Línea de comandos
 
@@ -211,8 +215,6 @@ Los rásteres grandes se trabajan **por franjas con margen**: la memoria depende
 ## Licencia
 
 HIPSO es un programa gratuito de licencia propietaria: de **uso gratuito**, también para trabajo profesional y comercial. No se puede modificar, desmontar, descompilar ni someter a ingeniería inversa, ni vender ni redistribuir salvo en su paquete original y gratis. Las condiciones están en [`LICENSE`](LICENSE). Los componentes de terceros conservan sus licencias ([`NOTICE`](NOTICE), [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md), [`licenses/`](licenses)).
-
-
 
 ## Autoría y contacto
 
