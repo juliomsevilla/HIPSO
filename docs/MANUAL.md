@@ -3006,7 +3006,7 @@ hipso metrics $hojas --cell 20 --strata
 Los comandos que reciben varias hojas dan un resultado por hoja. Para paralelizar entre máquinas, se reparten las hojas en lotes y se lanza un proceso por lote y por carpeta de resultados.
 
 
-### 13. El constructor de flujos
+## 13. El constructor de flujos
 
 Encadenar los pasos de un trabajo (clasificar, MDT, CHM, árboles, métricas) obliga a repetirlos con cada zona. La pestaña *Flujos* los dibuja como un grafo: cada herramienta es un **nodo**, cada archivo que una produce y otra consume es un **hilo**, y el flujo entero se guarda en un archivo `.model.json` que se vuelve a ejecutar sobre otros datos.
 
