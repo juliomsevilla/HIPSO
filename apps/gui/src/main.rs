@@ -2987,72 +2987,6 @@ impl App {
                                     }
                                     self.filters_button(ui, ctx, &t);
                                     ui.vertical(|ui| {
-                                        ui.menu_button("Rampa de color  ▾", |ui| {
-                                            if self.style.color_by == ColorBy::HeightAboveGround {
-                                                ui.horizontal(|ui| {
-                                                    ui.label("Altura máxima");
-                                                    if ui
-                                                        .add(
-                                                            crate::numfield::NumField::new(
-                                                                &mut self.style.hag_max,
-                                                            )
-                                                            .range(1.0..=500.0)
-                                                            .speed(0.5)
-                                                            .suffix(" m"),
-                                                        )
-                                                        .changed()
-                                                    {
-                                                        self.touch();
-                                                    }
-                                                });
-                                                if ui.button("Ajustar a los datos").clicked()
-                                                    && let Some(st) = &self.store
-                                                {
-                                                    self.style.hag_max = st.hag_range();
-                                                    self.touch();
-                                                }
-                                            } else {
-                                                let (lo, hi) = self
-                                                    .store
-                                                    .as_ref()
-                                                    .map_or((0.0, 1.0), |s| (s.bounds[2], s.bounds[5]));
-                                                ui.horizontal(|ui| {
-                                                    ui.label("Mín");
-                                                    if ui
-                                                        .add(
-                                                            crate::numfield::NumField::new(
-                                                                &mut self.style.zmin,
-                                                            )
-                                                            .range(lo - 1000.0..=hi)
-                                                            .speed(0.5),
-                                                        )
-                                                        .changed()
-                                                    {
-                                                        self.touch();
-                                                    }
-                                                    ui.label("Máx");
-                                                    if ui
-                                                        .add(
-                                                            crate::numfield::NumField::new(
-                                                                &mut self.style.zmax,
-                                                            )
-                                                            .range(lo..=hi + 1000.0)
-                                                            .speed(0.5),
-                                                        )
-                                                        .changed()
-                                                    {
-                                                        self.touch();
-                                                    }
-                                                });
-                                                if ui.button("Ajustar a los datos").clicked() {
-                                                    self.style.zmin = lo;
-                                                    self.style.zmax = hi;
-                                                    self.touch();
-                                                }
-                                            }
-                                        })
-                                        .response
-                                        .on_hover_text("Reparte la rampa de color entre dos valores. Solo cambia los colores con Elevación, Elevación + intensidad y Altura sobre el suelo; para ocultar puntos por su cota, usa Filtros.");
                                         ui.horizontal(|ui| {
                                             ui.label("Puntos");
                                             ribbon::stepper(
@@ -3061,6 +2995,8 @@ impl App {
                                                 "Puntos más grandes en la planta y el 3D (+)",
                                                 |d| self.act(ctx, Action::PointSize(d)),
                                             );
+                                        });
+                                        ui.horizontal(|ui| {
                                             let status = self.store.as_ref().map_or_else(
                                                 || "Aún no hay ninguna nube cargada.".to_string(),
                                                 |st| {
@@ -3072,7 +3008,7 @@ impl App {
                                                     )
                                                 },
                                             );
-                                            ui.label("Máx.");
+                                            ui.label("Máx. puntos");
                                             // hasta 200 millones de puntos: cinco caracteres
                                             let r = ui
                                                 .add(

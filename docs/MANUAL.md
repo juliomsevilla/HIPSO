@@ -147,17 +147,13 @@ Botón grande, junto a *Color*, con el menú de qué puntos se dibujan. Brilla y
 
 Al colorear por clasificación o por retorno, la planta y la vista 3D muestran una leyenda con los colores.
 
-##### Rampa de color
-
-Menú con el mínimo y el máximo de elevación entre los que se reparte la rampa de color, y el botón *Ajustar a los datos*, que los devuelve al rango real de la nube. Con *Altura sobre el suelo* el menú pide la altura máxima de la rampa. Solo cambia los colores, y solo con *Elevación*, *Elevación + intensidad* y *Altura sobre el suelo*; para ocultar puntos por su cota está *Filtros*.
-
 ##### Puntos (− y +)
 
 Los dos botones agrandan o encogen el punto en la planta y en la vista 3D. Los atajos son las teclas + y −, que cambian el tamaño del perfil si el cursor está sobre él.
 
-##### Máx.
+##### Máx. puntos
 
-Fija el máximo de millones de puntos que se cargan en pantalla, entre 0,5 y 200. Se escribe el valor y con Intro se recargan las nubes. Una nube mayor se decima de forma uniforme, y la decimación en uso (1 de cada *n*) aparece en la barra de estado. Al acercar, el programa lee a más detalle lo que cabe en la ventana (apartado 4.10).
+Debajo de *Puntos*, fija el máximo de millones de puntos que se cargan en pantalla, entre 0,5 y 200. Se escribe el valor y con Intro se recargan las nubes. Una nube mayor se decima de forma uniforme, y la decimación en uso (1 de cada *n*) aparece en la barra de estado. Al acercar, el programa lee a más detalle lo que cabe en la ventana (apartado 4.10).
 
 #### Vista → Navegación
 
@@ -1836,7 +1832,7 @@ Además, el mismo clic identifica todas las capas visibles en ese lugar y las li
 
 ### TIN sombreado (T) y curvas de nivel
 
-*TIN* (*Vista → Herramientas → TIN*, tecla T) sustituye los puntos por una superficie triangulada y sombreada de la nube, coloreada con el mismo atributo y la misma rampa que los puntos (*Vista → Visualización → Color* y *Rampa de color*), con la luz fija a 315° y 45°. Mientras está activo, los puntos se ocultan. El engranaje contiguo fija con qué puntos se construye el TIN: *suelo* (solo la clase 2, para ver el terreno) o *todas las clases* (para ver el dosel y los edificios). Se calcula sobre una rejilla de hasta 1400 píxeles de lado y se rehace cuando cambian la nube, las clases o los colores. 
+*TIN* (*Vista → Herramientas → TIN*, tecla T) sustituye los puntos por una superficie triangulada y sombreada de la nube, coloreada con el mismo atributo y la misma rampa que los puntos (*Vista → Visualización → Color*), con la luz fija a 315° y 45°. Mientras está activo, los puntos se ocultan. El engranaje contiguo fija con qué puntos se construye el TIN: *suelo* (solo la clase 2, para ver el terreno) o *todas las clases* (para ver el dosel y los edificios). Se calcula sobre una rejilla de hasta 1400 píxeles de lado y se rehace cuando cambian la nube, las clases o los colores. 
 
 *Curvas de nivel* (*Vista → Herramientas → Curvas de nivel*) dibuja las curvas de esa misma superficie, con la *Equidistancia* (de 0,1 a 500 m, 5 por defecto) que se fija en el engranaje del TIN. Se pueden usar solas o sobre el TIN. Son solo una ayuda visual en pantalla: para escribir las curvas de nivel de un MDT o un CHM como shapefile de polilíneas 3D, la herramienta es `hipso contour`, y para un PNG de sombreado, `hipso hillshade`.
 
