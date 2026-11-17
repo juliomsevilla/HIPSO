@@ -229,6 +229,10 @@ enum Nav {
     SelBelow,
     /// Selecciona respecto de un plano (o curva) ajustado a los puntos de suelo de un círculo.
     SelPlane,
+    /// Selecciona lo que queda cerca de una línea del perfil.
+    SelNear,
+    /// Clasifica de una vez lo que queda sobre, cerca y bajo una línea del perfil.
+    ClassLine,
 }
 
 impl Nav {
@@ -253,8 +257,23 @@ impl Nav {
             Nav::SelAbove => "Seleccionar sobre una línea",
             Nav::SelBelow => "Seleccionar bajo una línea",
             Nav::SelPlane => "Seleccionar con plano local",
+            Nav::SelNear => "Seleccionar cerca de una línea",
+            Nav::ClassLine => "Clasificar a lo largo de una línea",
         }
     }
+}
+
+/// Cuánto avanza el perfil con cada paso de la rueda o de las flechas.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProfileStep {
+    /// Medio ancho de la caja.
+    Half,
+    /// Casi el ancho completo (0,95): no pierde puntos del borde por el redondeo al acercar.
+    AlmostFull,
+    /// El ancho completo.
+    Full,
+    /// Una distancia fija, en metros.
+    Fixed,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -483,6 +502,10 @@ struct App {
     profile: Option<ProfileBox>,
     profile_clicks: Vec<[f64; 2]>,
     profile_width: f64,
+    /// Cuánto avanza la caja del perfil con cada paso de la rueda o de las flechas.
+    profile_step: ProfileStep,
+    /// El paso en metros cuando `profile_step` es `Fixed`.
+    profile_step_m: f64,
     tex_plan: Option<(egui::TextureHandle, u64)>,
     tex_prof: Option<(egui::TextureHandle, u64, f64, f64)>,
     /// El perfil lee los puntos de su región de los archivos, con toda la densidad.
@@ -653,6 +676,8 @@ impl Default for App {
             profile: None,
             profile_clicks: Vec::new(),
             profile_width: 10.0,
+            profile_step: ProfileStep::Full,
+            profile_step_m: 1.0,
             tex_plan: None,
             tex_prof: None,
             prof_full: true,
@@ -2625,6 +2650,14 @@ impl App {
                 Action::Nav(Nav::SelBelow),
             ),
             (
+                "Editar: seleccionar cerca de una línea (perfil)",
+                Action::Nav(Nav::SelNear),
+            ),
+            (
+                "Editar: clasificar a lo largo de una línea (perfil)",
+                Action::Nav(Nav::ClassLine),
+            ),
+            (
                 "Editar: seleccionar con plano local",
                 Action::Nav(Nav::SelPlane),
             ),
@@ -3240,6 +3273,37 @@ ui.menu_button("⚙", |ui| {
                                                     .on_hover_text("Líneas horizontales con las cotas en el lado izquierdo del perfil");
                                             });
                                             ui.end_row();
+                                            ui.label("Paso");
+                                            ui.horizontal(|ui| {
+                                                egui::ComboBox::from_id_salt("rb_profile_step")
+                                                    .selected_text(match self.profile_step {
+                                                        ProfileStep::Half => "Medio ancho",
+                                                        ProfileStep::AlmostFull => "Casi el ancho",
+                                                        ProfileStep::Full => "Ancho completo",
+                                                        ProfileStep::Fixed => "Fijo",
+                                                    })
+                                                    .show_ui(ui, |ui| {
+                                                        for (v, n) in [
+                                                            (ProfileStep::Half, "Medio ancho"),
+                                                            (ProfileStep::AlmostFull, "Casi el ancho (0,95)"),
+                                                            (ProfileStep::Full, "Ancho completo"),
+                                                            (ProfileStep::Fixed, "Fijo"),
+                                                        ] {
+                                                            ui.selectable_value(&mut self.profile_step, v, n);
+                                                        }
+                                                    })
+                                                    .response
+                                                    .on_hover_text("Cuánto avanza la caja del perfil con cada paso de la rueda o de las flechas. «Casi el ancho» deja un pequeño solape para no perder puntos del borde.");
+                                                if self.profile_step == ProfileStep::Fixed {
+                                                    ui.add(
+                                                        crate::numfield::NumField::new(&mut self.profile_step_m)
+                                                            .range(0.01..=1000.0)
+                                                            .speed(0.1)
+                                                            .suffix(" m"),
+                                                    );
+                                                }
+                                            });
+                                            ui.end_row();
                                             ui.label("Puntos");
                                             ui.horizontal(|ui| {
                                                 ribbon::stepper(
@@ -3764,7 +3828,7 @@ ui.menu_button("⚙", |ui| {
                     );
                 }
             }
-            Nav::Pan | Nav::SelAbove | Nav::SelBelow => {}
+            Nav::Pan | Nav::SelAbove | Nav::SelBelow | Nav::SelNear | Nav::ClassLine => {}
             Nav::SelRect
             | Nav::SelPoly
             | Nav::SelLasso
@@ -4375,7 +4439,13 @@ ui.menu_button("⚙", |ui| {
                     arrows
                 };
                 if k != 0 {
-                    self.profile = Some(bx.shifted(f64::from(k) * bx.width));
+                    let step = match self.profile_step {
+                        ProfileStep::Half => 0.5 * bx.width,
+                        ProfileStep::AlmostFull => 0.95 * bx.width,
+                        ProfileStep::Full => bx.width,
+                        ProfileStep::Fixed => self.profile_step_m.max(0.01),
+                    };
+                    self.profile = Some(bx.shifted(f64::from(k) * step));
                 }
             }
             let bx = self.profile.unwrap_or(bx);

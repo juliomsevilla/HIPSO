@@ -79,6 +79,11 @@ pub struct Editing {
     pub brush_px: f64,
     /// Alto de la franja de «por encima/por debajo de una línea» en el perfil (0: sin límite).
     pub side_height: f64,
+    /// «Cerca de una línea»: hasta cuánto por encima y por debajo de ella se considera cerca (m).
+    pub near_up: f64,
+    pub near_down: f64,
+    /// «Clasificar a lo largo de una línea»: para sobre, cerca y bajo, si se clasifica y a qué clase.
+    pub line_classes: [(bool, u8); 3],
     /// Ajuste de «plano local»: radio del círculo (m), clase de los puntos con que se ajusta, si el
     /// ajuste es una curva de segundo grado en vez de un plano, qué lado se selecciona, la
     /// tolerancia (m, o desviaciones típicas si `plane_sigma`) y cuántas desviaciones.
@@ -131,6 +136,9 @@ impl Default for Editing {
             d3start: None,
             brush_px: 18.0,
             side_height: 0.0,
+            near_up: 0.3,
+            near_down: 0.3,
+            line_classes: [(true, 5), (true, 14), (false, 2)],
             plane_r: 5.0,
             plane_class: 2,
             plane_quad: false,
@@ -185,7 +193,10 @@ pub fn is_brush(n: Nav) -> bool {
 
 /// Por encima o por debajo de una línea dibujada en el perfil.
 pub fn is_line(n: Nav) -> bool {
-    matches!(n, Nav::SelAbove | Nav::SelBelow)
+    matches!(
+        n,
+        Nav::SelAbove | Nav::SelBelow | Nav::SelNear | Nav::ClassLine
+    )
 }
 
 /// Un trazo de pincel en curso: añade la posición del puntero a `draft` (coordenadas de la vista)
@@ -705,47 +716,84 @@ impl App {
             return;
         }
         if is_line(self.nav) {
-            let above = self.nav == Nav::SelAbove;
+            // una recta se arrastra; una línea quebrada se hace con un clic por vértice, y se acaba
+            // con doble clic o con el botón derecho
+            let mut done: Option<Vec<[f64; 2]>> = None;
             if resp.drag_stopped_by(egui::PointerButton::Primary)
                 && let (Some(a), Some(b)) = (self.ed.pstart, resp.interact_pointer_pos())
                 && (a.x - b.x).abs() >= 4.0
             {
-                let op = SelOp {
-                    mode: self.mode_now(ctx),
-                    region: Region::Side {
-                        bx,
-                        a: to(a),
-                        b: to(b),
-                        above,
-                        height: self.ed.side_height.max(0.0),
-                    },
-                    attr: self.ed.attr.clone(),
-                };
-                self.queue(Cmd::AddOp(Box::new(op)));
+                self.ed.pdraft.clear();
+                done = Some(vec![to(a), to(b)]);
+            } else if resp.double_clicked_by(egui::PointerButton::Primary) {
+                done = Some(std::mem::take(&mut self.ed.pdraft));
+            } else if resp.clicked_by(egui::PointerButton::Primary)
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                self.ed.pdraft.push(to(p));
+            } else if resp.secondary_clicked() {
+                if self.ed.pdraft.len() >= 2 {
+                    done = Some(std::mem::take(&mut self.ed.pdraft));
+                } else {
+                    self.ed.pdraft.clear();
+                }
             }
+            if let Some(mut path) = done {
+                path.dedup_by(|a, b| (a[0] - b[0]).hypot(a[1] - b[1]) < 1e-9);
+                if path.len() >= 2 {
+                    self.finish_line(ctx, bx, edit::sorted_path(path));
+                }
+            }
+            // lo que se está trazando: la recta que se arrastra, o los vértices de la línea quebrada
+            let mut trace: Vec<Pos2> = self.ed.pdraft.iter().map(|p| back(p[0], p[1])).collect();
             if let (true, Some(a), Some(b)) = (
                 resp.dragged_by(egui::PointerButton::Primary),
                 self.ed.pstart,
                 resp.interact_pointer_pos(),
             ) {
-                painter.line_segment([a, b], Stroke::new(2.0, color));
-                // el lado que se toma, sombreado a lo largo de la línea (con la altura elegida,
-                // la franja a escala)
-                let hgt = self.ed.side_height.max(0.0);
-                if hgt > 0.0 {
-                    let (pa, pb) = (to(a), to(b));
-                    let dz = if above { hgt } else { -hgt };
-                    painter.add(egui::Shape::convex_polygon(
-                        vec![a, b, back(pb[0], pb[1] + dz), back(pa[0], pa[1] + dz)],
-                        color.gamma_multiply(0.18),
-                        Stroke::NONE,
-                    ));
-                } else {
-                    let off = if above { -14.0 } else { 14.0 };
-                    painter.line_segment(
-                        [a + Vec2::new(0.0, off), b + Vec2::new(0.0, off)],
-                        Stroke::new(6.0, color.gamma_multiply(0.25)),
-                    );
+                trace = vec![a, b];
+            } else if let (false, Some(h)) = (trace.is_empty(), resp.hover_pos()) {
+                trace.push(h);
+            }
+            if trace.len() >= 2 {
+                painter.add(egui::Shape::line(trace.clone(), Stroke::new(2.0, color)));
+                let pts: Vec<[f64; 2]> = trace.iter().map(|p| to(*p)).collect();
+                let (up, down) = self.line_band();
+                // la franja que se toma, a escala; sin límite, un trazo grueso a ese lado
+                for w in pts.windows(2).zip(trace.windows(2)) {
+                    let (v, sc) = w;
+                    match (up, down) {
+                        (Some(u), Some(d)) => painter.add(egui::Shape::convex_polygon(
+                            vec![
+                                back(v[0][0], v[0][1] + u),
+                                back(v[1][0], v[1][1] + u),
+                                back(v[1][0], v[1][1] - d),
+                                back(v[0][0], v[0][1] - d),
+                            ],
+                            color.gamma_multiply(0.18),
+                            Stroke::NONE,
+                        )),
+                        (Some(u), None) if u > 0.0 => painter.add(egui::Shape::convex_polygon(
+                            vec![sc[0], sc[1], back(v[1][0], v[1][1] + u), back(v[0][0], v[0][1] + u)],
+                            color.gamma_multiply(0.18),
+                            Stroke::NONE,
+                        )),
+                        (None, Some(d)) if d > 0.0 => painter.add(egui::Shape::convex_polygon(
+                            vec![sc[0], sc[1], back(v[1][0], v[1][1] - d), back(v[0][0], v[0][1] - d)],
+                            color.gamma_multiply(0.18),
+                            Stroke::NONE,
+                        )),
+                        _ => {
+                            let off = match (up, down) {
+                                (Some(_), None) => -14.0,
+                                _ => 14.0,
+                            };
+                            painter.line_segment(
+                                [sc[0] + Vec2::new(0.0, off), sc[1] + Vec2::new(0.0, off)],
+                                Stroke::new(6.0, color.gamma_multiply(0.25)),
+                            )
+                        }
+                    };
                 }
             }
             if resp.drag_stopped_by(egui::PointerButton::Primary) {
@@ -774,6 +822,90 @@ impl App {
             &trail,
             Color32::from_rgb(0, 255, 255),
         );
+    }
+
+    /// La franja que toma la herramienta de línea activa, en cota por encima y por debajo de la
+    /// línea: `None` en un lado es «sin límite» (todo lo que queda de ese lado).
+    fn line_band(&self) -> (Option<f64>, Option<f64>) {
+        match self.nav {
+            Nav::SelAbove => (Some(self.ed.side_height.max(0.0)), None),
+            Nav::SelBelow => (None, Some(self.ed.side_height.max(0.0))),
+            _ => (Some(self.ed.near_up.max(0.0)), Some(self.ed.near_down.max(0.0))),
+        }
+    }
+
+    /// Acaba una línea trazada en el perfil (`path` ordenada por distancia): según la herramienta,
+    /// añade a la selección lo que queda sobre, bajo o cerca de ella, o clasifica de una vez los tres
+    /// tramos (sobre, cerca y bajo) con una sola edición agrupada.
+    fn finish_line(&mut self, ctx: &egui::Context, bx: ProfileBox, path: Vec<[f64; 2]>) {
+        let (up, down) = (self.ed.near_up.max(0.0), self.ed.near_down.max(0.0));
+        match self.nav {
+            Nav::SelAbove | Nav::SelBelow => {
+                let op = SelOp {
+                    mode: self.mode_now(ctx),
+                    region: Region::Side {
+                        bx,
+                        path,
+                        above: self.nav == Nav::SelAbove,
+                        height: self.ed.side_height.max(0.0),
+                    },
+                    attr: self.ed.attr.clone(),
+                };
+                self.queue(Cmd::AddOp(Box::new(op)));
+            }
+            Nav::SelNear => {
+                let op = SelOp {
+                    mode: self.mode_now(ctx),
+                    region: Region::Near {
+                        bx,
+                        path,
+                        above: up,
+                        below: down,
+                    },
+                    attr: self.ed.attr.clone(),
+                };
+                self.queue(Cmd::AddOp(Box::new(op)));
+            }
+            Nav::ClassLine => {
+                let Some(ses) = &self.ed.session else { return };
+                let group = ses.new_group();
+                let attr = visible_attr(&self.style, self.ed.attr.clone());
+                // tres franjas que no se solapan: sobre la tolerancia, dentro de ella y bajo ella
+                let bands = [
+                    ("sobre", f64::INFINITY, -up),
+                    ("cerca", up, down),
+                    ("bajo", -down, f64::INFINITY),
+                ];
+                let edits: Vec<Edit> = bands
+                    .iter()
+                    .zip(self.ed.line_classes)
+                    .filter(|(_, (on, _))| *on)
+                    .map(|((name, above, below), (_, class))| Edit {
+                        sel: vec![SelOp {
+                            mode: Mode::New,
+                            region: Region::Near {
+                                bx,
+                                path: path.clone(),
+                                above: *above,
+                                below: *below,
+                            },
+                            attr: attr.clone(),
+                        }],
+                        action: edit::Action::Reclassify(class),
+                        label: format!("Cerca de la línea: {name} → clase {class}"),
+                        enabled: true,
+                        group,
+                    })
+                    .collect();
+                if edits.is_empty() {
+                    self.log
+                        .push("Clasificar a lo largo de una línea: marca al menos un tramo.".into());
+                } else {
+                    self.queue(Cmd::Apply(edits));
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Cuando hay puntos seleccionados: los archivos que los contienen como rutas `…_sel`, los
@@ -1300,6 +1432,8 @@ impl App {
                                 ("@brushsq", "Pincel cuadrado (plano y perfil)", Nav::SelBrushSq),
                                 ("@above", "Seleccionar todo lo que queda sobre una línea del perfil", Nav::SelAbove),
                                 ("@below", "Seleccionar todo lo que queda bajo una línea del perfil", Nav::SelBelow),
+                                ("@linenear", "Seleccionar lo que queda cerca de una línea del perfil", Nav::SelNear),
+                                ("@lineclass", "Clasificar de una vez sobre, cerca y bajo una línea del perfil", Nav::ClassLine),
                                 ("@planefit", "Seleccionar con plano local", Nav::SelPlane),
                             ] {
                                 if ribbon::tool_button(ui, &t, icon, name, self.nav == n).clicked()
@@ -1377,26 +1511,62 @@ impl App {
                                 .color(t.weak),
                             );
                         } else if is_line(self.nav) {
-                            ui.horizontal(|ui| {
-                                ui.label(if self.nav == Nav::SelAbove {
-                                    "Altura sobre la línea"
-                                } else {
-                                    "Altura bajo la línea"
+                            if matches!(self.nav, Nav::SelAbove | Nav::SelBelow) {
+                                ui.horizontal(|ui| {
+                                    ui.label(if self.nav == Nav::SelAbove {
+                                        "Altura sobre la línea"
+                                    } else {
+                                        "Altura bajo la línea"
+                                    });
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.ed.side_height)
+                                            .range(0.0..=100_000.0)
+                                            .speed(0.1)
+                                            .suffix(" m")
+                                            .custom_formatter(|v, _| {
+                                                if v <= 0.0 { "sin límite".to_string() } else { format!("{v:.2}") }
+                                            }),
+                                    );
                                 });
-                                ui.add(
-                                    egui::DragValue::new(&mut self.ed.side_height)
-                                        .range(0.0..=100_000.0)
-                                        .speed(0.1)
-                                        .suffix(" m")
-                                        .custom_formatter(|v, _| {
-                                            if v <= 0.0 { "sin límite".to_string() } else { format!("{v:.2}") }
-                                        }),
-                                );
-                            });
+                            } else {
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label("Cerca = hasta");
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.ed.near_up)
+                                            .range(0.0..=1000.0)
+                                            .speed(0.01)
+                                            .prefix("↑ ")
+                                            .suffix(" m"),
+                                    )
+                                    .on_hover_text("Hasta cuánto por encima de la línea se considera cerca.");
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.ed.near_down)
+                                            .range(0.0..=1000.0)
+                                            .speed(0.01)
+                                            .prefix("↓ ")
+                                            .suffix(" m"),
+                                    )
+                                    .on_hover_text("Hasta cuánto por debajo de la línea se considera cerca.");
+                                });
+                            }
+                            if self.nav == Nav::ClassLine {
+                                for (k, name) in ["Sobre", "Cerca", "Bajo"].iter().enumerate() {
+                                    ui.horizontal(|ui| {
+                                        ui.checkbox(&mut self.ed.line_classes[k].0, *name);
+                                        ui.label("→ clase");
+                                        ui.add(
+                                            egui::DragValue::new(&mut self.ed.line_classes[k].1)
+                                                .range(0..=255),
+                                        );
+                                    });
+                                }
+                            }
                             ui.label(
-                                egui::RichText::new(
-                                    "En el perfil, arrastra para trazar una línea: se selecciona todo lo que queda por encima (o por debajo) a lo largo de ella, dentro de la caja del perfil.",
-                                )
+                                egui::RichText::new(match self.nav {
+                                    Nav::SelNear => "En el perfil, traza una línea: se selecciona lo que queda cerca de ella. Arrastra para una recta, o haz un clic por vértice y doble clic (o botón derecho) para acabar una línea quebrada.",
+                                    Nav::ClassLine => "En el perfil, traza una línea (arrastra para una recta, o un clic por vértice y doble clic para acabar): de una vez se clasifica lo que queda sobre, cerca y bajo ella, cada tramo con su clase. Se deshace de una vez. El filtro de atributos limita qué puntos se tocan.",
+                                    _ => "En el perfil, traza una línea: se selecciona todo lo que queda por encima (o por debajo) a lo largo de ella, dentro de la caja del perfil. Arrastra para una recta, o haz un clic por vértice y doble clic (o botón derecho) para acabar una línea quebrada.",
+                                })
                                 .size(11.0)
                                 .color(t.weak),
                             );
