@@ -231,7 +231,16 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Quitar" => "Quita la selección (Esc).",
         "Exportar puntos…" => "Exporta la nube, o solo la selección, a LAZ, ASCII o shapefile.",
         "Aislar selección" => {
-            "Saca los puntos seleccionados a un archivo «…_sel» y deja solo ese en pantalla, con toda su densidad."
+            "Deja a la vista solo lo seleccionado, a toda su densidad, y limita las ediciones a ello. No crea archivos: las ediciones van a la misma sesión de la nube."
+        }
+        "Volver a la nube" => {
+            "Quita el foco: se ve toda la nube otra vez. Las ediciones hechas se conservan."
+        }
+        "Guardar ediciones…" => {
+            "Guarda las ediciones de la sesión en un archivo, para aplicarlas a otra nube (Cargar ediciones…) o con «hipso apply-edits»."
+        }
+        "Cargar ediciones…" => {
+            "Aplica a la nube abierta las ediciones de un archivo guardado con Guardar ediciones…"
         }
         "Eliminar" => "Elimina los puntos seleccionados (Supr).",
         "Cambiar clase" => "Asigna la clase elegida a los puntos seleccionados.",

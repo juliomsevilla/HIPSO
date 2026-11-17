@@ -543,8 +543,6 @@ struct App {
     cursor_map: Option<(f64, f64)>,
     info_text: String,
     info_run: Option<Receiver<Result<String, String>>>,
-    /// El trabajo en marcha extrae la selección: su resultado sustituye a las nubes cargadas.
-    pub isolate: bool,
     tools: Tools,
     running: Option<Running>,
     log: Vec<String>,
@@ -695,7 +693,6 @@ impl Default for App {
             cursor_map: None,
             info_text: String::new(),
             info_run: None,
-            isolate: false,
             tools: Tools::default(),
             running: None,
             log: vec![format!(
@@ -1880,6 +1877,7 @@ impl App {
                     // abierta
                     self.ed.hist.open = hist_open;
                     self.ed.session = Some(hipso_core::edit::Session::new(&s));
+                    self.open_edit_session();
                     self.store = Some(Arc::new(s));
                     self.rev += 1;
                 }
@@ -1898,17 +1896,10 @@ impl App {
             let secs = run.started.elapsed().as_secs_f64();
             let (label, show) = (run.label.clone(), run.show.clone());
             let (outputs, pre) = (run.outputs.clone(), run.pre.clone());
-            let isolate = std::mem::take(&mut self.isolate);
             self.running = None;
             match result {
                 Ok(summary) => {
                     self.log(format!("{label}: {summary}\nhecho en {secs:.2} s"));
-                    if isolate {
-                        while !self.clouds.is_empty() {
-                            self.drop_cloud(0);
-                        }
-                        self.style.files = u64::MAX;
-                    }
                     self.load_results(ctx, show, &outputs, &pre);
                 }
                 Err(e) => {
@@ -2022,6 +2013,11 @@ impl App {
         self.ed.draft.clear();
         self.ed.pdraft.clear();
         self.ed.session = Some(hipso_core::edit::Session::new(&s));
+        // la sesión empieza de cero sobre las nubes que quedan: sin foco y con su propio archivo de
+        // sesión
+        self.ed.focus = None;
+        self.ed.ops.clear();
+        self.open_edit_session();
         self.tin = None;
         self.query = None;
         self.profile = None;
@@ -3734,10 +3730,12 @@ ui.menu_button("⚙", |ui| {
         self.update_detail(ctx, [lo.0, lo.1, hi.0, hi.1], interactive);
         if let Some(store) = &store {
             // con zoom sobre nubes COPC la ventana se dibuja con sus propios puntos, más densos
+            // con un foco, la ventana del foco se dibuja aunque la vista sea mayor que ella
+            let focused = self.ed.focus.is_some();
             let detail = self
                 .detail
                 .as_ref()
-                .filter(|d| contains(d.window, [lo.0, lo.1, hi.0, hi.1]))
+                .filter(|d| focused || contains(d.window, [lo.0, lo.1, hi.0, hi.1]))
                 .map(|d| (d.store.clone(), d.spacing, d.id));
             let shown: &Arc<PointStore> = detail.as_ref().map_or(store, |d| &d.0);
             let thin = if interactive && shown.len() > 1_500_000 {
@@ -4584,11 +4582,12 @@ ui.menu_button("⚙", |ui| {
                     interactive,
                 );
             }
+            let focused = self.ed.focus.is_some();
             let over = self
                 .detail3
                 .as_ref()
                 .filter(|_| has_cloud)
-                .filter(|d| contains(d.window, [tx - half, ty - half, tx + half, ty + half]))
+                .filter(|d| focused || contains(d.window, [tx - half, ty - half, tx + half, ty + half]))
                 .map(|d| {
                     (
                         d.store.clone(),

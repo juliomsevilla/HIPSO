@@ -205,22 +205,28 @@ impl App {
             return Some(base);
         }
         let stamp = (self.rev, self.ed.sel_rev);
-        let ops = &self.ed.ops;
         let session = self.ed.session.as_ref();
         let edited = session.is_some_and(|s| s.edits.iter().any(|e| e.enabled));
         let data = self.prof_data.as_mut()?;
-        if !edited && ops.is_empty() {
+        if !edited && self.ed.ops.is_empty() && self.ed.focus.is_none() {
             return Some(data.raw.clone());
         }
         if data.view.as_ref().is_none_or(|v| v.0 != stamp) {
+            // las operaciones se copian solo aquí, cuando el perfil se rehace, y no en cada fotograma
+            let ops = crate::editing::with_focus(&self.ed.ops, &self.ed.focus);
             let mut s = (*data.raw).clone();
+            if let Some(f) = &self.ed.focus {
+                let inner = &f.inner;
+                // el foco se mide con los puntos tal como salen del archivo
+                s.outside = edit::outside_focus(&s, inner);
+            }
             if let Some(ses) = session {
                 ses.apply_to(&mut s);
             }
             s.selected = if ops.is_empty() {
                 Vec::new()
             } else {
-                edit::selection(&s, ops)
+                edit::selection(&s, &ops)
             };
             data.view = Some((stamp, Arc::new(s)));
         }

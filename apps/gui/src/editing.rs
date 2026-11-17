@@ -21,6 +21,35 @@ pub enum Cmd {
     /// Activa o desactiva la edición del historial en esta posición.
     Toggle(usize),
     Discard,
+    /// Fija el foco en lo que elige la selección actual.
+    Focus,
+    /// Quita el foco: la vista vuelve a toda la nube.
+    Unfocus,
+    /// Aplica estas ediciones, leídas de un archivo, a la sesión.
+    Apply(Vec<Edit>),
+}
+
+/// El foco de la edición: se ve y se edita solo lo que cae en él, y todo ocurre en la sesión de la
+/// nube original. No crea ningún archivo.
+pub struct Focus {
+    /// La forma de la selección con que se fijó, sin sus filtros de atributos: un foco que dependiera
+    /// de la clase perdería los puntos que se reclasifican dentro de él.
+    pub inner: Vec<SelOp>,
+    /// La ventana (x mínima, y mínima, x máxima, y máxima) que se lee a toda densidad.
+    pub window: [f64; 4],
+    /// Puntos del foco en pantalla.
+    pub shown: usize,
+}
+
+/// La selección `ops` limitada al foco, si lo hay. Todo lo que se hace con una selección (contarla,
+/// marcarla, editarla, exportarla) pasa por aquí, de modo que con un foco no se alcanza nada de lo que
+/// queda fuera de él, esté a la vista o no.
+pub fn with_focus(ops: &[SelOp], focus: &Option<Focus>) -> Vec<SelOp> {
+    let mut v = ops.to_vec();
+    if let (false, Some(f)) = (v.is_empty(), focus) {
+        v.push(edit::focus_op(&f.inner));
+    }
+    v
 }
 
 pub struct Editing {
@@ -61,6 +90,11 @@ pub struct Editing {
     pub want_save: bool,
     /// Guarda sin preguntar dónde (línea de comandos `--save-edited`).
     pub auto_save: bool,
+    pub focus: Option<Focus>,
+    /// Dónde se guarda esta sesión mientras no se guarda la nube editada.
+    pub session_file: Option<PathBuf>,
+    /// Ediciones de una sesión anterior que no se llegaron a guardar y que se ofrecen recuperar.
+    pub recover: Option<Vec<Edit>>,
 }
 
 impl Default for Editing {
@@ -93,6 +127,9 @@ impl Default for Editing {
             toggled: false,
             want_save: false,
             auto_save: false,
+            focus: None,
+            session_file: None,
+            recover: None,
         }
     }
 }
@@ -670,49 +707,27 @@ impl App {
             paths.push(out.clone());
             pairs.push(((*c).clone(), out));
         }
-        (!pairs.is_empty()).then(|| (paths, pairs, self.ed.sel_count, self.ed.ops.clone()))
-    }
-
-    /// Escribe los puntos seleccionados en archivos `…_sel` y muestra solo esos, a la densidad del
-    /// archivo: un árbol recortado de un escaneo se puede editar punto a punto en lugar de con el
-    /// adelgazamiento de toda la escena.
-    pub fn isolate_selection(&mut self, ctx: &egui::Context) {
-        if self
-            .ed
-            .session
-            .as_ref()
-            .is_some_and(|s| s.edits.len() > self.ed.saved || self.ed.toggled)
-        {
-            self.log
-                .push("Guarda o descarta los cambios antes de aislar la selección.".into());
-            return;
-        }
-        let Some((outputs, pairs, _, ops)) = self.selection_inputs() else {
-            self.log
-                .push("No hay puntos seleccionados que aislar.".into());
-            return;
-        };
-        self.isolate = true;
-        let launch = Launch {
-            outputs,
-            label: "Aislar selección".into(),
-            task: Box::new(move || {
-                let mut n = 0;
-                for (i, o) in &pairs {
-                    hipso_core::check_cancel()?;
-                    n += edit::extract_selected(i, &ops, o)?;
-                }
-                Ok(format!("{n} puntos aislados"))
-            }),
-            show: vec![],
-        };
-        self.start(ctx, launch);
+        (!pairs.is_empty()).then(|| {
+            (
+                paths,
+                pairs,
+                self.ed.sel_count,
+                with_focus(&self.ed.ops, &self.ed.focus),
+            )
+        })
     }
 
     pub fn edit_status(&self) -> Option<String> {
         let s = self.store.as_ref()?;
         let ses = self.ed.session.as_ref()?;
         let mut parts = Vec::new();
+        if let Some(f) = &self.ed.focus {
+            parts.push(format!(
+                "foco: {} puntos (≈ {} en el archivo)",
+                f.shown,
+                f.shown as u64 * s.stride
+            ));
+        }
         if self.ed.sel_count > 0 {
             parts.push(format!(
                 "{} seleccionados (≈ {} en el archivo)",
@@ -743,6 +758,7 @@ impl App {
         };
         let store = Arc::make_mut(arc);
         let mut edited = false;
+        let mut focus_changed = false;
         for c in cmds {
             match c {
                 Cmd::AddOp(op) => {
@@ -784,7 +800,8 @@ impl App {
                         Cmd::Reclass(k) => edit::Action::Reclassify(k),
                         _ => edit::Action::Delete,
                     };
-                    let n = edit::selection(store, &self.ed.ops)
+                    let sel_ops = with_focus(&self.ed.ops, &self.ed.focus);
+                    let n = edit::selection(store, &sel_ops)
                         .iter()
                         .filter(|b| **b)
                         .count();
@@ -799,12 +816,54 @@ impl App {
                             format!("Clase {k} ({}) a {n} puntos", self.ctable.name(k))
                         }
                     };
-                    let e = Edit::new(std::mem::take(&mut self.ed.ops), action, label.clone());
+                    self.ed.ops.clear();
+                    let e = Edit::new(sel_ops, action, label.clone());
                     if let Some(ses) = &mut self.ed.session {
                         ses.apply(store, e);
                     }
                     self.log.push(format!("Edición: {label} (en pantalla)"));
                     edited = true;
+                }
+                Cmd::Focus => {
+                    let sel_ops = with_focus(&self.ed.ops, &self.ed.focus);
+                    let picked = edit::selection(store, &sel_ops);
+                    let Some((window, shown)) = focus_window(store, &picked) else {
+                        self.log
+                            .push("Foco: no hay puntos seleccionados que aislar.".into());
+                        continue;
+                    };
+                    let inner = edit::geometry_of(&sel_ops);
+                    store.outside = edit::outside_focus(store, &inner);
+                    self.ed.focus = Some(Focus {
+                        inner,
+                        window,
+                        shown,
+                    });
+                    self.ed.ops.clear();
+                    self.log.push(format!(
+                        "Foco: {shown} puntos en pantalla. Todo lo demás queda oculto y fuera de las ediciones hasta pulsar «Volver a la nube»."
+                    ));
+                    focus_changed = true;
+                }
+                Cmd::Unfocus => {
+                    if self.ed.focus.take().is_some() {
+                        store.outside.clear();
+                        self.ed.ops.clear();
+                        self.log.push("Foco quitado: se ve toda la nube.".into());
+                        focus_changed = true;
+                    }
+                }
+                Cmd::Apply(list) => {
+                    self.ed.ops.clear();
+                    let n = list.len();
+                    if let Some(ses) = &mut self.ed.session {
+                        for e in list {
+                            ses.apply(store, e);
+                        }
+                        self.log
+                            .push(format!("Ediciones: {n} aplicadas en pantalla."));
+                        edited = true;
+                    }
                 }
                 Cmd::Undo | Cmd::Redo | Cmd::Discard | Cmd::Toggle(_) => {
                     self.ed.ops.clear();
@@ -832,9 +891,19 @@ impl App {
         store.selected = if self.ed.ops.is_empty() {
             Vec::new()
         } else {
-            edit::selection(store, &self.ed.ops)
+            edit::selection(store, &with_focus(&self.ed.ops, &self.ed.focus))
         };
         self.ed.sel_count = store.selected.iter().filter(|b| **b).count();
+        let session_changed = edited;
+        if focus_changed {
+            // las ventanas de detalle se leyeron para otro foco: se vuelven a leer
+            self.detail = None;
+            self.detail_job = None;
+            self.detail3 = None;
+            self.detail3_job = None;
+            self.tex_prof = None;
+            edited = true;
+        }
         if edited {
             self.class_counts = [0; 256];
             for (i, c) in store.class.iter().enumerate() {
@@ -847,6 +916,100 @@ impl App {
             self.tin = None;
         }
         self.ed.sel_rev += 1;
+        if session_changed {
+            self.autosave_edits();
+        }
+    }
+
+    /// Guarda la sesión de edición en la carpeta de la caché tras cada cambio: si el programa se
+    /// cierra sin guardar la nube, al abrirla de nuevo se ofrece recuperar las ediciones. Sin
+    /// ediciones, no deja nada.
+    fn autosave_edits(&mut self) {
+        let Some(path) = self.ed.session_file.clone() else {
+            return;
+        };
+        let Some(ses) = &self.ed.session else { return };
+        if ses.edits.is_empty() {
+            let _ = std::fs::remove_file(&path);
+            return;
+        }
+        if let Err(e) = edit::file::write(&path, &ses.edits) {
+            self.log
+                .push(format!("No se pudo guardar la sesión de edición: {e}"));
+        }
+    }
+
+    /// Fija dónde se guarda la sesión de las nubes abiertas y, si quedó una sin guardar de otra vez,
+    /// la ofrece. Se llama cuando termina de cargarse una nube.
+    pub fn open_edit_session(&mut self) {
+        let las: Vec<PathBuf> = self
+            .clouds
+            .iter()
+            .filter(|p| {
+                p.extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("las") || e.eq_ignore_ascii_case("laz"))
+            })
+            .cloned()
+            .collect();
+        self.ed.session_file = edit::file::session_path(&las);
+        self.ed.recover = None;
+        let Some(path) = self.ed.session_file.clone().filter(|p| p.is_file()) else {
+            return;
+        };
+        match edit::file::read(&path) {
+            Ok(list) if !list.is_empty() => {
+                self.log.push(format!(
+                    "Hay {} ediciones de una sesión anterior sin guardar: se pueden recuperar desde el panel Edición.",
+                    list.len()
+                ));
+                self.ed.recover = Some(list);
+            }
+            Ok(_) => {}
+            Err(e) => self.log.push(format!(
+                "La sesión de edición anterior no se puede leer ({e}); se deja el archivo: {}",
+                path.display()
+            )),
+        }
+    }
+
+    /// Escribe las ediciones de la sesión (todas, también las desactivadas) en un archivo que se
+    /// puede aplicar a otra nube o con `hipso apply-edits`.
+    pub fn save_edits_file(&mut self) {
+        let Some(ses) = &self.ed.session else { return };
+        if ses.edits.is_empty() {
+            self.log.push("No hay ediciones que guardar.".into());
+            return;
+        }
+        let Some(path) = crate::prefs::dialog()
+            .add_filter("Ediciones de HIPSO", &["json"])
+            .set_file_name("ediciones.json")
+            .save_file()
+        else {
+            return;
+        };
+        match edit::file::write(&path, &ses.edits) {
+            Ok(()) => self.log.push(format!(
+                "{} ediciones guardadas en {}",
+                ses.edits.len(),
+                path.display()
+            )),
+            Err(e) => self.log.push(format!("No se pudieron guardar las ediciones: {e}")),
+        }
+    }
+
+    /// Lee un archivo de ediciones y las aplica a la nube abierta.
+    pub fn load_edits_file(&mut self) {
+        let Some(path) = crate::prefs::dialog()
+            .add_filter("Ediciones de HIPSO", &["json"])
+            .pick_file()
+        else {
+            return;
+        };
+        match edit::file::read(&path) {
+            Ok(list) if list.is_empty() => self.log.push("El archivo no tiene ediciones.".into()),
+            Ok(list) => self.queue(Cmd::Apply(list)),
+            Err(e) => self.log.push(format!("No se pudieron leer las ediciones: {e}")),
+        }
     }
 
     /// Escribe las nubes editadas: cada punto de cada archivo pasa por las reglas de edición.
@@ -904,6 +1067,7 @@ impl App {
         self.ed.saved = saved_len;
         self.ed.toggled = false;
         let outputs: Vec<PathBuf> = pairs.iter().map(|p| p.1.clone()).collect();
+        let session_file = self.ed.session_file.clone();
         let launch = Launch {
             outputs,
             label: "Guardar nube editada".into(),
@@ -912,6 +1076,10 @@ impl App {
                 for (i, o) in &pairs {
                     let r = edit::save(i, o, &edits)?;
                     lines.push(edit::report_text(&r, o));
+                }
+                // las ediciones ya están en la nube guardada: no se ofrecerán como pendientes
+                if let Some(f) = &session_file {
+                    let _ = std::fs::remove_file(f);
                 }
                 Ok(lines.join("\n"))
             }),
@@ -1117,11 +1285,26 @@ impl App {
                                     .suffix(" m"),
                             );
                         });
-                        if ribbon::small_button(ui, &t, "@selrect", "Aislar selección", false)
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = Vec2::splat(2.0);
+                            if ribbon::small_button(
+                                ui,
+                                &t,
+                                "@selrect",
+                                "Aislar selección",
+                                self.ed.focus.is_some(),
+                            )
                             .clicked()
-                        {
-                            self.isolate_selection(ctx);
-                        }
+                            {
+                                self.queue(Cmd::Focus);
+                            }
+                            if self.ed.focus.is_some()
+                                && ribbon::small_button(ui, &t, "@selall", "Volver a la nube", false)
+                                    .clicked()
+                            {
+                                self.queue(Cmd::Unfocus);
+                            }
+                        });
                         if ribbon::small_button(
                             ui,
                             &t,
@@ -1230,6 +1413,41 @@ impl App {
                                 self.queue(Cmd::Discard);
                             }
                         });
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = Vec2::splat(2.0);
+                            if ribbon::small_button(ui, &t, "📝", "Guardar ediciones…", false)
+                                .clicked()
+                            {
+                                self.save_edits_file();
+                            }
+                            if ribbon::small_button(ui, &t, "📂", "Cargar ediciones…", false)
+                                .clicked()
+                            {
+                                self.load_edits_file();
+                            }
+                        });
+                        if let Some(n) = self.ed.recover.as_ref().map(Vec::len) {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Quedaron {n} ediciones sin guardar de una sesión anterior."
+                                ))
+                                .size(11.0)
+                                .strong(),
+                            );
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.button("Recuperar").clicked()
+                                    && let Some(list) = self.ed.recover.take()
+                                {
+                                    self.queue(Cmd::Apply(list));
+                                }
+                                if ui.button("Descartar").clicked() {
+                                    self.ed.recover = None;
+                                    if let Some(f) = &self.ed.session_file {
+                                        let _ = std::fs::remove_file(f);
+                                    }
+                                }
+                            });
+                        }
                         ui.horizontal_wrapped(|ui| {
                             ui.spacing_mut().item_spacing = Vec2::splat(2.0);
                             if ribbon::small_button(ui, &t, "@undo", "Deshacer", false).clicked() {
@@ -1391,6 +1609,29 @@ impl App {
                 });
             });
     }
+}
+
+/// La ventana a toda densidad de un foco: la caja de los puntos que elige con un margen (la muestra
+/// de la pantalla no llega hasta el borde de la selección) y cuántos son.
+fn focus_window(s: &PointStore, picked: &[bool]) -> Option<([f64; 4], usize)> {
+    let (mut lo, mut hi, mut n) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2], 0usize);
+    for (i, on) in picked.iter().enumerate() {
+        if !*on {
+            continue;
+        }
+        let p = s.xyz(i);
+        lo = [lo[0].min(p[0]), lo[1].min(p[1])];
+        hi = [hi[0].max(p[0]), hi[1].max(p[1])];
+        n += 1;
+    }
+    if n == 0 {
+        return None;
+    }
+    let (dx, dy) = (hi[0] - lo[0], hi[1] - lo[1]);
+    let cell = (dx.max(1e-6) * dy.max(1e-6) / n as f64).sqrt();
+    let scene = (s.bounds[3] - s.bounds[0]).max(s.bounds[4] - s.bounds[1]);
+    let pad = (0.1 * dx.max(dy)).max(3.0 * cell).max(1e-3 * scene);
+    Some(([lo[0] - pad, lo[1] - pad, hi[0] + pad, hi[1] + pad], n))
 }
 
 /// Los atributos de una selección acotados a lo que los filtros de la vista (clases y retornos)

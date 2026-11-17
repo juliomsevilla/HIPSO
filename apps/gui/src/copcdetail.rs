@@ -62,11 +62,16 @@ impl App {
     /// ventana es otra lectura de la nube y no hereda la selección del almacén base.
     fn mark_detail_selection(&mut self) {
         let (rev, erev) = (self.ed.sel_rev, self.ed.edit_rev);
+        // la selección con su foco se arma solo si alguna ventana la necesita, no en cada fotograma
+        let mut ops: Option<Vec<hipso_core::edit::SelOp>> = None;
         for d in [self.detail.as_mut(), self.detail3.as_mut()].into_iter().flatten() {
             let stale = d.edit_rev != erev;
             if d.sel_rev == rev && !stale {
                 continue;
             }
+            let ops = ops.get_or_insert_with(|| {
+                crate::editing::with_focus(&self.ed.ops, &self.ed.focus)
+            });
             let st = Arc::make_mut(&mut d.store);
             if stale {
                 // la ventana se leyó del archivo sin editar: se le aplican las ediciones de la
@@ -81,7 +86,7 @@ impl App {
                 d.id = self.detail_id; // renueva la textura
             }
             d.sel_rev = rev;
-            st.selected = hipso_core::edit::selection(st, &self.ed.ops);
+            st.selected = hipso_core::edit::selection(st, ops);
         }
     }
 
@@ -108,8 +113,17 @@ impl App {
         {
             let (win, px) = (*win, *px);
             self.detail_job = None;
+            // una lectura hecha para el foco (px == 0) solo vale con foco y para su ventana, y una
+            // hecha para la vista, solo sin él
+            let stale = match &self.ed.focus {
+                Some(f) => px != 0.0 || win != f.window,
+                None => px == 0.0,
+            };
             match r {
-                Ok(Some((s, level_spacing))) if !s.is_empty() => {
+                Ok(Some((mut s, level_spacing))) if !s.is_empty() && !stale => {
+                    if let Some(f) = &self.ed.focus {
+                        s.outside = hipso_core::edit::outside_focus(&s, &f.inner);
+                    }
                     let spacing = Style::fit(&s).spacing;
                     self.detail_id += 1;
                     self.detail = Some(Detail {
@@ -143,27 +157,46 @@ impl App {
         }
         let Some(base) = &self.store else { return };
         let b = base.bounds;
-        let share = (vw[2] - vw[0]) * (vw[3] - vw[1]) / ((b[3] - b[0]) * (b[4] - b[1])).max(1e-9);
-        if self.detail_src.is_empty()
-            || base.stride <= 1
-            || self.loading.is_some()
-            || share > MAX_SHARE
-        {
-            // nada que ganar: la nube está entera, o la vista abarca la mayor parte de ella
-            self.detail = None;
-            return;
-        }
-        // la ventana se vuelve a leer cuando la vista se ha acercado mucho
-        let covered = self
-            .detail
-            .as_ref()
-            .is_some_and(|d| contains(d.window, vw) && d.px <= px * 1.8);
-        if covered || interactive || self.detail_job.is_some() {
-            return;
-        }
-        // una cuarta parte más por cada lado, para que los movimientos pequeños queden dentro
-        let (mx, my) = ((vw[2] - vw[0]) * 0.25, (vw[3] - vw[1]) * 0.25);
-        let window = [vw[0] - mx, vw[1] - my, vw[2] + mx, vw[3] + my];
+        let (window, px) = if let Some(f) = &self.ed.focus {
+            // con un foco la ventana es la del foco, a toda la densidad que cabe (px = 0), sea
+            // cual sea la vista; se lee una vez y se queda hasta que el foco cambia
+            if self.detail_src.is_empty() || base.stride <= 1 || self.loading.is_some() {
+                self.detail = None;
+                return;
+            }
+            let window = f.window;
+            let covered = self
+                .detail
+                .as_ref()
+                .is_some_and(|d| d.px == 0.0 && d.window == window);
+            if covered || self.detail_job.is_some() {
+                return;
+            }
+            (window, 0.0)
+        } else {
+            let share =
+                (vw[2] - vw[0]) * (vw[3] - vw[1]) / ((b[3] - b[0]) * (b[4] - b[1])).max(1e-9);
+            if self.detail_src.is_empty()
+                || base.stride <= 1
+                || self.loading.is_some()
+                || share > MAX_SHARE
+            {
+                // nada que ganar: la nube está entera, o la vista abarca la mayor parte de ella
+                self.detail = None;
+                return;
+            }
+            // la ventana se vuelve a leer cuando la vista se ha acercado mucho
+            let covered = self
+                .detail
+                .as_ref()
+                .is_some_and(|d| contains(d.window, vw) && d.px <= px * 1.8);
+            if covered || interactive || self.detail_job.is_some() {
+                return;
+            }
+            // una cuarta parte más por cada lado, para que los movimientos pequeños queden dentro
+            let (mx, my) = ((vw[2] - vw[0]) * 0.25, (vw[3] - vw[1]) * 0.25);
+            ([vw[0] - mx, vw[1] - my, vw[2] + mx, vw[3] + my], px)
+        };
         let (paths, origin, files) = (self.detail_src.clone(), base.origin, base.files.clone());
         let (tx, rx) = channel();
         let c = ctx.clone();

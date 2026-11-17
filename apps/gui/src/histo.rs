@@ -92,7 +92,9 @@ fn compute(store: &PointStore, kind: AttrKind, bins: usize, only: bool) -> Optio
     histogram::histogram(
         store.len(),
         |i| {
-            if store.deleted.get(i).copied().unwrap_or(false) {
+            if store.deleted.get(i).copied().unwrap_or(false)
+                || store.outside.get(i).copied().unwrap_or(false)
+            {
                 return None;
             }
             if only && !store.selected.get(i).copied().unwrap_or(false) {
