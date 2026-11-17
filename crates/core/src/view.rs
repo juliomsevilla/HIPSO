@@ -652,6 +652,14 @@ fn ramp(t: f32, earth: bool) -> [u8; 3] {
     [c(0), c(1), c(2)]
 }
 
+/// Nombre y color de cada tipo de retorno al colorear por retorno (también es la leyenda).
+pub const RETURN_COLORS: [(&str, [u8; 3]); 4] = [
+    ("Único", [240, 240, 240]),
+    ("Primero", [60, 200, 60]),
+    ("Último", [230, 60, 60]),
+    ("Intermedio", [240, 200, 40]),
+];
+
 /// Cómo se colorean los puntos y cuáles se dibujan.
 #[derive(Clone, Debug)]
 pub struct Style {
@@ -777,10 +785,10 @@ impl Style {
                 [v, v, v]
             }
             ColorBy::Return => match (s.ret[i] & 15, s.ret[i] >> 4) {
-                (1, 1) => [240, 240, 240],
-                (1, _) => [60, 200, 60],
-                (n, t) if n >= t => [230, 60, 60],
-                _ => [240, 200, 40],
+                (1, 1) => RETURN_COLORS[0].1,
+                (1, _) => RETURN_COLORS[1].1,
+                (n, t) if n >= t => RETURN_COLORS[2].1,
+                _ => RETURN_COLORS[3].1,
             },
             ColorBy::Source => hash_color(u32::from(s.src[i])),
             ColorBy::File => hash_color(u32::from(s.file[i]) + 7),

@@ -4030,27 +4030,44 @@ ui.menu_button("⚙", |ui| {
                 }
             ),
         );
-        // leyenda de las clases
-        if self.style.color_by == ColorBy::Class {
-            let mut y = rect.top() + 26.0;
-            for c in 0..256usize {
-                if self.class_counts[c] > 0 {
-                    let x = rect.right() - 170.0;
-                    painter.rect_filled(
-                        Rect::from_min_size(Pos2::new(x, y), Vec2::new(12.0, 12.0)),
-                        2.0,
-                        color32(self.style.class_colors[c]),
-                    );
-                    painter.text(
-                        Pos2::new(x + 18.0, y + 6.0),
-                        Align2::LEFT_CENTER,
+        self.paint_legend(&painter, rect, &t);
+    }
+
+    /// La leyenda de la planta y del 3D: las clases presentes al colorear por clasificación, o los
+    /// tipos de retorno al colorear por retorno.
+    fn paint_legend(&self, painter: &egui::Painter, rect: Rect, t: &Tokens) {
+        let entries: Vec<(String, [u8; 3])> = match self.style.color_by {
+            ColorBy::Class => (0..256usize)
+                .filter(|c| self.class_counts[*c] > 0)
+                .map(|c| {
+                    (
                         format!("{c} {}", self.ctable.name(c as u8)),
-                        FontId::proportional(11.0),
-                        t.text,
-                    );
-                    y += 16.0;
-                }
-            }
+                        self.style.class_colors[c],
+                    )
+                })
+                .collect(),
+            ColorBy::Return => view::RETURN_COLORS
+                .iter()
+                .map(|(n, c)| (n.to_string(), *c))
+                .collect(),
+            _ => return,
+        };
+        let mut y = rect.top() + 26.0;
+        let x = rect.right() - 170.0;
+        for (name, c) in entries {
+            painter.rect_filled(
+                Rect::from_min_size(Pos2::new(x, y), Vec2::new(12.0, 12.0)),
+                2.0,
+                color32(c),
+            );
+            painter.text(
+                Pos2::new(x + 18.0, y + 6.0),
+                Align2::LEFT_CENTER,
+                name,
+                FontId::proportional(11.0),
+                t.text,
+            );
+            y += 16.0;
         }
     }
 
@@ -4717,6 +4734,7 @@ ui.menu_button("⚙", |ui| {
                 t.weak,
             );
         }
+        self.paint_legend(&painter, rect, &t);
         self.frame_title(ui, rect, "3D");
     }
 
