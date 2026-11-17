@@ -510,6 +510,9 @@ struct App {
     profile_step_m: f64,
     /// Lo que se ha girado la rueda sobre el perfil sin llegar a un paso.
     prof_scroll: f32,
+    /// La herramienta de línea del perfil que se eligió antes de tener perfil: se activa cuando se
+    /// termina de trazar la caja.
+    pending_nav: Option<Nav>,
     tex_plan: Option<(egui::TextureHandle, u64)>,
     tex_prof: Option<(egui::TextureHandle, u64, f64, f64)>,
     /// El perfil lee los puntos de su región de los archivos, con toda la densidad.
@@ -683,6 +686,7 @@ impl Default for App {
             profile_step: ProfileStep::Full,
             profile_step_m: 1.0,
             prof_scroll: 0.0,
+            pending_nav: None,
             tex_plan: None,
             tex_prof: None,
             prof_full: true,
@@ -2402,10 +2406,25 @@ impl App {
                     self.side = Side::Edit;
                 }
                 self.nav = n;
+                self.pending_nav = None;
                 self.profile_clicks.clear();
                 self.dig_draft.clear();
                 if n == Nav::Profile && self.layout == Layout::Plan {
                     self.layout = Layout::PlanProfile;
+                }
+                // las herramientas de línea trabajan en la ventana del perfil: se muestra, y si aún
+                // no hay caja se pasa a trazarla y se vuelve a la herramienta al terminar
+                if editing::is_line(n) {
+                    if self.layout == Layout::Plan {
+                        self.layout = Layout::PlanProfile;
+                    }
+                    if self.profile.is_none() {
+                        self.pending_nav = Some(n);
+                        self.nav = Nav::Profile;
+                        self.log(
+                            "Esta herramienta trabaja en el perfil: traza primero la caja con tres clics en la planta (extremo izquierdo, extremo derecho y borde); después se activa sola.",
+                        );
+                    }
                 }
             }
             Action::Tool(t) => self.tools.open = Some(t),
@@ -3871,6 +3890,9 @@ ui.menu_button("⚙", |ui| {
                         self.profile_clicks.clear();
                         if self.layout == Layout::Plan {
                             self.layout = Layout::PlanProfile;
+                        }
+                        if let Some(n) = self.pending_nav.take() {
+                            self.nav = n;
                         }
                     }
                 }

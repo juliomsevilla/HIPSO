@@ -254,3 +254,50 @@ fn classifying_along_a_line_changes_three_bands_and_one_undo_puts_them_back() {
     assert_eq!(store.class.iter().filter(|c| **c == 14).count(), 200);
     assert_eq!(store.class.iter().filter(|c| **c == 5).count(), 200);
 }
+
+#[test]
+fn picking_a_line_tool_shows_the_profile_and_asks_for_the_box_first() {
+    let ctx = egui::Context::default();
+    // sin caja y con solo la planta: se muestra el perfil y se pasa a trazar la caja
+    let mut app = App::default();
+    app.layout = Layout::Plan;
+    app.act(&ctx, Action::Nav(Nav::ClassLine));
+    assert!(app.layout == Layout::PlanProfile);
+    assert!(app.nav == Nav::Profile && app.pending_nav == Some(Nav::ClassLine));
+    // con caja: la herramienta queda elegida y el perfil a la vista
+    let mut app = app_with_profile(Nav::Zoom);
+    app.layout = Layout::Plan;
+    app.act(&ctx, Action::Nav(Nav::SelNear));
+    assert!(app.layout == Layout::PlanProfile);
+    assert!(app.nav == Nav::SelNear && app.pending_nav.is_none());
+}
+
+#[test]
+fn a_line_selection_is_seen_in_the_profile_and_can_be_edited() {
+    for nav in [Nav::SelAbove, Nav::SelBelow, Nav::SelNear] {
+        let mut app = app_with_profile(nav);
+        let ctx = egui::Context::default();
+        let t = warm_up(&mut app, &ctx);
+        let (lo, hi) = app.tex_prof.as_ref().map(|t| (t.2, t.3)).unwrap();
+        let (w, h) = (RECT.width() as f64, RECT.height() as f64);
+        let k = (w / 20.0).min(h / (hi - lo));
+        let (ox, oy) = ((w - 20.0 * k) / 2.0, (h - (hi - lo) * k) / 2.0);
+        let at = |u: f64, z: f64| Pos2::new((ox + u * k) as f32, (h - oy - (z - lo) * k) as f32);
+        // la línea a cota 12,5, a lo largo del perfil: «sobre» toma el cable, «bajo» el suelo y
+        // «cerca» la vegetación
+        let t = drag(&mut app, &ctx, t, at(1.0, 12.5), at(19.0, 12.5));
+        app.process_edit_cmds();
+        frame(&mut app, &ctx, t, vec![]);
+        let bx = app.profile.unwrap();
+        let picked = app
+            .profile_store(&ctx, &bx)
+            .map(|s| (0..s.len()).filter(|&i| s.selected.get(i).copied().unwrap_or(false)).count())
+            .unwrap_or(0);
+        assert!(picked > 100, "{}: solo {picked} puntos seleccionados", nav.name());
+        // y se puede editar lo seleccionado
+        app.queue(editing::Cmd::Reclass(9));
+        app.process_edit_cmds();
+        let store = app.store.clone().unwrap();
+        assert!(store.class.iter().filter(|c| **c == 9).count() > 100, "{}", nav.name());
+    }
+}
