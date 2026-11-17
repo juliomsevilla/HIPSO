@@ -49,6 +49,20 @@ pub enum Region {
         /// límite, todo lo que queda por encima o por debajo).
         height: f64,
     },
+    /// Los puntos dentro de un círculo en planta cuya cota cae en una banda respecto de una
+    /// superficie ajustada (un plano o una curva de segundo grado). Lo que se guarda son los
+    /// coeficientes del ajuste, no los puntos con que se hizo, así que decidir si un punto cumple no
+    /// mira a los demás: la vista y el archivo guardado dan la misma respuesta. Véase [`fit_surface`].
+    PlaneBand {
+        cx: f64,
+        cy: f64,
+        r: f64,
+        /// `z = c0 + c1 u + c2 v + c3 u² + c4 uv + c5 v²`, con `u = (x - cx) / r` y `v = (y - cy) / r`.
+        coef: [f64; 6],
+        /// El punto cumple si `lo <= z - superficie <= hi` (los extremos pueden ser infinitos).
+        lo: f64,
+        hi: f64,
+    },
     /// Lo que elige una selección entera, construida con sus propios pasos. Es el foco de la
     /// edición: las ediciones hechas con un foco se limitan a él con una intersección con esta
     /// región.
@@ -385,9 +399,98 @@ impl SelOp {
                     && t.abs() <= bx.width / 2.0
                     && beside_line(*a, *b, *above, *height, u, p.z)
             }
+            Region::PlaneBand {
+                cx,
+                cy,
+                r,
+                coef,
+                lo,
+                hi,
+            } => {
+                let (dx, dy) = (p.x - cx, p.y - cy);
+                if dx.hypot(dy) > *r {
+                    return false;
+                }
+                let dz = p.z - surface_at(coef, dx / r, dy / r);
+                dz >= *lo && dz <= *hi
+            }
             Region::Within(ops) => selected(ops, p),
         }
     }
+}
+
+/// La cota de la superficie de coeficientes `coef` en `(u, v)` (coordenadas locales de
+/// [`Region::PlaneBand`]).
+pub fn surface_at(coef: &[f64; 6], u: f64, v: f64) -> f64 {
+    coef[0] + coef[1] * u + coef[2] * v + coef[3] * u * u + coef[4] * u * v + coef[5] * v * v
+}
+
+/// Ajusta por mínimos cuadrados un plano (o, con `quadratic`, una curva de segundo grado) a los
+/// puntos `(x, y, z)` que están a no más de `r` de `(cx, cy)`. Devuelve los coeficientes (los de
+/// segundo grado son 0 en el plano), la desviación típica de los residuos y cuántos puntos se
+/// usaron. `None` si hay menos puntos de los que pide el ajuste (3 o 6) o si están alineados, de
+/// modo que el ajuste no está determinado.
+pub fn fit_surface(
+    pts: impl Iterator<Item = [f64; 3]>,
+    cx: f64,
+    cy: f64,
+    r: f64,
+    quadratic: bool,
+) -> Option<([f64; 6], f64, usize)> {
+    let k = if quadratic { 6 } else { 3 };
+    let terms = |u: f64, v: f64| [1.0, u, v, u * u, u * v, v * v];
+    let mut ata = [[0.0f64; 6]; 6];
+    let mut atz = [0.0f64; 6];
+    let mut used: Vec<[f64; 3]> = Vec::new();
+    for p in pts {
+        let (dx, dy) = (p[0] - cx, p[1] - cy);
+        if dx.hypot(dy) > r {
+            continue;
+        }
+        let (u, v) = (dx / r, dy / r);
+        let t = terms(u, v);
+        for i in 0..k {
+            atz[i] += t[i] * p[2];
+            for j in 0..k {
+                ata[i][j] += t[i] * t[j];
+            }
+        }
+        used.push([u, v, p[2]]);
+    }
+    if used.len() < k {
+        return None;
+    }
+    // eliminación de Gauss con pivote parcial
+    let mut a = [[0.0f64; 7]; 6];
+    for i in 0..k {
+        a[i][..k].copy_from_slice(&ata[i][..k]);
+        a[i][k] = atz[i];
+    }
+    for c in 0..k {
+        let piv = (c..k).max_by(|&x, &y| a[x][c].abs().total_cmp(&a[y][c].abs()))?;
+        if a[piv][c].abs() < 1e-9 * used.len() as f64 {
+            return None;
+        }
+        a.swap(c, piv);
+        for rr in 0..k {
+            if rr != c {
+                let f = a[rr][c] / a[c][c];
+                for cc in c..=k {
+                    a[rr][cc] -= f * a[c][cc];
+                }
+            }
+        }
+    }
+    let mut coef = [0.0f64; 6];
+    for i in 0..k {
+        coef[i] = a[i][k] / a[i][i];
+    }
+    let ss: f64 = used
+        .iter()
+        .map(|q| (q[2] - surface_at(&coef, q[0], q[1])).powi(2))
+        .sum();
+    let sigma = (ss / used.len() as f64).sqrt();
+    Some((coef, sigma, used.len()))
 }
 
 /// Si la selección construida por `ops` incluye el punto.
@@ -1280,5 +1383,111 @@ mod tests {
         assert_eq!((direct.read, direct.deleted, direct.written), (6, 3, 3));
         assert_eq!(replay, direct);
         Ok(())
+    }
+
+    #[test]
+    fn a_plane_band_gives_the_same_answer_in_the_file_as_on_screen() -> Result<()> {
+        // seis puntos en x = 0…5, z = 0; la superficie está a z = -2, así que todos quedan 2 sobre ella
+        let bytes = las_with(&[(0, 1); 6]);
+        let id = std::process::id();
+        let dir = std::env::temp_dir();
+        let (input, out) = (
+            dir.join(format!("hipso_band_in_{id}.las")),
+            dir.join(format!("hipso_band_out_{id}.las")),
+        );
+        std::fs::write(&input, &bytes)?;
+        let band = |lo: f64| {
+            Edit::new(
+                vec![op(
+                    Mode::New,
+                    Region::PlaneBand {
+                        cx: 2.5,
+                        cy: 0.0,
+                        r: 1.6,
+                        coef: [-2.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                        lo,
+                        hi: f64::INFINITY,
+                    },
+                    Attr::default(),
+                )],
+                Action::Delete,
+                "banda".into(),
+            )
+        };
+        // dentro del círculo (x = 1…4) y a más de 1 sobre la superficie: se eliminan cuatro
+        let some = save(&input, &out, &[band(1.0)])?;
+        // a más de 3 sobre ella no hay ninguno
+        let none = save(&input, &out, &[band(3.0)])?;
+        let _ = std::fs::remove_file(&input);
+        let _ = std::fs::remove_file(&out);
+        assert_eq!((some.read, some.deleted, some.written), (6, 4, 2));
+        assert_eq!((none.deleted, none.written), (0, 6));
+        Ok(())
+    }
+
+    #[test]
+    fn a_plane_is_recovered_and_the_band_picks_what_is_above_it() {
+        // suelo inclinado: z = 10 + 0,2 x; un punto 3 m sobre él y otro 3 m bajo él
+        let ground: Vec<[f64; 3]> = (0..20)
+            .flat_map(|i| (0..20).map(move |j| [f64::from(i), f64::from(j), 10.0 + 0.2 * f64::from(i)]))
+            .collect();
+        let (coef, sigma, n) = fit_surface(ground.iter().copied(), 10.0, 10.0, 8.0, false).unwrap();
+        assert!(sigma < 1e-6 && n > 100, "{sigma} {n}");
+        let band = |lo: f64, hi: f64| Region::PlaneBand {
+            cx: 10.0,
+            cy: 10.0,
+            r: 8.0,
+            coef,
+            lo,
+            hi,
+        };
+        let at = |z: f64, x: f64| Sample {
+            x,
+            y: 10.0,
+            z,
+            class: 1,
+            intensity: 0,
+            ret: 0x11,
+            src: 0,
+            scan: 0.0,
+        };
+        let above = SelOp {
+            mode: Mode::New,
+            region: band(0.5, f64::INFINITY),
+            attr: Attr::default(),
+        };
+        let below = SelOp {
+            mode: Mode::New,
+            region: band(f64::NEG_INFINITY, -0.5),
+            attr: Attr::default(),
+        };
+        let (hi, lo, on) = (at(10.0 + 0.2 * 12.0 + 3.0, 12.0), at(10.0 + 0.2 * 12.0 - 3.0, 12.0), at(10.0 + 0.2 * 12.0, 12.0));
+        assert!(above.matches(&hi) && !above.matches(&lo) && !above.matches(&on));
+        assert!(below.matches(&lo) && !below.matches(&hi) && !below.matches(&on));
+        // fuera del círculo no cuenta, aunque esté sobre el plano
+        assert!(!above.matches(&at(10.0 + 0.2 * 19.0 + 3.0, 19.0)));
+    }
+
+    #[test]
+    fn a_quadratic_surface_follows_a_bowl_that_a_plane_cannot() {
+        let bowl: Vec<[f64; 3]> = (-9..=9)
+            .flat_map(|i| (-9..=9).map(move |j| {
+                let (x, y) = (f64::from(i), f64::from(j));
+                [x, y, 0.05 * (x * x + y * y)]
+            }))
+            .collect();
+        let (_, flat, _) = fit_surface(bowl.iter().copied(), 0.0, 0.0, 9.0, false).unwrap();
+        let (_, curved, _) = fit_surface(bowl.iter().copied(), 0.0, 0.0, 9.0, true).unwrap();
+        assert!(flat > 0.3 && curved < 1e-6, "{flat} {curved}");
+    }
+
+    #[test]
+    fn a_fit_needs_enough_points_that_are_not_in_a_line() {
+        let two = [[0.0, 0.0, 1.0], [1.0, 0.0, 1.0]];
+        assert!(fit_surface(two.iter().copied(), 0.0, 0.0, 5.0, false).is_none());
+        let line: Vec<[f64; 3]> = (0..10).map(|i| [f64::from(i), 0.0, 1.0]).collect();
+        assert!(fit_surface(line.iter().copied(), 5.0, 0.0, 6.0, false).is_none());
+        // puntos fuera del círculo no cuentan
+        assert!(fit_surface(line.iter().copied(), 100.0, 100.0, 1.0, false).is_none());
     }
 }

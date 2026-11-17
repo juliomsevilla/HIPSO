@@ -126,6 +126,25 @@ fn region_json(r: &Region) -> String {
             above,
             num(*height)
         ),
+        Region::PlaneBand {
+            cx,
+            cy,
+            r,
+            coef,
+            lo,
+            hi,
+        } => {
+            let c: Vec<String> = coef.iter().map(|v| num(*v)).collect();
+            format!(
+                "{{\"type\":\"plane_band\",\"cx\":{},\"cy\":{},\"r\":{},\"coef\":[{}],\"lo\":{},\"hi\":{}}}",
+                num(*cx),
+                num(*cy),
+                num(*r),
+                c.join(","),
+                num(*lo),
+                num(*hi)
+            )
+        }
         Region::Within(ops) => format!("{{\"type\":\"within\",\"ops\":{}}}", ops_json(ops)),
     }
 }
@@ -334,6 +353,24 @@ fn region_of(j: &Json) -> Result<Region> {
             above: bool_of(field(j, "above")?, "above")?,
             height: f64_of(field(j, "height")?, "height")?,
         },
+        "plane_band" => {
+            let c = arr_of(field(j, "coef")?, "coef")?;
+            if c.len() != 6 {
+                return Err(bad("el ajuste de un plano local no tiene 6 coeficientes"));
+            }
+            let mut coef = [0.0; 6];
+            for (slot, v) in coef.iter_mut().zip(c) {
+                *slot = f64_of(v, "coef")?;
+            }
+            Region::PlaneBand {
+                cx: f64_of(field(j, "cx")?, "cx")?,
+                cy: f64_of(field(j, "cy")?, "cy")?,
+                r: f64_of(field(j, "r")?, "r")?,
+                coef,
+                lo: f64_of(field(j, "lo")?, "lo")?,
+                hi: f64_of(field(j, "hi")?, "hi")?,
+            }
+        }
         "within" => Region::Within(ops_of(field(j, "ops")?)?),
         other => return Err(bad(&format!("región desconocida «{other}»"))),
     })
@@ -574,6 +611,18 @@ mod tests {
                     b: [9.0, 6.0],
                     above: true,
                     height: 2.0,
+                },
+                Attr::default(),
+            ),
+            op(
+                Mode::Add,
+                Region::PlaneBand {
+                    cx: 5.0,
+                    cy: 5.0,
+                    r: 4.0,
+                    coef: [3.0, 0.1, -0.2, 0.05, 0.0, 0.02],
+                    lo: -1.0,
+                    hi: f64::INFINITY,
                 },
                 Attr::default(),
             ),
