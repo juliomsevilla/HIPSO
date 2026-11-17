@@ -749,21 +749,31 @@ impl App {
                     if op.mode == Mode::New {
                         self.ed.ops.clear();
                     }
-                    self.ed.ops.push(*op);
+                    let mut op = *op;
+                    op.attr = visible_attr(&self.style, op.attr);
+                    self.ed.ops.push(op);
                 }
                 Cmd::Clear => self.ed.ops.clear(),
                 Cmd::All => {
                     self.ed.ops = vec![SelOp {
                         mode: Mode::New,
                         region: Region::All,
-                        attr: self.ed.attr.clone(),
+                        attr: visible_attr(&self.style, self.ed.attr.clone()),
                     }];
                 }
-                Cmd::Invert => self.ed.ops.push(SelOp {
-                    mode: Mode::Invert,
-                    region: Region::All,
-                    attr: Attr::default(),
-                }),
+                Cmd::Invert => {
+                    self.ed.ops.push(SelOp {
+                        mode: Mode::Invert,
+                        region: Region::All,
+                        attr: Attr::default(),
+                    });
+                    // lo oculto por los filtros de la vista no entra en la inversión
+                    self.ed.ops.push(SelOp {
+                        mode: Mode::Intersect,
+                        region: Region::All,
+                        attr: visible_attr(&self.style, Attr::default()),
+                    });
+                }
                 Cmd::Delete | Cmd::Reclass(_) => {
                     if self.ed.ops.is_empty() {
                         self.log
@@ -1381,4 +1391,13 @@ impl App {
                 });
             });
     }
+}
+
+/// Los atributos de una selección acotados a lo que los filtros de la vista (clases y retornos)
+/// dejan ver: lo oculto no se selecciona ni se edita.
+/// ponytail: el filtro por archivo no se aplica, la selección no conoce el archivo de cada punto.
+fn visible_attr(style: &Style, mut a: Attr) -> Attr {
+    a.classes = a.classes.intersection(&style.classes);
+    a.returns &= style.returns;
+    a
 }

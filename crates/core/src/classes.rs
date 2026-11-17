@@ -45,6 +45,15 @@ impl ClassSet {
         s
     }
 
+    /// Las clases que están en `self` y en `other`.
+    pub fn intersection(&self, other: &Self) -> Self {
+        let mut w = self.0;
+        for (a, b) in w.iter_mut().zip(other.0) {
+            *a &= b;
+        }
+        Self(w)
+    }
+
     /// Toda clase salvo las de `self`.
     pub fn inverted(&self) -> Self {
         Self(self.0.map(|w| !w))
@@ -170,5 +179,15 @@ mod tests {
         assert!(!s.contains(200));
         assert!(ClassSet::from_bits(1 << 5).contains(5));
         assert!(!ClassSet::only(7).inverted().contains(7));
+    }
+
+    #[test]
+    fn intersection_keeps_common_classes() {
+        let mut a = ClassSet::none();
+        a.set(3, true);
+        a.set(15, true);
+        let i = ClassSet::all().intersection(&a);
+        assert!(i.contains(3) && i.contains(15) && !i.contains(2));
+        assert!(!a.intersection(&ClassSet::only(2)).contains(3));
     }
 }
