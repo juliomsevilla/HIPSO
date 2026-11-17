@@ -127,6 +127,37 @@ enum ColorArg {
 }
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
+enum DupsArg {
+    /// No buscar duplicados
+    Keep,
+    /// Marcarlos como retenidos (withheld), dejando uno de cada conjunto
+    Mark,
+    /// Quitarlos, dejando uno de cada conjunto
+    Delete,
+}
+
+/// Los atributos que deben coincidir para que dos puntos sean duplicados.
+fn dup_fields(also: &[String]) -> Result<hipso_core::cloudtools::DupFields> {
+    let mut f = hipso_core::cloudtools::DupFields::default();
+    for a in also {
+        match a.as_str() {
+            "class" => f.class = true,
+            "gps" => f.gps_time = true,
+            "intensity" => f.intensity = true,
+            "return" => f.return_number = true,
+            "count" => f.return_count = true,
+            "source" => f.source_id = true,
+            o => {
+                return Err(hipso_core::Error::Param(format!(
+                    "'{o}' no es un atributo: class, gps, intensity, return, count o source"
+                )));
+            }
+        }
+    }
+    Ok(f)
+}
+
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum ThinArg {
     /// Punto más bajo de cada celda
     Lowest,
@@ -2401,6 +2432,22 @@ enum Cmd {
         /// Borra todas las copias, no solo las sobrantes
         #[arg(long)]
         all_copies: bool,
+        /// Atributos que también deben coincidir: class, gps, intensity, return, count, source
+        #[arg(long, value_delimiter = ',')]
+        also: Vec<String>,
+    },
+    /// Une dos o más nubes en una y decide qué hacer con los puntos duplicados
+    MergeClouds {
+        /// Nubes LAS o LAZ que se unen (dos o más)
+        #[arg(required = true, num_args = 2..)]
+        inputs: Vec<PathBuf>,
+        /// Nube unida; por defecto, en la carpeta de resultados
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Qué hacer con los duplicados: keep (no buscarlos), mark (marcarlos como retenidos) o
+        /// delete (quitarlos)
+        #[arg(long, value_enum, default_value = "keep")]
+        dups: DupsArg,
         /// Atributos que también deben coincidir: class, gps, intensity, return, count, source
         #[arg(long, value_delimiter = ',')]
         also: Vec<String>,
@@ -5375,23 +5422,8 @@ fn run(cmd: Cmd) -> Result<()> {
             all_copies,
             also,
         } => {
-            use hipso_core::cloudtools::{DupFields, remove_duplicates};
-            let mut f = DupFields::default();
-            for a in &also {
-                match a.as_str() {
-                    "class" => f.class = true,
-                    "gps" => f.gps_time = true,
-                    "intensity" => f.intensity = true,
-                    "return" => f.return_number = true,
-                    "count" => f.return_count = true,
-                    "source" => f.source_id = true,
-                    o => {
-                        return Err(hipso_core::Error::Param(format!(
-                            "'{o}' no es un atributo: class, gps, intensity, return, count o source"
-                        )));
-                    }
-                }
-            }
+            use hipso_core::cloudtools::remove_duplicates;
+            let f = dup_fields(&also)?;
             let output = single_output(output, inputs.len())?;
             let mut lines = Vec::new();
             for input in &inputs {
@@ -5403,6 +5435,32 @@ fn run(cmd: Cmd) -> Result<()> {
                 ));
             }
             lines.join("\n")
+        }
+        Cmd::MergeClouds {
+            inputs,
+            output,
+            dups,
+            also,
+        } => {
+            use hipso_core::merge::{DupAction, merge};
+            let first = inputs.first().cloned().unwrap_or_default();
+            let out = out_path(output, &first, "unida", &ext_of(&first));
+            let action = match dups {
+                DupsArg::Keep => DupAction::Keep,
+                DupsArg::Mark => DupAction::Mark,
+                DupsArg::Delete => DupAction::Delete,
+            };
+            let r = merge(&inputs, &out, action, dup_fields(&also)?)?;
+            let mut text = format!("{} nubes unidas, {} puntos", inputs.len(), r.points);
+            match action {
+                DupAction::Keep => {}
+                DupAction::Mark => text += &format!(", {} duplicados marcados", r.duplicates),
+                DupAction::Delete => text += &format!(", {} duplicados quitados", r.duplicates),
+            }
+            for n in &r.notes {
+                text += &format!("\n  aviso: {n}");
+            }
+            format!("{text}: {}", out.display())
         }
         Cmd::Compare {
             input,

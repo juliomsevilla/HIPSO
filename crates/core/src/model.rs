@@ -271,6 +271,7 @@ pub const CATALOG: &[Entry] = &[
     e("edit", "Preparar", "Editar puntos con polígonos", C, &[C], "laz"),
     e("crs", "Preparar", "Asignar proyección", C, &[C], "laz"),
     e("dedup", "Preparar", "Quitar duplicados", C, &[C], "laz"),
+    e("merge-clouds", "Preparar", "Unir nubes", C, &[C], "laz"),
     e("hag", "Preparar", "Altura sobre el suelo", C, &[C], "laz"),
     e("colorize", "Preparar", "Colorear con una ortofoto", C, &[C], "laz"),
     e("intensity", "Preparar", "Normalizar intensidad", C, &[C], "laz"),
