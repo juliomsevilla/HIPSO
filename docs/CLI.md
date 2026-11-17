@@ -200,6 +200,18 @@ Edita puntos como si fueran elementos: borra o reclasifica los puntos dentro de 
 | `--delete` | casilla | desactivada | Borra los puntos seleccionados. |
 | `--set-class` | texto o número | ninguno | Cambia los puntos seleccionados a esta clase. |
 
+### hipso apply-edits
+
+Aplica a una o más nubes las ediciones guardadas desde el visor (un archivo de ediciones JSON) y escribe archivos nuevos, nunca el original
+
+**En la interfaz:** panel lateral → Edición → Guardar ediciones… y Cargar ediciones…. El método se explica en el apartado 6.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ a las que se aplican las ediciones. **Obligatoria.** Se puede repetir. |
+| `--edits` | archivo o carpeta | ninguno | Archivo de ediciones, el que escribe el visor con «Guardar ediciones…». **Obligatoria.** |
+| `-o`, `--output` | archivo o carpeta | ninguno | Nube de salida (solo una entrada); por defecto, en la carpeta de resultados. |
+
 ### hipso colorize
 
 Colorea los puntos a partir de una imagen del mismo lugar (una ortofoto): cada punto toma el rojo, el verde y el azul de su píxel. Los formatos sin color se escriben como formato 7
