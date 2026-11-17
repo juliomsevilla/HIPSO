@@ -1273,6 +1273,7 @@ impl App {
                     vec![
                         tool("@flightline", "Líneas de vuelo", ToolId::FlightLines),
                         tool("@vdensity", "Densidad de Voronoi", ToolId::VDensity),
+                        tool("@merge", "Unir nubes", ToolId::Merge),
                     ],
                 ],
             },
@@ -2474,6 +2475,7 @@ impl App {
             ("Medición de troncos", Action::Tool(ToolId::Tls)),
             ("Volúmenes respecto al MDT", Action::Tool(ToolId::Volume)),
             ("Quitar puntos duplicados", Action::Tool(ToolId::Dups)),
+            ("Unir dos o más nubes", Action::Tool(ToolId::Merge)),
             ("Alturas sobre el suelo", Action::Tool(ToolId::Hag)),
             (
                 "Colorear la nube con una ortofoto (RGB)",

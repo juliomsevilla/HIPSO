@@ -58,6 +58,8 @@ pub enum ToolId {
     Thin,
     Tls,
     Dups,
+    /// Une dos o más nubes en una.
+    Merge,
     Compare,
     Fit,
     Swath,
@@ -89,6 +91,7 @@ impl ToolId {
             ToolId::Thin => "Adelgazar nube (decimar)",
             ToolId::Tls => "Medición de troncos",
             ToolId::Dups => "Quitar puntos duplicados",
+            ToolId::Merge => "Unir nubes",
             ToolId::Compare => "Comparar nubes (cambios)",
             ToolId::Fit => "Ajustar una nube a otra",
             ToolId::Swath => "Separación entre pasadas",
@@ -1138,6 +1141,7 @@ impl Tools {
                             ToolId::Thin => self.thin_form(ui, t, inputs),
                             ToolId::Tls => self.tls_form(ui, t),
                             ToolId::Dups => self.dups_form(ui, t),
+                            ToolId::Merge => self.merge_form(ui, t, inputs),
                             ToolId::Hag => self.hag_form(ui, t),
                             ToolId::Colorize => self.colorize_form(ui, t),
                             ToolId::Intensity => self.intensity_form(ui, t),
@@ -1164,10 +1168,13 @@ impl Tools {
                     )
                     .fill(t.accent)
                     .min_size(egui::vec2(120.0, 30.0));
+                    let merge_ok = tool != ToolId::Merge || self.merge_chosen(inputs).len() >= 2;
                     if ui
-                        .add_enabled(!busy && first.is_some(), go)
+                        .add_enabled(!busy && first.is_some() && merge_ok, go)
                         .on_disabled_hover_text(if busy {
                             "Hay un proceso en marcha"
+                        } else if !merge_ok {
+                            "Elige dos o más nubes"
                         } else {
                             "Abre primero una nube"
                         })
@@ -1904,6 +1911,7 @@ impl Tools {
             ToolId::Thin
             | ToolId::Tls
             | ToolId::Dups
+            | ToolId::Merge
             | ToolId::Hag
             | ToolId::Compare
             | ToolId::Fit
@@ -1955,6 +1963,7 @@ impl Tools {
             | ToolId::Thin
             | ToolId::Tls
             | ToolId::Dups
+            | ToolId::Merge
             | ToolId::Hag
             | ToolId::Compare
             | ToolId::Fit

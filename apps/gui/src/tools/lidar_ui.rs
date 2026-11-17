@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use super::*;
 use hipso_core::cloudtools::{self, DupFields};
 use hipso_core::hag::{self, HagParams};
+use hipso_core::merge::DupAction;
 use hipso_core::thin::{self, ThinMethod, ThinParams};
 use hipso_core::tls::{self, TlsJob, TlsParams};
 use hipso_core::volume::{self, ReferenceSource, VolumeJob};
@@ -27,6 +28,10 @@ pub struct State {
     pub tls_stems: bool,
     pub dup: DupFields,
     pub dup_all: bool,
+    /// Nubes cargadas que el usuario excluye de la unión.
+    pub merge_skip: std::collections::HashSet<PathBuf>,
+    /// Qué hacer con los duplicados al unir: 0 mantener, 1 marcar, 2 eliminar.
+    pub merge_dups: usize,
     pub hag: HagParams,
     pub cmp_ref: String,
     pub cmp_dist: f64,
@@ -112,6 +117,8 @@ impl Default for State {
             tls_stems: false,
             dup: DupFields::default(),
             dup_all: false,
+            merge_skip: Default::default(),
+            merge_dups: 0,
             hag: HagParams::default(),
             cmp_ref: String::new(),
             cmp_dist: 0.5,
@@ -484,6 +491,63 @@ impl Tools {
             &mut s.dup_all,
             "Quitar todas las copias (si no, se deja un punto de cada grupo)",
         );
+    }
+
+    /// Las nubes cargadas que se unirán (todas menos las que el usuario ha desmarcado).
+    pub fn merge_chosen(&self, inputs: &[PathBuf]) -> Vec<PathBuf> {
+        inputs
+            .iter()
+            .filter(|p| !self.lx.merge_skip.contains(*p))
+            .cloned()
+            .collect()
+    }
+
+    pub fn merge_form(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf]) {
+        ui.label(egui::RichText::new("Une dos o más nubes en una nueva (…_unida). Sirve, por ejemplo, para juntar trozos que se extrajeron para editarlos. Las nubes pueden tener otra escala o sistema de coordenadas, pero el mismo formato de punto. Marca las nubes que se unen y qué hacer con los puntos que quedan repetidos (mismas x, y, z).").color(t.weak).size(11.0));
+        for p in inputs {
+            let mut on = !self.lx.merge_skip.contains(p);
+            let name = p
+                .file_name()
+                .map_or(String::new(), |n| n.to_string_lossy().into_owned());
+            if ui
+                .checkbox(&mut on, name)
+                .on_hover_text(p.display().to_string())
+                .changed()
+            {
+                if on {
+                    self.lx.merge_skip.remove(p);
+                } else {
+                    self.lx.merge_skip.insert(p.clone());
+                }
+            }
+        }
+        let n = self.merge_chosen(inputs).len();
+        if n < 2 {
+            ui.colored_label(egui::Color32::from_rgb(230, 160, 40), "Elige dos o más nubes.");
+        }
+        ui.add_space(4.0);
+        ui.label("Puntos duplicados");
+        let s = &mut self.lx;
+        ui.radio_value(&mut s.merge_dups, 0, "Mantenerlos (no se buscan)");
+        ui.radio_value(
+            &mut s.merge_dups,
+            1,
+            "Marcarlos como retenidos (withheld), dejando uno de cada grupo sin marcar",
+        );
+        ui.radio_value(
+            &mut s.merge_dups,
+            2,
+            "Eliminarlos, dejando un punto de cada grupo",
+        );
+        if s.merge_dups != 0 {
+            ui.label("También deben coincidir:");
+            ui.checkbox(&mut s.dup.class, "Misma clase");
+            ui.checkbox(&mut s.dup.gps_time, "Mismo tiempo GPS");
+            ui.checkbox(&mut s.dup.intensity, "Misma intensidad");
+            ui.checkbox(&mut s.dup.return_number, "Mismo número de retorno");
+            ui.checkbox(&mut s.dup.return_count, "Mismo número de retornos");
+            ui.checkbox(&mut s.dup.source_id, "Mismo ID de fuente (pasada)");
+        }
     }
 
     pub fn colorize_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
@@ -1296,6 +1360,40 @@ impl Tools {
                     }),
                     outputs,
                 )
+            }
+            ToolId::Merge => {
+                let chosen = self.merge_chosen(inputs);
+                if chosen.len() < 2 {
+                    _log.push("Elige dos o más nubes para unirlas.".into());
+                    return None;
+                }
+                let out = paths::unique(&paths::product(&chosen[0], "unida", &ext));
+                let (fields, action) = (
+                    self.lx.dup,
+                    [DupAction::Keep, DupAction::Mark, DupAction::Delete][self.lx.merge_dups],
+                );
+                let (outputs, show) = (vec![out.clone()], vec![out.clone()]);
+                let task: Task = Box::new(move || {
+                    let r = hipso_core::merge::merge(&chosen, &out, action, fields)?;
+                    let mut text = format!("{} nubes unidas, {} puntos", chosen.len(), r.points);
+                    match action {
+                        DupAction::Keep => {}
+                        DupAction::Mark => text += &format!(", {} duplicados marcados", r.duplicates),
+                        DupAction::Delete => {
+                            text += &format!(", {} duplicados quitados", r.duplicates);
+                        }
+                    }
+                    for n in &r.notes {
+                        text += &format!("\n  aviso: {n}");
+                    }
+                    Ok(format!("{text}: {}", out.display()))
+                });
+                return Some(Launch {
+                    label,
+                    task,
+                    show,
+                    outputs,
+                });
             }
             ToolId::Compare | ToolId::Fit => {
                 let reference = PathBuf::from(if tool == ToolId::Compare {
