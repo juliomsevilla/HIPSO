@@ -1305,17 +1305,6 @@ impl App {
                                 self.queue(Cmd::Unfocus);
                             }
                         });
-                        if ribbon::small_button(
-                            ui,
-                            &t,
-                            "📤",
-                            "Exportar puntos…",
-                            self.tools.open == Some(ToolId::Export),
-                        )
-                        .clicked()
-                        {
-                            self.act(ctx, Action::Tool(ToolId::Export));
-                        }
                         ui.label(
                             egui::RichText::new(format!(
                                 "Seleccionados: {} puntos en pantalla (≈ {} en el archivo)",
@@ -1370,17 +1359,6 @@ impl App {
                         ui.separator();
                         ui.horizontal_wrapped(|ui| {
                             ui.spacing_mut().item_spacing = Vec2::splat(2.0);
-                            if ribbon::small_button(
-                                ui,
-                                &t,
-                                "@dups",
-                                "Quitar duplicados",
-                                self.tools.open == Some(ToolId::Dups),
-                            )
-                            .clicked()
-                            {
-                                self.tools.open = Some(ToolId::Dups);
-                            }
                             if ribbon::small_button(
                                 ui,
                                 &t,
