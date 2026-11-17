@@ -4,7 +4,7 @@ Documento de trabajo para quien vaya a construir las funciones. Resume qué tien
 
 ## Estado actual (rama `version-0.8.2`)
 
-**Hecho: E01, E02 y E03** (Fase 0) y **E04 a E09** (Fase 1; E04 a E09 comprobados a mano salvo lo que se lista en «Qué falta comprobar»). Todo lo demás está sin empezar. Las fichas de E01–E03 de la sección 4 llevan una nota **Implementado** con lo que se hizo y en qué se apartó del diseño.
+**Hecho: E01, E02 y E03** (Fase 0) y **E04 a E09** (Fase 1), todos comprobados a mano salvo lo que se lista en «Qué falta comprobar». Todo lo demás está sin empezar. Las fichas de E01–E03 de la sección 4 llevan una nota **Implementado** con lo que se hizo y en qué se apartó del diseño.
 
 | ID | Estado | Resumen |
 |---|---|---|
@@ -23,8 +23,9 @@ Documento de trabajo para quien vaya a construir las funciones. Resume qué tien
 - **Aislar selección** y **Volver a la nube** funcionan.
 - **Recuperar** las ediciones tras cerrar funciona. La sesión se autoguarda sola tras cada edición; *Guardar ediciones…* solo exporta ese mismo JSON a un archivo propio.
 - **Velocidad:** da buen resultado en `--release`.
+- **Textos de ayuda sobre las vistas:** se quitaron los avisos turquesa que salían sobre la planta y el perfil con las herramientas de línea; el aviso en el registro al elegir una herramienta de línea sin caja de perfil se conserva, y la indicación de cómo trazar (recta, o vértices con doble clic, Intro o botón derecho) está en el panel *Edición* y en el manual.
 - **Perfil tras cargar otras nubes:** al añadir el resultado guardado, el perfil seguía enseñando los puntos de la original. Causa: mientras cargaba, la lista de nubes ya era la nueva pero los puntos y las copias COPC de detalle eran aún los de la anterior, y el perfil leía las copias viejas atribuyéndolas a las nuevas. Ahora `profile_store` no lee mientras hay una carga en curso ni mientras los archivos del almacén no coinciden con la lista, y al terminar la carga se descarta el perfil leído. Se reprodujo con la prueba opcional `real_cloud_profile_with_edited_on_top` (`HIPSO_TEST_LAZ` y `HIPSO_TEST_EDITED`).
-- **Nubes solapadas:** prevalece la de arriba en la lista de nubes (`Style::shadows`, `PointStore::shadows`): sus extensiones tapan los puntos de las de abajo, en planta, perfil y 3D, y una nube que se abre queda arriba. Así el resultado de *Guardar nube editada…* (que se abre arriba) se ve sin quitar la original. Falta comprobarlo a mano.
+- **Nubes solapadas:** prevalece la de arriba en la lista de nubes (`Style::shadows`, `PointStore::shadows`): sus extensiones tapan los puntos de las de abajo, en planta, perfil y 3D, y una nube que se abre queda arriba. Así el resultado de *Guardar nube editada…* (que se abre arriba) se ve sin quitar la original. Comprobado a mano.
 - **E07, E08 y E09:** el plano local, el color por altura sobre el suelo, los modos de color nuevos y el menú de color con sus iconos funcionan.
 - **E04, E05 y E06:** el paso del perfil, *Seleccionar cerca de una línea*, *Clasificar a lo largo de una línea* y las líneas quebradas funcionan. Para llegar ahí hubo que corregir cuatro cosas, que conviene recordar al tocar el perfil: (1) la rueda llegaba repartida en varios fotogramas y movía muchos pasos por muesca (ahora se acumula: una muesca, un paso); (2) egui cuenta como *triple* clic un doble clic hecho poco después de otro clic, así que cerrar una línea quebrada exige aceptar los dos (`double_clicked_by` o `triple_clicked_by`); (3) el perfil tiene sus propios puntos, y la altura sobre el suelo hay que calcularla también sobre ellos (`profile_data.rs`); (4) una herramienta de línea sin perfil a la vista o sin caja no hacía nada ni avisaba: ahora muestra el perfil y pide la caja (`App::pending_nav`).
 

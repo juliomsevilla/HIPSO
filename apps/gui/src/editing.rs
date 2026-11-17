@@ -580,16 +580,6 @@ impl App {
             );
             return;
         }
-        if is_line(self.nav) {
-            painter.text(
-                rect.left_top() + Vec2::new(8.0, 6.0),
-                Align2::LEFT_TOP,
-                "Esta herramienta se usa en la ventana del perfil, no en la planta",
-                FontId::proportional(12.0),
-                Color32::from_rgb(0, 255, 255),
-            );
-            return;
-        }
         if self.nav == Nav::SelPlane {
             // el círculo con el que se ajustará el plano, a escala
             if let Some(h) = resp.hover_pos() {
@@ -760,18 +750,6 @@ impl App {
                     self.finish_line(ctx, bx, edit::sorted_path(path));
                 }
             }
-            // qué hacer, a la vista mientras no se está trazando nada
-            painter.text(
-                rect.left_top() + Vec2::new(8.0, 6.0),
-                Align2::LEFT_TOP,
-                if self.ed.pdraft.is_empty() {
-                    "Traza la línea: arrastra para una recta, o haz clic en cada vértice"
-                } else {
-                    "Doble clic, Intro o botón derecho para acabar la línea"
-                },
-                FontId::proportional(12.0),
-                color,
-            );
             // lo que se está trazando: la recta que se arrastra, o los vértices de la línea quebrada
             let mut trace: Vec<Pos2> = self.ed.pdraft.iter().map(|p| back(p[0], p[1])).collect();
             if let (true, Some(a), Some(b)) = (
