@@ -236,6 +236,7 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Eliminar" => "Elimina los puntos seleccionados (Supr).",
         "Cambiar clase" => "Asigna la clase elegida a los puntos seleccionados.",
         "Quitar duplicados" => "Elimina los puntos repetidos y escribe una nube nueva.",
+        "Unir nubes" => "Une dos o más nubes en una nueva y decide qué hacer con los puntos repetidos.",
         "Histogramas" => {
             "Histograma de un atributo de los puntos, para detectar valores raros y seleccionarlos."
         }

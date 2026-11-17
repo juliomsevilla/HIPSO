@@ -19,7 +19,7 @@ HIPSO = RAIZ / "target" / "release" / ("hipso.exe" if sys.platform == "win32" el
 
 # (título del área, órdenes)
 GRUPOS = [
-    ("Revisar y preparar nubes", "info catalog crs import dedup tile clip filter thin edit colorize intensity swath flightlines compare fit hag"),
+    ("Revisar y preparar nubes", "info catalog crs import dedup merge-clouds tile clip filter thin edit colorize intensity swath flightlines compare fit hag"),
     ("Clasificar y modelar superficies", "classify dtm dsm chm hillshade contour raster metrics"),
     ("Vegetación e inventario", "trees obia stem-volume model change corridor"),
     ("Ráster", "stack mosaic align reproject cog reclass clip-raster sieve proximity fill-nodata calc vectorize rasterize focal rstats tabulate zonal"),
@@ -34,6 +34,7 @@ DONDE = {
     "crs": ("LiDAR → Preparar → Asignar proyección", "7.1"),
     "import": ("Abrir (un PLY o un E57 se convierte al abrirlo)", "10"),
     "dedup": ("LiDAR → Preparar → Quitar duplicados", "6.4"),
+    "merge-clouds": ("LiDAR → Calidad → Unir nubes", "6.5"),
     "clip": ("LiDAR → ALS → Extraer muestras", "7.3"),
     "filter": ("LiDAR → Preparar → Exportar puntos (con normalizar)", "7.1"),
     "thin": ("LiDAR → Preparar → Adelgazar nube", "7.1"),

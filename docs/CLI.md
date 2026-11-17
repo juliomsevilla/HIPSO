@@ -53,6 +53,19 @@ Importa una nube de puntos de otro formato como LAS/LAZ: PLY (ASCII o binario) o
 | `-o`, `--output` | archivo o carpeta | ninguno | .las o .laz de salida; por defecto: <resultados>/<entrada>_ply.laz o _e57.laz (nunca un archivo existente) |
 | `--epsg` | texto o número | ninguno | Código EPSG del sistema de coordenadas de los puntos (PLY y E57 rara vez lo dicen) |
 
+### hipso merge-clouds
+
+Une dos o más nubes en una y decide qué hacer con los puntos duplicados
+
+**En la interfaz:** LiDAR → Calidad → Unir nubes. El método se explica en el apartado 6.5.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ que se unen (dos o más). **Obligatoria.** Se puede repetir. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Nube unida; por defecto, en la carpeta de resultados. |
+| `--dups` | una de: `keep`, `mark`, `delete` | `keep` | Qué hacer con los duplicados: keep (no buscarlos), mark (marcarlos como retenidos) o delete (quitarlos). |
+| `--also` | texto o número | ninguno | Atributos que también deben coincidir: class, gps, intensity, return, count, source. Se puede repetir. |
+
 ### hipso dedup
 
 Quita los puntos duplicados (mismas x, y, z y los atributos pedidos)

@@ -129,7 +129,7 @@ Menú con el mínimo y el máximo de elevación entre los que se reparte la ramp
 
 ##### Filtros
 
-Menú con cuatro casillas que filtran los retornos que se dibujan (*Primeros retornos*, *Retornos intermedios*, *Últimos retornos* y *Retornos únicos*) y, al final, *Clases y colores…*, que abre la tabla de clases ASPRS: qué clases se ven y de qué color (apartado 6.2).
+Menú con cuatro casillas que filtran los retornos que se dibujan (*Primeros retornos*, *Retornos intermedios*, *Últimos retornos* y *Retornos únicos*) y, al final, *Clases y colores…*, que abre la tabla de clases ASPRS: qué clases se ven y de qué color (apartado 6.2). Al colorear por clasificación o por retorno, la planta y la vista 3D muestran una leyenda con los colores.
 
 ##### Puntos (− y +)
 
@@ -517,6 +517,18 @@ Densidad de puntos por celda de Voronoi en lugar de por cuadrícula. Véase el a
 | Tabla (CSV) | Escribe la tabla de resultados. |
 
 La orden es `hipso voronoi-density`.
+
+##### Unir nubes
+
+Une dos o más nubes en una nueva (`…_unida`) y decide qué hacer con los puntos duplicados. Véase el apartado 6.5.
+
+| Control | Qué hace |
+|---|---|
+| Lista de nubes | Una casilla por cada nube cargada; se unen las marcadas. Hacen falta dos o más: con menos, *Ejecutar* queda desactivado. |
+| Puntos duplicados | *Mantenerlos* (no se buscan), *Marcarlos como retenidos* (queda uno de cada grupo sin marcar) o *Eliminarlos* (queda un punto de cada grupo). |
+| También deben coincidir | Casillas de clase, tiempo GPS, intensidad, número de retorno, número de retornos e ID de fuente, además de x, y, z iguales. |
+
+La orden es `hipso merge-clouds`.
 
 #### LiDAR → Superficies
 
@@ -1550,7 +1562,7 @@ Lleva el informe entero al portapapeles. El botón derecho sobre el texto copia 
 
 El panel se divide en *Selección*, *Editar* e *Historial*. Las ediciones no tocan el archivo original: se guardan al escribir una nube nueva.
 
-La **Selección** tiene ocho herramientas, que se eligen por su icono: *Seleccionar con rectángulo*, *con polígono*, *con lazo* y *con círculo*, *Pincel redondo* y *Pincel cuadrado* (arrastrar para pintar, los puntos tocados se seleccionan, y las teclas [ y ] cambian el tamaño, en planta y en perfil), y *Seleccionar todo lo que queda sobre* o *bajo una línea del perfil*. Cuando una herramienta de selección está activa, el botón izquierdo dibuja la selección y el giro de la vista 3D pasa al botón central. *Todo* (Ctrl+A) selecciona todos los puntos, *Invertir* (Ctrl+I) invierte la selección y *Quitar* (Esc) la limpia. *Combinar selección* decide qué pasa con una selección nueva: *Nueva* sustituye a la anterior, *Añadir* (Mayús) la suma, *Restar* (Alt) la quita e *Intersecar* (Ctrl) deja solo lo común. *Rebanada en 3D ±* limita la selección en profundidad. *Aislar selección* saca los puntos seleccionados a un archivo `…_sel` y deja solo ese en pantalla, con toda su densidad. *Exportar puntos…* exporta la nube, o solo la selección, a LAZ, ASCII o shapefile. *Filtro de atributos de las selecciones* acota la selección por atributos. Debajo se indica cuántos puntos están seleccionados en pantalla y cuántos equivalen en el archivo.
+La **Selección** tiene ocho herramientas, que se eligen por su icono: *Seleccionar con rectángulo*, *con polígono*, *con lazo* y *con círculo*, *Pincel redondo* y *Pincel cuadrado* (arrastrar para pintar, los puntos tocados se seleccionan, y las teclas [ y ] cambian el tamaño, en planta y en perfil), y *Seleccionar todo lo que queda sobre* o *bajo una línea del perfil*. Cuando una herramienta de selección está activa, el botón izquierdo dibuja la selección y el giro de la vista 3D pasa al botón central. *Todo* (Ctrl+A) selecciona todos los puntos, *Invertir* (Ctrl+I) invierte la selección y *Quitar* (Esc) la limpia. *Combinar selección* decide qué pasa con una selección nueva: *Nueva* sustituye a la anterior, *Añadir* (Mayús) la suma, *Restar* (Alt) la quita e *Intersecar* (Ctrl) deja solo lo común. *Rebanada en 3D ±* limita la selección en profundidad. *Aislar selección* saca los puntos seleccionados a un archivo `…_sel` y deja solo ese en pantalla, con toda su densidad. *Exportar puntos…* exporta la nube, o solo la selección, a LAZ, ASCII o shapefile. *Filtro de atributos de las selecciones* acota la selección por atributos. Las selecciones, y con ellas *Eliminar* y *Cambiar clase*, solo alcanzan los puntos que los filtros de *Vista → Filtros* dejan ver (las clases marcadas en *Clases y colores…* y los retornos marcados): lo que está oculto no se selecciona ni se edita. El filtro por archivo no cuenta. Las ediciones también se ven al acercar la vista, donde el visor vuelve a leer la nube con todo su detalle. Debajo se indica cuántos puntos están seleccionados en pantalla y cuántos equivalen en el archivo.
 
 **Editar** tiene *Eliminar* (Supr) para quitar los puntos seleccionados, *Cambiar clase* con un selector de clase y atajos para las más frecuentes (*Suelo*, *Veg. baja*, *Veg. media*, *Veg. alta*, *Edificio*, *Ruido* y *Sin clasificar*), *Quitar duplicados* (apartado 6.4) e *Histogramas* (apartado 6.1). *Guardar nube editada…* escribe una nube nueva con las ediciones, y *Descartar todo* vuelve a la nube original. *Deshacer* (Ctrl+Z) y *Rehacer* (Ctrl+Y) recorren las ediciones, y el *Historial* lista las hechas. Todo el detalle de la edición está en el capítulo 6.
 
@@ -1885,12 +1897,18 @@ El resultado es una copia nueva (`…_alturas`) con la altura como atributo extr
 
 *Edición → Editar → Quitar duplicados* elimina los puntos con las mismas x, y, z (y, si se marca, la misma clase, tiempo GPS, intensidad, retorno o pasada), dejando uno de cada grupo o ninguno. Es útil en nubes unidas de hojas que se solapan, o en entregas con pulsos repetidos, porque los duplicados exactos distorsionan la densidad y las métricas. Su límite es que solo quita coincidencias exactas: los puntos casi coincidentes (ruido de milímetros) no se detectan. Escribe un archivo nuevo.
 
+### 6.5 Unir nubes
+
+*LiDAR → Calidad → Unir nubes* junta dos o más nubes en una nueva (`…_unida`). Sirve, por ejemplo, para extraer trozos pequeños de una nube con *Aislar selección*, editarlos por separado y volver a unirlos. Las nubes pueden tener otra escala, otro desplazamiento u otro sistema de coordenadas (el de la primera manda y las demás se convierten, con aviso de los puntos que no caben); deben tener el mismo formato de punto, y si no lo tienen, se pide unirlas por separado. Se necesitan al menos dos nubes: con una sola, el botón *Ejecutar* queda desactivado y la orden `hipso merge-clouds` da un error.
+
+Al unir trozos que se solapan pueden quedar puntos duplicados (mismas x, y, z, y los atributos que se marquen). La herramienta ofrece tres opciones: *Mantenerlos* (no se buscan), *Marcarlos como retenidos* (el bit *withheld* del punto, que el resto de herramientas ignoran; queda sin marcar un punto de cada grupo y no se pierde ninguno) o *Eliminarlos* (queda un punto de cada grupo). Igual que en 6.4, solo se detectan coincidencias exactas. La orden es `hipso merge-clouds`.
+
 La edición, en resumen, nunca toca el original y siempre es reversible hasta el momento de guardar. Esa es la propiedad que permite trabajar con pocos clics sin miedo a equivocarse, y de ella dependen todos los procesos del capítulo siguiente.
 
 
 ## 7. LiDAR
 
-La pestaña *LiDAR* reúne las herramientas que parten de una nube de puntos, en seis grupos ordenados como suelen usarse en un trabajo real: *Preparar* (*Clasificar*, *Asignar proyección*, *Exportar puntos*, *Recortar con polígonos*, *Adelgazar nube*, *Alturas sobre suelo*, *Quitar duplicados*, *Colorear con imagen*, *Normalizar intensidad* e *Imagen de intensidad*), *Calidad* (*Comparar nubes*, *Ajustar nubes*, *Entre pasadas*, *Líneas de vuelo* y *Densidad de Voronoi*), *Superficies* (*MDT*, *MDS / CHM* y *Cambio de la cubierta vegetal*), *ALS* (nubes aéreas: *Extraer muestras*, *Métricas por celda*, *Modelos lineales*, *Segmentar individuos* y *Análisis por objetos*), *TLS* (escáner terrestre: *Medición de troncos*) e *Infraestructuras* (*Corredores eléctricos*). *Exportar puntos* también está en el panel *Edición*, junto a la selección que exporta. La información de las nubes y de las demás capas está en la pestaña *Información* del panel lateral. El relieve, la hidrología, las rutas y los volúmenes están en la pestaña *Raster*, grupo *Análisis del terreno*, porque trabajan sobre cualquier MDT y no solo sobre una nube, y se describen en el apartado 7.2. El apartado 4.5 explica cada botón de la pestaña, y este capítulo, el método que hay detrás.
+La pestaña *LiDAR* reúne las herramientas que parten de una nube de puntos, en seis grupos ordenados como suelen usarse en un trabajo real: *Preparar* (*Clasificar*, *Asignar proyección*, *Exportar puntos*, *Recortar con polígonos*, *Adelgazar nube*, *Alturas sobre suelo*, *Quitar duplicados*, *Colorear con imagen*, *Normalizar intensidad* e *Imagen de intensidad*), *Calidad* (*Comparar nubes*, *Ajustar nubes*, *Entre pasadas*, *Líneas de vuelo*, *Densidad de Voronoi* y *Unir nubes*), *Superficies* (*MDT*, *MDS / CHM* y *Cambio de la cubierta vegetal*), *ALS* (nubes aéreas: *Extraer muestras*, *Métricas por celda*, *Modelos lineales*, *Segmentar individuos* y *Análisis por objetos*), *TLS* (escáner terrestre: *Medición de troncos*) e *Infraestructuras* (*Corredores eléctricos*). *Exportar puntos* también está en el panel *Edición*, junto a la selección que exporta. La información de las nubes y de las demás capas está en la pestaña *Información* del panel lateral. El relieve, la hidrología, las rutas y los volúmenes están en la pestaña *Raster*, grupo *Análisis del terreno*, porque trabajan sobre cualquier MDT y no solo sobre una nube, y se describen en el apartado 7.2. El apartado 4.5 explica cada botón de la pestaña, y este capítulo, el método que hay detrás.
 
 La cinta se adapta al ancho de la ventana. Si no caben todos los grupos, los de la derecha se pliegan en un botón grande con su nombre y una flecha (▾) que despliega sus herramientas, así que todas quedan siempre a un clic.
 
