@@ -1941,12 +1941,8 @@ impl App {
                 Ok(summary) => {
                     self.log(format!("{label}: {summary}\nhecho en {secs:.2} s"));
                     self.load_results(ctx, show, &outputs, &pre);
-                    if let Some(p) = self.ed.pending_swap.take() {
-                        self.ed.swap_offer = Some(p);
-                    }
                 }
                 Err(e) => {
-                    self.ed.pending_swap = None;
                     if e.contains("cancelado") {
                         let mut removed = 0;
                         for o in &outputs {
@@ -5380,7 +5376,6 @@ impl eframe::App for App {
             ctx.request_repaint();
         }
         self.class_window(&ctx);
-        self.swap_window(&ctx);
     }
 }
 
