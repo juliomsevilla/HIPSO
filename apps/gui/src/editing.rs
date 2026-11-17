@@ -1774,10 +1774,13 @@ fn focus_window(s: &PointStore, picked: &[bool]) -> Option<([f64; 4], usize)> {
 }
 
 /// Los atributos de una selección acotados a lo que los filtros de la vista (clases y retornos)
-/// dejan ver: lo oculto no se selecciona ni se edita.
+/// dejan ver (clases, retornos y rango de cotas): lo oculto no se selecciona ni se edita.
 /// ponytail: el filtro por archivo no se aplica, la selección no conoce el archivo de cada punto.
 fn visible_attr(style: &Style, mut a: Attr) -> Attr {
     a.classes = a.classes.intersection(&style.classes);
     a.returns &= style.returns;
+    if let Some([lo, hi]) = style.zlim {
+        a.z = Some(a.z.map_or((lo, hi), |(l, h)| (l.max(lo), h.min(hi))));
+    }
     a
 }

@@ -780,6 +780,9 @@ pub struct Style {
     pub class_colors: [[u8; 3]; 256],
     /// Bits: se dibujan los retornos 1 primero, 2 intermedio, 4 último, 8 único.
     pub returns: u8,
+    /// Solo se dibujan los puntos con la cota absoluta entre estos dos valores (`None`: todos). Es
+    /// un filtro de vista, no el reparto de la rampa de color (`zmin` y `zmax`).
+    pub zlim: Option<[f64; 2]>,
     /// Bit k activado: se dibujan los puntos del archivo k (los archivos del 65.º en adelante
     /// siempre).
     pub files: u64,
@@ -819,6 +822,7 @@ impl Default for Style {
             classes: ClassSet::all(),
             class_colors: crate::classes::default_colors(),
             returns: 15,
+            zlim: None,
             files: u64::MAX,
             background: [18, 21, 26],
             thin: 1,
@@ -867,6 +871,12 @@ impl Style {
         }
         if !self.classes.contains(s.class[i]) {
             return false;
+        }
+        if let Some([lo, hi]) = self.zlim {
+            let z = s.origin[2] + f64::from(s.z[i]);
+            if z < lo || z > hi {
+                return false;
+            }
         }
         self.returns & return_bit(s.ret[i]) != 0
     }

@@ -2079,6 +2079,101 @@ impl App {
         self.moving_until = Instant::now() + Duration::from_millis(160);
     }
 
+    /// Si algún filtro de vista deja puntos fuera: retornos, clases o rango de cotas.
+    fn filters_active(&self) -> bool {
+        self.style.returns != 15
+            || self.style.classes != ClassSet::all()
+            || self.style.zlim.is_some()
+    }
+
+    /// El botón grande «Filtros» y su menú: qué puntos se dibujan (retornos, cotas y clases). Brilla
+    /// mientras hay algún filtro puesto, para que no se olvide que se está viendo solo una parte.
+    fn filters_button(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, t: &Tokens) {
+        let on = self.filters_active();
+        if ribbon::in_folded_popup(ctx) {
+            ui.menu_button(if on { "Filtros (activos)  ▾" } else { "Filtros  ▾" }, |ui| {
+                self.filters_ui(ui, ctx);
+            })
+            .response
+            .on_hover_text("Qué puntos se dibujan: retornos, cotas y clases.");
+        } else {
+            let r = ribbon::big_button_body(
+                ui,
+                t,
+                "@filters",
+                if on { "Filtros\nactivos ▾" } else { "Filtros\n▾" },
+                on,
+            )
+            .on_hover_text("Qué puntos se dibujan: retornos, cotas y clases. Brilla cuando hay algún filtro puesto.");
+            egui::Popup::menu(&r)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| self.filters_ui(ui, ctx));
+        }
+    }
+
+    fn filters_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui.label(egui::RichText::new("Retornos").strong());
+        for (k, n) in [
+            "Primeros retornos",
+            "Retornos intermedios",
+            "Últimos retornos",
+            "Retornos únicos",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let mut on = self.style.returns & (1 << k) != 0;
+            if ui.checkbox(&mut on, *n).changed() {
+                self.style.returns ^= 1 << k;
+            }
+        }
+        ui.separator();
+        ui.label(egui::RichText::new("Cota").strong());
+        let (lo, hi) = self
+            .store
+            .as_ref()
+            .map_or((0.0, 1.0), |s| (s.bounds[2], s.bounds[5]));
+        let mut z_on = self.style.zlim.is_some();
+        if ui
+            .checkbox(&mut z_on, "Dibujar solo entre dos cotas")
+            .on_hover_text("Oculta los puntos que quedan fuera del rango, en la planta, el perfil y el 3D. No cambia los colores: para eso está «Rampa de color».")
+            .changed()
+        {
+            self.style.zlim = z_on.then_some([lo, hi]);
+        }
+        if let Some(z) = &mut self.style.zlim {
+            ui.horizontal(|ui| {
+                ui.label("Mín");
+                ui.add(
+                    crate::numfield::NumField::new(&mut z[0])
+                        .range(lo - 1000.0..=hi + 1000.0)
+                        .speed(0.5),
+                );
+                ui.label("Máx");
+                ui.add(
+                    crate::numfield::NumField::new(&mut z[1])
+                        .range(lo - 1000.0..=hi + 1000.0)
+                        .speed(0.5),
+                );
+            });
+            if ui.button("Todo el rango de la nube").clicked() {
+                *z = [lo, hi];
+            }
+            if z[0] > z[1] {
+                z.swap(0, 1);
+            }
+        }
+        ui.separator();
+        if ui.button("Clases y colores…").clicked() {
+            self.act(ctx, Action::Classes);
+        }
+        if self.filters_active() && ui.button("Quitar todos los filtros").clicked() {
+            self.style.returns = 15;
+            self.style.classes = ClassSet::all();
+            self.style.zlim = None;
+        }
+    }
+
     /// Al colorear por altura sobre el suelo, calcula `hag` en la nube y en las ventanas de detalle
     /// cuando faltan o las clases cambiaron desde que se calcularon; con otro modo de color suelta
     /// lo calculado, que no hace falta. Un almacén que está compartido con el dibujo se deja para el
@@ -2168,6 +2263,7 @@ impl App {
                 s.point_size,
                 s.classes,
                 s.returns,
+                s.zlim.map(|z| (z[0].to_bits(), z[1].to_bits())),
                 (s.thin, s.transparent, s.fill, s.edl.to_bits()),
                 self.colors_rev,
                 self.rev,
@@ -2856,71 +2952,74 @@ impl App {
                                     {
                                         self.act(ctx, Action::Color(c));
                                     }
+                                    self.filters_button(ui, ctx, &t);
                                     ui.vertical(|ui| {
-                                        ui.horizontal(|ui| {
-                                        ui.menu_button("Rango Z  ▾", |ui| {
-                                            let (lo, hi) = self
-                                                .store
-                                                .as_ref()
-                                                .map_or((0.0, 1.0), |s| (s.bounds[2], s.bounds[5]));
-                                            ui.horizontal(|ui| {
-                                                ui.label("Mín");
-                                                if ui
-                                                    .add(
-                                                        crate::numfield::NumField::new(
-                                                            &mut self.style.zmin,
+                                        ui.menu_button("Rampa de color  ▾", |ui| {
+                                            if self.style.color_by == ColorBy::HeightAboveGround {
+                                                ui.horizontal(|ui| {
+                                                    ui.label("Altura máxima");
+                                                    if ui
+                                                        .add(
+                                                            crate::numfield::NumField::new(
+                                                                &mut self.style.hag_max,
+                                                            )
+                                                            .range(1.0..=500.0)
+                                                            .speed(0.5)
+                                                            .suffix(" m"),
                                                         )
-                                                        .range(lo - 1000.0..=hi)
-                                                        .speed(0.5),
-                                                    )
-                                                    .changed()
+                                                        .changed()
+                                                    {
+                                                        self.touch();
+                                                    }
+                                                });
+                                                if ui.button("Ajustar a los datos").clicked()
+                                                    && let Some(st) = &self.store
                                                 {
+                                                    self.style.hag_max = st.hag_range();
                                                     self.touch();
                                                 }
-                                                ui.label("Máx");
-                                                if ui
-                                                    .add(
-                                                        crate::numfield::NumField::new(
-                                                            &mut self.style.zmax,
+                                            } else {
+                                                let (lo, hi) = self
+                                                    .store
+                                                    .as_ref()
+                                                    .map_or((0.0, 1.0), |s| (s.bounds[2], s.bounds[5]));
+                                                ui.horizontal(|ui| {
+                                                    ui.label("Mín");
+                                                    if ui
+                                                        .add(
+                                                            crate::numfield::NumField::new(
+                                                                &mut self.style.zmin,
+                                                            )
+                                                            .range(lo - 1000.0..=hi)
+                                                            .speed(0.5),
                                                         )
-                                                        .range(lo..=hi + 1000.0)
-                                                        .speed(0.5),
-                                                    )
-                                                    .changed()
-                                                {
+                                                        .changed()
+                                                    {
+                                                        self.touch();
+                                                    }
+                                                    ui.label("Máx");
+                                                    if ui
+                                                        .add(
+                                                            crate::numfield::NumField::new(
+                                                                &mut self.style.zmax,
+                                                            )
+                                                            .range(lo..=hi + 1000.0)
+                                                            .speed(0.5),
+                                                        )
+                                                        .changed()
+                                                    {
+                                                        self.touch();
+                                                    }
+                                                });
+                                                if ui.button("Ajustar a los datos").clicked() {
+                                                    self.style.zmin = lo;
+                                                    self.style.zmax = hi;
                                                     self.touch();
                                                 }
-                                            });
-                                            if ui.button("Ajustar a los datos").clicked() {
-                                                self.style.zmin = lo;
-                                                self.style.zmax = hi;
                                             }
                                         })
-.response
-.on_hover_text("Rango de elevaciones al que se reparte la rampa de color.");
-                                        ui.menu_button("Filtros  ▾", |ui| {
-                                            for (k, n) in [
-                                                "Primeros retornos",
-                                                "Retornos intermedios",
-                                                "Últimos retornos",
-                                                "Retornos únicos",
-                                            ]
-                                            .iter()
-                                            .enumerate()
-                                            {
-                                                let mut on = self.style.returns & (1 << k) != 0;
-                                                if ui.checkbox(&mut on, *n).changed() {
-                                                    self.style.returns ^= 1 << k;
-                                                }
-                                            }
-                                            ui.separator();
-                                            if ui.button("Clases y colores…").clicked() {
-                                                self.act(ctx, Action::Classes);
-                                            }
-                                        })
-.response
-.on_hover_text("Qué retornos y qué clases se dibujan.");
-                                        });
+                                        .response
+                                        .on_hover_text("Reparte la rampa de color entre dos valores. Solo cambia los colores con Elevación, Elevación + intensidad y Altura sobre el suelo; para ocultar puntos por su cota, usa Filtros.");
                                         ui.horizontal(|ui| {
                                             ui.label("Puntos");
                                             ribbon::stepper(
