@@ -263,13 +263,14 @@ pub fn find_dsm(input: &Path) -> Option<PathBuf> {
 mod tests {
     #[test]
     fn swapping_an_extension_replaces_the_known_ones_only() {
-        let sw = |p: &str, e: &str| swap_ext(Path::new(p), e).display().to_string();
-        assert_eq!(sw("a/chm_0.5m.shp", "csv"), "a/chm_0.5m.csv");
-        assert_eq!(sw("a/x_vdensidad.tif", "csv"), "a/x_vdensidad.csv");
-        assert_eq!(sw("a/x_vdensidad.TIF", "tif"), "a/x_vdensidad.tif");
-        assert_eq!(sw("a/x.gpkg", "shp"), "a/x.shp");
+        // se comparan como rutas, no como texto: Windows escribe «\» donde aquí hay «/»
+        let sw = |p: &str, e: &str| swap_ext(Path::new(p), e);
+        assert_eq!(sw("a/chm_0.5m.shp", "csv"), Path::new("a/chm_0.5m.csv"));
+        assert_eq!(sw("a/x_vdensidad.tif", "csv"), Path::new("a/x_vdensidad.csv"));
+        assert_eq!(sw("a/x_vdensidad.TIF", "tif"), Path::new("a/x_vdensidad.tif"));
+        assert_eq!(sw("a/x.gpkg", "shp"), Path::new("a/x.shp"));
         // un punto que no es una extensión se queda
-        assert_eq!(sw("a/chm_0.5m", "tif"), "a/chm_0.5m.tif");
+        assert_eq!(sw("a/chm_0.5m", "tif"), Path::new("a/chm_0.5m.tif"));
     }
 
     use super::*;
