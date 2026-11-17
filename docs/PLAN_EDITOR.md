@@ -4,7 +4,7 @@ Documento de trabajo para quien vaya a construir las funciones. Resume qué tien
 
 ## Estado actual (rama `version-0.8.2`)
 
-**Hecho: E01, E02 y E03** (Fase 0) y **E04 a E09** (Fase 1; E04, E05 y E06 comprobados a mano, E07 a E09 sin comprobar). Todo lo demás está sin empezar. Las fichas de E01–E03 de la sección 4 llevan una nota **Implementado** con lo que se hizo y en qué se apartó del diseño.
+**Hecho: E01, E02 y E03** (Fase 0) y **E04 a E09** (Fase 1; E04 a E09 comprobados a mano salvo lo que se lista en «Qué falta comprobar»). Todo lo demás está sin empezar. Las fichas de E01–E03 de la sección 4 llevan una nota **Implementado** con lo que se hizo y en qué se apartó del diseño.
 
 | ID | Estado | Resumen |
 |---|---|---|
@@ -14,15 +14,16 @@ Documento de trabajo para quien vaya a construir las funciones. Resume qué tien
 | E04 | Hecho, **comprobado a mano** | *Vista → Perfil → Paso*: medio ancho, casi el ancho (0,95), ancho completo o distancia fija |
 | E05 | Hecho, **comprobado a mano** | *Seleccionar cerca de una línea* y *Clasificar a lo largo de una línea* (tres tramos, una edición agrupada) |
 | E06 | Hecho, **comprobado a mano** | Líneas quebradas en `Region::Side`; archivos antiguos de dos extremos se siguen leyendo |
-| E07 | Hecho, **sin comprobar a mano** | *Seleccionar con plano local*: `Region::PlaneBand` con los coeficientes del ajuste |
-| E08 | Hecho, **sin comprobar a mano** | Color *Altura sobre el suelo* con `PointStore::compute_hag` |
-| E09 | Hecho, **sin comprobar a mano** | Colores *Ángulo de barrido*, *Clase + intensidad* y *Elevación + intensidad*; el color pasa a un botón grande con un icono por modo |
+| E07 | Hecho, **comprobado a mano** | *Seleccionar con plano local*: `Region::PlaneBand` con los coeficientes del ajuste |
+| E08 | Hecho, **comprobado a mano** | Color *Altura sobre el suelo* con `PointStore::compute_hag` |
+| E09 | Hecho, **comprobado a mano** | Colores *Ángulo de barrido*, *Clase + intensidad* y *Elevación + intensidad*; el color pasa a un botón grande con un icono por modo |
 
 ### Comprobado a mano
 
 - **Aislar selección** y **Volver a la nube** funcionan.
 - **Recuperar** las ediciones tras cerrar funciona. La sesión se autoguarda sola tras cada edición; *Guardar ediciones…* solo exporta ese mismo JSON a un archivo propio.
 - **Velocidad:** da buen resultado en `--release`.
+- **E07, E08 y E09:** el plano local, el color por altura sobre el suelo, los modos de color nuevos y el menú de color con sus iconos funcionan.
 - **E04, E05 y E06:** el paso del perfil, *Seleccionar cerca de una línea*, *Clasificar a lo largo de una línea* y las líneas quebradas funcionan. Para llegar ahí hubo que corregir cuatro cosas, que conviene recordar al tocar el perfil: (1) la rueda llegaba repartida en varios fotogramas y movía muchos pasos por muesca (ahora se acumula: una muesca, un paso); (2) egui cuenta como *triple* clic un doble clic hecho poco después de otro clic, así que cerrar una línea quebrada exige aceptar los dos (`double_clicked_by` o `triple_clicked_by`); (3) el perfil tiene sus propios puntos, y la altura sobre el suelo hay que calcularla también sobre ellos (`profile_data.rs`); (4) una herramienta de línea sin perfil a la vista o sin caja no hacía nada ni avisaba: ahora muestra el perfil y pide la caja (`App::pending_nav`).
 
 ### Qué falta comprobar a mano
@@ -30,9 +31,8 @@ Documento de trabajo para quien vaya a construir las funciones. Resume qué tien
 1. **Foco en una nube COPC grande:** aislar un árbol, editar, *Volver a la nube* y guardar. Mirar **planta y 3D a la vez**: comparten `step_detail` con `mem::swap`.
 2. **Que guardar con foco da lo esperado:** el archivo guardado debe tener lo editado dentro del foco y todo lo demás intacto (la prueba de núcleo `a_focused_edit_deletes_only_inside_the_focus_and_survives_a_file` lo cubre a nivel de archivo, no de interfaz).
 3. ~~Recuperación tras un cierre inesperado~~ (comprobada, véase arriba).
-4. **E07–E09:** (a) en una hoja con suelo clasificado, *Color → Altura sobre el suelo*: la copa de un árbol debe salir a su altura y la leyenda mostrar la rampa en metros; con una nube sin clase 2, el registro debe avisar; (b) con una nube PNOA, *Ángulo de barrido* debe dar azul y rojo a los dos lados de cada pasada; (c) *Seleccionar con plano local*, clic sobre suelo con ruido bajo: *Bajo* selecciona los puntos bajos y *Eliminar* los quita; con *Curva* en una vaguada sigue el terreno; (d) *Guardar ediciones…* y `hipso apply-edits` dan lo mismo que la pantalla; (e) los 13 iconos del menú de color se leen en tema claro y oscuro.
-5. **E04–E06, lo que falta:** *Guardar ediciones…* y `hipso apply-edits` dan lo mismo que la pantalla con una edición agrupada de *Clasificar a lo largo de una línea*, y un archivo de ediciones anterior con una línea de dos extremos se sigue abriendo (cubierto por pruebas de núcleo, no comprobado con el programa).
-6. **Velocidad:** ya da buen resultado; se compara siempre en `--release`. Una compilación `dev` va mucho más lenta y no vale. Se quitaron dos copias de operaciones por fotograma (`profile_data.rs`, `copcdetail.rs`); los costes que quedan son la lectura de hasta ~3 millones de puntos por ventana de foco (dos si hay planta y 3D) y el guardado síncrono de la sesión tras cada edición.
+4. **E04–E06, lo que falta:** *Guardar ediciones…* y `hipso apply-edits` dan lo mismo que la pantalla con una edición agrupada de *Clasificar a lo largo de una línea*, y un archivo de ediciones anterior con una línea de dos extremos se sigue abriendo (cubierto por pruebas de núcleo, no comprobado con el programa).
+5. **Velocidad:** ya da buen resultado; se compara siempre en `--release`. Una compilación `dev` va mucho más lenta y no vale. Se quitaron dos copias de operaciones por fotograma (`profile_data.rs`, `copcdetail.rs`); los costes que quedan son la lectura de hasta ~3 millones de puntos por ventana de foco (dos si hay planta y 3D) y el guardado síncrono de la sesión tras cada edición.
 
 ### Pruebas de interfaz sin ventana
 
@@ -59,7 +59,7 @@ cargo run --release -p hipso-gui -- ruta/a/una/nube.laz
 
 ### Siguiente paso recomendado
 
-Comprobar a mano E04–E09 (véase abajo) y cerrar la Fase 1 con **E10** (inspeccionar punto) y **E11** (propagar la clase).
+Cerrar la comprobación de E04–E06 (véase abajo) y la Fase 1 con **E10** (inspeccionar punto) y **E11** (propagar la clase).
 
 ## 0. Cómo usar este documento
 
