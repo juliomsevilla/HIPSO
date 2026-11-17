@@ -4033,7 +4033,7 @@ ui.menu_button("⚙", |ui| {
         self.paint_legend(&painter, rect, &t);
     }
 
-    /// La leyenda de la planta y del 3D: las clases presentes al colorear por clasificación, o los
+    /// La leyenda de la planta, y del 3D cuando es la única vista: las clases presentes al colorear por clasificación, o los
     /// tipos de retorno al colorear por retorno.
     fn paint_legend(&self, painter: &egui::Painter, rect: Rect, t: &Tokens) {
         let entries: Vec<(String, [u8; 3])> = match self.style.color_by {
@@ -4735,7 +4735,10 @@ ui.menu_button("⚙", |ui| {
                 t.weak,
             );
         }
-        self.paint_legend(&painter, rect, &t);
+        // Con la planta a la vista la leyenda ya sale allí: no se repite en el 3D.
+        if self.layout == Layout::View3d {
+            self.paint_legend(&painter, rect, &t);
+        }
         self.frame_title(ui, rect, "3D");
     }
 
