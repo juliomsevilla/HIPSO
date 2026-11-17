@@ -66,6 +66,7 @@ pub mod ponds;
 pub mod rastervec;
 pub mod reclass;
 pub mod recipe;
+pub mod merge;
 pub mod ops;
 pub mod overlap;
 pub mod pathfind;

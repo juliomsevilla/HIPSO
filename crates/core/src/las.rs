@@ -597,6 +597,14 @@ pub fn set_class(format: u8, rec: &mut [u8], class: u8) {
     }
 }
 
+/// Marca un registro como retenido (withheld): el bit 0x80 del byte 15 en los formatos antiguos,
+/// el bit 0x04 de las banderas (byte 15) en los formatos 6 y superiores.
+pub fn set_withheld(format: u8, rec: &mut [u8]) {
+    if let Some(b) = rec.get_mut(15) {
+        *b |= if format >= 6 { 0x04 } else { 0x80 };
+    }
+}
+
 /// Fija el identificador de fuente de punto de un registro (la pasada): bytes 18-19 en los formatos
 /// antiguos, 20-21 en los formatos 6 y superiores.
 pub fn set_source_id(format: u8, rec: &mut [u8], id: u16) {

@@ -117,6 +117,22 @@ pub fn remove_duplicates(
     fields: DupFields,
     delete_all: bool,
 ) -> Result<(u64, u64)> {
+    dedup(input, output, fields, delete_all, false)
+}
+
+/// Escribe `input` entero y marca como retenidos (withheld) los duplicados: se deja sin marcar un
+/// punto de cada conjunto. Devuelve (puntos leídos, puntos marcados).
+pub fn mark_duplicates(input: &Path, output: &Path, fields: DupFields) -> Result<(u64, u64)> {
+    dedup(input, output, fields, false, true)
+}
+
+fn dedup(
+    input: &Path,
+    output: &Path,
+    fields: DupFields,
+    delete_all: bool,
+    mark: bool,
+) -> Result<(u64, u64)> {
     if input == output {
         return Err(Error::Param(
             "el archivo nuevo no debe sobrescribir el original".into(),
@@ -179,6 +195,7 @@ pub fn remove_duplicates(
     }
     crate::paths::ensure_parent(output)?;
     let mut w = Writer::create(output, &r)?;
+    let format = r.header.format;
     let (mut read, mut removed) = (0u64, 0u64);
     let mut i = 0usize;
     r.scan_raw(|bytes| {
@@ -201,6 +218,11 @@ pub fn remove_duplicates(
                 w.write(rec)?;
             } else {
                 removed += 1;
+                if mark {
+                    let mut copy = rec.to_vec();
+                    crate::las::set_withheld(format, &mut copy);
+                    w.write(&copy)?;
+                }
             }
         }
         Ok(())
