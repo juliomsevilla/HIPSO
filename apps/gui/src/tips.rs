@@ -179,10 +179,10 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Entre pasadas" => "Mide cuánto se separan entre sí las pasadas de vuelo.",
         "MDT" => "Modelo digital del terreno a partir de los puntos de suelo.",
         "MDS / CHM" => "Modelo digital de superficie y de alturas de la vegetación (CHM).",
-        "Cubicación\nde pilas" | "Cubicación de pilas" => {
+        "Cubicación\nde pilas" => {
             "Mide el volumen de material de cada pila sobre una superficie base hecha desde su contorno."
         }
-        "Desmonte y\nterraplén" | "Desmonte y terraplén" => {
+        "Desmonte y\nterraplén" => {
             "Calcula la tierra a quitar y a añadir para llevar un terreno a un diseño."
         }
         "Inundación" => {
