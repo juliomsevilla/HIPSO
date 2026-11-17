@@ -18,6 +18,8 @@ use crate::vector::Polygon;
 use crate::view::{Orbit, PointStore, ProfileBox, Projector, return_bit};
 use crate::{Error, Result};
 
+pub mod file;
+
 /// Dónde mira una operación de selección.
 #[derive(Clone, Debug)]
 pub enum Region {
@@ -47,6 +49,10 @@ pub enum Region {
         /// límite, todo lo que queda por encima o por debajo).
         height: f64,
     },
+    /// Lo que elige una selección entera, construida con sus propios pasos. Es el foco de la
+    /// edición: las ediciones hechas con un foco se limitan a él con una intersección con esta
+    /// región.
+    Within(Vec<SelOp>),
 }
 
 /// Un trazo de pincel: los puntos a menos de `half` de un camino (pincel redondo) o dentro de un
@@ -79,6 +85,13 @@ impl Brush {
                 stamps.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
             }
         }
+        Self::from_stamps(stamps, half, square)
+    }
+
+    /// El pincel con las estampas ya hechas (las que guarda [`Brush::stamps`]): da exactamente la
+    /// misma respuesta que el pincel del que salieron.
+    pub fn from_stamps(stamps: Vec<[f64; 2]>, half: f64, square: bool) -> Self {
+        let half = half.max(f64::MIN_POSITIVE);
         let mut cells: std::collections::HashMap<(i64, i64), Vec<u32>> = Default::default();
         for (i, st) in stamps.iter().enumerate() {
             cells
@@ -92,6 +105,10 @@ impl Brush {
             stamps,
             cells,
         }
+    }
+
+    pub fn stamps(&self) -> &[[f64; 2]] {
+        &self.stamps
     }
 
     fn cell_of(x: f64, y: f64, half: f64) -> (i64, i64) {
@@ -368,6 +385,7 @@ impl SelOp {
                     && t.abs() <= bx.width / 2.0
                     && beside_line(*a, *b, *above, *height, u, p.z)
             }
+            Region::Within(ops) => selected(ops, p),
         }
     }
 }
@@ -408,7 +426,41 @@ pub fn value_of(s: &PointStore, i: usize, kind: AttrKind) -> f64 {
 
 /// Si una selección mira campos que se leen del registro más allá del punto.
 fn needs_extra(ops: &[SelOp]) -> bool {
-    ops.iter().any(|o| !o.attr.ranges.is_empty())
+    ops.iter().any(|o| {
+        !o.attr.ranges.is_empty()
+            || matches!(&o.region, Region::Within(inner) if needs_extra(inner))
+    })
+}
+
+/// La forma de una selección sin sus filtros de atributos: lo que se queda de ella al fijar un
+/// foco. Un foco no puede depender de la clase de un punto, o un punto reclasificado dentro del
+/// foco saldría de él.
+pub fn geometry_of(ops: &[SelOp]) -> Vec<SelOp> {
+    ops.iter()
+        .map(|o| SelOp {
+            mode: o.mode,
+            region: o.region.clone(),
+            attr: Attr::default(),
+        })
+        .collect()
+}
+
+/// El paso que limita una selección a un foco: una intersección con lo que elige `inner`.
+pub fn focus_op(inner: &[SelOp]) -> SelOp {
+    SelOp {
+        mode: Mode::Intersect,
+        region: Region::Within(inner.to_vec()),
+        attr: Attr::default(),
+    }
+}
+
+/// Qué puntos del almacén quedan **fuera** de lo que elige `inner`, sin mirar si están
+/// eliminados. Es la máscara de lo que no se dibuja con un foco activo.
+pub fn outside_focus(s: &PointStore, inner: &[SelOp]) -> Vec<bool> {
+    (0..s.len())
+        .into_par_iter()
+        .map(|i| !selected(inner, &sample_of(s, i)))
+        .collect()
 }
 
 /// Los valores de un registro decodificado; la fuente y el ángulo de barrido solo cuando una regla
@@ -1138,5 +1190,95 @@ mod tests {
             [false, true, true, false, false]
         );
         assert_eq!(selection(&s, &cut(all, None)), [true; 5]);
+    }
+
+    #[test]
+    fn a_focus_limits_what_an_edit_can_reach() {
+        let s = store();
+        // el cuadrado [0, 5]²: los puntos 0, 1 y 3
+        let inner = vec![op(
+            Mode::New,
+            Region::Plan(rectangle([0.0, 0.0], [5.0, 5.0])),
+            Attr::default(),
+        )];
+        assert_eq!(
+            outside_focus(&s, &inner),
+            [false, false, true, false, true]
+        );
+        // seleccionar todo dentro del foco no alcanza lo que queda fuera
+        let all = vec![
+            op(Mode::New, Region::All, Attr::default()),
+            focus_op(&inner),
+        ];
+        assert_eq!(selection(&s, &all), [true, true, false, true, false]);
+        // y un foco dentro de otro foco es la intersección de los dos
+        let narrow = vec![op(
+            Mode::New,
+            Region::Plan(rectangle([0.0, 0.0], [2.5, 5.0])),
+            Attr::default(),
+        )];
+        let nested = vec![
+            op(Mode::New, Region::Within(narrow), Attr::default()),
+            focus_op(&inner),
+        ];
+        assert_eq!(
+            outside_focus(&s, &nested),
+            [false, false, true, true, true]
+        );
+    }
+
+    #[test]
+    fn a_focus_keeps_the_shape_of_a_selection_and_drops_its_filters() {
+        let s = store();
+        let only_trees = Attr {
+            classes: ClassSet::only(5),
+            ..Attr::default()
+        };
+        let sel = vec![op(
+            Mode::New,
+            Region::Plan(rectangle([0.0, 0.0], [5.0, 5.0])),
+            only_trees,
+        )];
+        // la selección solo toma la clase 5; el foco, todo lo que cae en la forma
+        assert_eq!(selection(&s, &sel), [false, true, false, false, false]);
+        assert_eq!(
+            outside_focus(&s, &geometry_of(&sel)),
+            [false, false, true, false, true]
+        );
+    }
+
+    #[test]
+    fn a_focused_edit_deletes_only_inside_the_focus_and_survives_a_file() -> Result<()> {
+        // seis puntos en x = 0…5, y = 0
+        let bytes = las_with(&[(0, 1); 6]);
+        let id = std::process::id();
+        let dir = std::env::temp_dir();
+        let (input, out) = (
+            dir.join(format!("hipso_focus_in_{id}.las")),
+            dir.join(format!("hipso_focus_out_{id}.las")),
+        );
+        std::fs::write(&input, &bytes)?;
+        let inner = vec![op(
+            Mode::New,
+            Region::Plan(rectangle([0.5, -1.0], [3.5, 1.0])),
+            Attr::default(),
+        )];
+        let edit = Edit::new(
+            vec![
+                op(Mode::New, Region::All, Attr::default()),
+                focus_op(&inner),
+            ],
+            Action::Delete,
+            "foco".into(),
+        );
+        let direct = save(&input, &out, std::slice::from_ref(&edit))?;
+        // el mismo resultado desde un archivo de ediciones
+        let restored = file::from_json(&file::to_json(&[edit]))?;
+        let replay = save(&input, &out, &restored)?;
+        let _ = std::fs::remove_file(&input);
+        let _ = std::fs::remove_file(&out);
+        assert_eq!((direct.read, direct.deleted, direct.written), (6, 3, 3));
+        assert_eq!(replay, direct);
+        Ok(())
     }
 }

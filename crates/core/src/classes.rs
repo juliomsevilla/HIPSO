@@ -15,6 +15,16 @@ impl ClassSet {
         Self([0; 4])
     }
 
+    /// Las cuatro palabras de 64 bits, una por tramo de 64 códigos, para guardar el conjunto.
+    pub const fn words(&self) -> [u64; 4] {
+        self.0
+    }
+
+    /// El conjunto que guardó [`ClassSet::words`].
+    pub const fn from_words(words: [u64; 4]) -> Self {
+        Self(words)
+    }
+
     /// Las clases cuyo bit está activado en `bits` (códigos 0–31).
     pub const fn from_bits(bits: u32) -> Self {
         Self([bits as u64, 0, 0, 0])

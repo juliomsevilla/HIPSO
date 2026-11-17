@@ -36,6 +36,8 @@ pub struct PointStore {
     /// ninguno).
     pub selected: Vec<bool>,
     pub deleted: Vec<bool>,
+    /// Puntos que quedan fuera del foco de la edición (vacío: no hay foco); no se dibujan.
+    pub outside: Vec<bool>,
     /// Superficie que cubren los archivos (la suma de sus extensiones), en unidades del mapa al
     /// cuadrado; 0 cuando se desconoce. Fija el tamaño del punto: las nubes muy separadas no deben
     /// contar el terreno vacío que hay entre ellas.
@@ -139,6 +141,7 @@ impl PointStore {
             files: self.files.clone(),
             selected: Vec::new(),
             deleted: Vec::new(),
+            outside: Vec::new(),
             area: self.area,
             file_bounds: self.file_bounds.clone(),
             total: self.total,
@@ -753,7 +756,8 @@ impl Style {
     }
 
     pub fn visible(&self, s: &PointStore, i: usize) -> bool {
-        if s.deleted.get(i).copied().unwrap_or(false) {
+        if s.deleted.get(i).copied().unwrap_or(false) || s.outside.get(i).copied().unwrap_or(false)
+        {
             return false;
         }
         if s.file[i] < 64 && self.files & (1u64 << s.file[i]) == 0 {
@@ -1333,6 +1337,40 @@ pub struct Projector {
 }
 
 impl Projector {
+    /// Los doce números de la cámara, en el orden que lee [`Projector::from_array`]: así se guarda
+    /// la cámara de una selección dibujada en la vista 3D.
+    pub fn to_array(&self) -> [f64; 12] {
+        [
+            self.target[0],
+            self.target[1],
+            self.target[2],
+            self.ex,
+            self.dist,
+            self.sy,
+            self.cy,
+            self.sp,
+            self.cp,
+            self.f,
+            self.hw,
+            self.hh,
+        ]
+    }
+
+    pub fn from_array(a: [f64; 12]) -> Self {
+        Self {
+            target: [a[0], a[1], a[2]],
+            ex: a[3],
+            dist: a[4],
+            sy: a[5],
+            cy: a[6],
+            sp: a[7],
+            cp: a[8],
+            f: a[9],
+            hw: a[10],
+            hh: a[11],
+        }
+    }
+
     /// Posición en píxeles y distancia al plano de la cámara de un punto del mapa, o `None` si está
     /// detrás.
     #[inline]
