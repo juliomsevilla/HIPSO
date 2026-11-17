@@ -124,6 +124,14 @@ enum ColorArg {
     Rgb,
     /// Crown number (treeID extra attribute)
     Tree,
+    /// Altura sobre el suelo clasificado (clase 2) de la propia nube
+    Hag,
+    /// Ángulo de barrido, con signo
+    ScanAngle,
+    /// Color de la clase, más claro o más oscuro según la intensidad
+    ClassIntensity,
+    /// Rampa de elevación, más clara o más oscura según la intensidad
+    ElevationIntensity,
 }
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
@@ -5752,7 +5760,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 .ok_or_else(|| {
                     hipso_core::Error::Param(format!("--size necesita ANCHOxALTO, no '{size}'"))
                 })?;
-            let store = view::load(&inputs, max_points)?;
+            let mut store = view::load(&inputs, max_points)?;
             let mut st = Style::fit(&store);
             st.color_by = match color {
                 ColorArg::Elevation => ColorBy::Elevation,
@@ -5764,7 +5772,20 @@ fn run(cmd: Cmd) -> Result<()> {
                 ColorArg::File => ColorBy::File,
                 ColorArg::Rgb => ColorBy::Rgb,
                 ColorArg::Tree => ColorBy::Tree,
+                ColorArg::Hag => ColorBy::HeightAboveGround,
+                ColorArg::ScanAngle => ColorBy::ScanAngle,
+                ColorArg::ClassIntensity => ColorBy::ClassIntensity,
+                ColorArg::ElevationIntensity => ColorBy::ElevationIntensity,
             };
+            if st.color_by == ColorBy::HeightAboveGround {
+                if !store.compute_hag(1.0) {
+                    return Err(hipso_core::Error::Param(
+                        "--color hag necesita puntos de suelo clasificados (clase 2) en la nube"
+                            .into(),
+                    ));
+                }
+                st.hag_max = store.hag_range();
+            }
             st.point_size = point_size;
             let mask_of =
                 |c: &str| -> Result<hipso_core::classes::ClassSet> { Ok(ClassSel::parse(c)?.set) };

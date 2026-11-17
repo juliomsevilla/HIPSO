@@ -38,6 +38,11 @@ pub struct PointStore {
     pub deleted: Vec<bool>,
     /// Puntos que quedan fuera del foco de la edición (vacío: no hay foco); no se dibujan.
     pub outside: Vec<bool>,
+    /// Altura de cada punto sobre el suelo clasificado de este mismo almacén (vacío: sin calcular).
+    /// Es una aproximación para colorear, no se guarda en ningún archivo; véase `compute_hag`.
+    pub hag: Vec<f32>,
+    /// Con qué revisión de las clases se calculó `hag` (lo fija quien llama a `compute_hag`).
+    pub hag_rev: u64,
     /// Superficie que cubren los archivos (la suma de sus extensiones), en unidades del mapa al
     /// cuadrado; 0 cuando se desconoce. Fija el tamaño del punto: las nubes muy separadas no deben
     /// contar el terreno vacío que hay entre ellas.
@@ -60,6 +65,82 @@ impl PointStore {
 
     pub fn is_empty(&self) -> bool {
         self.x.is_empty()
+    }
+
+    /// Altura sobre el suelo que deja el 1 % de los puntos más altos fuera de la rampa (mínimo 2):
+    /// un extremo de rampa que sigue a los datos, sin que un pájaro o un cable lo estire. Usa una
+    /// muestra de unos 200 000 puntos. Sin `hag` calculado devuelve 30.
+    pub fn hag_range(&self) -> f64 {
+        if self.hag.is_empty() {
+            return 30.0;
+        }
+        let step = (self.hag.len() / 200_000).max(1);
+        let mut v: Vec<f32> = self.hag.iter().step_by(step).copied().collect();
+        let k = ((v.len() as f64 * 0.99) as usize).min(v.len() - 1);
+        let (_, p, _) = v.select_nth_unstable_by(k, |a, b| a.total_cmp(b));
+        f64::from(*p).max(2.0)
+    }
+
+    /// Calcula `hag`: la altura de cada punto sobre una superficie de suelo hecha con los puntos de
+    /// clase 2 que no están borrados. Es solo para colorear: el suelo es el mínimo de cada celda de
+    /// una rejilla de lado `cell` (o mayor, si la rejilla pasaría de unos cuatro millones de celdas),
+    /// los huecos se rellenan con la media de los vecinos ya conocidos, de fuera adentro, y cada
+    /// punto toma el suelo por interpolación bilineal entre centros de celda. Devuelve `false`, sin
+    /// calcular nada, si no hay puntos de suelo.
+    pub fn compute_hag(&mut self, cell: f64) -> bool {
+        self.hag.clear();
+        let n = self.len();
+        let live = |s: &Self, i: usize| !s.deleted.get(i).copied().unwrap_or(false);
+        let ground = |s: &Self, i: usize| s.class[i] == 2 && live(s, i);
+        if !(0..n).any(|i| ground(self, i)) {
+            return false;
+        }
+        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        for i in 0..n {
+            x0 = x0.min(self.x[i]);
+            x1 = x1.max(self.x[i]);
+            y0 = y0.min(self.y[i]);
+            y1 = y1.max(self.y[i]);
+        }
+        let (w, h) = (f64::from(x1 - x0).max(1e-3), f64::from(y1 - y0).max(1e-3));
+        let cell = cell.max((w * h / 4.0e6).sqrt()).max(1e-3);
+        let (cols, rows) = ((w / cell) as usize + 2, (h / cell) as usize + 2);
+        let at = |x: f32, y: f32| -> (f64, f64) {
+            (
+                f64::from(x - x0) / cell,
+                f64::from(y - y0) / cell,
+            )
+        };
+        let mut g = vec![f32::NAN; cols * rows];
+        for i in 0..n {
+            if ground(self, i) {
+                let (u, v) = at(self.x[i], self.y[i]);
+                let k = (v as usize).min(rows - 1) * cols + (u as usize).min(cols - 1);
+                if g[k].is_nan() || self.z[i] < g[k] {
+                    g[k] = self.z[i];
+                }
+            }
+        }
+        fill_from_edges(&mut g, cols, rows);
+        let sample = |u: f64, v: f64| -> f32 {
+            // los valores están en el centro de cada celda
+            let (u, v) = (u - 0.5, v - 0.5);
+            let c0 = (u.floor().max(0.0) as usize).min(cols - 1);
+            let r0 = (v.floor().max(0.0) as usize).min(rows - 1);
+            let (c1, r1) = ((c0 + 1).min(cols - 1), (r0 + 1).min(rows - 1));
+            let fu = (u - c0 as f64).clamp(0.0, 1.0) as f32;
+            let fv = (v - r0 as f64).clamp(0.0, 1.0) as f32;
+            let top = g[r0 * cols + c0] * (1.0 - fu) + g[r0 * cols + c1] * fu;
+            let bot = g[r1 * cols + c0] * (1.0 - fu) + g[r1 * cols + c1] * fu;
+            top * (1.0 - fv) + bot * fv
+        };
+        self.hag = (0..n)
+            .map(|i| {
+                let (u, v) = at(self.x[i], self.y[i]);
+                (self.z[i] - sample(u, v)).max(0.0)
+            })
+            .collect();
+        true
     }
 
     /// Coordenadas absolutas del punto `i`.
@@ -142,6 +223,8 @@ impl PointStore {
             selected: Vec::new(),
             deleted: Vec::new(),
             outside: Vec::new(),
+            hag: Vec::new(),
+            hag_rev: 0,
             area: self.area,
             file_bounds: self.file_bounds.clone(),
             total: self.total,
@@ -612,7 +695,18 @@ pub enum ColorBy {
     Rgb,
     /// El número de copa de cada punto (el atributo `treeID`).
     Tree,
+    /// Altura sobre el suelo clasificado (clase 2) del propio almacén; véase `PointStore::compute_hag`.
+    HeightAboveGround,
+    /// Ángulo de barrido, con signo: azul a un lado de la pasada, rojo al otro.
+    ScanAngle,
+    /// El color de la clase, más claro o más oscuro según la intensidad.
+    ClassIntensity,
+    /// La rampa de elevación, más clara o más oscura según la intensidad.
+    ElevationIntensity,
 }
+
+/// Ángulo de barrido (en grados, a cada lado del nadir) que llega al extremo de la rampa.
+pub const SCAN_ANGLE_MAX: f32 = 30.0;
 
 /// El color de los puntos seleccionados.
 pub const HIGHLIGHT: [u8; 3] = [0, 255, 255];
@@ -630,6 +724,11 @@ pub fn return_bit(ret: u8) -> u8 {
     } else {
         2
     }
+}
+
+/// El color de la rampa de elevación en `t` (0 abajo, 1 arriba), con la rampa de tierra si `earth`.
+pub fn ramp_color(t: f32, earth: bool) -> [u8; 3] {
+    ramp(t, earth)
 }
 
 fn ramp(t: f32, earth: bool) -> [u8; 3] {
@@ -671,6 +770,8 @@ pub struct Style {
     pub zmin: f64,
     pub zmax: f64,
     pub intensity_max: u16,
+    /// Altura sobre el suelo que llega al extremo de la rampa al colorear por altura.
+    pub hag_max: f64,
     pub point_size: usize,
     /// Tamaño en píxeles de los puntos del perfil, aparte de `point_size` de la planta y el 3D.
     pub profile_size: usize,
@@ -712,6 +813,7 @@ impl Default for Style {
             zmin: 0.0,
             zmax: 1.0,
             intensity_max: 255,
+            hag_max: 30.0,
             point_size: 1,
             profile_size: 2,
             classes: ClassSet::all(),
@@ -801,7 +903,87 @@ impl Style {
                 0 => [120, 120, 120],
                 t => hash_color(t),
             },
+            ColorBy::HeightAboveGround => match s.hag.get(i) {
+                Some(h) => ramp((f64::from(*h) / self.hag_max.max(1e-6)) as f32, false),
+                None => [120, 120, 120],
+            },
+            ColorBy::ScanAngle => {
+                let a = f32::from(s.scan[i]) / 10.0;
+                ramp(0.5 + a / (2.0 * SCAN_ANGLE_MAX), false)
+            }
+            ColorBy::ClassIntensity => {
+                dim(self.class_colors[usize::from(s.class[i])], self.brightness(s, i))
+            }
+            ColorBy::ElevationIntensity => {
+                let z = s.origin[2] + f64::from(s.z[i]);
+                let base = ramp(((z - self.zmin) / (self.zmax - self.zmin).max(1e-9)) as f32, false);
+                dim(base, self.brightness(s, i))
+            }
         }
+    }
+}
+
+/// Cuánto aclara u oscurece la intensidad del punto `i` un color base: de 0,3 a 1.
+impl Style {
+    fn brightness(&self, s: &PointStore, i: usize) -> f32 {
+        let g = (f32::from(s.intensity[i]) / f32::from(self.intensity_max.max(1))).clamp(0.0, 1.0);
+        0.3 + 0.7 * g
+    }
+}
+
+fn dim(c: [u8; 3], k: f32) -> [u8; 3] {
+    [
+        (f32::from(c[0]) * k) as u8,
+        (f32::from(c[1]) * k) as u8,
+        (f32::from(c[2]) * k) as u8,
+    ]
+}
+
+/// Rellena las celdas vacías (NaN) de una rejilla con la media de sus vecinos ya conocidos, capa a
+/// capa desde las celdas conocidas hacia fuera; cada celda se rellena una vez, así que el coste es
+/// lineal. Si no hay ninguna celda conocida no hace nada.
+fn fill_from_edges(g: &mut [f32], cols: usize, rows: usize) {
+    let mut front: Vec<usize> = Vec::new();
+    let neighbours = |k: usize| {
+        let (c, r) = ((k % cols) as isize, (k / cols) as isize);
+        (-1isize..=1)
+            .flat_map(move |dr| (-1isize..=1).map(move |dc| (dc, dr)))
+            .filter(|d| *d != (0, 0))
+            .filter_map(move |(dc, dr)| {
+                let (cc, rr) = (c + dc, r + dr);
+                (cc >= 0 && rr >= 0 && (cc as usize) < cols && (rr as usize) < rows)
+                    .then(|| rr as usize * cols + cc as usize)
+            })
+    };
+    for k in 0..g.len() {
+        if g[k].is_nan() && neighbours(k).any(|j| !g[j].is_nan()) {
+            front.push(k);
+        }
+    }
+    while !front.is_empty() {
+        let vals: Vec<f32> = front
+            .iter()
+            .map(|&k| {
+                let (s, n) = neighbours(k)
+                    .filter(|&j| !g[j].is_nan())
+                    .fold((0.0f32, 0u32), |a, j| (a.0 + g[j], a.1 + 1));
+                s / n as f32
+            })
+            .collect();
+        for (&k, v) in front.iter().zip(&vals) {
+            g[k] = *v;
+        }
+        let mut next = Vec::new();
+        for &k in &front {
+            for j in neighbours(k) {
+                if g[j].is_nan() {
+                    next.push(j);
+                }
+            }
+        }
+        next.sort_unstable();
+        next.dedup();
+        front = next;
     }
 }
 
@@ -2642,5 +2824,106 @@ mod surface_tests {
         let bg = Style::default().background;
         let drawn = img.rgba.chunks_exact(4).filter(|p| [p[0], p[1], p[2]] != bg).count();
         assert!(drawn > 2000, "{drawn}");
+    }
+
+    /// Un almacén con un suelo plano a cota 10 (clase 2) y un punto de copa a cota 25.
+    fn flat_ground_with_a_crown() -> PointStore {
+        let mut s = PointStore {
+            stride: 1,
+            ..PointStore::default()
+        };
+        let mut add = |x: f32, y: f32, z: f32, c: u8| {
+            s.x.push(x);
+            s.y.push(y);
+            s.z.push(z);
+            s.class.push(c);
+            s.intensity.push(100);
+            s.ret.push(0x11);
+            s.src.push(0);
+            s.scan.push(0);
+            s.file.push(0);
+        };
+        for i in 0..10 {
+            for j in 0..10 {
+                add(i as f32, j as f32, 10.0, 2);
+            }
+        }
+        add(5.2, 5.2, 25.0, 5);
+        s
+    }
+
+    #[test]
+    fn height_above_ground_is_measured_from_the_class_2_surface() {
+        let mut s = flat_ground_with_a_crown();
+        assert!(s.compute_hag(1.0));
+        assert_eq!(s.hag.len(), s.len());
+        assert!(s.hag[..100].iter().all(|h| h.abs() < 1e-4));
+        assert!((s.hag[100] - 15.0).abs() < 1e-3, "{}", s.hag[100]);
+    }
+
+    #[test]
+    fn height_above_ground_fills_the_gaps_in_the_ground() {
+        // el suelo solo cubre la mitad de la zona; la copa queda sobre el hueco
+        let mut s = flat_ground_with_a_crown();
+        s.class.iter_mut().zip(&s.x).for_each(|(c, x)| {
+            if *x > 4.5 && *c == 2 {
+                *c = 1;
+            }
+        });
+        assert!(s.compute_hag(1.0));
+        assert!((s.hag[100] - 15.0).abs() < 1e-3, "{}", s.hag[100]);
+    }
+
+    #[test]
+    fn height_above_ground_says_no_when_there_is_no_ground() {
+        let mut s = flat_ground_with_a_crown();
+        s.class.iter_mut().for_each(|c| *c = 1);
+        assert!(!s.compute_hag(1.0));
+        assert!(s.hag.is_empty());
+    }
+
+    #[test]
+    fn deleted_ground_does_not_count_as_ground() {
+        let mut s = flat_ground_with_a_crown();
+        s.deleted = vec![false; s.len()];
+        // se borra todo el suelo menos una esquina que está a otra cota
+        for i in 0..100 {
+            s.deleted[i] = i != 0;
+        }
+        s.z[0] = 20.0;
+        assert!(s.compute_hag(1.0));
+        assert!((s.hag[100] - 5.0).abs() < 1e-3, "{}", s.hag[100]);
+    }
+
+    #[test]
+    fn the_new_color_modes_follow_scan_angle_and_intensity() {
+        let mut s = flat_ground_with_a_crown();
+        s.scan[0] = -300;
+        s.scan[1] = 300;
+        s.scan[2] = 0;
+        let st = Style {
+            color_by: ColorBy::ScanAngle,
+            ..Style::default()
+        };
+        let (a, b, c) = (st.color(&s, 0), st.color(&s, 1), st.color(&s, 2));
+        assert!(a != b && a != c && b != c);
+        // la intensidad oscurece el color de la clase
+        s.intensity[0] = 0;
+        s.intensity[1] = 255;
+        let st = Style {
+            color_by: ColorBy::ClassIntensity,
+            intensity_max: 255,
+            ..Style::default()
+        };
+        let (dark, light) = (st.color(&s, 0), st.color(&s, 1));
+        assert!(dark.iter().map(|v| u32::from(*v)).sum::<u32>() < light.iter().map(|v| u32::from(*v)).sum::<u32>());
+        let st = Style {
+            color_by: ColorBy::ElevationIntensity,
+            zmin: 0.0,
+            zmax: 30.0,
+            intensity_max: 255,
+            ..Style::default()
+        };
+        assert!(st.color(&s, 0) != st.color(&s, 1));
     }
 }

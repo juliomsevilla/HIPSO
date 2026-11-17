@@ -18,6 +18,7 @@ mod basemap;
 mod brand;
 mod change_ui;
 mod classtable;
+mod colormodes;
 mod contents;
 mod copcdetail;
 mod corridor_ui;
@@ -878,6 +879,8 @@ impl App {
                         Some("intensity") => ColorBy::Intensity,
                         Some("earth") => ColorBy::ElevationEarth,
                         Some("return") => ColorBy::Return,
+                        Some("hag") => ColorBy::HeightAboveGround,
+                        Some("scan-angle") => ColorBy::ScanAngle,
                         _ => ColorBy::Elevation,
                     };
                     self.forced_color = Some(self.style.color_by);
@@ -2073,6 +2076,64 @@ impl App {
         self.moving_until = Instant::now() + Duration::from_millis(160);
     }
 
+    /// Al colorear por altura sobre el suelo, calcula `hag` en la nube y en las ventanas de detalle
+    /// cuando faltan o las clases cambiaron desde que se calcularon; con otro modo de color suelta
+    /// lo calculado, que no hace falta. Un almacén que está compartido con el dibujo se deja para el
+    /// fotograma siguiente.
+    fn ensure_hag(&mut self, ctx: &egui::Context) {
+        let want_hag = self.style.color_by == ColorBy::HeightAboveGround;
+        let mut pending = false;
+        let mut no_ground = false;
+        let rev = self.ed.edit_rev + 1;
+        if let Some(arc) = self.store.as_mut() {
+            match Arc::get_mut(arc) {
+                Some(st) if want_hag => {
+                    if st.hag_rev != rev || (st.hag.is_empty() && st.hag_rev == 0) {
+                        st.hag_rev = rev;
+                        if st.compute_hag(1.0) {
+                            self.style.hag_max = st.hag_range();
+                            self.touch();
+                        } else {
+                            no_ground = true;
+                        }
+                    }
+                }
+                Some(st) if !st.hag.is_empty() => {
+                    st.hag = Vec::new();
+                    st.hag_rev = 0;
+                }
+                Some(_) => {}
+                None => pending = want_hag,
+            }
+        }
+        for d in [self.detail.as_mut(), self.detail3.as_mut()].into_iter().flatten() {
+            let rev = d.edit_rev + 1;
+            match Arc::get_mut(&mut d.store) {
+                Some(st) if want_hag => {
+                    if st.hag_rev != rev {
+                        st.hag_rev = rev;
+                        st.compute_hag(1.0);
+                    }
+                }
+                Some(st) if !st.hag.is_empty() => {
+                    st.hag = Vec::new();
+                    st.hag_rev = 0;
+                }
+                Some(_) => {}
+                None => pending = want_hag,
+            }
+        }
+        if no_ground {
+            self.log(
+                "Altura sobre el suelo: la nube no tiene puntos de suelo clasificados (clase 2); clasifica primero o elige otro color."
+                    .to_string(),
+            );
+        }
+        if pending {
+            ctx.request_repaint();
+        }
+    }
+
     /// Vuelve a la vista anterior de la planta; a la que se dejó se puede volver con
     /// [`Action::ZoomNext`].
     fn zoom_back(&mut self) {
@@ -2511,6 +2572,22 @@ impl App {
             ("Colorear por archivo", Action::Color(ColorBy::File)),
             ("Colorear por RGB", Action::Color(ColorBy::Rgb)),
             ("Colorear por ID de árbol", Action::Color(ColorBy::Tree)),
+            (
+                "Colorear por altura sobre el suelo",
+                Action::Color(ColorBy::HeightAboveGround),
+            ),
+            (
+                "Colorear por ángulo de barrido",
+                Action::Color(ColorBy::ScanAngle),
+            ),
+            (
+                "Colorear por clase + intensidad",
+                Action::Color(ColorBy::ClassIntensity),
+            ),
+            (
+                "Colorear por elevación + intensidad",
+                Action::Color(ColorBy::ElevationIntensity),
+            ),
             ("TIN sombreado", Action::ToggleTin),
             ("Curvas de nivel", Action::ToggleContours),
             ("Cargar ráster de fondo", Action::LoadRaster),
@@ -2767,44 +2844,12 @@ impl App {
                                     if let Some(k) = chosen {
                                         self.act(ctx, Action::Layout(k));
                                     }
+                                    if let Some(c) =
+                                        colormodes::button(ui, ctx, &t, self.style.color_by)
+                                    {
+                                        self.act(ctx, Action::Color(c));
+                                    }
                                     ui.vertical(|ui| {
-                                        let names = [
-                                            ("Elevación (azul-rojo)", ColorBy::Elevation),
-                                            ("Elevación (tierra)", ColorBy::ElevationEarth),
-                                            ("Clasificación", ColorBy::Class),
-                                            ("Intensidad", ColorBy::Intensity),
-                                            ("Retorno", ColorBy::Return),
-                                            ("ID de fuente", ColorBy::Source),
-                                            ("Archivo", ColorBy::File),
-                                            ("RGB", ColorBy::Rgb),
-                                            ("ID de árbol (treeID)", ColorBy::Tree),
-                                        ];
-                                        let cur = names
-                                            .iter()
-                                            .find(|n| n.1 == self.style.color_by)
-                                            .map_or("Colorear por…", |n| n.0);
-                                        ui.horizontal(|ui| {
-                                        // un menú, no un cuadro combinado: cuando el grupo se
-                                        // pliega en un botón sus controles viven en un menú
-                                        // emergente, que se cierra cuando un clic cae fuera de él
-                                        // (como la lista de un cuadro combinado) antes de que se
-                                        // haga la elección; los submenús los maneja el menú
-                                        // emergente
-                                        ui.menu_button(format!("Color: {cur}  ▾"), |ui| {
-                                            for (name, c) in names {
-                                                if ui
-                                                    .selectable_label(self.style.color_by == c, name)
-                                                    .clicked()
-                                                {
-                                                    self.act(ctx, Action::Color(c));
-                                                    ui.close();
-                                                }
-                                            }
-                                        })
-                                        .response
-                                        .on_hover_text("Atributo con el que se colorean los puntos.");
-                                        });
-
                                         ui.horizontal(|ui| {
                                         ui.menu_button("Rango Z  ▾", |ui| {
                                             let (lo, hi) = self
@@ -3340,6 +3385,7 @@ ui.menu_button("⚙", |ui| {
     // ----------------------------------------------------------------------------- views
 
     fn views(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        self.ensure_hag(ctx);
         let t = self.tokens();
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(t.canvas))
@@ -4018,16 +4064,7 @@ ui.menu_button("⚙", |ui| {
             &format!(
                 "Planta · {} · {}",
                 self.nav.name(),
-                match self.style.color_by {
-                    ColorBy::Elevation | ColorBy::ElevationEarth => "elevación",
-                    ColorBy::Class => "clasificación",
-                    ColorBy::Intensity => "intensidad",
-                    ColorBy::Return => "retorno",
-                    ColorBy::Source => "fuente",
-                    ColorBy::File => "archivo",
-                    ColorBy::Rgb => "RGB",
-                    ColorBy::Tree => "ID de árbol",
-                }
+                colormodes::title(self.style.color_by)
             ),
         );
         self.paint_legend(&painter, rect, &t);
@@ -4037,7 +4074,7 @@ ui.menu_button("⚙", |ui| {
     /// tipos de retorno al colorear por retorno.
     fn paint_legend(&self, painter: &egui::Painter, rect: Rect, t: &Tokens) {
         let entries: Vec<(String, [u8; 3])> = match self.style.color_by {
-            ColorBy::Class => (0..256usize)
+            ColorBy::Class | ColorBy::ClassIntensity => (0..256usize)
                 .filter(|c| self.class_counts[*c] > 0)
                 .map(|c| {
                     (
@@ -4049,6 +4086,25 @@ ui.menu_button("⚙", |ui| {
             ColorBy::Return => view::RETURN_COLORS
                 .iter()
                 .map(|(n, c)| (n.to_string(), *c))
+                .collect(),
+            // las rampas: de arriba (extremo alto) a abajo (extremo bajo)
+            ColorBy::HeightAboveGround => [1.0f32, 0.75, 0.5, 0.25, 0.0]
+                .iter()
+                .map(|t| {
+                    (
+                        format!("{:.0} m", f64::from(*t) * self.style.hag_max),
+                        view::ramp_color(*t, false),
+                    )
+                })
+                .collect(),
+            ColorBy::ScanAngle => [1.0f32, 0.75, 0.5, 0.25, 0.0]
+                .iter()
+                .map(|t| {
+                    (
+                        format!("{:+.0}°", (t - 0.5) * 2.0 * view::SCAN_ANGLE_MAX),
+                        view::ramp_color(*t, false),
+                    )
+                })
                 .collect(),
             _ => return,
         };
