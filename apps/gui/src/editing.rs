@@ -121,6 +121,10 @@ pub struct Editing {
     pub session_file: Option<PathBuf>,
     /// Ediciones de una sesión anterior que no se llegaron a guardar y que se ofrecen recuperar.
     pub recover: Option<Vec<Edit>>,
+    /// Las nubes originales y las editadas que escribe el guardado en curso.
+    pub pending_swap: Option<(Vec<PathBuf>, Vec<PathBuf>)>,
+    /// El guardado terminó: se ofrece cambiar las originales por las editadas.
+    pub swap_offer: Option<(Vec<PathBuf>, Vec<PathBuf>)>,
 }
 
 impl Default for Editing {
@@ -166,6 +170,8 @@ impl Default for Editing {
             focus: None,
             session_file: None,
             recover: None,
+            pending_swap: None,
+            swap_offer: None,
         }
     }
 }
@@ -1342,6 +1348,7 @@ impl App {
         self.ed.saved = saved_len;
         self.ed.toggled = false;
         let outputs: Vec<PathBuf> = pairs.iter().map(|p| p.1.clone()).collect();
+        self.ed.pending_swap = Some((pairs.iter().map(|p| p.0.clone()).collect(), outputs.clone()));
         let session_file = self.ed.session_file.clone();
         let launch = Launch {
             outputs,
@@ -1361,6 +1368,61 @@ impl App {
             show: vec![],
         };
         self.start(ctx, launch);
+    }
+
+    /// Tras guardar la nube editada, el resultado se abre encima de la original y las dos se
+    /// superponen (el perfil y la planta mezclan los puntos de ambas). Esta ventana ofrece cerrar la
+    /// original y quedarse con el resultado, sin perder la vista.
+    pub fn swap_window(&mut self, ctx: &egui::Context) {
+        let Some((originals, outputs)) = self.ed.swap_offer.clone() else {
+            return;
+        };
+        let names: Vec<String> = outputs
+            .iter()
+            .filter_map(|o| o.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .collect();
+        let ready = self.loading.is_none() && outputs.iter().all(|o| self.clouds.contains(o));
+        let (mut swap, mut keep) = (false, false);
+        egui::Window::new("Nube editada guardada")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_BOTTOM, [0.0, -40.0])
+            .show(ctx, |ui| {
+                ui.label(format!("Guardada: {}.", names.join(", ")));
+                ui.label("Está abierta encima de la original y las dos se superponen: en la planta, el perfil y el 3D se mezclan los puntos de ambas.");
+                ui.horizontal(|ui| {
+                    swap = ui
+                        .add_enabled(ready, egui::Button::new("Cerrar la original y quedarme con el resultado"))
+                        .on_disabled_hover_text("Espera a que termine de cargarse el resultado.")
+                        .clicked();
+                    keep = ui.button("Dejar las dos").clicked();
+                });
+            });
+        if swap {
+            self.swap_originals(ctx, &originals);
+            self.ed.swap_offer = None;
+        } else if keep {
+            self.ed.swap_offer = None;
+        }
+    }
+
+    /// Cierra las nubes `originals` conservando la vista y la caja del perfil.
+    pub fn swap_originals(&mut self, ctx: &egui::Context, originals: &[PathBuf]) {
+        let profile = self.profile;
+        for o in originals {
+            let Some(k) = self.clouds.iter().position(|c| c == o) else {
+                continue;
+            };
+            if !self.drop_cloud_in_memory(ctx, k) {
+                // sin el almacén en memoria (o con una carga en curso): se quita y se recarga
+                self.clouds.remove(k);
+                self.reload(ctx);
+                return;
+            }
+        }
+        self.profile = profile;
+        self.tex_prof = None;
+        self.prof_data = None;
     }
 
     pub fn edit_keys(&mut self, ctx: &egui::Context) {

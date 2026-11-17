@@ -409,3 +409,25 @@ fn real_cloud_profile_line_tools() {
         eprintln!("{}: seleccionados {sel}, píxeles resaltados {cyan}", nav.name());
     }
 }
+
+#[test]
+fn replacing_the_original_with_the_result_keeps_the_view_and_the_profile() {
+    let ctx = egui::Context::default();
+    let mut app = app_with_profile(Nav::Zoom);
+    // dos nubes superpuestas: la editada (archivo 0) y la original (archivo 1)
+    let mut s = cloud();
+    let n = s.len();
+    s.files = vec!["editada.laz".into(), "original.laz".into()];
+    s.file = (0..n).map(|i| u8::from(i % 2 == 1)).collect();
+    s.file_bounds = vec![s.bounds, s.bounds];
+    app.ed.session = Some(Session::new(&s));
+    app.store = Some(Arc::new(s));
+    app.clouds = vec!["editada.laz".into(), "original.laz".into()];
+    let before = app.profile;
+    app.swap_originals(&ctx, &["original.laz".into()]);
+    assert_eq!(app.clouds, vec![std::path::PathBuf::from("editada.laz")]);
+    let store = app.store.clone().unwrap();
+    assert_eq!(store.len(), n / 2, "solo quedan los puntos de la editada");
+    assert!(store.file.iter().all(|f| *f == 0));
+    assert!(app.profile.is_some() && app.profile == before, "la caja del perfil se conserva");
+}
