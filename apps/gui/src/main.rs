@@ -227,6 +227,8 @@ enum Nav {
     SelBrushSq,
     SelAbove,
     SelBelow,
+    /// Selecciona respecto de un plano (o curva) ajustado a los puntos de suelo de un círculo.
+    SelPlane,
 }
 
 impl Nav {
@@ -250,6 +252,7 @@ impl Nav {
             Nav::SelBrushSq => "Pincel cuadrado",
             Nav::SelAbove => "Seleccionar sobre una línea",
             Nav::SelBelow => "Seleccionar bajo una línea",
+            Nav::SelPlane => "Seleccionar con plano local",
         }
     }
 }
@@ -2525,6 +2528,10 @@ impl App {
                 "Editar: seleccionar bajo una línea (perfil)",
                 Action::Nav(Nav::SelBelow),
             ),
+            (
+                "Editar: seleccionar con plano local",
+                Action::Nav(Nav::SelPlane),
+            ),
             ("Información de los datos", Action::Info),
             ("Clasificar puntos", Action::Tool(ToolId::Classify)),
             ("Asignar sistema de coordenadas", Action::Tool(ToolId::Crs)),
@@ -3664,7 +3671,8 @@ ui.menu_button("⚙", |ui| {
             | Nav::SelLasso
             | Nav::SelCircle
             | Nav::SelBrush
-            | Nav::SelBrushSq => {
+            | Nav::SelBrushSq
+            | Nav::SelPlane => {
                 if store.is_some() {
                     self.plan_select(ctx, &resp, rect, w, h)
                 }

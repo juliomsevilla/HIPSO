@@ -52,6 +52,17 @@ pub fn with_focus(ops: &[SelOp], focus: &Option<Focus>) -> Vec<SelOp> {
     v
 }
 
+/// Qué lado del plano local se selecciona.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PlaneSide {
+    /// Los puntos por encima de la superficie (vegetación, ruido alto).
+    Above,
+    /// Los puntos por debajo (ruido bajo suelo).
+    Below,
+    /// Los puntos cerca de la superficie, a menos de la tolerancia (añadir al suelo).
+    Near,
+}
+
 pub struct Editing {
     pub session: Option<Session>,
     pub ops: Vec<SelOp>,
@@ -68,6 +79,16 @@ pub struct Editing {
     pub brush_px: f64,
     /// Alto de la franja de «por encima/por debajo de una línea» en el perfil (0: sin límite).
     pub side_height: f64,
+    /// Ajuste de «plano local»: radio del círculo (m), clase de los puntos con que se ajusta, si el
+    /// ajuste es una curva de segundo grado en vez de un plano, qué lado se selecciona, la
+    /// tolerancia (m, o desviaciones típicas si `plane_sigma`) y cuántas desviaciones.
+    pub plane_r: f64,
+    pub plane_class: u8,
+    pub plane_quad: bool,
+    pub plane_side: PlaneSide,
+    pub plane_tol: f64,
+    pub plane_sigma: bool,
+    pub plane_k: f64,
     /// Las selecciones en 3D alcanzan solo tantos metros a cada lado del plano del objetivo.
     pub slab: bool,
     pub slab_half: f64,
@@ -110,6 +131,13 @@ impl Default for Editing {
             d3start: None,
             brush_px: 18.0,
             side_height: 0.0,
+            plane_r: 5.0,
+            plane_class: 2,
+            plane_quad: false,
+            plane_side: PlaneSide::Above,
+            plane_tol: 0.3,
+            plane_sigma: false,
+            plane_k: 2.5,
             slab: false,
             slab_half: 1.0,
             sel_rev: 0,
@@ -139,7 +167,7 @@ fn parse(s: &str) -> Option<f64> {
 }
 
 pub fn is_select(n: Nav) -> bool {
-    is_select_3d(n) || is_brush(n) || is_line(n)
+    is_select_3d(n) || is_brush(n) || is_line(n) || n == Nav::SelPlane
 }
 
 /// Las herramientas que funcionan también en la vista 3D: formas dibujadas en la pantalla. Los
@@ -428,6 +456,15 @@ impl App {
             }
             return;
         }
+        if self.nav == Nav::SelPlane {
+            if resp.clicked_by(egui::PointerButton::Primary)
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                let c = to(p);
+                self.select_by_plane(ctx, c[0], c[1]);
+            }
+            return;
+        }
         let start = self.drag_start;
         if let Some(poly) =
             finished_shape(self.nav, resp, start, &mut self.ed.draft, &to, plan.scale)
@@ -443,6 +480,64 @@ impl App {
         if resp.drag_stopped_by(egui::PointerButton::Primary) {
             self.drag_start = None;
         }
+    }
+
+    /// «Plano local»: ajusta un plano (o una curva) a los puntos de la clase elegida que caen en un
+    /// círculo alrededor de `(x, y)` y añade a la selección los que quedan por encima, por debajo o
+    /// cerca de él. Toma los puntos de la ventana de detalle si la tiene y el clic cae dentro, y del
+    /// almacén de la vista si no. La selección es una región (los coeficientes y la banda), no una
+    /// lista de puntos: el archivo guardado da lo mismo que se ve.
+    fn select_by_plane(&mut self, ctx: &egui::Context, x: f64, y: f64) {
+        let r = self.ed.plane_r.max(0.01);
+        let class = self.ed.plane_class;
+        let detail = self
+            .detail
+            .as_ref()
+            .filter(|d| x >= d.window[0] && x <= d.window[2] && y >= d.window[1] && y <= d.window[3])
+            .map(|d| d.store.clone());
+        let Some(store) = detail.or_else(|| self.store.clone()) else {
+            return;
+        };
+        let live = |i: usize| {
+            !store.deleted.get(i).copied().unwrap_or(false)
+                && !store.outside.get(i).copied().unwrap_or(false)
+        };
+        let pts = (0..store.len())
+            .filter(|&i| store.class[i] == class && live(i))
+            .map(|i| store.xyz(i));
+        let Some((coef, sigma, n)) = edit::fit_surface(pts, x, y, r, self.ed.plane_quad) else {
+            self.log(format!(
+                "Plano local: en ese círculo (radio {r:.1} m) no hay puntos suficientes de la clase {class} para ajustar {}. Agranda el radio o elige otra clase.",
+                if self.ed.plane_quad { "una curva (hacen falta 6, no alineados)" } else { "un plano (hacen falta 3, no alineados)" }
+            ));
+            return;
+        };
+        let tol = if self.ed.plane_sigma {
+            (self.ed.plane_k * sigma).max(0.02)
+        } else {
+            self.ed.plane_tol.max(0.0)
+        };
+        let (lo, hi) = match self.ed.plane_side {
+            PlaneSide::Above => (tol, f64::INFINITY),
+            PlaneSide::Below => (f64::NEG_INFINITY, -tol),
+            PlaneSide::Near => (-tol, tol),
+        };
+        self.log(format!(
+            "Plano local: {n} puntos de la clase {class}, desviación {sigma:.2} m, tolerancia {tol:.2} m."
+        ));
+        let op = SelOp {
+            mode: self.mode_now(ctx),
+            region: Region::PlaneBand {
+                cx: x,
+                cy: y,
+                r,
+                coef,
+                lo,
+                hi,
+            },
+            attr: self.ed.attr.clone(),
+        };
+        self.queue(Cmd::AddOp(Box::new(op)));
     }
 
     /// Dibuja la selección en curso sobre la planta.
@@ -472,6 +567,19 @@ impl App {
                 self.ed.brush_px as f32,
                 Color32::from_rgb(0, 255, 255),
             );
+            return;
+        }
+        if self.nav == Nav::SelPlane {
+            // el círculo con el que se ajustará el plano, a escala
+            if let Some(h) = resp.hover_pos() {
+                let c = Color32::from_rgb(0, 255, 255);
+                painter.circle(
+                    h,
+                    (self.ed.plane_r * self.plan.scale) as f32,
+                    c.gamma_multiply(0.10),
+                    Stroke::new(1.5, c),
+                );
+            }
             return;
         }
         paint_shape(
@@ -1192,6 +1300,7 @@ impl App {
                                 ("@brushsq", "Pincel cuadrado (plano y perfil)", Nav::SelBrushSq),
                                 ("@above", "Seleccionar todo lo que queda sobre una línea del perfil", Nav::SelAbove),
                                 ("@below", "Seleccionar todo lo que queda bajo una línea del perfil", Nav::SelBelow),
+                                ("@planefit", "Seleccionar con plano local", Nav::SelPlane),
                             ] {
                                 if ribbon::tool_button(ui, &t, icon, name, self.nav == n).clicked()
                                 {
@@ -1199,7 +1308,59 @@ impl App {
                                 }
                             }
                         });
-                        if is_brush(self.nav) {
+                        if self.nav == Nav::SelPlane {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label("Radio");
+                                ui.add(
+                                    egui::DragValue::new(&mut self.ed.plane_r)
+                                        .range(0.1..=10_000.0)
+                                        .speed(0.1)
+                                        .suffix(" m"),
+                                );
+                                ui.label("Ajustar a la clase");
+                                ui.add(egui::DragValue::new(&mut self.ed.plane_class).range(0..=255));
+                            });
+                            ui.horizontal_wrapped(|ui| {
+                                ui.radio_value(&mut self.ed.plane_side, PlaneSide::Above, "Sobre")
+                                    .on_hover_text("Los puntos por encima de la superficie ajustada: vegetación, ruido alto.");
+                                ui.radio_value(&mut self.ed.plane_side, PlaneSide::Below, "Bajo")
+                                    .on_hover_text("Los puntos por debajo de la superficie ajustada: ruido bajo el suelo.");
+                                ui.radio_value(&mut self.ed.plane_side, PlaneSide::Near, "Cerca")
+                                    .on_hover_text("Los puntos a menos de la tolerancia de la superficie: sirve para añadir al suelo.");
+                            });
+                            ui.horizontal_wrapped(|ui| {
+                                ui.radio_value(&mut self.ed.plane_quad, false, "Plano");
+                                ui.radio_value(&mut self.ed.plane_quad, true, "Curva")
+                                    .on_hover_text("Superficie de segundo grado: sigue una vaguada o un cerro dentro del círculo.");
+                            });
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label("Tolerancia");
+                                if self.ed.plane_sigma {
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.ed.plane_k)
+                                            .range(0.5..=20.0)
+                                            .speed(0.05)
+                                            .suffix(" σ"),
+                                    );
+                                } else {
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.ed.plane_tol)
+                                            .range(0.0..=1000.0)
+                                            .speed(0.01)
+                                            .suffix(" m"),
+                                    );
+                                }
+                                ui.checkbox(&mut self.ed.plane_sigma, "en σ")
+                                    .on_hover_text("Mide la tolerancia en desviaciones típicas de los puntos del ajuste, en vez de en metros.");
+                            });
+                            ui.label(
+                                egui::RichText::new(
+                                    "Clic en la planta: se ajusta una superficie a los puntos de esa clase dentro del círculo y se selecciona lo que queda sobre, bajo o cerca de ella. Después, Cambiar clase o Eliminar.",
+                                )
+                                .size(11.0)
+                                .color(t.weak),
+                            );
+                        } else if is_brush(self.nav) {
                             ui.horizontal(|ui| {
                                 ui.label("Tamaño del pincel");
                                 ui.add(
