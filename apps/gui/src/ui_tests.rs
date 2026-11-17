@@ -285,9 +285,17 @@ fn a_line_selection_is_seen_in_the_profile_and_can_be_edited() {
         let at = |u: f64, z: f64| Pos2::new((ox + u * k) as f32, (h - oy - (z - lo) * k) as f32);
         // la línea a cota 12,5, a lo largo del perfil: «sobre» toma el cable, «bajo» el suelo y
         // «cerca» la vegetación
+        let key_before = app.tex_prof.as_ref().map(|t| t.1);
         let t = drag(&mut app, &ctx, t, at(1.0, 12.5), at(19.0, 12.5));
         app.process_edit_cmds();
         frame(&mut app, &ctx, t, vec![]);
+        frame(&mut app, &ctx, t + 0.05, vec![]);
+        assert_ne!(
+            app.tex_prof.as_ref().map(|t| t.1),
+            key_before,
+            "{}: el perfil no se vuelve a dibujar con la selección",
+            nav.name()
+        );
         let bx = app.profile.unwrap();
         let picked = app
             .profile_store(&ctx, &bx)
@@ -299,5 +307,105 @@ fn a_line_selection_is_seen_in_the_profile_and_can_be_edited() {
         app.process_edit_cmds();
         let store = app.store.clone().unwrap();
         assert!(store.class.iter().filter(|c| **c == 9).count() > 100, "{}", nav.name());
+    }
+}
+
+/// Con una nube real (`HIPSO_TEST_LAZ=ruta cargo test -p hipso-gui real_cloud -- --ignored --nocapture`):
+/// el perfil lee la franja a toda densidad en segundo plano, se traza una línea y se mira que la
+/// selección llega a los puntos y se pinta.
+#[test]
+#[ignore]
+fn real_cloud_profile_line_tools() {
+    let Ok(path) = std::env::var("HIPSO_TEST_LAZ") else {
+        return;
+    };
+    let path = std::path::PathBuf::from(path);
+    let store = hipso_core::view::load(&[path.clone()], 3_000_000).unwrap();
+    eprintln!("cargados {} de {} puntos (1 de cada {})", store.len(), store.total, store.stride);
+    let b = store.bounds;
+    let _ = b;
+    // el centro de la caja, en el punto mediano de la nube (la caja del extremo puede caer en un hueco)
+    let mut xs: Vec<f64> = (0..store.len()).step_by(7).map(|i| store.xyz(i)[0]).collect();
+    let mut ys: Vec<f64> = (0..store.len()).step_by(7).map(|i| store.xyz(i)[1]).collect();
+    xs.sort_by(f64::total_cmp);
+    ys.sort_by(f64::total_cmp);
+    let (cx, cy) = (xs[xs.len() / 2], ys[ys.len() / 2]);
+    for (nav, color) in [
+        (Nav::SelAbove, ColorBy::Elevation),
+        (Nav::SelNear, ColorBy::HeightAboveGround),
+        (Nav::ClassLine, ColorBy::HeightAboveGround),
+    ] {
+        let mut app = App::default();
+        app.ed.session = Some(Session::new(&store));
+        app.store = Some(Arc::new(store.clone()));
+        app.clouds = vec![path.clone()];
+        app.style = Style::fit(&store);
+        app.style.color_by = color;
+        app.profile_width = 10.0;
+        app.profile = Some(ProfileBox {
+            a: [cx - 50.0, cy],
+            b: [cx + 50.0, cy],
+            width: 10.0,
+        });
+        app.layout = Layout::PlanProfile;
+        app.nav = nav;
+        let ctx = egui::Context::default();
+        let mut t = 0.0;
+        // hasta que el perfil tenga sus puntos a toda densidad
+        for _ in 0..400 {
+            frame(&mut app, &ctx, t, vec![mv(Pos2::new(50.0, 50.0))]);
+            t += 0.05;
+            if app.tex_prof.is_some() && !app.profile_loading() && t > 1.0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        let bx = app.profile.unwrap();
+        let ps = app.profile_store(&ctx, &bx).unwrap();
+        eprintln!("{}: perfil con {} puntos (stride {}), hag {}", nav.name(), ps.len(), ps.stride, ps.hag.len());
+        let (lo, hi) = app.tex_prof.as_ref().map(|t| (t.2, t.3)).unwrap();
+        let (w, h) = (RECT.width() as f64, RECT.height() as f64);
+        let k = (w / 100.0).min(h / (hi - lo));
+        let (ox, oy) = ((w - 100.0 * k) / 2.0, (h - (hi - lo) * k) / 2.0);
+        let at = |u: f64, z: f64| Pos2::new((ox + u * k) as f32, (h - oy - (z - lo) * k) as f32);
+        // la línea a la cota mediana del suelo de la franja: pasa por la nube
+        let mut gz: Vec<f64> = (0..ps.len()).filter(|&i| ps.class[i] == 2).map(|i| ps.xyz(i)[2]).collect();
+        gz.sort_by(f64::total_cmp);
+        let zmid = gz[gz.len() / 2];
+        eprintln!("{}: rango del perfil {lo:.1}–{hi:.1}, suelo mediano {zmid:.1}", nav.name());
+        t = drag(&mut app, &ctx, t, at(10.0, zmid), at(90.0, zmid));
+        app.process_edit_cmds();
+        for _ in 0..3 {
+            frame(&mut app, &ctx, t, vec![]);
+            t += 0.05;
+        }
+        eprintln!("{}: órdenes sin procesar {}, ops {}, ediciones {}", nav.name(), app.ed.cmds.len(), app.ed.ops.len(), app.ed.session.as_ref().unwrap().edits.len());
+        if let Some(op) = app.ed.ops.first() {
+            if let Region::Side { path, .. } | Region::Near { path, .. } = &op.region {
+                eprintln!("{}: línea {path:?}, ancho de caja {}", nav.name(), bx.width);
+            }
+        }
+        let ps = app.profile_store(&ctx, &bx).unwrap();
+        {
+            let mut n_strip = 0;
+            let mut n_above = 0;
+            let mut zs = (f64::MAX, f64::MIN);
+            for i in 0..ps.len() {
+                let p = ps.xyz(i);
+                let (u, t) = bx.local(p[0], p[1]);
+                if u >= 23.4 && u <= 90.0 && t.abs() <= 5.0 {
+                    n_strip += 1;
+                    zs = (zs.0.min(p[2]), zs.1.max(p[2]));
+                    if p[2] > 657.34 {
+                        n_above += 1;
+                    }
+                }
+            }
+            eprintln!("  manual: en la franja {n_strip}, sobre la línea {n_above}, z {:.1}–{:.1}", zs.0, zs.1);
+        }
+        let sel = ps.selected.iter().filter(|s| **s).count();
+        let img = hipso_core::view::render_profile(&ps, &bx, 800, 400, &app.style, None).0;
+        let cyan = img.rgba.chunks_exact(4).filter(|p| [p[0], p[1], p[2]] == hipso_core::view::HIGHLIGHT).count();
+        eprintln!("{}: seleccionados {sel}, píxeles resaltados {cyan}", nav.name());
     }
 }

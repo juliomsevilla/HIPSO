@@ -580,6 +580,16 @@ impl App {
             );
             return;
         }
+        if is_line(self.nav) {
+            painter.text(
+                rect.left_top() + Vec2::new(8.0, 6.0),
+                Align2::LEFT_TOP,
+                "Esta herramienta se usa en la ventana del perfil, no en la planta",
+                FontId::proportional(12.0),
+                Color32::from_rgb(0, 255, 255),
+            );
+            return;
+        }
         if self.nav == Nav::SelPlane {
             // el círculo con el que se ajustará el plano, a escala
             if let Some(h) = resp.hover_pos() {
