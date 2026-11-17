@@ -7,7 +7,9 @@
 
 use std::path::Path;
 
-use super::{Action, Attr, AttrKind, Brush, Edit, Mode, RangeSel, Region, SelOp, ViewCut};
+use super::{
+    Action, Attr, AttrKind, Brush, Edit, Mode, RangeSel, Region, SelOp, ViewCut, sorted_path,
+};
 use crate::classes::ClassSet;
 use crate::json::{Json, quote};
 use crate::vector::Polygon;
@@ -36,6 +38,10 @@ fn num(v: f64) -> String {
 
 fn pair(a: [f64; 2]) -> String {
     format!("[{},{}]", num(a[0]), num(a[1]))
+}
+
+fn path_json(path: &[[f64; 2]]) -> String {
+    format!("[{}]", path.iter().map(|p| pair(*p)).collect::<Vec<_>>().join(","))
 }
 
 fn rings_json(poly: &Polygon) -> String {
@@ -114,17 +120,27 @@ fn region_json(r: &Region) -> String {
         ),
         Region::Side {
             bx,
-            a,
-            b,
+            path,
             above,
             height,
         } => format!(
-            "{{\"type\":\"side\",\"box\":{},\"a\":{},\"b\":{},\"above\":{},\"height\":{}}}",
+            "{{\"type\":\"side\",\"box\":{},\"path\":{},\"above\":{},\"height\":{}}}",
             box_json(bx),
-            pair(*a),
-            pair(*b),
+            path_json(path),
             above,
             num(*height)
+        ),
+        Region::Near {
+            bx,
+            path,
+            above,
+            below,
+        } => format!(
+            "{{\"type\":\"near\",\"box\":{},\"path\":{},\"above\":{},\"below\":{}}}",
+            box_json(bx),
+            path_json(path),
+            num(*above),
+            num(*below)
         ),
         Region::PlaneBand {
             cx,
@@ -213,10 +229,16 @@ pub fn to_json(edits: &[Edit]) -> String {
                 Action::Delete => "{\"type\":\"delete\"}".to_string(),
                 Action::Reclassify(c) => format!("{{\"type\":\"reclassify\",\"class\":{c}}}"),
             };
+            let group = if e.group == 0 {
+                String::new()
+            } else {
+                format!(",\"group\":{}", e.group)
+            };
             format!(
-                "{{\"label\":{},\"enabled\":{},\"action\":{},\"sel\":{}}}",
+                "{{\"label\":{},\"enabled\":{}{},\"action\":{},\"sel\":{}}}",
                 quote(&e.label),
                 e.enabled,
+                group,
                 action,
                 ops_json(&e.sel)
             )
@@ -275,6 +297,25 @@ fn pair_of(j: &Json, what: &str) -> Result<[f64; 2]> {
         [a, b] => Ok([f64_of(a, what)?, f64_of(b, what)?]),
         _ => Err(bad(&format!("«{what}» no es un par de números"))),
     }
+}
+
+/// La línea de una región `side` o `near`: la lista `path` o, en los archivos anteriores a las
+/// líneas quebradas, los dos extremos `a` y `b`. Siempre sale ordenada por `u`.
+fn path_of(j: &Json) -> Result<Vec<[f64; 2]>> {
+    let path = match j.get("path") {
+        Some(p) => arr_of(p, "path")?
+            .iter()
+            .map(|v| pair_of(v, "path"))
+            .collect::<Result<Vec<_>>>()?,
+        None => vec![
+            pair_of(field(j, "a")?, "a")?,
+            pair_of(field(j, "b")?, "b")?,
+        ],
+    };
+    if path.len() < 2 {
+        return Err(bad("una línea del perfil necesita al menos dos vértices"));
+    }
+    Ok(sorted_path(path))
 }
 
 fn rings_of(j: &Json) -> Result<Polygon> {
@@ -348,10 +389,15 @@ fn region_of(j: &Json) -> Result<Region> {
         },
         "side" => Region::Side {
             bx: box_of(j)?,
-            a: pair_of(field(j, "a")?, "a")?,
-            b: pair_of(field(j, "b")?, "b")?,
+            path: path_of(j)?,
             above: bool_of(field(j, "above")?, "above")?,
             height: f64_of(field(j, "height")?, "height")?,
+        },
+        "near" => Region::Near {
+            bx: box_of(j)?,
+            path: path_of(j)?,
+            above: f64_of(field(j, "above")?, "above")?,
+            below: f64_of(field(j, "below")?, "below")?,
         },
         "plane_band" => {
             let c = arr_of(field(j, "coef")?, "coef")?;
@@ -470,6 +516,12 @@ pub fn from_json(text: &str) -> Result<Vec<Edit>> {
             action,
             label: str_of(field(e, "label")?, "label")?.to_string(),
             enabled: bool_of(field(e, "enabled")?, "enabled")?,
+            // los archivos anteriores a los grupos no lo traen: una edición suelta
+            group: e
+                .get("group")
+                .map(|g| f64_of(g, "group"))
+                .transpose()?
+                .map_or(0, |g| g.max(0.0) as u32),
         });
     }
     Ok(out)
@@ -607,10 +659,19 @@ mod tests {
                 Mode::Subtract,
                 Region::Side {
                     bx,
-                    a: [1.0, 3.0],
-                    b: [9.0, 6.0],
+                    path: vec![[1.0, 3.0], [4.0, 5.0], [9.0, 6.0]],
                     above: true,
                     height: 2.0,
+                },
+                Attr::default(),
+            ),
+            op(
+                Mode::Add,
+                Region::Near {
+                    bx,
+                    path: vec![[1.0, 3.0], [4.0, 5.0], [9.0, 6.0]],
+                    above: 0.7,
+                    below: 1.1,
                 },
                 Attr::default(),
             ),
@@ -635,12 +696,14 @@ mod tests {
                 action: Action::Reclassify(66),
                 label: "Clase 66 «a» \"b\"\n".to_string(),
                 enabled: true,
+                group: 0,
             },
             Edit {
                 sel,
                 action: Action::Delete,
                 label: "Eliminar".to_string(),
                 enabled: false,
+                group: 7,
             },
         ]
     }
@@ -655,6 +718,7 @@ mod tests {
             assert_eq!(a.action, b.action);
             assert_eq!(a.label, b.label);
             assert_eq!(a.enabled, b.enabled);
+            assert_eq!(a.group, b.group);
             let picked = pts.iter().filter(|p| selected(&a.sel, p)).count();
             assert!(picked > 0, "la prueba debe elegir algún punto");
             for p in &pts {
@@ -725,6 +789,24 @@ mod tests {
         assert_eq!(read(&path)?.len(), 1);
         assert!(!path.with_extension("json.tmp").exists());
         std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_session_with_a_two_point_side_line_from_before_still_reads() -> Result<()> {
+        // se parte de un documento escrito por `to_json` y se sustituye la línea por la forma
+        // antigua de dos extremos
+        let edits = rich();
+        let mut text = to_json(&edits);
+        let new = "\"path\":[[1,3],[4,5],[9,6]]";
+        assert!(text.contains(new), "la prueba espera la línea quebrada de rich()");
+        text = text.replace(new, "\"a\":[1,3],\"b\":[9,6]");
+        let back = from_json(&text)?;
+        let side = back[0].sel.iter().find_map(|o| match &o.region {
+            Region::Side { path, .. } => Some(path.clone()),
+            _ => None,
+        });
+        assert_eq!(side, Some(vec![[1.0, 3.0], [9.0, 6.0]]));
         Ok(())
     }
 }

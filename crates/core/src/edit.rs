@@ -42,12 +42,21 @@ pub enum Region {
     /// la línea; solo cuentan los puntos dentro de la caja.
     Side {
         bx: ProfileBox,
-        a: [f64; 2],
-        b: [f64; 2],
+        /// La línea: vértices `(u, z)` ordenados por `u` (véase [`sorted_path`]); con dos es un
+        /// segmento y con más, una línea quebrada.
+        path: Vec<[f64; 2]>,
         above: bool,
         /// Alto de la franja que se toma, en las unidades de z, a partir de la línea (0: sin
         /// límite, todo lo que queda por encima o por debajo).
         height: f64,
+    },
+    /// Todo lo que está cerca de una línea dibujada en un perfil, a lo largo de ella: a no más de
+    /// `above` por encima ni de `below` por debajo; solo cuentan los puntos dentro de la caja.
+    Near {
+        bx: ProfileBox,
+        path: Vec<[f64; 2]>,
+        above: f64,
+        below: f64,
     },
     /// Los puntos dentro de un círculo en planta cuya cota cae en una banda respecto de una
     /// superficie ajustada (un plano o una curva de segundo grado). Lo que se guarda son los
@@ -162,15 +171,43 @@ impl Brush {
 /// segmento a lo largo de `u`. Con `height` mayor que 0 solo cuenta la franja de esa altura junto
 /// a la línea.
 pub fn beside_line(a: [f64; 2], b: [f64; 2], above: bool, height: f64, u: f64, z: f64) -> bool {
-    let (u0, u1) = (a[0].min(b[0]), a[0].max(b[0]));
-    if u < u0 || u > u1 {
-        return false;
+    beside_path(&[a, b], above, height, u, z)
+}
+
+/// Los vértices ordenados por `u` (la línea de un perfil es una función de la distancia). El orden
+/// es estable: dos vértices con la misma `u` conservan el suyo.
+pub fn sorted_path(mut path: Vec<[f64; 2]>) -> Vec<[f64; 2]> {
+    path.sort_by(|p, q| p[0].total_cmp(&q[0]));
+    path
+}
+
+/// La cota de la línea quebrada `path` (ordenada por `u`) en `u`, o `None` fuera de su alcance. En
+/// un tramo vertical vale la cota más alta del tramo: el alcance es un punto, y también lo es lo que
+/// hay encima de él.
+pub fn line_z(path: &[[f64; 2]], u: f64) -> Option<f64> {
+    let (first, last) = (path.first()?, path.last()?);
+    if u < first[0] || u > last[0] {
+        return None;
     }
-    let zl = if (b[0] - a[0]).abs() < 1e-12 {
-        // una línea vertical: el alcance es un punto, y también lo es lo que hay encima de ella
-        a[1].max(b[1])
-    } else {
-        a[1] + (b[1] - a[1]) * (u - a[0]) / (b[0] - a[0])
+    for w in path.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        if u < a[0] || u > b[0] {
+            continue;
+        }
+        return Some(if (b[0] - a[0]).abs() < 1e-12 {
+            a[1].max(b[1])
+        } else {
+            a[1] + (b[1] - a[1]) * (u - a[0]) / (b[0] - a[0])
+        });
+    }
+    // un solo vértice
+    (path.len() == 1).then(|| first[1])
+}
+
+/// Como [`beside_line`] para una línea quebrada de varios vértices ordenados por `u`.
+pub fn beside_path(path: &[[f64; 2]], above: bool, height: f64, u: f64, z: f64) -> bool {
+    let Some(zl) = line_z(path, u) else {
+        return false;
     };
     let limit = if height > 0.0 { height } else { f64::INFINITY };
     if above {
@@ -330,6 +367,9 @@ pub struct Edit {
     /// Un paso que el usuario ha desactivado se queda en el historial pero no hace nada: los demás
     /// se aplican como si nunca se hubiera hecho.
     pub enabled: bool,
+    /// Las ediciones seguidas con el mismo número (distinto de 0) se hicieron de una vez, con un
+    /// solo gesto, y se deshacen y rehacen juntas. 0: una edición suelta.
+    pub group: u32,
 }
 
 impl Edit {
@@ -339,6 +379,7 @@ impl Edit {
             action,
             label,
             enabled: true,
+            group: 0,
         }
     }
 }
@@ -388,8 +429,7 @@ impl SelOp {
             }
             Region::Side {
                 bx,
-                a,
-                b,
+                path,
                 above,
                 height,
             } => {
@@ -397,7 +437,19 @@ impl SelOp {
                 u >= 0.0
                     && u <= bx.length()
                     && t.abs() <= bx.width / 2.0
-                    && beside_line(*a, *b, *above, *height, u, p.z)
+                    && beside_path(path, *above, *height, u, p.z)
+            }
+            Region::Near {
+                bx,
+                path,
+                above,
+                below,
+            } => {
+                let (u, t) = bx.local(p.x, p.y);
+                u >= 0.0
+                    && u <= bx.length()
+                    && t.abs() <= bx.width / 2.0
+                    && line_z(path, u).is_some_and(|zl| p.z - zl <= *above && zl - p.z <= *below)
             }
             Region::PlaneBand {
                 cx,
@@ -707,21 +759,47 @@ impl Session {
         self.edits.iter().filter(|e| e.enabled).cloned().collect()
     }
 
+    /// Un número de grupo que ninguna edición del historial usa (véase [`Edit::group`]).
+    pub fn new_group(&self) -> u32 {
+        self.edits
+            .iter()
+            .chain(&self.undone)
+            .map(|e| e.group)
+            .max()
+            .unwrap_or(0)
+            + 1
+    }
+
+    /// Deshace la última edición y, si era de un grupo, todo el grupo.
     pub fn undo(&mut self, s: &mut PointStore) -> bool {
         let Some(e) = self.edits.pop() else {
             return false;
         };
+        let g = e.group;
         self.undone.push(e);
+        while g != 0 && self.edits.last().is_some_and(|l| l.group == g) {
+            if let Some(e) = self.edits.pop() {
+                self.undone.push(e);
+            }
+        }
         self.replay(s);
         true
     }
 
+    /// Rehace la última edición deshecha y, si era de un grupo, todo el grupo.
     pub fn redo(&mut self, s: &mut PointStore) -> bool {
         let Some(e) = self.undone.pop() else {
             return false;
         };
+        let g = e.group;
         Self::run(s, &e);
         self.edits.push(e);
+        while g != 0 && self.undone.last().is_some_and(|l| l.group == g) {
+            if let Some(e) = self.undone.pop() {
+                Self::run(s, &e);
+                self.edits.push(e);
+            }
+        }
         true
     }
 
@@ -1008,8 +1086,7 @@ mod tests {
                 Mode::New,
                 Region::Side {
                     bx,
-                    a: [0.0, 5.0],
-                    b: [10.0, 5.0],
+                    path: vec![[0.0, 5.0], [10.0, 5.0]],
                     above,
                     height: 0.0,
                 },
@@ -1076,7 +1153,8 @@ mod tests {
                     sel: all_veg.clone(),
                     action: Action::Reclassify(7),
                     label: "ruido".into(),
-                    enabled: true
+                    enabled: true,
+                    group: 0,
                 }
             ),
             2
@@ -1091,7 +1169,8 @@ mod tests {
                     sel: all_veg,
                     action: Action::Delete,
                     label: "x".into(),
-                    enabled: true
+                    enabled: true,
+                    group: 0,
                 }
             ),
             0
@@ -1111,6 +1190,7 @@ mod tests {
                 action: Action::Delete,
                 label: "borrar ruido".into(),
                 enabled: true,
+                group: 0,
             },
         );
         assert_eq!(s.deleted, [false, true, true, false, false]);
@@ -1192,6 +1272,7 @@ mod tests {
             action: Action::Delete,
             label: "barrido".into(),
             enabled: true,
+            group: 0,
         };
         let del = save(&input, &out, std::slice::from_ref(&edit))?;
         // solo la pasada 3
@@ -1200,6 +1281,7 @@ mod tests {
             action: Action::Reclassify(7),
             label: "pasada".into(),
             enabled: true,
+            group: 0,
         };
         let re = save(&input, &out, std::slice::from_ref(&only))?;
         let _ = std::fs::remove_file(&input);
@@ -1489,5 +1571,90 @@ mod tests {
         assert!(fit_surface(line.iter().copied(), 5.0, 0.0, 6.0, false).is_none());
         // puntos fuera del círculo no cuentan
         assert!(fit_surface(line.iter().copied(), 100.0, 100.0, 1.0, false).is_none());
+    }
+
+    #[test]
+    fn a_broken_line_follows_each_of_its_stretches() {
+        // sube de (0, 0) a (4, 4) y luego baja a (8, 0): un cable que cuelga entre dos postes
+        let path = [[0.0, 0.0], [4.0, 4.0], [8.0, 0.0]];
+        assert!(beside_path(&path, true, 0.0, 2.0, 3.0));
+        assert!(!beside_path(&path, true, 0.0, 2.0, 1.0));
+        assert!(beside_path(&path, true, 0.0, 6.0, 3.0));
+        assert!(!beside_path(&path, true, 0.0, 6.0, 1.0));
+        // bajo la cima
+        assert!(beside_path(&path, false, 0.0, 4.0, 3.0));
+        // fuera del alcance en u
+        assert!(!beside_path(&path, true, 0.0, 9.0, 100.0));
+        assert!(!beside_path(&path, true, 0.0, -1.0, 100.0));
+        // con altura
+        assert!(beside_path(&path, true, 1.0, 4.0, 4.5));
+        assert!(!beside_path(&path, true, 1.0, 4.0, 6.0));
+    }
+
+    #[test]
+    fn sorting_a_path_makes_the_line_a_function_of_the_distance() {
+        let p = sorted_path(vec![[8.0, 0.0], [0.0, 0.0], [4.0, 4.0]]);
+        assert_eq!(p, vec![[0.0, 0.0], [4.0, 4.0], [8.0, 0.0]]);
+    }
+
+    #[test]
+    fn near_a_line_takes_a_band_and_the_three_bands_do_not_overlap() {
+        let bx = ProfileBox { a: [0.0, 0.0], b: [10.0, 0.0], width: 2.0 };
+        let path = vec![[0.0, 5.0], [10.0, 5.0]];
+        let sample = |z: f64| Sample {
+            x: 5.0,
+            y: 0.0,
+            z,
+            class: 1,
+            intensity: 0,
+            ret: 0x11,
+            src: 0,
+            scan: 0.0,
+        };
+        let op = |region| SelOp {
+            mode: Mode::New,
+            region,
+            attr: Attr::default(),
+        };
+        let above = op(Region::Side { bx, path: path.clone(), above: true, height: 0.0 });
+        let near = op(Region::Near { bx, path: path.clone(), above: 0.5, below: 0.5 });
+        let below = op(Region::Side { bx, path, above: false, height: 0.0 });
+        // por encima de la tolerancia: «sobre»; dentro: «cerca»; por debajo: «bajo»
+        assert!(above.matches(&sample(7.0)) && !near.matches(&sample(7.0)));
+        assert!(near.matches(&sample(5.3)) && near.matches(&sample(4.8)) && near.matches(&sample(5.0)));
+        assert!(!near.matches(&sample(5.6)) && !near.matches(&sample(4.4)));
+        assert!(below.matches(&sample(3.0)) && !near.matches(&sample(3.0)));
+    }
+
+    #[test]
+    fn edits_made_in_one_gesture_are_undone_and_redone_together() {
+        let mut s = store();
+        let mut ses = Session::new(&s);
+        let g = ses.new_group();
+        let mk = |class: u8, group: u32| Edit {
+            sel: vec![op(Mode::New, Region::All, Attr::default())],
+            action: Action::Reclassify(class),
+            label: "x".into(),
+            enabled: true,
+            group,
+        };
+        ses.apply(&mut s, mk(3, 0));
+        ses.apply(&mut s, mk(4, g));
+        ses.apply(&mut s, mk(5, g));
+        ses.apply(&mut s, mk(6, g));
+        assert_eq!(ses.edits.len(), 4);
+        // un solo deshacer quita el grupo entero y deja la edición suelta anterior
+        assert!(ses.undo(&mut s));
+        assert_eq!(ses.edits.len(), 1);
+        assert!(s.class.iter().all(|c| *c == 3));
+        // rehacer trae el grupo entero
+        assert!(ses.redo(&mut s));
+        assert_eq!(ses.edits.len(), 4);
+        assert!(s.class.iter().all(|c| *c == 6));
+        // una edición suelta se deshace sola
+        assert!(ses.undo(&mut s));
+        assert!(ses.undo(&mut s));
+        assert!(ses.edits.is_empty());
+        assert_ne!(ses.new_group(), g, "el número de grupo no se repite");
     }
 }
