@@ -432,3 +432,156 @@ fn the_cloud_on_top_of_the_list_hides_the_one_below_where_they_overlap() {
     assert_eq!(shown, n / 2);
     assert!((0..n).all(|i| !app.style.visible(&s, i) || s.file[i] == 1));
 }
+
+/// Con la nube editada y la original abiertas a la vez (`HIPSO_TEST_LAZ` y `HIPSO_TEST_EDITED`):
+/// el perfil debe enseñar la clasificación de la editada, que está arriba en la lista.
+#[test]
+#[ignore]
+fn real_cloud_profile_with_edited_on_top() {
+    let (Ok(orig), Ok(edited)) = (std::env::var("HIPSO_TEST_LAZ"), std::env::var("HIPSO_TEST_EDITED")) else {
+        return;
+    };
+    let (orig, edited) = (std::path::PathBuf::from(orig), std::path::PathBuf::from(edited));
+    // el flujo del programa: primero solo la original, con su perfil ya leído; después se añade
+    // la editada arriba y se recarga
+    let mut app = App::default();
+    app.max_points_m = 6.0;
+    let ctx = egui::Context::default();
+    app.clouds = vec![orig.clone()];
+    app.reload(&ctx);
+    let pump = |app: &mut App| {
+        for _ in 0..2000 {
+            app.poll(&ctx);
+            if app.loading.is_none() && app.store.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+    };
+    pump(&mut app);
+    let c = {
+        // la misma caja antes y después de añadir la editada: sobre un punto que ella clasificó como 5
+        let e = hipso_core::view::load(&[edited.clone()], 6_000_000).unwrap();
+        let k = (0..e.len()).find(|&i| e.class[i] == 5).unwrap();
+        let c = e.xyz(k);
+        app.profile_width = 20.0;
+        app.profile = Some(ProfileBox { a: [c[0] - 20.0, c[1]], b: [c[0] + 20.0, c[1]], width: 20.0 });
+        app.layout = Layout::PlanProfile;
+        let mut t = 0.0;
+        app.start_cache(&ctx, true);
+        for _ in 0..400 {
+            app.update_shadows();
+            app.update_detail(&ctx, [c[0] - 50.0, c[1] - 50.0, c[0] + 50.0, c[1] + 50.0], false);
+            frame(&mut app, &ctx, t, vec![mv(Pos2::new(50.0, 50.0))]);
+            t += 0.05;
+            if app.tex_prof.is_some() && !app.profile_loading() && !app.detail_src.is_empty() && t > 1.0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        eprintln!("fase 1: perfil de la original listo, detail_src {:?}", app.detail_src);
+        c
+    };
+    app.clouds = vec![edited.clone(), orig.clone()];
+    app.reload(&ctx);
+    // mientras carga, el perfil sigue dibujándose cada fotograma, como en el programa
+    let mut tt = 50.0;
+    for _ in 0..2000 {
+        app.poll(&ctx);
+        app.update_shadows();
+        app.update_detail(&ctx, [c[0] - 50.0, c[1] - 50.0, c[0] + 50.0, c[1] + 50.0], false);
+        frame(&mut app, &ctx, tt, vec![mv(Pos2::new(50.0, 50.0))]);
+        tt += 0.05;
+        if app.loading.is_none() && app.store.is_some() && tt > 60.0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    let store = app.store.clone().expect("no se cargó");
+    eprintln!("cargados {} puntos, archivos {:?}, nubes {:?}", store.len(), store.files, app.clouds);
+    app.style.color_by = ColorBy::Class;
+    app.style.files = 0b01; // la original sin marcar, como en la captura
+    let mut t = 0.0;
+    // como en el programa: se prepara la copia COPC de cada nube y el perfil lee de ellas
+    app.start_cache(&ctx, true);
+    for _ in 0..2000 {
+        app.update_detail(&ctx, [c[0] - 50.0, c[1] - 50.0, c[0] + 50.0, c[1] + 50.0], false);
+        if !app.detail_src.is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    eprintln!("detail_src = {:?}", app.detail_src);
+    for _ in 0..400 {
+        app.update_shadows();
+        frame(&mut app, &ctx, t, vec![mv(Pos2::new(50.0, 50.0))]);
+        t += 0.05;
+        if app.tex_prof.is_some() && !app.profile_loading() && t > 1.0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    let bx = app.profile.unwrap();
+    let ps = app.profile_store(&ctx, &bx).unwrap();
+    let mut by = std::collections::BTreeMap::new();
+    for i in 0..ps.len() {
+        let p = ps.xyz(i);
+        let (u, tt) = bx.local(p[0], p[1]);
+        if u >= 0.0 && u <= bx.length() && tt.abs() <= 10.0 {
+            *by.entry((ps.file[i], ps.class[i], app.style.visible(&ps, i))).or_insert(0usize) += 1;
+        }
+    }
+    eprintln!("(archivo, clase, visible) -> puntos: {by:?}");
+    eprintln!("sombras: {:?}", app.style.shadows);
+    let img = hipso_core::view::render_profile(&ps, &bx, 800, 400, &app.style, None).0;
+    let px = |c: [u8; 3]| img.rgba.chunks_exact(4).filter(|p| [p[0], p[1], p[2]] == c).count();
+    eprintln!(
+        "píxeles: clase 5 {}, clase 3 {}, clase 14 {}",
+        px(app.style.class_colors[5]),
+        px(app.style.class_colors[3]),
+        px(app.style.class_colors[14])
+    );
+    eprintln!("tex_prof lleva la clave {:?}", app.tex_prof.as_ref().map(|t| t.1));
+
+    // lo que se dibuja de verdad: se pasa por `views` con la ventana de planta y perfil y se lee la
+    // textura del perfil que sale en los cambios de textura de egui
+    let mut images: std::collections::HashMap<egui::TextureId, egui::ColorImage> = Default::default();
+    let mut t2 = 100.0;
+    for _ in 0..120 {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1400.0, 900.0))),
+            time: Some(t2),
+            events: vec![mv(Pos2::new(700.0, 600.0))],
+            ..egui::RawInput::default()
+        };
+        let out = ctx.run_ui(input, |ui| {
+            let ctx = ui.ctx().clone();
+            app.update_shadows();
+            app.views(ui, &ctx);
+        });
+        for (id, ds) in &out.textures_delta.set {
+            for d in ds {
+                if d.pos.is_none()
+                    && let egui::ImageData::Color(img) = &d.image
+                {
+                    images.insert(*id, (**img).clone());
+                }
+            }
+        }
+        out.drop_without_applying_deltas();
+        t2 += 0.05;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    if let Some((tex, _, _, _)) = &app.tex_prof {
+        if let Some(img) = images.get(&tex.id()) {
+            let want = |c: [u8; 3]| img.pixels.iter().filter(|p| [p.r(), p.g(), p.b()] == c).count();
+            eprintln!(
+                "textura del perfil {}x{}: clase 5 {}, clase 3 {}",
+                img.size[0], img.size[1], want(app.style.class_colors[5]), want(app.style.class_colors[3])
+            );
+            assert!(want(app.style.class_colors[5]) > 1000, "el perfil no enseña la clasificación de la editada");
+        } else {
+            eprintln!("no encuentro la textura del perfil en los cambios");
+        }
+    }
+}

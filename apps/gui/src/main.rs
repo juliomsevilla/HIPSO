@@ -1842,6 +1842,11 @@ impl App {
                     }
                     self.clouds = files;
                     self.detail_src.clear();
+                    // el perfil leído era de las nubes anteriores
+                    self.prof_data = None;
+                    self.prof_job = None;
+                    self.prof_failed = None;
+                    self.tex_prof = None;
                     self.cache_job = None;
                     self.start_cache(ctx, s.stride > 1);
                     self.detail = None;

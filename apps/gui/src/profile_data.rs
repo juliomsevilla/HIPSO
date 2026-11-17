@@ -103,6 +103,12 @@ impl App {
         if !self.prof_full || base.stride <= 1 {
             return Some(base);
         }
+        // mientras se cargan otras nubes, la lista de nubes ya es la nueva pero los puntos y las copias
+        // de detalle son aún los de la anterior: leer ahora daría los puntos de las nubes viejas
+        // atribuidos a las nuevas
+        if self.loading.is_some() || base.files.len() != self.clouds.len() {
+            return Some(base);
+        }
         let key = hash_of(&self.clouds);
         if self.prof_data.as_ref().is_some_and(|d| d.clouds_key != key) {
             self.prof_data = None;
