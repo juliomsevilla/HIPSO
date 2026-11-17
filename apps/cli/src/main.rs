@@ -1718,6 +1718,19 @@ enum Cmd {
         #[arg(long)]
         set_class: Option<u8>,
     },
+    /// Aplica a una o más nubes las ediciones guardadas desde el visor (un archivo de ediciones
+    /// JSON) y escribe archivos nuevos, nunca el original
+    ApplyEdits {
+        /// Nubes LAS o LAZ a las que se aplican las ediciones
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// Archivo de ediciones, el que escribe el visor con «Guardar ediciones…»
+        #[arg(long)]
+        edits: PathBuf,
+        /// Nube de salida (solo una entrada); por defecto, en la carpeta de resultados
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
     /// Da a las nubes sin sistema de coordenadas el de otra nube o un código EPSG
     Crs {
         /// Nubes LAS o LAZ a las que se asigna el sistema de coordenadas
@@ -5531,6 +5544,27 @@ fn run(cmd: Cmd) -> Result<()> {
                     "{read} puntos leídos, {removed} duplicados quitados: {}",
                     out.display()
                 ));
+            }
+            lines.join("\n")
+        }
+        Cmd::ApplyEdits {
+            inputs,
+            edits,
+            output,
+        } => {
+            let list = hipso_core::edit::file::read(&edits)?;
+            if !list.iter().any(|e| e.enabled) {
+                return Err(hipso_core::Error::Param(format!(
+                    "{} no tiene ninguna edición activa",
+                    edits.display()
+                )));
+            }
+            let output = single_output(output, inputs.len())?;
+            let mut lines = Vec::new();
+            for input in &inputs {
+                let out = out_path(output.clone(), input, "editada", &ext_of(input));
+                let r = hipso_core::edit::save(input, &out, &list)?;
+                lines.push(hipso_core::edit::report_text(&r, &out));
             }
             lines.join("\n")
         }
