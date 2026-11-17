@@ -69,6 +69,46 @@ const WIRE_SPARSE_SPACING: f64 = 0.25;
 /// Altura mínima de la cabeza de una torre sobre el suelo (m).
 const HEAD_MIN_HEIGHT: f64 = 8.0;
 
+/// Torres de una línea eléctrica: altura (m) a partir de la que se agrupan los puntos, lado de los
+/// vóxeles (m), mínimo de puntos y de elevación (m) de un grupo.
+const TOWER_SEED: f64 = 3.0;
+const TOWER_VOXEL: f64 = 0.5;
+const TOWER_MIN_POINTS: usize = 20;
+const TOWER_MIN_EXTENT: f64 = 4.0;
+/// Anchura mínima en planta (m) y relación mínima altura sobre anchura de una torre.
+const TOWER_MIN_WIDTH: f64 = 1.0;
+const TOWER_SLENDER: f64 = 2.0;
+
+/// El grupo de cada punto de `set`: los puntos se reducen a vóxeles de lado `vs` y los vóxeles
+/// vecinos (26) forman un grupo.
+fn voxel_groups(pts: &[Point], set: &[usize], vs: f64) -> Vec<usize> {
+    let mut voxel_of: HashMap<(i32, i32, i32), usize> = HashMap::new();
+    let mut centres: Vec<Point> = Vec::new();
+    let in_voxel: Vec<usize> = set
+        .iter()
+        .map(|&k| {
+            let q = &pts[k];
+            let key = (
+                (q.x / vs).floor() as i32,
+                (q.y / vs).floor() as i32,
+                (q.z / vs).floor() as i32,
+            );
+            *voxel_of.entry(key).or_insert_with(|| {
+                centres.push(Point {
+                    x: (f64::from(key.0) + 0.5) * vs,
+                    y: (f64::from(key.1) + 0.5) * vs,
+                    z: (f64::from(key.2) + 0.5) * vs,
+                    ..Point::default()
+                });
+                centres.len() - 1
+            })
+        })
+        .collect();
+    let all: Vec<usize> = (0..centres.len()).collect();
+    let (group, _) = chains(&centres, &all, 1.75 * vs);
+    in_voxel.iter().map(|&v| group[v]).collect()
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct VegParams {
     /// Altura sobre el suelo hasta la que la vegetación es baja y hasta la que es media.
@@ -123,6 +163,23 @@ pub struct WireParams {
     /// trozos que apuntan unos a otros, como mucho a esa distancia (m, 0 para desactivar), forman
     /// un cable cuando tres o más se alinean a lo largo de al menos el doble de `min_length`.
     pub link_gap: f64,
+    /// Trozos finos y aislados: un vuelo ve un conductor como muchos trozos rectos y muy finos (las
+    /// líneas de barrido lo cruzan aquí y allá), cada uno suelto en el aire. Los puntos a más de
+    /// `min_height` se agrupan en vóxeles de este lado (m, 0 para desactivar), y un grupo es cable
+    /// si es una línea muy delgada.
+    pub piece_voxel: f64,
+    /// Longitud mínima de un trozo fino (m).
+    pub piece_min_length: f64,
+    /// Mayor desviación típica de un trozo fino a través de su dirección (m).
+    pub piece_max_width: f64,
+    /// Mínimo de puntos de un trozo fino.
+    pub piece_min_points: usize,
+    /// Un conductor cuelga solo en el aire: a menos de esta distancia (m) de un trozo no hay más que
+    /// `piece_max_others` vóxeles de otros grupos. Un trozo de rama dentro de una copa tiene copa a
+    /// su lado (0 para no comprobarlo).
+    pub piece_isolation: f64,
+    /// Cuántos vóxeles de otros grupos tolera un trozo fino a menos de `piece_isolation`.
+    pub piece_max_others: usize,
 }
 
 impl Default for WireParams {
@@ -138,6 +195,12 @@ impl Default for WireParams {
             min_straightness: 10.0,
             voxel: 0.05,
             link_gap: 15.0,
+            piece_voxel: 0.5,
+            piece_min_length: 1.2,
+            piece_max_width: 0.12,
+            piece_min_points: 6,
+            piece_isolation: 1.0,
+            piece_max_others: 12,
         }
     }
 }
@@ -163,6 +226,11 @@ pub struct PoleParams {
     /// Postes finos (farolas, postes de servicios): una línea vertical de puntos, estrecha, que se
     /// eleva al menos tanto (m; 0 para desactivar).
     pub thin_extent: f64,
+    /// Si en la tesela hay cables (clase 14), solo son postes o torres las estructuras a menos de
+    /// esta distancia (m) de un punto de cable, y además se buscan las torres de la línea: grupos
+    /// compactos y altos, sueltos en el aire, con un cable cerca (0: el contexto de los cables no
+    /// se usa).
+    pub wire_reach: f64,
 }
 
 impl Default for PoleParams {
@@ -174,6 +242,7 @@ impl Default for PoleParams {
             min_extent: 6.0,
             head_length: 12.0,
             thin_extent: 3.0,
+            wire_reach: 10.0,
         }
     }
 }
@@ -302,22 +371,23 @@ pub(crate) fn ground_surface(pts: &[Point], ground: &[bool], cell: f64) -> Optio
         return None;
     }
     let mut g = Grid::covering([x0, y0, x1, y1], cell).ok()?;
-    let mut sum = vec![0f64; g.len()];
-    let mut n = vec![0u32; g.len()];
+    // la mediana de cada celda y no la media: unos pocos puntos de cable o de copa marcados como
+    // suelo por el filtro no deben subir el suelo bajo ellos
+    let mut zs: Vec<Vec<f32>> = vec![Vec::new(); g.len()];
     for (q, _) in pts.iter().zip(ground).filter(|(_, g)| **g) {
         if let Some(i) = g.index(q.x, q.y) {
-            sum[i] += q.z;
-            n[i] += 1;
+            zs[i].push(q.z as f32);
         }
     }
-    if n.iter().all(|c| *c == 0) {
+    if zs.iter().all(|c| c.is_empty()) {
         return None;
     }
-    for i in 0..g.len() {
-        g.data[i] = if n[i] > 0 {
-            (sum[i] / f64::from(n[i])) as f32
-        } else {
+    for (i, z) in zs.iter_mut().enumerate() {
+        g.data[i] = if z.is_empty() {
             f32::NAN
+        } else {
+            z.sort_by(f32::total_cmp);
+            z[z.len() / 2]
         };
     }
     g.fill_holes();
@@ -602,7 +672,15 @@ fn spacing(pts: &[Point]) -> Option<f64> {
     for q in pts.iter().filter(|q| !q.is_noise()) {
         (x0, y0, x1, y1, n) = (x0.min(q.x), y0.min(q.y), x1.max(q.x), y1.max(q.y), n + 1);
     }
-    let area = (x1 - x0) * (y1 - y0);
+    let bbox = (x1 - x0) * (y1 - y0);
+    // el área que cubren los puntos, no la de su caja: una nube de un corredor llena una franja de
+    // una caja mucho mayor, y la caja la hace parecer mucho menos densa de lo que es
+    const CELL: f64 = 5.0;
+    let mut cells = std::collections::HashSet::new();
+    for q in pts.iter().filter(|q| !q.is_noise()) {
+        cells.insert(((q.x / CELL).floor() as i64, (q.y / CELL).floor() as i64));
+    }
+    let area = (cells.len() as f64 * CELL * CELL).min(bbox);
     (n >= 100 && area > 0.0).then(|| (area / n as f64).sqrt())
 }
 
@@ -807,6 +885,94 @@ fn linked_wires(pts: &[Point], set: &[usize], w: &WireParams, link: f64) -> Vec<
     out
 }
 
+/// Cuáles de los puntos `set` son trozos finos de un conductor: grupos de puntos (vóxeles de
+/// `piece_voxel` unidos con sus 26 vecinos) que son una línea muy delgada, casi horizontal, de al
+/// menos `piece_min_length` y `piece_min_points`. Un trozo de copa, de torre o de rama no es tan
+/// fino; un vuelo que ve el cable solo donde se cruzan sus líneas de barrido deja trozos así.
+fn thin_pieces(pts: &[Point], set: &[usize], w: &WireParams) -> Vec<bool> {
+    let vs = w.piece_voxel;
+    let mut voxel_of: HashMap<(i32, i32, i32), usize> = HashMap::new();
+    let mut centres: Vec<Point> = Vec::new();
+    let in_voxel: Vec<usize> = set
+        .iter()
+        .map(|&k| {
+            let q = &pts[k];
+            let key = (
+                (q.x / vs).floor() as i32,
+                (q.y / vs).floor() as i32,
+                (q.z / vs).floor() as i32,
+            );
+            *voxel_of.entry(key).or_insert_with(|| {
+                centres.push(Point {
+                    x: (f64::from(key.0) + 0.5) * vs,
+                    y: (f64::from(key.1) + 0.5) * vs,
+                    z: (f64::from(key.2) + 0.5) * vs,
+                    ..Point::default()
+                });
+                centres.len() - 1
+            })
+        })
+        .collect();
+    let all: Vec<usize> = (0..centres.len()).collect();
+    let (group, _) = chains(&centres, &all, 1.75 * vs);
+    let mut members: HashMap<usize, Vec<[f64; 3]>> = HashMap::new();
+    for (&k, &v) in set.iter().zip(&in_voxel) {
+        members
+            .entry(group[v])
+            .or_default()
+            .push([pts[k].x, pts[k].y, pts[k].z]);
+    }
+    // los vóxeles de cada grupo, para ver si el trozo está solo
+    let mut keys_of: HashMap<usize, Vec<(i32, i32, i32)>> = HashMap::new();
+    for (key, &v) in &voxel_of {
+        keys_of.entry(group[v]).or_default().push(*key);
+    }
+    let reach = (w.piece_isolation / vs).ceil() as i32;
+    let alone = |g: usize| -> bool {
+        if w.piece_isolation <= 0.0 {
+            return true;
+        }
+        let mut others = 0;
+        for key in keys_of.get(&g).into_iter().flatten() {
+            for dx in -reach..=reach {
+                for dy in -reach..=reach {
+                    for dz in -reach..=reach {
+                        let d = f64::from(dx * dx + dy * dy + dz * dz).sqrt() * vs;
+                        if d > w.piece_isolation {
+                            continue;
+                        }
+                        if let Some(&v) = voxel_of.get(&(key.0 + dx, key.1 + dy, key.2 + dz))
+                            && group[v] != g
+                        {
+                            others += 1;
+                            if others > w.piece_max_others {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        true
+    };
+    let thin: HashMap<usize, bool> = members
+        .iter()
+        .map(|(g, m)| {
+            let ok = m.len() >= w.piece_min_points && {
+                let (_, cov, _) = crate::tls::covariance(m.iter().copied());
+                let (vals, vec) = crate::tls::eigen(cov);
+                let length = (12.0 * vals[0].max(0.0)).sqrt();
+                length >= w.piece_min_length
+                    && vals[1].max(0.0).sqrt() <= w.piece_max_width
+                    && vec[2].abs() <= w.max_slope
+                    && alone(*g)
+            };
+            (*g, ok)
+        })
+        .collect();
+    in_voxel.iter().map(|&v| thin[&group[v]]).collect()
+}
+
 /// Da las clases adicionales a los puntos de una tesela. `class` guarda la clase que decidió cada
 /// paso (`None`: la propia del punto); `ground` dice qué puntos son suelo.
 pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extras) {
@@ -925,6 +1091,23 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
                 .filter(|&k| class[k] != Some(WIRE) && height(k) >= LINKED_MIN_HEIGHT)
                 .collect();
             for (&k, hit) in rest.iter().zip(linked_wires(pts, &rest, w, radius)) {
+                if hit {
+                    class[k] = Some(WIRE);
+                }
+            }
+        }
+        if w.piece_voxel > 0.0 {
+            // también los puntos que el filtro de suelo tomó por suelo estando muy por encima de él
+            let pool: Vec<usize> = (0..pts.len())
+                .filter(|&k| {
+                    !pts[k].is_noise()
+                        && !ground[k]
+                        && class[k] != Some(WIRE)
+                        && now(class, k) != 6
+                        && height(k) >= w.min_height
+                })
+                .collect();
+            for (&k, hit) in pool.iter().zip(thin_pieces(pts, &pool, w)) {
                 if hit {
                     class[k] = Some(WIRE);
                 }
@@ -1064,7 +1247,7 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
                     <= if extent >= TOWER_HEIGHT {
                         TOWER_POINTS_PER_METRE * extent * density
                     } else {
-                        12.0 * extent
+                        12.0 * extent * density
                     }
         };
         let low = |g: &usize| -> bool {
@@ -1075,14 +1258,132 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
                 .sample(x, y)
                 .is_some_and(|gz| b[2] - f64::from(gz) <= p.min_height + 3.0)
         };
+        // los puntos de cable de la tesela: con cables a la vista, una torre de una línea eléctrica
+        // está a su lado, y una estructura que no tiene ninguno cerca no es una de ellas
+        let mut wire_cells: HashMap<(i32, i32), Vec<[f64; 3]>> = HashMap::new();
+        if p.wire_reach > 0.0 {
+            for k in 0..pts.len() {
+                if now(class, k) == WIRE {
+                    wire_cells
+                        .entry((
+                            (pts[k].x / p.wire_reach).floor() as i32,
+                            (pts[k].y / p.wire_reach).floor() as i32,
+                        ))
+                        .or_default()
+                        .push([pts[k].x, pts[k].y, pts[k].z]);
+                }
+            }
+        }
+        let has_wires = !wire_cells.is_empty();
+        // un punto de cable a menos de `wire_reach` de la caja `b` `[x0, y0, z0, x1, y1, z1]`
+        let near_wire = |b: &[f64; 6]| -> bool {
+            let r = p.wire_reach;
+            let (cx0, cx1) = (((b[0] - r) / r).floor() as i32, ((b[3] + r) / r).floor() as i32);
+            let (cy0, cy1) = (((b[1] - r) / r).floor() as i32, ((b[4] + r) / r).floor() as i32);
+            (cx0..=cx1).any(|cx| {
+                (cy0..=cy1).any(|cy| {
+                    wire_cells.get(&(cx, cy)).is_some_and(|ws| {
+                        ws.iter().any(|w| {
+                            let d = |lo: f64, hi: f64, v: f64| (lo - v).max(v - hi).max(0.0);
+                            (d(b[0], b[3], w[0]).powi(2)
+                                + d(b[1], b[4], w[1]).powi(2)
+                                + d(b[2], b[5], w[2]).powi(2))
+                            .sqrt()
+                                <= r
+                        })
+                    })
+                })
+            })
+        };
         let poles: std::collections::HashSet<usize> = boxes
             .keys()
-            .filter(|g| is_pole(g) && low(g) && !crowded(g))
+            .filter(|g| {
+                is_pole(g) && low(g) && !crowded(g) && (!has_wires || near_wire(&boxes[*g].0))
+            })
             .copied()
             .collect();
         for (&k, g) in set.iter().zip(&group) {
             if poles.contains(g) {
                 class[k] = Some(POLE);
+            }
+        }
+        if has_wires {
+            // torres de una línea eléctrica: grupos compactos y altos de puntos a más de 3 m del
+            // suelo, sueltos en el aire como los conductores, con un cable cerca. Su base (los
+            // puntos bajo 3 m dentro de su huella) se une a la estructura
+            let seeds: Vec<usize> = above
+                .iter()
+                .copied()
+                .filter(|&k| height(k) >= TOWER_SEED && class[k].is_none_or(|c| c != POLE && c != WIRE))
+                .collect();
+            let group = voxel_groups(pts, &seeds, TOWER_VOXEL);
+            let mut boxes: HashMap<usize, ([f64; 6], usize)> = HashMap::new();
+            for (&k, &g) in seeds.iter().zip(&group) {
+                let (b, n) = boxes.entry(g).or_insert((
+                    [f64::MAX, f64::MAX, f64::MAX, f64::MIN, f64::MIN, f64::MIN],
+                    0,
+                ));
+                for (i, v) in [pts[k].x, pts[k].y, pts[k].z].into_iter().enumerate() {
+                    b[i] = b[i].min(v);
+                    b[i + 3] = b[i + 3].max(v);
+                }
+                *n += 1;
+            }
+            // la anchura de una torre es la de su núcleo, sin los trozos de cable que le queden
+            // pegados
+            let mut plan_xy: HashMap<usize, (Vec<f64>, Vec<f64>)> = HashMap::new();
+            for (&k, &g) in seeds.iter().zip(&group) {
+                if boxes[&g].1 >= TOWER_MIN_POINTS {
+                    let e = plan_xy.entry(g).or_default();
+                    e.0.push(pts[k].x);
+                    e.1.push(pts[k].y);
+                }
+            }
+            let towers: std::collections::HashSet<usize> = boxes
+                .iter()
+                .filter(|(g, (b, n))| {
+                    let h = b[5] - b[2];
+                    let w = plan_xy.get(*g).map_or(f64::MAX, |(x, y)| {
+                        crate::cluster::core_spread(x).max(crate::cluster::core_spread(y))
+                    });
+                    *n >= TOWER_MIN_POINTS
+                        && w <= p.max_width
+                        && w >= TOWER_MIN_WIDTH
+                        && h >= TOWER_MIN_EXTENT
+                        && h >= TOWER_SLENDER * w
+                        && near_wire(b)
+                })
+                .map(|(g, _)| *g)
+                .collect();
+            // la huella de cada torre: lo que ocupan sus puntos más bajos
+            let mut foot: HashMap<usize, [f64; 4]> = HashMap::new();
+            for (&k, g) in seeds.iter().zip(&group) {
+                if towers.contains(g) && pts[k].z <= boxes[g].0[2] + 1.5 {
+                    let f = foot
+                        .entry(*g)
+                        .or_insert([f64::MAX, f64::MAX, f64::MIN, f64::MIN]);
+                    f[0] = f[0].min(pts[k].x - 0.5);
+                    f[1] = f[1].min(pts[k].y - 0.5);
+                    f[2] = f[2].max(pts[k].x + 0.5);
+                    f[3] = f[3].max(pts[k].y + 0.5);
+                }
+            }
+            let feet: Vec<[f64; 4]> = foot.into_values().collect();
+            for (&k, g) in seeds.iter().zip(&group) {
+                if towers.contains(g) {
+                    class[k] = Some(POLE);
+                }
+            }
+            for &k in &above {
+                if height(k) < TOWER_SEED
+                    && height(k) >= 0.3
+                    && class[k].is_none_or(|c| c != POLE && c != WIRE)
+                    && feet
+                        .iter()
+                        .any(|f| pts[k].x >= f[0] && pts[k].x <= f[2] && pts[k].y >= f[1] && pts[k].y <= f[3])
+                {
+                    class[k] = Some(POLE);
+                }
             }
         }
         if p.head_length > 0.0 {
@@ -1125,6 +1426,9 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
                 let diag =
                     ((b[3] - b[0]).powi(2) + (b[4] - b[1]).powi(2) + (b[5] - b[2]).powi(2)).sqrt();
                 if n < 8 || diag < 3.0 || diag > p.head_length {
+                    return false;
+                }
+                if has_wires && !near_wire(&b) {
                     return false;
                 }
                 // nada a menos de 3 m de la cadena en planta y por debajo, hasta el suelo
@@ -1221,6 +1525,7 @@ pub fn apply(pts: &[Point], ground: &[bool], class: &mut [Option<u8>], e: &Extra
                         && b[5] - b[2] >= p.thin_extent
                         && plan <= 0.5 * (b[5] - b[2]).max(1.0)
                         && !(trunks_resolved && capped(b, own.get(g).map_or(0, Vec::len)))
+                        && (!has_wires || near_wire(b))
                 })
                 .map(|(g, _)| *g)
                 .collect();
@@ -1315,24 +1620,75 @@ mod tests {
         assert_eq!(class[n_ground + 1], Some(MEDIUM_VEGETATION));
         assert_eq!(class[n_ground + 2], Some(HIGH_VEGETATION));
         let wires = class.iter().filter(|c| **c == Some(WIRE)).count();
-        let poles = class.iter().filter(|c| **c == Some(POLE)).count();
         assert!(wires >= 35, "{wires}");
+        // sin cables a la vista, el poste, la torre aislada y la cabeza de una torre son postes
+        let mut alone = vec![None; pts.len()];
+        let no_wires = Extras {
+            poles: Some(PoleParams::default()),
+            ..Extras::default()
+        };
+        apply(&pts, &ground_all, &mut alone, &no_wires);
+        let poles = alone.iter().filter(|c| **c == Some(POLE)).count();
         assert!(poles >= 25, "{poles}");
-        let tower = class[tower_from..tower_to]
+        let tower = alone[tower_from..tower_to]
             .iter()
             .filter(|c| **c == Some(POLE))
             .count();
         assert!(tower >= 40, "{tower}");
         assert!(
-            class[crown_from..head_from]
+            alone[crown_from..head_from]
                 .iter()
                 .all(|c| *c != Some(POLE))
         );
         assert!(
-            class[head_from..head_to].iter().all(|c| *c == Some(POLE)),
+            alone[head_from..head_to].iter().all(|c| *c == Some(POLE)),
             "{:?}",
-            &class[head_from..head_to]
+            &alone[head_from..head_to]
         );
+    }
+
+    /// Una torre con un cable a su lado y un árbol estrecho de la misma altura sin ninguno: con
+    /// cables en la escena, solo la torre es de la línea.
+    #[test]
+    fn a_tower_next_to_a_wire_is_a_pole_and_a_lone_tree_is_not() {
+        let mut pts = Vec::new();
+        for i in 0..60 {
+            for j in 0..60 {
+                pts.push(pt(f64::from(i), f64::from(j), 0.0));
+            }
+        }
+        let ground = vec![true; pts.len()];
+        // dos columnas estrechas de 9 m de altura, de 2 m de ancho, una cerca del cable y la otra no
+        let mut column = |x: f64, y: f64, pts: &mut Vec<Point>| -> (usize, usize) {
+            let from = pts.len();
+            for i in 0..30 {
+                let z = 3.0 + f64::from(i) * 0.3;
+                for a in 0..4 {
+                    for b in 0..4 {
+                        pts.push(pt(x + f64::from(a) * 0.5, y + f64::from(b) * 0.5, z));
+                    }
+                }
+            }
+            (from, pts.len())
+        };
+        let tower = column(10.0, 30.0, &mut pts);
+        let tree = column(45.0, 10.0, &mut pts);
+        // un cable a la altura de la punta de la torre, que pasa a 3 m de ella
+        for i in 0..80 {
+            pts.push(pt(f64::from(i) * 0.5, 36.0, 11.0));
+        }
+        let mut ground_all = ground;
+        ground_all.resize(pts.len(), false);
+        let mut class = vec![None; pts.len()];
+        let e = Extras {
+            wires: Some(WireParams::default()),
+            poles: Some(PoleParams::default()),
+            ..Extras::default()
+        };
+        apply(&pts, &ground_all, &mut class, &e);
+        let poles = |r: (usize, usize)| class[r.0..r.1].iter().filter(|c| **c == Some(POLE)).count();
+        assert!(poles(tower) >= 100, "torre: {}", poles(tower));
+        assert_eq!(poles(tree), 0);
     }
 
     fn flat_ground(w: i32, h: i32, step: f64) -> Vec<Point> {

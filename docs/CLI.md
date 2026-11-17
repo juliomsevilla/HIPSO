@@ -360,6 +360,29 @@ Clasifica ruido, suelo y edificios, tesela a tesela en paralelo, y escribe los p
 | `--vegetation` | casilla | desactivada | Clasifica la vegetación por altura sobre el suelo: baja (3), media (4) y alta (5) |
 | `--wires` | casilla | desactivada | Clasifica los cables (14): líneas casi horizontales muy por encima del suelo. |
 | `--poles` | casilla | desactivada | Clasifica los postes y torres (15): estructuras estrechas y aisladas que se elevan del suelo. |
+| `--wire-min-height` | número | `5` | Cables: altura mínima sobre el suelo (m). |
+| `--wire-radius` | número | `0` | Cables: radio del entorno con el que se mira la forma de cada punto (m; 0: según el espaciado de los puntos). |
+| `--wire-linearity` | número | `0.7` | Cables: linealidad mínima del entorno (0 a 1). |
+| `--wire-max-slope` | número | `0.5` | Cables: mayor pendiente de la línea (0 horizontal, 1 vertical). |
+| `--wire-max-neighbours` | número | `1000` | Cables: mayor número de puntos alrededor de un punto de cable. |
+| `--wire-max-width` | número | `0` | Cables: mayor anchura del entorno a través de la línea (m; 0: según el radio). |
+| `--wire-min-length` | número | `10` | Cables: longitud mínima de una cadena de puntos de cable (m). |
+| `--wire-min-straightness` | número | `10` | Cables: lo recta que debe ser una cadena (longitud sobre anchura). |
+| `--wire-voxel` | número | `0.05` | Cables: lado de los vóxeles a los que se reducen los puntos antes de mirar su forma (m). |
+| `--wire-link-gap` | número | `15` | Cables: mayor hueco (m) que se salva al unir trozos de conductor en fila (0: no se unen). |
+| `--wire-piece-voxel` | número | `0.5` | Cables: lado (m) de los vóxeles con que se buscan trozos finos y sueltos de conductor (0: no se buscan). |
+| `--wire-piece-min-length` | número | `1.2` | Cables: longitud mínima de un trozo fino de conductor (m). |
+| `--wire-piece-max-width` | número | `0.12` | Cables: mayor desviación típica (m) de un trozo fino a través de su dirección. |
+| `--wire-piece-min-points` | número | `6` | Cables: mínimo de puntos de un trozo fino de conductor. |
+| `--wire-piece-isolation` | número | `1` | Cables: un trozo fino de conductor cuelga solo: a menos de esta distancia (m) no hay más que unos pocos vóxeles de otros grupos (0: no se comprueba). |
+| `--wire-piece-max-others` | número | `12` | Cables: cuántos vóxeles de otros grupos tolera un trozo fino a esa distancia. |
+| `--pole-min-height` | número | `2` | Postes: altura mínima sobre el suelo de los puntos de una estructura (m). |
+| `--pole-radius` | número | `1.5` | Postes: los puntos más cercanos que esto pertenecen a la misma estructura (m). |
+| `--pole-max-width` | número | `8` | Postes: mayor anchura de la estructura (m). |
+| `--pole-min-extent` | número | `6` | Postes: lo mínimo que debe elevarse la estructura (m). |
+| `--pole-head-length` | número | `12` | Postes: longitud (m) de la cabeza de una torre vista como una cruceta aislada (0: no se busca). |
+| `--pole-thin-extent` | número | `3` | Postes: lo que debe elevarse un poste fino (m; 0: no se buscan). |
+| `--pole-wire-reach` | número | `10` | Postes: con cables en la tesela, solo cuentan las estructuras a menos de esta distancia (m) de un cable, y se buscan las torres de la línea (0: no se usan los cables). |
 | `--roads` | casilla | desactivada | Clasifica las carreteras (11): suelo liso, llano y oscuro (intensidad baja) |
 | `--water` | casilla | desactivada | Clasifica el agua (9): regiones extensas y niveladas de suelo oscuro de retorno único. |
 | `--rule` | texto o número | ninguno | Clasifica por reglas, al final y en orden. Se repite para varias reglas. Partes, separadas por `;`: to=CLASE (obligatoria), from=1,2 (o ~7), returns=F\|L\|A\|1..9, angle=25..90 (grados absolutos; `angle=25` es 25 o más), height=0.5..2 (m sobre el suelo), intensity=0..100 y la forma del entorno dentro de radius=1 (m): slope=60.. (grados), planarity, linearity, sphericity (0 a 1), roughness (m), neighbours (número). Por ejemplo: `angle=25;to=12` o `from=1;height=0.5..2;to=4`. Se puede repetir. |
@@ -426,6 +449,29 @@ MDT como GeoTIFF, uno por hoja. Por defecto: la clase de suelo (2) que ya trae l
 | `--vegetation` | casilla | desactivada | Clasifica la vegetación por altura sobre el suelo: baja (3), media (4) y alta (5) |
 | `--wires` | casilla | desactivada | Clasifica los cables (14): líneas casi horizontales muy por encima del suelo. |
 | `--poles` | casilla | desactivada | Clasifica los postes y torres (15): estructuras estrechas y aisladas que se elevan del suelo. |
+| `--wire-min-height` | número | `5` | Cables: altura mínima sobre el suelo (m). |
+| `--wire-radius` | número | `0` | Cables: radio del entorno con el que se mira la forma de cada punto (m; 0: según el espaciado de los puntos). |
+| `--wire-linearity` | número | `0.7` | Cables: linealidad mínima del entorno (0 a 1). |
+| `--wire-max-slope` | número | `0.5` | Cables: mayor pendiente de la línea (0 horizontal, 1 vertical). |
+| `--wire-max-neighbours` | número | `1000` | Cables: mayor número de puntos alrededor de un punto de cable. |
+| `--wire-max-width` | número | `0` | Cables: mayor anchura del entorno a través de la línea (m; 0: según el radio). |
+| `--wire-min-length` | número | `10` | Cables: longitud mínima de una cadena de puntos de cable (m). |
+| `--wire-min-straightness` | número | `10` | Cables: lo recta que debe ser una cadena (longitud sobre anchura). |
+| `--wire-voxel` | número | `0.05` | Cables: lado de los vóxeles a los que se reducen los puntos antes de mirar su forma (m). |
+| `--wire-link-gap` | número | `15` | Cables: mayor hueco (m) que se salva al unir trozos de conductor en fila (0: no se unen). |
+| `--wire-piece-voxel` | número | `0.5` | Cables: lado (m) de los vóxeles con que se buscan trozos finos y sueltos de conductor (0: no se buscan). |
+| `--wire-piece-min-length` | número | `1.2` | Cables: longitud mínima de un trozo fino de conductor (m). |
+| `--wire-piece-max-width` | número | `0.12` | Cables: mayor desviación típica (m) de un trozo fino a través de su dirección. |
+| `--wire-piece-min-points` | número | `6` | Cables: mínimo de puntos de un trozo fino de conductor. |
+| `--wire-piece-isolation` | número | `1` | Cables: un trozo fino de conductor cuelga solo: a menos de esta distancia (m) no hay más que unos pocos vóxeles de otros grupos (0: no se comprueba). |
+| `--wire-piece-max-others` | número | `12` | Cables: cuántos vóxeles de otros grupos tolera un trozo fino a esa distancia. |
+| `--pole-min-height` | número | `2` | Postes: altura mínima sobre el suelo de los puntos de una estructura (m). |
+| `--pole-radius` | número | `1.5` | Postes: los puntos más cercanos que esto pertenecen a la misma estructura (m). |
+| `--pole-max-width` | número | `8` | Postes: mayor anchura de la estructura (m). |
+| `--pole-min-extent` | número | `6` | Postes: lo mínimo que debe elevarse la estructura (m). |
+| `--pole-head-length` | número | `12` | Postes: longitud (m) de la cabeza de una torre vista como una cruceta aislada (0: no se busca). |
+| `--pole-thin-extent` | número | `3` | Postes: lo que debe elevarse un poste fino (m; 0: no se buscan). |
+| `--pole-wire-reach` | número | `10` | Postes: con cables en la tesela, solo cuentan las estructuras a menos de esta distancia (m) de un cable, y se buscan las torres de la línea (0: no se usan los cables). |
 | `--roads` | casilla | desactivada | Clasifica las carreteras (11): suelo liso, llano y oscuro (intensidad baja) |
 | `--water` | casilla | desactivada | Clasifica el agua (9): regiones extensas y niveladas de suelo oscuro de retorno único. |
 | `--rule` | texto o número | ninguno | Clasifica por reglas, al final y en orden. Se repite para varias reglas. Partes, separadas por `;`: to=CLASE (obligatoria), from=1,2 (o ~7), returns=F\|L\|A\|1..9, angle=25..90 (grados absolutos; `angle=25` es 25 o más), height=0.5..2 (m sobre el suelo), intensity=0..100 y la forma del entorno dentro de radius=1 (m): slope=60.. (grados), planarity, linearity, sphericity (0 a 1), roughness (m), neighbours (número). Por ejemplo: `angle=25;to=12` o `from=1;height=0.5..2;to=4`. Se puede repetir. |

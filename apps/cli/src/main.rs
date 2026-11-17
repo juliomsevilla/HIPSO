@@ -595,6 +595,79 @@ struct StepArgs {
     /// Clasifica los postes y torres (15): estructuras estrechas y aisladas que se elevan del suelo
     #[arg(long)]
     poles: bool,
+    /// Cables: altura mínima sobre el suelo (m)
+    #[arg(long, default_value_t = 5.0)]
+    wire_min_height: f64,
+    /// Cables: radio del entorno con el que se mira la forma de cada punto (m; 0: según el espaciado
+    /// de los puntos)
+    #[arg(long, default_value_t = 0.0)]
+    wire_radius: f64,
+    /// Cables: linealidad mínima del entorno (0 a 1)
+    #[arg(long, default_value_t = 0.7)]
+    wire_linearity: f64,
+    /// Cables: mayor pendiente de la línea (0 horizontal, 1 vertical)
+    #[arg(long, default_value_t = 0.5)]
+    wire_max_slope: f64,
+    /// Cables: mayor número de puntos alrededor de un punto de cable
+    #[arg(long, default_value_t = 1000)]
+    wire_max_neighbours: usize,
+    /// Cables: mayor anchura del entorno a través de la línea (m; 0: según el radio)
+    #[arg(long, default_value_t = 0.0)]
+    wire_max_width: f64,
+    /// Cables: longitud mínima de una cadena de puntos de cable (m)
+    #[arg(long, default_value_t = 10.0)]
+    wire_min_length: f64,
+    /// Cables: lo recta que debe ser una cadena (longitud sobre anchura)
+    #[arg(long, default_value_t = 10.0)]
+    wire_min_straightness: f64,
+    /// Cables: lado de los vóxeles a los que se reducen los puntos antes de mirar su forma (m)
+    #[arg(long, default_value_t = 0.05)]
+    wire_voxel: f64,
+    /// Cables: mayor hueco (m) que se salva al unir trozos de conductor en fila (0: no se unen)
+    #[arg(long, default_value_t = 15.0)]
+    wire_link_gap: f64,
+    /// Cables: lado (m) de los vóxeles con que se buscan trozos finos y sueltos de conductor (0: no
+    /// se buscan)
+    #[arg(long, default_value_t = 0.5)]
+    wire_piece_voxel: f64,
+    /// Cables: longitud mínima de un trozo fino de conductor (m)
+    #[arg(long, default_value_t = 1.2)]
+    wire_piece_min_length: f64,
+    /// Cables: mayor desviación típica (m) de un trozo fino a través de su dirección
+    #[arg(long, default_value_t = 0.12)]
+    wire_piece_max_width: f64,
+    /// Cables: mínimo de puntos de un trozo fino de conductor
+    #[arg(long, default_value_t = 6)]
+    wire_piece_min_points: usize,
+    /// Cables: un trozo fino de conductor cuelga solo: a menos de esta distancia (m) no hay más que
+    /// unos pocos vóxeles de otros grupos (0: no se comprueba)
+    #[arg(long, default_value_t = 1.0)]
+    wire_piece_isolation: f64,
+    /// Cables: cuántos vóxeles de otros grupos tolera un trozo fino a esa distancia
+    #[arg(long, default_value_t = 12)]
+    wire_piece_max_others: usize,
+    /// Postes: altura mínima sobre el suelo de los puntos de una estructura (m)
+    #[arg(long, default_value_t = 2.0)]
+    pole_min_height: f64,
+    /// Postes: los puntos más cercanos que esto pertenecen a la misma estructura (m)
+    #[arg(long, default_value_t = 1.5)]
+    pole_radius: f64,
+    /// Postes: mayor anchura de la estructura (m)
+    #[arg(long, default_value_t = 8.0)]
+    pole_max_width: f64,
+    /// Postes: lo mínimo que debe elevarse la estructura (m)
+    #[arg(long, default_value_t = 6.0)]
+    pole_min_extent: f64,
+    /// Postes: longitud (m) de la cabeza de una torre vista como una cruceta aislada (0: no se busca)
+    #[arg(long, default_value_t = 12.0)]
+    pole_head_length: f64,
+    /// Postes: lo que debe elevarse un poste fino (m; 0: no se buscan)
+    #[arg(long, default_value_t = 3.0)]
+    pole_thin_extent: f64,
+    /// Postes: con cables en la tesela, solo cuentan las estructuras a menos de esta distancia (m)
+    /// de un cable, y se buscan las torres de la línea (0: no se usan los cables)
+    #[arg(long, default_value_t = 10.0)]
+    pole_wire_reach: f64,
     /// Clasifica las carreteras (11): suelo liso, llano y oscuro (intensidad baja)
     #[arg(long)]
     roads: bool,
@@ -677,8 +750,33 @@ impl StepArgs {
         use hipso_core::extras::{Extras, PoleParams, RoadParams, VegParams, WaterParams, WireParams};
         Extras {
             vegetation: self.vegetation.then(VegParams::default),
-            wires: self.wires.then(WireParams::default),
-            poles: self.poles.then(PoleParams::default),
+            wires: self.wires.then(|| WireParams {
+                min_height: self.wire_min_height,
+                radius: self.wire_radius,
+                linearity: self.wire_linearity,
+                max_slope: self.wire_max_slope,
+                max_neighbours: self.wire_max_neighbours,
+                max_width: self.wire_max_width,
+                min_length: self.wire_min_length,
+                min_straightness: self.wire_min_straightness,
+                voxel: self.wire_voxel,
+                link_gap: self.wire_link_gap,
+                piece_voxel: self.wire_piece_voxel,
+                piece_min_length: self.wire_piece_min_length,
+                piece_max_width: self.wire_piece_max_width,
+                piece_min_points: self.wire_piece_min_points,
+                piece_isolation: self.wire_piece_isolation,
+                piece_max_others: self.wire_piece_max_others,
+            }),
+            poles: self.poles.then(|| PoleParams {
+                min_height: self.pole_min_height,
+                radius: self.pole_radius,
+                max_width: self.pole_max_width,
+                min_extent: self.pole_min_extent,
+                head_length: self.pole_head_length,
+                thin_extent: self.pole_thin_extent,
+                wire_reach: self.pole_wire_reach,
+            }),
             roads: self.roads.then(RoadParams::default),
             water: self.water.then(WaterParams::default),
         }

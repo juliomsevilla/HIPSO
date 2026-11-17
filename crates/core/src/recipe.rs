@@ -216,10 +216,47 @@ pub fn parse(text: &str) -> Result<Loaded> {
     } else {
         None
     };
+    let wd = WireParams::default();
+    let wires = if options.contains_key("wires") {
+        Some(WireParams {
+            min_height: get("wire-min-height", wd.min_height)?,
+            radius: get("wire-radius", wd.radius)?,
+            linearity: get("wire-linearity", wd.linearity)?,
+            max_slope: get("wire-max-slope", wd.max_slope)?,
+            max_neighbours: get("wire-max-neighbours", wd.max_neighbours as f64)? as usize,
+            max_width: get("wire-max-width", wd.max_width)?,
+            min_length: get("wire-min-length", wd.min_length)?,
+            min_straightness: get("wire-min-straightness", wd.min_straightness)?,
+            voxel: get("wire-voxel", wd.voxel)?,
+            link_gap: get("wire-link-gap", wd.link_gap)?,
+            piece_voxel: get("wire-piece-voxel", wd.piece_voxel)?,
+            piece_min_length: get("wire-piece-min-length", wd.piece_min_length)?,
+            piece_max_width: get("wire-piece-max-width", wd.piece_max_width)?,
+            piece_min_points: get("wire-piece-min-points", wd.piece_min_points as f64)? as usize,
+            piece_isolation: get("wire-piece-isolation", wd.piece_isolation)?,
+            piece_max_others: get("wire-piece-max-others", wd.piece_max_others as f64)? as usize,
+        })
+    } else {
+        None
+    };
+    let pd = PoleParams::default();
+    let poles = if options.contains_key("poles") {
+        Some(PoleParams {
+            min_height: get("pole-min-height", pd.min_height)?,
+            radius: get("pole-radius", pd.radius)?,
+            max_width: get("pole-max-width", pd.max_width)?,
+            min_extent: get("pole-min-extent", pd.min_extent)?,
+            head_length: get("pole-head-length", pd.head_length)?,
+            thin_extent: get("pole-thin-extent", pd.thin_extent)?,
+            wire_reach: get("pole-wire-reach", pd.wire_reach)?,
+        })
+    } else {
+        None
+    };
     let extras = Extras {
         vegetation: options.contains_key("vegetation").then(VegParams::default),
-        wires: options.contains_key("wires").then(WireParams::default),
-        poles: options.contains_key("poles").then(PoleParams::default),
+        wires,
+        poles,
         roads: options.contains_key("roads").then(RoadParams::default),
         water: options.contains_key("water").then(WaterParams::default),
     };
@@ -256,7 +293,7 @@ pub fn parse(text: &str) -> Result<Loaded> {
 }
 
 /// Toda opción que lee una receta.
-const KNOWN: [&str; 48] = [
+const KNOWN: [&str; 71] = [
     "ground",
     "filter-cell",
     "iterations",
@@ -305,6 +342,29 @@ const KNOWN: [&str; 48] = [
     "recipe",
     "overlap",
     "overlap-cell",
+    "wire-min-height",
+    "wire-radius",
+    "wire-linearity",
+    "wire-max-slope",
+    "wire-max-neighbours",
+    "wire-max-width",
+    "wire-min-length",
+    "wire-min-straightness",
+    "wire-voxel",
+    "wire-link-gap",
+    "wire-piece-voxel",
+    "wire-piece-min-length",
+    "wire-piece-max-width",
+    "wire-piece-min-points",
+    "wire-piece-isolation",
+    "wire-piece-max-others",
+    "pole-min-height",
+    "pole-radius",
+    "pole-max-width",
+    "pole-min-extent",
+    "pole-head-length",
+    "pole-thin-extent",
+    "pole-wire-reach",
 ];
 
 /// Una receta como texto, con una línea de comentario por cada paso.
@@ -375,11 +435,50 @@ pub fn write(r: &Recipe) -> String {
         if s.extras.vegetation.is_some() {
             o.push_str("--vegetation\n");
         }
-        if s.extras.wires.is_some() {
-            o.push_str("--wires\n");
+        // solo se escriben los parámetros que no tienen su valor por defecto
+        macro_rules! tuned {
+            ($p:expr, $d:expr, $($field:ident => $key:literal),+ $(,)?) => {
+                $(if $p.$field != $d.$field {
+                    o.push_str(&format!("--{} {}\n", $key, $p.$field));
+                })+
+            };
         }
-        if s.extras.poles.is_some() {
+        if let Some(w) = &s.extras.wires {
+            o.push_str("--wires\n");
+            let d = WireParams::default();
+            tuned!(
+                w, d,
+                min_height => "wire-min-height",
+                radius => "wire-radius",
+                linearity => "wire-linearity",
+                max_slope => "wire-max-slope",
+                max_neighbours => "wire-max-neighbours",
+                max_width => "wire-max-width",
+                min_length => "wire-min-length",
+                min_straightness => "wire-min-straightness",
+                voxel => "wire-voxel",
+                link_gap => "wire-link-gap",
+                piece_voxel => "wire-piece-voxel",
+                piece_min_length => "wire-piece-min-length",
+                piece_max_width => "wire-piece-max-width",
+                piece_min_points => "wire-piece-min-points",
+                piece_isolation => "wire-piece-isolation",
+                piece_max_others => "wire-piece-max-others",
+            );
+        }
+        if let Some(p) = &s.extras.poles {
             o.push_str("--poles\n");
+            let d = PoleParams::default();
+            tuned!(
+                p, d,
+                min_height => "pole-min-height",
+                radius => "pole-radius",
+                max_width => "pole-max-width",
+                min_extent => "pole-min-extent",
+                head_length => "pole-head-length",
+                thin_extent => "pole-thin-extent",
+                wire_reach => "pole-wire-reach",
+            );
         }
         if s.extras.roads.is_some() {
             o.push_str("--roads\n");
@@ -451,6 +550,28 @@ mod tests {
                 threads: 4,
             },
         }
+    }
+
+    #[test]
+    fn tuned_wire_and_pole_parameters_survive_a_recipe() {
+        let mut r = rich();
+        r.steps.extras.wires = Some(WireParams {
+            min_height: 7.0,
+            piece_max_others: 5,
+            piece_voxel: 0.0,
+            ..WireParams::default()
+        });
+        r.steps.extras.poles = Some(PoleParams {
+            wire_reach: 15.0,
+            max_width: 5.0,
+            ..PoleParams::default()
+        });
+        assert!(is_exact(&r));
+        let text = write(&r);
+        assert!(text.contains("--wire-min-height 7") && text.contains("--pole-wire-reach 15"));
+        // sin cambios, no se escribe ninguna opción de ajuste
+        r.steps.extras.wires = Some(WireParams::default());
+        assert!(!write(&r).contains("--wire-"));
     }
 
     #[test]
