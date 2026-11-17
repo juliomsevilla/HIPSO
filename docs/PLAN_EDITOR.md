@@ -8,16 +8,22 @@ Documento de trabajo para quien vaya a construir las funciones. Resume qué tien
 
 | ID | Estado | Resumen |
 |---|---|---|
-| E01 | Hecho, **sin comprobar a mano** | *Aislar selección* fija un foco y no crea archivos; *Volver a la nube* lo quita |
-| E02 | Hecho (ya existía) | *Exportar puntos…* ya exportaba la selección; solo se retiró el camino viejo y se corrigieron textos |
-| E03 | Hecho, recuperación tras cierre **sin probar con el programa** | Ediciones a JSON, `hipso apply-edits`, *Guardar/Cargar ediciones…*, sesión recuperable |
+| E01 | Hecho, **aislar comprobado a mano** (guardar con foco y planta+3D, pendiente) | *Aislar selección* fija un foco y no crea archivos; *Volver a la nube* lo quita |
+| E02 | Hecho (ya existía) | *Exportar puntos…* ya exportaba la selección; se retiró el camino viejo, se corrigieron textos y se quitó el botón duplicado del panel *Edición* (queda el de la cinta) |
+| E03 | Hecho, **recuperación comprobada a mano** | Ediciones a JSON, `hipso apply-edits`, *Guardar/Cargar ediciones…*, sesión recuperable |
 
-### Qué falta comprobar a mano (no se pudo ver la ventana)
+### Comprobado a mano
+
+- **Aislar selección** y **Volver a la nube** funcionan.
+- **Recuperar** las ediciones tras cerrar funciona. La sesión se autoguarda sola tras cada edición; *Guardar ediciones…* solo exporta ese mismo JSON a un archivo propio.
+- **Velocidad:** da buen resultado en `--release`.
+
+### Qué falta comprobar a mano
 
 1. **Foco en una nube COPC grande:** aislar un árbol, editar, *Volver a la nube* y guardar. Mirar **planta y 3D a la vez**: comparten `step_detail` con `mem::swap`.
 2. **Que guardar con foco da lo esperado:** el archivo guardado debe tener lo editado dentro del foco y todo lo demás intacto (la prueba de núcleo `a_focused_edit_deletes_only_inside_the_focus_and_survives_a_file` lo cubre a nivel de archivo, no de interfaz).
-3. **Recuperación tras un cierre inesperado:** editar, matar el proceso, reabrir la misma nube y comprobar que el panel ofrece *Recuperar*.
-4. **Velocidad:** se compara siempre en `--release`. Una compilación `dev` va mucho más lenta y no vale. Se quitaron dos copias de operaciones por fotograma (`profile_data.rs`, `copcdetail.rs`); los costes que quedan son la lectura de hasta ~3 millones de puntos por ventana de foco (dos si hay planta y 3D) y el guardado síncrono de la sesión tras cada edición.
+3. ~~Recuperación tras un cierre inesperado~~ (comprobada, véase arriba).
+4. **Velocidad:** ya da buen resultado; se compara siempre en `--release`. Una compilación `dev` va mucho más lenta y no vale. Se quitaron dos copias de operaciones por fotograma (`profile_data.rs`, `copcdetail.rs`); los costes que quedan son la lectura de hasta ~3 millones de puntos por ventana de foco (dos si hay planta y 3D) y el guardado síncrono de la sesión tras cada edición.
 
 ### Cómo continuar en otro equipo
 
@@ -180,7 +186,7 @@ Descartes razonados en la sección 6.
 
 ### E02. *Exportar selección* aparte — P0, S
 
-**Implementado: no hubo nada que construir.** *Exportar puntos…* ya trabaja sobre la selección: con puntos seleccionados, las herramientas de LiDAR escriben los `…_sel` y ejecutan el proceso sobre ellos (`apps/gui/src/main.rs`, bloque de `selection_inputs`). Solo se retiró el camino viejo de *Aislar* (campo `App::isolate` y su bloque) y se corrigieron el manual, el README y las ayudas. `edit::extract_selected` se conserva porque esa ruta lo usa.
+**Implementado: casi nada que construir.** *Exportar puntos…* ya trabaja sobre la selección: con puntos seleccionados, las herramientas de LiDAR escriben los `…_sel` y ejecutan el proceso sobre ellos (`apps/gui/src/main.rs`, bloque de `selection_inputs`). Solo se retiró el camino viejo de *Aislar* (campo `App::isolate` y su bloque) y se corrigieron el manual, el README y las ayudas. `edit::extract_selected` se conserva porque esa ruta lo usa. Después se quitó el botón *Exportar puntos…* del panel *Edición*, que repetía el de la cinta y ocupaba espacio.
 
 **Qué (diseño original).** El comportamiento actual de *Aislar* pasa a un botón *Exportar selección…* que pide el archivo de destino (hoy lo decide el programa: `results_dir(c)/…_sel.ext`). Reutiliza `edit::extract_selected` sin cambios.
 
@@ -197,7 +203,7 @@ Descartes razonados en la sección 6.
 - Piezas de apoyo: `ClassSet::words/from_words`, `Projector::to_array/from_array`, `Brush::from_stamps/stamps`.
 - **La sesión se guarda en la carpeta de la caché**, no junto a las nubes (`<nombre>_<hash>.edits.json`, clave: las nubes LAS/LAZ abiertas, en orden). Se reescribe tras cada edición, se borra al guardar la nube editada, al descartar o al quedar sin ediciones. Al abrir las mismas nubes el panel ofrece *Recuperar* o *Descartar*.
 - `hipso apply-edits --edits sesion.json entrada.laz [-o salida]`. Registrada en el catálogo de flujos. Probada de punta a punta con un LAS sintético.
-- Panel *Edición*: *Guardar ediciones…* y *Cargar ediciones…* (`Cmd::Apply`).
+- Panel *Edición*: *Guardar ediciones…* y *Cargar ediciones…* (`Cmd::Apply`). Con ediciones de una sesión anterior sin guardar, el panel muestra *Recuperar* y *Descartar*.
 - **Límite conocido:** el guardado de la sesión es síncrono en el hilo de la interfaz. Con pinceladas muy largas (miles de estampas) cada edición reescribe un JSON grande. Si se nota, pasarlo a un hilo con una sola cola de escritura.
 
 **Qué (diseño original).** Serializar la lista de `Edit` (`SelOp` + `Action` + etiqueta + activada) a un archivo JSON junto a la nube. Tres usos:
