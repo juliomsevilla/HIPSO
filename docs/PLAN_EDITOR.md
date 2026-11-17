@@ -4,13 +4,16 @@ Documento de trabajo para quien vaya a construir las funciones. Resume qué tien
 
 ## Estado actual (rama `version-0.8.2`)
 
-**Hecho: E01, E02 y E03** (Fase 0) y **E07, E08 y E09** (Fase 1, sin comprobar a mano). Todo lo demás está sin empezar. Las fichas de E01–E03 de la sección 4 llevan una nota **Implementado** con lo que se hizo y en qué se apartó del diseño.
+**Hecho: E01, E02 y E03** (Fase 0) y **E04 a E09** (Fase 1, sin comprobar a mano). Todo lo demás está sin empezar. Las fichas de E01–E03 de la sección 4 llevan una nota **Implementado** con lo que se hizo y en qué se apartó del diseño.
 
 | ID | Estado | Resumen |
 |---|---|---|
 | E01 | Hecho, **aislar comprobado a mano** (guardar con foco y planta+3D, pendiente) | *Aislar selección* fija un foco y no crea archivos; *Volver a la nube* lo quita |
 | E02 | Hecho (ya existía) | *Exportar puntos…* ya exportaba la selección; se retiró el camino viejo, se corrigieron textos y se quitó el botón duplicado del panel *Edición* (queda el de la cinta) |
 | E03 | Hecho, **recuperación comprobada a mano** | Ediciones a JSON, `hipso apply-edits`, *Guardar/Cargar ediciones…*, sesión recuperable |
+| E04 | Hecho, **sin comprobar a mano** | *Vista → Perfil → Paso*: medio ancho, casi el ancho (0,95), ancho completo o distancia fija |
+| E05 | Hecho, **sin comprobar a mano** | *Seleccionar cerca de una línea* y *Clasificar a lo largo de una línea* (tres tramos, una edición agrupada) |
+| E06 | Hecho, **sin comprobar a mano** | Líneas quebradas en `Region::Side`; archivos antiguos de dos extremos se siguen leyendo |
 | E07 | Hecho, **sin comprobar a mano** | *Seleccionar con plano local*: `Region::PlaneBand` con los coeficientes del ajuste |
 | E08 | Hecho, **sin comprobar a mano** | Color *Altura sobre el suelo* con `PointStore::compute_hag` |
 | E09 | Hecho, **sin comprobar a mano** | Colores *Ángulo de barrido*, *Clase + intensidad* y *Elevación + intensidad*; el color pasa a un botón grande con un icono por modo |
@@ -27,7 +30,8 @@ Documento de trabajo para quien vaya a construir las funciones. Resume qué tien
 2. **Que guardar con foco da lo esperado:** el archivo guardado debe tener lo editado dentro del foco y todo lo demás intacto (la prueba de núcleo `a_focused_edit_deletes_only_inside_the_focus_and_survives_a_file` lo cubre a nivel de archivo, no de interfaz).
 3. ~~Recuperación tras un cierre inesperado~~ (comprobada, véase arriba).
 4. **E07–E09:** (a) en una hoja con suelo clasificado, *Color → Altura sobre el suelo*: la copa de un árbol debe salir a su altura y la leyenda mostrar la rampa en metros; con una nube sin clase 2, el registro debe avisar; (b) con una nube PNOA, *Ángulo de barrido* debe dar azul y rojo a los dos lados de cada pasada; (c) *Seleccionar con plano local*, clic sobre suelo con ruido bajo: *Bajo* selecciona los puntos bajos y *Eliminar* los quita; con *Curva* en una vaguada sigue el terreno; (d) *Guardar ediciones…* y `hipso apply-edits` dan lo mismo que la pantalla; (e) los 13 iconos del menú de color se leen en tema claro y oscuro.
-5. **Velocidad:** ya da buen resultado; se compara siempre en `--release`. Una compilación `dev` va mucho más lenta y no vale. Se quitaron dos copias de operaciones por fotograma (`profile_data.rs`, `copcdetail.rs`); los costes que quedan son la lectura de hasta ~3 millones de puntos por ventana de foco (dos si hay planta y 3D) y el guardado síncrono de la sesión tras cada edición.
+5. **E04–E06:** (a) *Paso* a 0,95 y 0,5 m: tres vueltas de rueda avanzan lo esperado; (b) en el perfil, un cable que cuelga entre dos postes: *Clasificar a lo largo de una línea* con una línea quebrada de tres vértices clasifica el cable (cerca), la vegetación (sobre) y el suelo (bajo) de una vez, y un solo *Deshacer* lo quita todo; (c) *Guardar ediciones…* y `hipso apply-edits` dan lo mismo, y un archivo de ediciones anterior con una línea de dos extremos se sigue abriendo.
+6. **Velocidad:** ya da buen resultado; se compara siempre en `--release`. Una compilación `dev` va mucho más lenta y no vale. Se quitaron dos copias de operaciones por fotograma (`profile_data.rs`, `copcdetail.rs`); los costes que quedan son la lectura de hasta ~3 millones de puntos por ventana de foco (dos si hay planta y 3D) y el guardado síncrono de la sesión tras cada edición.
 
 ### Cómo continuar en otro equipo
 
@@ -50,7 +54,7 @@ cargo run --release -p hipso-gui -- ruta/a/una/nube.laz
 
 ### Siguiente paso recomendado
 
-Comprobar a mano E07–E09 (véase abajo) y seguir con la Fase 1: **E04** (paso del perfil), **E05** (*close to line*), **E06** (línea quebrada), **E10** (inspeccionar punto) y **E11** (propagar la clase). Los tres primeros son cambios pequeños sobre `ProfileBox` y `Region::Side`.
+Comprobar a mano E04–E09 (véase abajo) y cerrar la Fase 1 con **E10** (inspeccionar punto) y **E11** (propagar la clase).
 
 ## 0. Cómo usar este documento
 
@@ -223,6 +227,8 @@ Descartes razonados en la sección 6.
 
 ### E04. Paso de avance del perfil — P1, S
 
+**Implementado.** `ProfileStep` (`Half`, `AlmostFull`, `Full`, `Fixed`) y `App::profile_step`; selector *Paso* en *Vista → Perfil*. El valor por defecto es el ancho completo, como antes. **Queda sin hacer:** los atajos de teclado configurables esperan a E19.
+
 **Qué.** TerraScan (*Move Section*, 4.2.2.4) ofrece medio ancho, casi el ancho completo, ancho completo o paso fijo, con clic o tecla y hacia atrás.
 
 **Estado HIPSO (verificado).** La rueda y las flechas arriba y abajo mueven la caja un ancho por paso (`main.rs:4208`).
@@ -233,6 +239,8 @@ Descartes razonados en la sección 6.
 
 ### E05. *Close to line* — P1, S
 
+**Implementado.** Dos herramientas en el panel *Edición*: *Seleccionar cerca de una línea* (`Region::Near { bx, path, above, below }`, una selección más) y *Clasificar a lo largo de una línea* (`Nav::ClassLine`), que hace tres `Edit` con `Reclassify` y el mismo `Edit::group`, una por tramo. Las tres franjas son `Near` con límites que no se solapan (sobre: `[tol, ∞)`; cerca: `[-bajo, +alto]`; bajo: `(-∞, -tol]`). **Novedad en el núcleo:** `Edit::group` (0: edición suelta) y `Session::undo/redo` por grupo; va al archivo de ediciones como `group` solo si no es 0, y los archivos anteriores se leen igual. Pruebas: `near_a_line_takes_a_band_and_the_three_bands_do_not_overlap` y `edits_made_in_one_gesture_are_undone_and_redone_together`.
+
 **Qué.** (4.2.5.7) En el perfil, un solo trazo clasifica **por encima, cerca y por debajo** de la línea, cada tramo con su clase origen y destino, y con tolerancias arriba y abajo.
 
 **Estado HIPSO (verificado).** `Region::Side { bx, a, b, above, height }` ya da «sobre» y «bajo» con altura máxima opcional (`beside_line`, `edit.rs:133`).
@@ -242,6 +250,8 @@ Descartes razonados en la sección 6.
 **Aceptación.** Un trazo sobre un cable clasifica el cable (cerca), la vegetación (sobre) y el suelo (bajo) en una operación y se deshace de una vez.
 
 ### E06. Línea de varios vértices en *sobre/bajo una línea* — P1, S
+
+**Implementado.** `Region::Side` pasa a `path: Vec<[f64; 2]>` ordenado por `u` (`edit::sorted_path`, `beside_path`, `line_z`). `beside_line` se conserva como envoltorio de dos puntos. El archivo de ediciones escribe `path`; si lee un `side` con `a` y `b` (versión 1 anterior a este cambio) lo convierte, así que no hubo que subir la versión del formato. En el perfil, arrastrar da una recta y un clic por vértice con doble clic (o botón derecho) da una quebrada. Prueba: `a_broken_line_follows_each_of_its_stretches`.
 
 **Qué.** TerraScan usa para cables una curva de tres puntos (*Above/Below curve*, 4.2.8.3.7). HIPSO usa un segmento recto. Una **polilínea** con N vértices cubre ambos casos y la parábola de TerraScan es un caso particular.
 
