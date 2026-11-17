@@ -43,6 +43,8 @@ pub struct Editing {
     pub slab: bool,
     pub slab_half: f64,
     pub sel_rev: u64,
+    /// Sube con cada cambio de clases o eliminaciones: las ventanas de detalle lo siguen.
+    pub edit_rev: u64,
     pub sel_count: usize,
     pub class: u8,
     pub cmds: Vec<Cmd>,
@@ -77,6 +79,7 @@ impl Default for Editing {
             slab: false,
             slab_half: 1.0,
             sel_rev: 0,
+            edit_rev: 0,
             sel_count: 0,
             class: 7,
             cmds: Vec::new(),
@@ -830,6 +833,7 @@ impl App {
                 }
             }
             self.rev += 1;
+            self.ed.edit_rev += 1;
             self.tin = None;
         }
         self.ed.sel_rev += 1;

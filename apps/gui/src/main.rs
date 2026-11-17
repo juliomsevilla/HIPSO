@@ -296,6 +296,10 @@ struct Detail {
     id: u64,
     /// Revisión de la selección con la que se marcaron los puntos de esta ventana.
     sel_rev: u64,
+    /// Las clases tal como salen del archivo, antes de aplicar las ediciones.
+    orig_class: Vec<u8>,
+    /// Revisión de las ediciones aplicadas a esta ventana.
+    edit_rev: u64,
 }
 
 /// Una carga de nubes terminada: los puntos, los archivos de los que vinieron (las copias

@@ -61,14 +61,27 @@ impl App {
     /// Marca en los puntos de la ventana de detalle los que la selección actual alcanza: la
     /// ventana es otra lectura de la nube y no hereda la selección del almacén base.
     fn mark_detail_selection(&mut self) {
-        let rev = self.ed.sel_rev;
+        let (rev, erev) = (self.ed.sel_rev, self.ed.edit_rev);
         for d in [self.detail.as_mut(), self.detail3.as_mut()].into_iter().flatten() {
-            if d.sel_rev == rev {
+            let stale = d.edit_rev != erev;
+            if d.sel_rev == rev && !stale {
                 continue;
             }
+            let st = Arc::make_mut(&mut d.store);
+            if stale {
+                // la ventana se leyó del archivo sin editar: se le aplican las ediciones de la
+                // sesión para que muestre lo mismo que el almacén base
+                d.edit_rev = erev;
+                st.class.clone_from(&d.orig_class);
+                st.deleted.clear();
+                if let Some(ses) = &self.ed.session {
+                    ses.apply_to(st);
+                }
+                self.detail_id += 1;
+                d.id = self.detail_id; // renueva la textura
+            }
             d.sel_rev = rev;
-            let sel = hipso_core::edit::selection(&d.store, &self.ed.ops);
-            Arc::make_mut(&mut d.store).selected = sel;
+            st.selected = hipso_core::edit::selection(st, &self.ed.ops);
         }
     }
 
@@ -102,6 +115,8 @@ impl App {
                     self.detail = Some(Detail {
                         window: win,
                         px,
+                        orig_class: s.class.clone(),
+                        edit_rev: u64::MAX,
                         store: Arc::new(s),
                         spacing,
                         level_spacing,
