@@ -4,13 +4,16 @@ Documento de trabajo para quien vaya a construir las funciones. Resume qué tien
 
 ## Estado actual (rama `version-0.8.2`)
 
-**Hecho: E01, E02 y E03** (Fase 0). Todo lo demás está sin empezar. Las fichas de E01–E03 de la sección 4 llevan una nota **Implementado** con lo que se hizo y en qué se apartó del diseño.
+**Hecho: E01, E02 y E03** (Fase 0) y **E07, E08 y E09** (Fase 1, sin comprobar a mano). Todo lo demás está sin empezar. Las fichas de E01–E03 de la sección 4 llevan una nota **Implementado** con lo que se hizo y en qué se apartó del diseño.
 
 | ID | Estado | Resumen |
 |---|---|---|
 | E01 | Hecho, **aislar comprobado a mano** (guardar con foco y planta+3D, pendiente) | *Aislar selección* fija un foco y no crea archivos; *Volver a la nube* lo quita |
 | E02 | Hecho (ya existía) | *Exportar puntos…* ya exportaba la selección; se retiró el camino viejo, se corrigieron textos y se quitó el botón duplicado del panel *Edición* (queda el de la cinta) |
 | E03 | Hecho, **recuperación comprobada a mano** | Ediciones a JSON, `hipso apply-edits`, *Guardar/Cargar ediciones…*, sesión recuperable |
+| E07 | Hecho, **sin comprobar a mano** | *Seleccionar con plano local*: `Region::PlaneBand` con los coeficientes del ajuste |
+| E08 | Hecho, **sin comprobar a mano** | Color *Altura sobre el suelo* con `PointStore::compute_hag` |
+| E09 | Hecho, **sin comprobar a mano** | Colores *Ángulo de barrido*, *Clase + intensidad* y *Elevación + intensidad*; el color pasa a un botón grande con un icono por modo |
 
 ### Comprobado a mano
 
@@ -23,7 +26,8 @@ Documento de trabajo para quien vaya a construir las funciones. Resume qué tien
 1. **Foco en una nube COPC grande:** aislar un árbol, editar, *Volver a la nube* y guardar. Mirar **planta y 3D a la vez**: comparten `step_detail` con `mem::swap`.
 2. **Que guardar con foco da lo esperado:** el archivo guardado debe tener lo editado dentro del foco y todo lo demás intacto (la prueba de núcleo `a_focused_edit_deletes_only_inside_the_focus_and_survives_a_file` lo cubre a nivel de archivo, no de interfaz).
 3. ~~Recuperación tras un cierre inesperado~~ (comprobada, véase arriba).
-4. **Velocidad:** ya da buen resultado; se compara siempre en `--release`. Una compilación `dev` va mucho más lenta y no vale. Se quitaron dos copias de operaciones por fotograma (`profile_data.rs`, `copcdetail.rs`); los costes que quedan son la lectura de hasta ~3 millones de puntos por ventana de foco (dos si hay planta y 3D) y el guardado síncrono de la sesión tras cada edición.
+4. **E07–E09:** (a) en una hoja con suelo clasificado, *Color → Altura sobre el suelo*: la copa de un árbol debe salir a su altura y la leyenda mostrar la rampa en metros; con una nube sin clase 2, el registro debe avisar; (b) con una nube PNOA, *Ángulo de barrido* debe dar azul y rojo a los dos lados de cada pasada; (c) *Seleccionar con plano local*, clic sobre suelo con ruido bajo: *Bajo* selecciona los puntos bajos y *Eliminar* los quita; con *Curva* en una vaguada sigue el terreno; (d) *Guardar ediciones…* y `hipso apply-edits` dan lo mismo que la pantalla; (e) los 13 iconos del menú de color se leen en tema claro y oscuro.
+5. **Velocidad:** ya da buen resultado; se compara siempre en `--release`. Una compilación `dev` va mucho más lenta y no vale. Se quitaron dos copias de operaciones por fotograma (`profile_data.rs`, `copcdetail.rs`); los costes que quedan son la lectura de hasta ~3 millones de puntos por ventana de foco (dos si hay planta y 3D) y el guardado síncrono de la sesión tras cada edición.
 
 ### Cómo continuar en otro equipo
 
@@ -46,7 +50,7 @@ cargo run --release -p hipso-gui -- ruta/a/una/nube.laz
 
 ### Siguiente paso recomendado
 
-Fase 1 del documento, en este orden: **E04** (paso del perfil), **E05** (*close to line*), **E06** (línea quebrada), después **E07** (reclasificar por plano local). Son cambios pequeños sobre `ProfileBox` y `Region::Side` que sirven para validar el flujo de trabajo antes de las piezas grandes.
+Comprobar a mano E07–E09 (véase abajo) y seguir con la Fase 1: **E04** (paso del perfil), **E05** (*close to line*), **E06** (línea quebrada), **E10** (inspeccionar punto) y **E11** (propagar la clase). Los tres primeros son cambios pequeños sobre `ProfileBox` y `Region::Side`.
 
 ## 0. Cómo usar este documento
 
@@ -247,6 +251,13 @@ Descartes razonados en la sección 6.
 
 ### E07. Reclasificar por plano local — P1, M
 
+**Implementado.** Diferencias con el diseño:
+- **No es una herramienta de reclasificar sino de seleccionar** (*Seleccionar con plano local*, `Nav::SelPlane`): el clic añade a la selección y después se usa *Cambiar clase* o *Eliminar*, que ya tienen deshacer, historial y archivo de ediciones. Sirve igual para ruido, vegetación y suelo, y el usuario ve la selección antes de aplicar.
+- `Region::PlaneBand { cx, cy, r, coef: [f64; 6], lo, hi }`: seis coeficientes para el plano y la curva de segundo grado (`edit::fit_surface`, mínimos cuadrados en coordenadas locales divididas por el radio). La banda es `lo <= z - superficie <= hi`, con extremos infinitos. Va en el archivo de ediciones como `plane_band`.
+- El ajuste usa la ventana de detalle si el clic cae dentro de ella y el almacén de la vista si no.
+- La tolerancia se da en metros o en desviaciones típicas del ajuste. **Queda sin hacer «hasta N puntos»** (el percentil que lo traduce a tolerancia); se añade si se echa en falta.
+- Pruebas en `edit.rs`: plano recuperado y banda, curva frente a plano, ajuste sin puntos suficientes y banda idéntica en el archivo guardado (`a_plane_band_gives_the_same_answer_in_the_file_as_on_screen`); y la ida y vuelta por JSON en `file.rs`.
+
 **Qué.** Fusiona tres herramientas de TerraScan: *Classify Noise* (4.2.5.9), *Remove Vegetation* (4.2.5.10) y *Add point to ground* (4.3.5.9). El usuario hace clic en un círculo; el programa ajusta un plano o una superficie curva a los puntos de ciertas clases dentro del círculo y reclasifica los puntos que quedan por encima o por debajo de él (hasta una tolerancia, hasta N puntos, o hasta k desviaciones típicas).
 
 **Por qué merece la pena.** Es la herramienta de limpieza fina más usada en TerraScan, y HIPSO tiene filtros automáticos de ruido pero ningún ajuste local interactivo. Cabe en el modelo si el **ajuste se hace al crear la edición** y lo que se guarda es una región decidible punto a punto.
@@ -260,6 +271,8 @@ Descartes razonados en la sección 6.
 
 ### E08. Colorear por altura sobre el suelo — P1, M
 
+**Implementado.** `ColorBy::HeightAboveGround` y `PointStore::compute_hag`: la rejilla (1 m, o mayor si pasaría de unos 4 millones de celdas) toma el mínimo de los puntos de clase 2 no borrados, rellena los huecos con la media de los vecinos de fuera adentro y cada punto toma el suelo por interpolación bilineal. Se guarda en `PointStore::hag` y se recalcula con `edit_rev` (`App::ensure_hag`); con otro color se suelta. El extremo de la rampa es el percentil 99 (`hag_range`, mínimo 2 m). Sin suelo, el registro lo dice y los puntos quedan en gris. CLI: `hipso render --color hag` (error si no hay suelo). Pruebas en `view.rs`.
+
 **Qué.** Modo de color `HeightAboveGround`. Es lo primero que hace TerraScan antes de clasificar por distancia (4.3.7.18) y lo que más ayuda a editar vegetación y ruido.
 
 **Estado HIPSO (verificado).** `ColorBy` (`view.rs:601`) no lo tiene. `hag.rs` calcula la altura con un TIN del suelo, pero como proceso a archivo.
@@ -271,6 +284,8 @@ Descartes razonados en la sección 6.
 **Riesgo.** Sin clase 2 no hay referencia: mostrar «sin suelo clasificado» y no inventar.
 
 ### E09. Más modos de color — P1, S
+
+**Implementado.** Se añadieron `ScanAngle` (con signo, ±30° en los extremos), `ClassIntensity` y `ElevationIntensity` a `ColorBy`, a `--color` del CLI (`scan-angle`, `class-intensity`, `elevation-intensity`) y a la leyenda (rampas con valores). Además, el color deja el pequeño menú de *Visualización* y pasa a un **botón grande desplegable** junto a *Ventanas* (`colormodes.rs`), con un icono por modo (`assets/icons/c_*.svg`) y una ayuda por modo. **Queda fuera:** el ángulo de barrido solo existe si el archivo lo trae (`PointStore::scan`).
 
 **Qué.** TerraScan colorea por ángulo de barrido, por clase+intensidad, elevación+intensidad, clase+profundidad, línea+intensidad, densidad y eco. Se añaden los que usan lo que `PointStore` ya guarda: `ScanAngle` (`scan`), `ClassIntensity`, `ElevationIntensity`. Se añade a `ColorBy` en `view.rs`, a la orden `--color-by` del CLI (`Plan`, `Three`, `Profile` ya lo usan) y a la leyenda.
 
