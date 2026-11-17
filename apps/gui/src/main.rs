@@ -19,6 +19,8 @@ mod brand;
 mod change_ui;
 mod classtable;
 mod colormodes;
+#[cfg(test)]
+mod ui_tests;
 mod contents;
 mod copcdetail;
 mod corridor_ui;
@@ -506,6 +508,8 @@ struct App {
     profile_step: ProfileStep,
     /// El paso en metros cuando `profile_step` es `Fixed`.
     profile_step_m: f64,
+    /// Lo que se ha girado la rueda sobre el perfil sin llegar a un paso.
+    prof_scroll: f32,
     tex_plan: Option<(egui::TextureHandle, u64)>,
     tex_prof: Option<(egui::TextureHandle, u64, f64, f64)>,
     /// El perfil lee los puntos de su región de los archivos, con toda la densidad.
@@ -678,6 +682,7 @@ impl Default for App {
             profile_width: 10.0,
             profile_step: ProfileStep::Full,
             profile_step_m: 1.0,
+            prof_scroll: 0.0,
             tex_plan: None,
             tex_prof: None,
             prof_full: true,
@@ -2288,7 +2293,10 @@ impl App {
                 s.point_size,
                 s.classes,
                 s.returns,
-                s.zlim.map(|z| (z[0].to_bits(), z[1].to_bits())),
+                (
+                    s.zlim.map(|z| (z[0].to_bits(), z[1].to_bits())),
+                    s.hag_max.to_bits(),
+                ),
                 (s.thin, s.transparent, s.fill, s.edl.to_bits()),
                 self.colors_rev,
                 self.rev,
@@ -4366,11 +4374,19 @@ ui.menu_button("⚙", |ui| {
         let pstore = self.profile.and_then(|b| self.profile_store(ctx, &b));
         if let (Some(store), Some(bx)) = (pstore, self.profile) {
             if resp.hovered() {
-                let step = ui.input(|i| i.smooth_scroll_delta.y);
+                // la rueda llega repartida en varios fotogramas: se acumula y cada 30 puntos (una
+                // muesca de ratón son 40) es un paso; al acabar el giro se olvida lo que sobre
+                let scrolled = ui.input(|i| i.smooth_scroll_delta.y);
+                self.prof_scroll += scrolled;
+                let notches = (self.prof_scroll / 30.0).trunc();
+                self.prof_scroll -= notches * 30.0;
+                if scrolled.abs() < 0.01 {
+                    self.prof_scroll = 0.0;
+                }
                 let arrows = ui.input(|i| i.key_pressed(Key::ArrowUp)) as i32
                     - ui.input(|i| i.key_pressed(Key::ArrowDown)) as i32;
-                let k = if step.abs() > 0.5 {
-                    step.signum() as i32
+                let k = if notches != 0.0 {
+                    notches as i32
                 } else {
                     arrows
                 };
@@ -4405,6 +4421,7 @@ ui.menu_button("⚙", |ui| {
                 bx.b[1].to_bits(),
                 bx.width.to_bits(),
                 Arc::as_ptr(&store) as usize,
+                store.hag.len(),
             ));
             if self.tex_prof.as_ref().is_none_or(|t| t.1 != key) {
                 let (img, lo, hi) = view::render_profile(&store, &bx, w, h, &self.style, extra);

@@ -32,7 +32,7 @@ pub struct ProfData {
     slab: ProfileBox,
     raw: Arc<PointStore>,
     /// `raw` con las ediciones y la selección de la sesión, y para qué se hicieron.
-    view: Option<((u64, u64), Arc<PointStore>)>,
+    view: Option<((u64, u64, bool), Arc<PointStore>)>,
 }
 
 /// Si la región en memoria (`region` y el uno de cada `stride` puntos que conserva) contiene la
@@ -204,11 +204,22 @@ impl App {
         if !covered {
             return Some(base);
         }
-        let stamp = (self.rev, self.ed.sel_rev);
+        // al colorear por altura sobre el suelo, el perfil necesita la altura de sus propios puntos
+        // (los de toda la franja a toda su densidad), no la de los de la planta
+        let want_hag = self.style.color_by == ColorBy::HeightAboveGround;
+        let stamp = (self.rev, self.ed.sel_rev, want_hag);
         let session = self.ed.session.as_ref();
         let edited = session.is_some_and(|s| s.edits.iter().any(|e| e.enabled));
         let data = self.prof_data.as_mut()?;
         if !edited && self.ed.ops.is_empty() && self.ed.focus.is_none() {
+            // hag_rev distingue «no calculada» de «calculada y sin suelo»: no se reintenta cada fotograma
+            if want_hag
+                && data.raw.hag_rev == 0
+                && let Some(r) = Arc::get_mut(&mut data.raw)
+            {
+                r.hag_rev = 1;
+                r.compute_hag(1.0);
+            }
             return Some(data.raw.clone());
         }
         if data.view.as_ref().is_none_or(|v| v.0 != stamp) {
@@ -222,6 +233,9 @@ impl App {
             }
             if let Some(ses) = session {
                 ses.apply_to(&mut s);
+            }
+            if want_hag {
+                s.compute_hag(1.0);
             }
             s.selected = if ops.is_empty() {
                 Vec::new()

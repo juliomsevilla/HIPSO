@@ -725,13 +725,19 @@ impl App {
             {
                 self.ed.pdraft.clear();
                 done = Some(vec![to(a), to(b)]);
-            } else if resp.double_clicked_by(egui::PointerButton::Primary) {
+            } else if resp.double_clicked_by(egui::PointerButton::Primary)
+                || resp.triple_clicked_by(egui::PointerButton::Primary)
+            {
+                // egui cuenta como triple un tercer clic cercano en el tiempo aunque los dos primeros
+                // estén lejos entre sí: para acabar la línea vale cualquiera de los dos
                 done = Some(std::mem::take(&mut self.ed.pdraft));
             } else if resp.clicked_by(egui::PointerButton::Primary)
                 && let Some(p) = resp.interact_pointer_pos()
             {
                 self.ed.pdraft.push(to(p));
-            } else if resp.secondary_clicked() {
+            } else if resp.secondary_clicked()
+                || (resp.hovered() && ctx.input(|i| i.key_pressed(egui::Key::Enter)))
+            {
                 if self.ed.pdraft.len() >= 2 {
                     done = Some(std::mem::take(&mut self.ed.pdraft));
                 } else {
@@ -744,6 +750,18 @@ impl App {
                     self.finish_line(ctx, bx, edit::sorted_path(path));
                 }
             }
+            // qué hacer, a la vista mientras no se está trazando nada
+            painter.text(
+                rect.left_top() + Vec2::new(8.0, 6.0),
+                Align2::LEFT_TOP,
+                if self.ed.pdraft.is_empty() {
+                    "Traza la línea: arrastra para una recta, o haz clic en cada vértice"
+                } else {
+                    "Doble clic, Intro o botón derecho para acabar la línea"
+                },
+                FontId::proportional(12.0),
+                color,
+            );
             // lo que se está trazando: la recta que se arrastra, o los vértices de la línea quebrada
             let mut trace: Vec<Pos2> = self.ed.pdraft.iter().map(|p| back(p[0], p[1])).collect();
             if let (true, Some(a), Some(b)) = (
@@ -754,6 +772,9 @@ impl App {
                 trace = vec![a, b];
             } else if let (false, Some(h)) = (trace.is_empty(), resp.hover_pos()) {
                 trace.push(h);
+            }
+            for p in &self.ed.pdraft {
+                painter.circle_filled(back(p[0], p[1]), 3.5, color);
             }
             if trace.len() >= 2 {
                 painter.add(egui::Shape::line(trace.clone(), Stroke::new(2.0, color)));
@@ -881,16 +902,20 @@ impl App {
                     .zip(self.ed.line_classes)
                     .filter(|(_, (on, _))| *on)
                     .map(|((name, above, below), (_, class))| Edit {
-                        sel: vec![SelOp {
-                            mode: Mode::New,
-                            region: Region::Near {
-                                bx,
-                                path: path.clone(),
-                                above: *above,
-                                below: *below,
-                            },
-                            attr: attr.clone(),
-                        }],
+                        // con un foco puesto, la edición no sale de él
+                        sel: with_focus(
+                            &[SelOp {
+                                mode: Mode::New,
+                                region: Region::Near {
+                                    bx,
+                                    path: path.clone(),
+                                    above: *above,
+                                    below: *below,
+                                },
+                                attr: attr.clone(),
+                            }],
+                            &self.ed.focus,
+                        ),
                         action: edit::Action::Reclassify(class),
                         label: format!("Cerca de la línea: {name} → clase {class}"),
                         enabled: true,
