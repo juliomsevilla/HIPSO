@@ -67,6 +67,27 @@ impl PointStore {
         self.x.is_empty()
     }
 
+    /// Para cada archivo, las extensiones (en planta) de los archivos que van antes en la lista y
+    /// están a la vista según el bit correspondiente de `visible` (los de la posición 64 en adelante
+    /// siempre lo están). Es lo que usa [`Style::shadows`]: la nube de arriba tapa a las de abajo
+    /// donde se solapan. Un archivo sin extensión conocida (ASCII) ni tapa ni se tapa.
+    pub fn shadows(&self, visible: u64) -> Vec<Vec<[f64; 4]>> {
+        let on = |k: usize| k >= 64 || visible & (1u64 << k) != 0;
+        let known = |k: usize| self.file_bounds.get(k).filter(|b| b[3] >= b[0] && b[4] >= b[1]);
+        (0..self.files.len())
+            .map(|k| {
+                if known(k).is_none() {
+                    return Vec::new();
+                }
+                (0..k)
+                    .filter(|&j| on(j))
+                    .filter_map(known)
+                    .map(|b| [b[0], b[1], b[3], b[4]])
+                    .collect()
+            })
+            .collect()
+    }
+
     /// Altura sobre el suelo que deja el 1 % de los puntos más altos fuera de la rampa (mínimo 2):
     /// un extremo de rampa que sigue a los datos, sin que un pájaro o un cable lo estire. Usa una
     /// muestra de unos 200 000 puntos. Sin `hag` calculado devuelve 30.
@@ -783,6 +804,10 @@ pub struct Style {
     /// Solo se dibujan los puntos con la cota absoluta entre estos dos valores (`None`: todos). Es
     /// un filtro de vista, no el reparto de la rampa de color (`zmin` y `zmax`).
     pub zlim: Option<[f64; 2]>,
+    /// Por archivo: las extensiones `[xmin, ymin, xmax, ymax]` de las nubes que van por encima de él
+    /// en la lista y están a la vista. Un punto del archivo `k` dentro de una de ellas no se dibuja:
+    /// donde dos nubes se solapan prevalece la de arriba. Véase [`PointStore::shadows`].
+    pub shadows: Vec<Vec<[f64; 4]>>,
     /// Bit k activado: se dibujan los puntos del archivo k (los archivos del 65.º en adelante
     /// siempre).
     pub files: u64,
@@ -823,6 +848,7 @@ impl Default for Style {
             class_colors: crate::classes::default_colors(),
             returns: 15,
             zlim: None,
+            shadows: Vec::new(),
             files: u64::MAX,
             background: [18, 21, 26],
             thin: 1,
@@ -871,6 +897,18 @@ impl Style {
         }
         if !self.classes.contains(s.class[i]) {
             return false;
+        }
+        if let Some(over) = self.shadows.get(usize::from(s.file[i])).filter(|o| !o.is_empty()) {
+            let (x, y) = (
+                s.origin[0] + f64::from(s.x[i]),
+                s.origin[1] + f64::from(s.y[i]),
+            );
+            if over
+                .iter()
+                .any(|b| x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3])
+            {
+                return false;
+            }
         }
         if let Some([lo, hi]) = self.zlim {
             let z = s.origin[2] + f64::from(s.z[i]);
@@ -2935,5 +2973,38 @@ mod surface_tests {
             ..Style::default()
         };
         assert!(st.color(&s, 0) != st.color(&s, 1));
+    }
+
+    #[test]
+    fn where_two_clouds_overlap_the_one_on_top_of_the_list_prevails() {
+        // archivo 0 (arriba): x de 0 a 10; archivo 1 (abajo): x de 0 a 20
+        let mut s = PointStore {
+            stride: 1,
+            files: vec!["arriba.laz".into(), "abajo.laz".into()],
+            file_bounds: vec![[0.0, 0.0, 0.0, 10.0, 10.0, 5.0], [0.0, 0.0, 0.0, 20.0, 10.0, 5.0]],
+            ..PointStore::default()
+        };
+        for (x, f) in [(5.0f32, 0u8), (5.0, 1), (15.0, 1)] {
+            s.x.push(x);
+            s.y.push(5.0);
+            s.z.push(1.0);
+            s.class.push(1);
+            s.intensity.push(0);
+            s.ret.push(0x11);
+            s.src.push(0);
+            s.scan.push(0);
+            s.file.push(f);
+        }
+        let mut st = Style::default();
+        st.shadows = s.shadows(u64::MAX);
+        assert!(st.visible(&s, 0), "la de arriba se ve");
+        assert!(!st.visible(&s, 1), "la de abajo, tapada donde se solapa");
+        assert!(st.visible(&s, 2), "y se ve donde no hay nada encima");
+        // una nube de arriba oculta no tapa a las de abajo
+        st.shadows = s.shadows(0b10);
+        assert!(st.visible(&s, 1));
+        // sin extensión conocida no tapa ni se tapa
+        s.file_bounds.clear();
+        assert!(s.shadows(u64::MAX).iter().all(Vec::is_empty));
     }
 }

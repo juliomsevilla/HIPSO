@@ -409,3 +409,26 @@ fn real_cloud_profile_line_tools() {
         eprintln!("{}: seleccionados {sel}, píxeles resaltados {cyan}", nav.name());
     }
 }
+
+#[test]
+fn the_cloud_on_top_of_the_list_hides_the_one_below_where_they_overlap() {
+    let mut app = app_with_profile(Nav::Zoom);
+    // la misma nube dos veces: la de arriba (archivo 0) es la editada, la de abajo (archivo 1) la original
+    let mut s = cloud();
+    let n = s.len();
+    s.files = vec!["editada.laz".into(), "original.laz".into()];
+    s.file = (0..n).map(|i| u8::from(i % 2 == 1)).collect();
+    s.file_bounds = vec![s.bounds, s.bounds];
+    app.store = Some(Arc::new(s));
+    app.clouds = vec!["editada.laz".into(), "original.laz".into()];
+    app.update_shadows();
+    let s = app.store.clone().unwrap();
+    let shown = (0..n).filter(|&i| app.style.visible(&s, i)).count();
+    assert_eq!(shown, n / 2, "solo se ve la de arriba");
+    // al ocultar la de arriba (bit 0) se ve la de abajo
+    app.style.files = 0b10;
+    app.update_shadows();
+    let shown = (0..n).filter(|&i| app.style.visible(&s, i)).count();
+    assert_eq!(shown, n / 2);
+    assert!((0..n).all(|i| !app.style.visible(&s, i) || s.file[i] == 1));
+}

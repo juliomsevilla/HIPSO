@@ -1665,8 +1665,11 @@ impl App {
             if project::is_project(&f) {
                 self.open_project(ctx, &f);
             } else if is_cloud(&f) {
+                // la nube que se abre queda encima en la lista, y donde se solapa con otras
+                // prevalece (véase `Style::shadows`)
                 if !self.clouds.contains(&f) {
-                    self.clouds.push(f);
+                    self.clouds.insert(0, f);
+                    self.style.files = self.style.files << 1 | 1;
                 }
                 clouds = true;
             } else {
@@ -2113,6 +2116,16 @@ impl App {
         self.moving_until = Instant::now() + Duration::from_millis(160);
     }
 
+    /// Donde dos nubes se solapan prevalece la que está más arriba en la lista de nubes: las
+    /// extensiones de las de arriba que están a la vista tapan los puntos de las de abajo.
+    fn update_shadows(&mut self) {
+        self.style.shadows = self
+            .store
+            .as_ref()
+            .filter(|s| s.files.len() == self.clouds.len())
+            .map_or_else(Vec::new, |s| s.shadows(self.style.files));
+    }
+
     /// Si algún filtro de vista deja puntos fuera: retornos, clases o rango de cotas.
     fn filters_active(&self) -> bool {
         self.style.returns != 15
@@ -2300,6 +2313,7 @@ impl App {
                 (
                     s.zlim.map(|z| (z[0].to_bits(), z[1].to_bits())),
                     s.hag_max.to_bits(),
+                    s.shadows.iter().map(Vec::len).collect::<Vec<_>>(),
                 ),
                 (s.thin, s.transparent, s.fill, s.edl.to_bits()),
                 self.colors_rev,
@@ -3518,6 +3532,7 @@ ui.menu_button("⚙", |ui| {
     // ----------------------------------------------------------------------------- views
 
     fn views(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        self.update_shadows();
         self.ensure_hag(ctx);
         let t = self.tokens();
         egui::CentralPanel::default()

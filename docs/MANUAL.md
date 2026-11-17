@@ -134,7 +134,7 @@ Botón grande, a la derecha de *Ventanas*, con un menú que elige el atributo co
 - *ID de fuente* (un color por pasada), *Archivo* (un color por archivo) y *RGB* (el color que trae el punto).
 - *ID de árbol (treeID)*: cada copa de un color a partir del atributo `treeID` que escribe *Segmentar individuos*. Solo está disponible si la nube lo trae; los puntos sin árbol quedan en gris.
 
-Al cargar una nube con color, el programa la muestra en RGB. La leyenda sale en la planta; si solo se ve el 3D, sale en el 3D. Con *Altura sobre el suelo* y *Ángulo de barrido* la leyenda es la rampa con sus valores. El perfil también se colorea por altura: calcula la altura con los puntos de suelo de su propia franja, a toda su densidad.
+Al cargar una nube con color, el programa la muestra en RGB. Si dos nubes se solapan, prevalece la que está más arriba en la lista de nubes: sus puntos tapan a los de las de abajo dentro de su extensión, en la planta, el perfil y el 3D. Una nube que se abre queda arriba de la lista. La leyenda sale en la planta; si solo se ve el 3D, sale en el 3D. Con *Altura sobre el suelo* y *Ángulo de barrido* la leyenda es la rampa con sus valores. El perfil también se colorea por altura: calcula la altura con los puntos de suelo de su propia franja, a toda su densidad.
 
 ##### Filtros
 
