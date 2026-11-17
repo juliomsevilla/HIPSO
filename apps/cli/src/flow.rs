@@ -142,6 +142,16 @@ mod tests {
     use super::*;
     use hipso_core::model::{CATALOG, entry};
 
+    /// Como `super::schema`, en un hilo con la pila grande que usa `main`: la definición de las
+    /// órdenes es tan grande que desborda la pila de 2 MB de un hilo de prueba.
+    fn schema() -> Schema {
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(super::schema)
+            .and_then(|h| h.join().map_err(|_| std::io::Error::other("el hilo falló")))
+            .expect("schema")
+    }
+
     #[test]
     fn every_command_is_in_the_catalog_and_every_entry_is_a_command() {
         let s = schema();
