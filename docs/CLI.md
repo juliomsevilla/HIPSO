@@ -183,15 +183,17 @@ Adelgaza (diezma) una nube: por celda, por celda 3D, un punto de cada n, al azar
 
 ### hipso edit
 
-Edita puntos como si fueran elementos: borra o reclasifica los puntos dentro de polígonos que cumplen las pruebas de atributos; escribe un archivo nuevo, nunca el original
+Edita puntos como si fueran elementos: borra o reclasifica los puntos dentro de polígonos o a cierta distancia de líneas que cumplen las pruebas de atributos; escribe un archivo nuevo, nunca el original
 
-**En la interfaz:** panel lateral → Edición (nubes de puntos). El método se explica en el apartado 6.
+**En la interfaz:** panel lateral → Edición (nubes de puntos) y LiDAR → Preparar → Editar con capas. El método se explica en el apartado 6.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
 | `INPUT` | archivo o carpeta | ninguno | Nube LAS o LAZ que editar. **Obligatoria.** |
 | `-o`, `--output` | archivo o carpeta | ninguno | Nube de salida; por defecto, en la carpeta de resultados con el nombre de la entrada. |
 | `--regions` | archivo o carpeta | ninguno | Polígonos, centros de parcelas (con --radius) o una lista; por defecto: toda la nube. |
+| `--lines` | archivo o carpeta | ninguno | Capa de líneas (ejes, caminos, cauces): se seleccionan los puntos a menos de --distance de ellas. |
+| `--distance` | texto o número | ninguno | Distancia (m) a cada lado de las líneas de --lines. |
 | `--radius` | texto o número | ninguno | Radio (m) de las parcelas cuando las regiones son puntos. |
 | `--outside` | casilla | desactivada | Selecciona en cambio los puntos fuera de las regiones. |
 | `--class` | texto o número | ninguno | Solo se seleccionan los puntos de estas clases (2,5 o ~7,18) |
@@ -210,6 +212,21 @@ Aplica a una o más nubes las ediciones guardadas desde el visor (un archivo de 
 |---|---|---|---|
 | `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ a las que se aplican las ediciones. **Obligatoria.** Se puede repetir. |
 | `--edits` | archivo o carpeta | ninguno | Archivo de ediciones, el que escribe el visor con «Guardar ediciones…». **Obligatoria.** |
+| `-o`, `--output` | archivo o carpeta | ninguno | Nube de salida (solo una entrada); por defecto, en la carpeta de resultados. |
+
+### hipso propagate-class
+
+Copia la clase de una nube de referencia (por ejemplo, una versión adelgazada ya clasificada) a los puntos de otra nube más densa: cada punto toma la clase del punto de referencia más cercano dentro del radio; los que no tienen ninguno conservan la suya
+
+**En la interfaz:** LiDAR → Preparar → Propagar clase. Flujo típico: `thin`, `classify` sobre lo adelgazado y `propagate-class` sobre la nube completa.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ a las que se propaga la clase. **Obligatoria.** Se puede repetir. |
+| `--reference` | archivo o carpeta | ninguno | Nube clasificada de la que se toma la clase. **Obligatoria.** |
+| `--radius` | texto o número | `1` | Distancia máxima, en metros, a la que un punto de referencia da su clase. |
+| `--classes` | texto o número | ninguno | Clases de la referencia que se propagan (p. ej. «2,5-6»); por defecto, todas. |
+| `--flat` | casilla | desactivada | Mide la distancia solo en planta, sin la cota. |
 | `-o`, `--output` | archivo o carpeta | ninguno | Nube de salida (solo una entrada); por defecto, en la carpeta de resultados. |
 
 ### hipso colorize

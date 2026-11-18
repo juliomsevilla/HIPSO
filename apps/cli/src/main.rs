@@ -1693,7 +1693,7 @@ enum Cmd {
         #[arg(long, default_value_t = 0.0)]
         buffer: f64,
     },
-    /// Edita puntos como si fueran elementos: borra o reclasifica los puntos dentro de polígonos
+    /// Edita puntos como si fueran elementos: borra o reclasifica los puntos dentro de polígonos o a cierta distancia de líneas
     /// que cumplen las pruebas de atributos; escribe un archivo nuevo, nunca el original
     Edit {
         /// Nube LAS o LAZ que editar
@@ -1707,6 +1707,12 @@ enum Cmd {
         /// Radio (m) de las parcelas cuando las regiones son puntos
         #[arg(long)]
         radius: Option<f64>,
+        /// Capa de líneas (ejes, caminos, cauces): se seleccionan los puntos a menos de --distance de ellas
+        #[arg(long, conflicts_with = "regions", requires = "distance")]
+        lines: Option<PathBuf>,
+        /// Distancia (m) a cada lado de las líneas de --lines
+        #[arg(long)]
+        distance: Option<f64>,
         /// Selecciona en cambio los puntos fuera de las regiones
         #[arg(long)]
         outside: bool,
@@ -1735,6 +1741,29 @@ enum Cmd {
         /// Archivo de ediciones, el que escribe el visor con «Guardar ediciones…»
         #[arg(long)]
         edits: PathBuf,
+        /// Nube de salida (solo una entrada); por defecto, en la carpeta de resultados
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Copia la clase de una nube de referencia (por ejemplo, una versión adelgazada ya clasificada)
+    /// a los puntos de otra nube más densa: cada punto toma la clase del punto de referencia más
+    /// cercano dentro del radio; los que no tienen ninguno conservan la suya
+    PropagateClass {
+        /// Nubes LAS o LAZ a las que se propaga la clase
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// Nube clasificada de la que se toma la clase
+        #[arg(long)]
+        reference: PathBuf,
+        /// Distancia máxima, en metros, a la que un punto de referencia da su clase
+        #[arg(long, default_value_t = 1.0)]
+        radius: f64,
+        /// Clases de la referencia que se propagan (p. ej. «2,5-6»); por defecto, todas
+        #[arg(long)]
+        classes: Option<String>,
+        /// Mide la distancia solo en planta, sin la cota
+        #[arg(long)]
+        flat: bool,
         /// Nube de salida (solo una entrada); por defecto, en la carpeta de resultados
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -4463,6 +4492,8 @@ fn run(cmd: Cmd) -> Result<()> {
             output,
             regions,
             radius,
+            lines,
+            distance,
             outside,
             class,
             zmin,
@@ -4470,9 +4501,8 @@ fn run(cmd: Cmd) -> Result<()> {
             delete,
             set_class,
         } => {
-            use hipso_core::edit::{self, Action, Attr, Edit, Mode, Region, SelOp};
-            use hipso_core::filter::ClassSel;
-            use hipso_core::vector;
+            use hipso_core::edit::{self, Action};
+            use hipso_core::layeredit::{Layer, LayerEdit, edit_by_layer};
             let action = match (delete, set_class) {
                 (true, _) => Action::Delete,
                 (false, Some(c)) => Action::Reclassify(c),
@@ -4482,66 +4512,24 @@ fn run(cmd: Cmd) -> Result<()> {
                     ));
                 }
             };
-            let mut attr = Attr {
-                z: match (zmin, zmax) {
-                    (None, None) => None,
-                    (a, b) => Some((a.unwrap_or(f64::NEG_INFINITY), b.unwrap_or(f64::INFINITY))),
+            let layer = match (lines, regions) {
+                (Some(path), _) => Layer::Lines {
+                    path,
+                    distance: distance.unwrap_or(0.0),
                 },
-                ..Attr::default()
+                (None, Some(path)) => Layer::Polygons { path, radius },
+                _ => Layer::None,
             };
-            if let Some(c) = &class {
-                let sel = ClassSel::parse(c)?;
-                attr.classes = sel.set;
-            }
-            let mut sel = Vec::new();
-            match &regions {
-                Some(path) => {
-                    let opts = vector::ReadOptions {
-                        name_field: None,
-                        radius,
-                        radius_field: None,
-                        ..vector::ReadOptions::default()
-                    };
-                    let list = vector::read_regions(path, &opts)?;
-                    for (k, r) in hipso_core::ops::polygons_of(&list).into_iter().enumerate() {
-                        sel.push(SelOp {
-                            mode: if k == 0 { Mode::New } else { Mode::Add },
-                            region: r,
-                            attr: Attr {
-                                classes: hipso_core::classes::ClassSet::all(),
-                                z: None,
-                                ..Attr::default()
-                            },
-                        });
-                    }
-                    if outside {
-                        sel.push(SelOp {
-                            mode: Mode::Invert,
-                            region: Region::All,
-                            attr: Attr::default(),
-                        });
-                    }
-                    sel.push(SelOp {
-                        mode: Mode::Intersect,
-                        region: Region::All,
-                        attr,
-                    });
-                }
-                None => sel.push(SelOp {
-                    mode: Mode::New,
-                    region: Region::All,
-                    attr,
-                }),
-            }
-            let ext = input
-                .extension()
-                .map_or("las".into(), |e| e.to_string_lossy().into_owned());
-            let out = out_path(output, &input, "editada", &ext);
-            let label = match action {
-                Action::Delete => "eliminar".to_string(),
-                Action::Reclassify(c) => format!("clase {c}"),
+            let spec = LayerEdit {
+                layer,
+                outside,
+                classes: class.unwrap_or_default(),
+                zmin,
+                zmax,
+                action,
             };
-            let r = edit::save(&input, &out, &[Edit::new(sel, action, label)])?;
+            let out = out_path(output, &input, "editada", &ext_of(&input));
+            let r = edit_by_layer(&input, &out, &spec)?;
             edit::report_text(&r, &out)
         }
         Cmd::Crs {
@@ -5573,6 +5561,32 @@ fn run(cmd: Cmd) -> Result<()> {
                 let out = out_path(output.clone(), input, "editada", &ext_of(input));
                 let r = hipso_core::edit::save(input, &out, &list)?;
                 lines.push(hipso_core::edit::report_text(&r, &out));
+            }
+            lines.join("\n")
+        }
+        Cmd::PropagateClass {
+            inputs,
+            reference,
+            radius,
+            classes,
+            flat,
+            output,
+        } => {
+            use hipso_core::propagate::{PropagateParams, propagate_class, report_text};
+            let params = PropagateParams {
+                radius,
+                classes: classes.as_deref().map_or_else(
+                    || Ok(hipso_core::classes::ClassSet::all()),
+                    |c| hipso_core::filter::ClassSel::parse(c).map(|s| s.set),
+                )?,
+                flat,
+            };
+            let output = single_output(output, inputs.len())?;
+            let mut lines = Vec::new();
+            for input in &inputs {
+                let out = out_path(output.clone(), input, "propagada", &ext_of(input));
+                let r = propagate_class(&reference, input, &out, &params)?;
+                lines.push(report_text(&r, &out));
             }
             lines.join("\n")
         }

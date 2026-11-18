@@ -200,6 +200,40 @@ fn the_wheel_moves_the_profile_one_step_per_notch() {
 }
 
 #[test]
+fn with_an_axis_the_wheel_turns_the_profile_along_the_bend() {
+    let mut app = app_with_profile(Nav::Zoom);
+    app.profile_width = 4.0;
+    app.profile_step = ProfileStep::Full;
+    // un eje en L; el perfil se coloca al principio, a través del primer tramo
+    let axis = vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]];
+    let (bx, s) = view::axis_section(&axis, 0.0, 20.0, 4.0).unwrap();
+    app.profile = Some(bx);
+    app.profile_s = s;
+    app.profile_axis = Some(axis);
+    let ctx = egui::Context::default();
+    let mut t = warm_up(&mut app, &ctx);
+    let wheel = egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line,
+        delta: Vec2::new(0.0, 1.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    };
+    frame(&mut app, &ctx, t, vec![mv(Pos2::new(300.0, 200.0))]);
+    for _ in 0..3 {
+        t += 0.02;
+        frame(&mut app, &ctx, t, vec![wheel.clone()]);
+        for _ in 0..30 {
+            t += 0.02;
+            frame(&mut app, &ctx, t, vec![]);
+        }
+    }
+    // tres muescas de 4 m: estación 12, ya en el segundo tramo (hacia +y), con la caja girada
+    let b = app.profile.unwrap();
+    assert!((app.profile_s - 12.0).abs() < 1e-6, "estación {}", app.profile_s);
+    assert!((b.a[1] - 2.0).abs() < 1e-6 && (b.b[1] - 2.0).abs() < 1e-6, "{b:?}");
+}
+
+#[test]
 fn the_profile_is_colored_by_height_above_ground() {
     let mut app = app_with_profile(Nav::Zoom);
     app.style.color_by = ColorBy::HeightAboveGround;

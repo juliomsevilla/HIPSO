@@ -14,6 +14,8 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Cercanía" => "Añade a cada elemento la distancia al elemento más cercano de otra capa, su número de orden y, si se pide, uno de sus campos.",
         "Resumen estadístico" => "Recuento, suma, media, mínimo, máximo y desviación de campos numéricos de una capa o tabla, por grupos de un campo.",
         "Rasterizar" => "Convierte una capa vectorial en ráster: cada celda recibe el valor de un campo del último elemento que la cubre.",
+        "Propagar clase" => "Copia la clase de una nube ya clasificada (p. ej. adelgazada) a los puntos de otra más densa, por proximidad.",
+        "Editar con capas" => "Borra o reclasifica los puntos dentro de polígonos o a cierta distancia de líneas, con filtros de clase y cota; escribe una nube nueva.",
         "Filtro focal" => "Media, mediana, mínimo, máximo, suma, rango, desviación, mayoría o gaussiano de cada celda sobre una ventana a su alrededor.",
         "Estadísticas ráster" => "Recuento, mínimo, máximo, media, desviación, mediana, percentiles e histograma de un ráster.",
         "Tabular áreas" => "Área de cada clase de un ráster dentro de cada zona de otro, como tabla CSV.",

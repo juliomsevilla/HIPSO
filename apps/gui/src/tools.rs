@@ -75,6 +75,10 @@ pub enum ToolId {
     Intensity,
     /// Recorta las nubes con una capa de polígonos.
     ClipPoly,
+    /// Copia la clase de una nube clasificada a otra más densa.
+    Propagate,
+    /// Borra o reclasifica los puntos dentro de polígonos o cerca de líneas.
+    EditLayers,
 }
 
 impl ToolId {
@@ -102,6 +106,8 @@ impl ToolId {
             ToolId::Hag => "Alturas sobre el suelo",
             ToolId::Colorize => "Colorear la nube con una imagen (RGB)",
             ToolId::Intensity => "Normalizar la intensidad por distancia",
+            ToolId::Propagate => "Propagar la clase a otra nube",
+            ToolId::EditLayers => "Editar puntos con polígonos o líneas",
             ToolId::ClipPoly => "Recortar nubes con una capa de polígonos",
         }
     }
@@ -1145,6 +1151,8 @@ impl Tools {
                             ToolId::Hag => self.hag_form(ui, t),
                             ToolId::Colorize => self.colorize_form(ui, t),
                             ToolId::Intensity => self.intensity_form(ui, t),
+                            ToolId::Propagate => self.propagate_form(ui, t),
+                            ToolId::EditLayers => self.edit_layers_form(ui, t),
                             ToolId::ClipPoly => self.clip_poly_form(ui, t),
                             ToolId::Compare => self.compare_form(ui, t),
                             ToolId::Fit => self.fit_form(ui, t),
@@ -1920,6 +1928,8 @@ impl Tools {
             | ToolId::VDensity
             | ToolId::IntensityImage
             | ToolId::Colorize
+            | ToolId::Propagate
+            | ToolId::EditLayers
             | ToolId::Intensity => {
                 return self.build_lidar(tool, inputs, log);
             }
@@ -1973,6 +1983,8 @@ impl Tools {
             | ToolId::IntensityImage
             | ToolId::Colorize
             | ToolId::Intensity
+            | ToolId::Propagate
+            | ToolId::EditLayers
             | ToolId::ClipPoly
             | ToolId::Volume
             | ToolId::Clip => return None,

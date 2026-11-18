@@ -220,7 +220,7 @@ Requiere Rust 1.90 o superior. No hay dependencias de C.
 - **Ventanas:** planta, perfil y 3D, solas o combinadas; el 3D puede seguir la extensión de la planta.
 - **Color de los puntos:** elevación (azul-rojo o tierra), clasificación con colores editables, intensidad, retorno, ID de fuente, archivo, RGB e ID de árbol (`treeID`), con filtros por clase y por tipo de retorno y un rango de elevación propio.
 - **TIN sombreado** (con las clases que se elijan) y **curvas de nivel** con equidistancia.
-- **Herramientas del visor:** zoom (clic, ventana, rueda, encuadre anterior y completo), desplazar, consultar punto (Q), medir (W, con distancia 3D, área y perímetro), densidad de puntos y perfil (tres clics; flechas y rueda mueven la caja).
+- **Herramientas del visor:** zoom (clic, ventana, rueda, encuadre anterior y completo), desplazar, consultar punto (Q; en planta, perfil y 3D, con todos los atributos del punto), medir (W, con distancia 3D, área y perímetro), densidad de puntos y perfil (tres clics; flechas y rueda mueven la caja).
 - **LiDAR, Raster y Vectorial:** cada herramienta abre una ventana con sus opciones, y las mismas opciones existen como orden de `hipso`. Las rutas de salida se calculan a partir de la entrada y los ajustes, se pueden editar a mano y piden confirmación antes de sobrescribir. Al terminar, los rásteres y capas nuevos aparecen en el mapa.
 - **Flujos:** el constructor de nodos encadena las herramientas y guarda el flujo como `.model.json`.
 - **Atajos:** Ctrl+O abrir, Ctrl+K comandos, F1 manual, Q consultar, W medir, Z zoom, X desplazar, T TIN, +/− tamaño de punto, N norte arriba.

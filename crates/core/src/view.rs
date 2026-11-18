@@ -164,6 +164,48 @@ impl PointStore {
         true
     }
 
+    /// Las líneas de texto que describen el punto `i`: coordenadas, clase, intensidad, retorno y
+    /// fuente, y lo que el almacén sepa además (ángulo de barrido, altura sobre el suelo si está
+    /// calculada, copa y archivo cuando hay varios).
+    pub fn describe(&self, i: usize, class_name: &str) -> Vec<String> {
+        let p = self.xyz(i);
+        let class = self.class[i];
+        let mut lines = vec![
+            format!("X {:.2}   Y {:.2}   Z {:.2}", p[0], p[1], p[2]),
+            format!("Clase {class} · {class_name}"),
+            format!(
+                "Intensidad {}   Retorno {} de {}   Fuente {}",
+                self.intensity[i],
+                self.ret[i] & 15,
+                self.ret[i] >> 4,
+                self.src.get(i).copied().unwrap_or(0)
+            ),
+        ];
+        let mut more = Vec::new();
+        if let Some(s) = self.scan.get(i).filter(|s| **s != 0) {
+            more.push(format!("Barrido {:+.1}°", f64::from(*s) / 10.0));
+        }
+        if let Some(h) = self.hag.get(i).filter(|h| h.is_finite()) {
+            more.push(format!("Sobre el suelo {h:.2} m"));
+        }
+        if !more.is_empty() {
+            lines.push(more.join("   "));
+        }
+        let mut which = Vec::new();
+        if let Some(t) = self.tree.get(i).filter(|t| **t != 0) {
+            which.push(format!("Copa {t}"));
+        }
+        if self.files.len() > 1
+            && let Some(f) = self.files.get(usize::from(self.file[i]))
+        {
+            which.push(format!("Archivo {f}"));
+        }
+        if !which.is_empty() {
+            lines.push(which.join("   "));
+        }
+        lines
+    }
+
     /// Coordenadas absolutas del punto `i`.
     pub fn xyz(&self, i: usize) -> [f64; 3] {
         [
@@ -1906,6 +1948,19 @@ impl ProfileBox {
         (dx * ux + dy * uy, -dx * uy + dy * ux)
     }
 
+    /// La misma caja con otro largo, manteniendo el centro y la orientación.
+    pub fn with_length(&self, len: f64) -> Self {
+        let l = self.length().max(1e-9);
+        let (ux, uy) = ((self.b[0] - self.a[0]) / l, (self.b[1] - self.a[1]) / l);
+        let (cx, cy) = ((self.a[0] + self.b[0]) / 2.0, (self.a[1] + self.b[1]) / 2.0);
+        let h = len.max(1e-6) / 2.0;
+        Self {
+            a: [cx - ux * h, cy - uy * h],
+            b: [cx + ux * h, cy + uy * h],
+            width: self.width,
+        }
+    }
+
     /// Mueve la caja a lo ancho de sí misma (positivo: a la izquierda de a→b).
     pub fn shifted(&self, d: f64) -> Self {
         let l = self.length().max(1e-9);
@@ -1919,6 +1974,48 @@ impl ProfileBox {
             width: self.width,
         }
     }
+}
+
+/// El largo de una polilínea.
+pub fn axis_length(axis: &[[f64; 2]]) -> f64 {
+    axis.windows(2)
+        .map(|s| (s[1][0] - s[0][0]).hypot(s[1][1] - s[0][1]))
+        .sum()
+}
+
+/// La caja de perfil de la estación `s` (metros desde el principio, limitada al eje) de un eje
+/// curvo: centrada en el eje, perpendicular a su dirección en ese punto, de `length` de largo (a
+/// través del eje) y `width` de ancho (a lo largo del eje). Avanzar por el eje es [`ProfileBox::shifted`]
+/// con distancia positiva: el sentido a→b deja a su izquierda el sentido del eje. Devuelve también la
+/// estación usada.
+pub fn axis_section(axis: &[[f64; 2]], s: f64, length: f64, width: f64) -> Option<(ProfileBox, f64)> {
+    let total = axis_length(axis);
+    if axis.len() < 2 || total <= 0.0 {
+        return None;
+    }
+    let s = s.clamp(0.0, total);
+    let mut left = s;
+    let mut seg = axis.windows(2).filter(|w| w[0] != w[1]).peekable();
+    while let Some(w) = seg.next() {
+        let l = (w[1][0] - w[0][0]).hypot(w[1][1] - w[0][1]);
+        if left <= l || seg.peek().is_none() {
+            let t = (left / l).min(1.0);
+            let p = [w[0][0] + t * (w[1][0] - w[0][0]), w[0][1] + t * (w[1][1] - w[0][1])];
+            let (tx, ty) = ((w[1][0] - w[0][0]) / l, (w[1][1] - w[0][1]) / l);
+            // a→b a la derecha del eje, de modo que el eje queda a su izquierda
+            let (dx, dy) = (ty * length / 2.0, -tx * length / 2.0);
+            return Some((
+                ProfileBox {
+                    a: [p[0] - dx, p[1] - dy],
+                    b: [p[0] + dx, p[1] + dy],
+                    width,
+                },
+                s,
+            ));
+        }
+        left -= l;
+    }
+    None
 }
 
 /// El perfil: distancia a lo largo en el eje horizontal, elevación en el vertical. Devuelve la
@@ -1983,20 +2080,110 @@ pub fn render_profile(
 }
 
 /// Índice del punto más cercano a `(x, y)` en planta, a menos de `tol` unidades del mapa, el más
-/// alto primero.
+/// alto primero entre los que están casi igual de cerca. Busca en todos los núcleos.
 pub fn nearest_point(s: &PointStore, st: &Style, x: f64, y: f64, tol: f64) -> Option<usize> {
-    let mut best: Option<(usize, f64, f32)> = None;
-    for i in 0..s.len() {
+    use rayon::prelude::*;
+    let dist = |i: usize| {
         let p = s.xyz(i);
-        let d = (p[0] - x).hypot(p[1] - y);
-        if d <= tol
-            && st.visible(s, i)
-            && best.is_none_or(|b| d < b.1 - tol * 0.2 || (d <= b.1 + tol * 0.2 && s.z[i] > b.2))
-        {
-            best = Some((i, d, s.z[i]));
+        (p[0] - x).hypot(p[1] - y)
+    };
+    let dmin = (0..s.len())
+        .into_par_iter()
+        .filter(|&i| st.visible(s, i))
+        .map(dist)
+        .filter(|d| *d <= tol)
+        .reduce(|| f64::INFINITY, f64::min);
+    if !dmin.is_finite() {
+        return None;
+    }
+    // entre los casi igual de cerca, el más alto; a igualdad, el de índice menor
+    (0..s.len())
+        .into_par_iter()
+        .filter(|&i| st.visible(s, i) && dist(i) <= dmin + tol * 0.2)
+        .map(|i| (i, s.z[i]))
+        .reduce_with(|a, b| {
+            if b.1 > a.1 || (b.1 == a.1 && b.0 < a.0) {
+                b
+            } else {
+                a
+            }
+        })
+        .map(|b| b.0)
+}
+
+/// El menor de dos candidatos `(índice, clave)`: la clave más pequeña, y a igualdad el índice menor.
+fn lesser(a: (usize, [f64; 3]), b: (usize, [f64; 3])) -> (usize, [f64; 3]) {
+    for k in 0..3 {
+        if b.1[k] < a.1[k] {
+            return b;
+        }
+        if b.1[k] > a.1[k] {
+            return a;
         }
     }
-    best.map(|b| b.0)
+    if b.0 < a.0 { b } else { a }
+}
+
+/// El punto del perfil más cercano a un píxel `(px, py)` de la imagen de `render_profile` (de `w` por
+/// `h` píxeles y con el rango de elevación `zlo`–`zhi` que devolvió), a menos de `tol` píxeles. Usa la
+/// misma transformación que `render_profile`. A igual distancia, el más cercano al eje de la caja.
+pub fn nearest_in_profile(
+    s: &PointStore,
+    st: &Style,
+    bx: &ProfileBox,
+    size: (usize, usize),
+    z_range: (f64, f64),
+    pixel: (f64, f64),
+    tol: f64,
+) -> Option<usize> {
+    use rayon::prelude::*;
+    let ((w, h), (zlo, zhi), (px, py)) = (size, z_range, pixel);
+    let len = bx.length().max(1e-9);
+    let half = bx.width / 2.0;
+    let k = (w as f64 / len).min(h as f64 / (zhi - zlo).max(1e-12));
+    let (ox, oy) = (
+        (w as f64 - len * k) / 2.0,
+        (h as f64 - (zhi - zlo) * k) / 2.0,
+    );
+    (0..s.len())
+        .into_par_iter()
+        .filter_map(|i| {
+            let p = s.xyz(i);
+            let (u, t) = bx.local(p[0], p[1]);
+            if u < 0.0 || u > len || t.abs() > half || !st.visible(s, i) {
+                return None;
+            }
+            let (qx, qy) = (ox + u * k, h as f64 - oy - (p[2] - zlo) * k);
+            let d = (qx - px).hypot(qy - py);
+            (d <= tol).then_some((i, [d, t.abs(), 0.0]))
+        })
+        .reduce_with(lesser)
+        .map(|b| b.0)
+}
+
+/// El punto más cercano a la cámara entre los que caen a menos de `tol` píxeles de `(px, py)` en una
+/// vista 3D con la cámara `cam`: lo que el usuario ve delante.
+pub fn nearest_in_view(
+    s: &PointStore,
+    st: &Style,
+    cam: &Projector,
+    pixel: (f64, f64),
+    tol: f64,
+) -> Option<usize> {
+    use rayon::prelude::*;
+    let (px, py) = pixel;
+    (0..s.len())
+        .into_par_iter()
+        .filter_map(|i| {
+            if !st.visible(s, i) {
+                return None;
+            }
+            let (x, y, depth) = cam.apply(s.xyz(i))?;
+            let d = (x - px).hypot(y - py);
+            (d <= tol).then_some((i, [depth, d, 0.0]))
+        })
+        .reduce_with(lesser)
+        .map(|b| b.0)
 }
 
 /// Puntos por unidad del mapa cuadrada dentro del rectángulo `[x0, y0, x1, y1]`: (puntos, área,
@@ -2549,6 +2736,36 @@ pub fn draw_line(img: &mut Image, a: (f64, f64), b: (f64, f64), c: [u8; 3]) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn axis_sections_follow_the_bends() {
+        // un eje en L: 10 m hacia +x y luego 10 m hacia +y
+        let axis = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]];
+        assert!((axis_length(&axis) - 20.0).abs() < 1e-9);
+        let near = |a: [f64; 2], b: [f64; 2]| (a[0] - b[0]).hypot(a[1] - b[1]) < 1e-9;
+        let (bx, s) = axis_section(&axis, 5.0, 4.0, 2.0).unwrap();
+        assert_eq!(s, 5.0);
+        // perpendicular al primer tramo, centrada en (5, 0), con el eje a la izquierda de a→b
+        assert!(near(bx.a, [5.0, 2.0]) && near(bx.b, [5.0, -2.0]), "{bx:?}");
+        let (bx, _) = axis_section(&axis, 15.0, 4.0, 2.0).unwrap();
+        assert!(near(bx.a, [8.0, 5.0]) && near(bx.b, [12.0, 5.0]), "{bx:?}");
+        assert!((bx.length() - 4.0).abs() < 1e-9 && bx.width == 2.0);
+        // avanzar es `shifted` con distancia positiva
+        let (a, _) = axis_section(&axis, 3.0, 4.0, 2.0).unwrap();
+        let (b, _) = axis_section(&axis, 5.0, 4.0, 2.0).unwrap();
+        let moved = a.shifted(2.0);
+        assert!(near(moved.a, b.a) && near(moved.b, b.b));
+        // se limita al principio y al final del eje
+        assert_eq!(axis_section(&axis, -3.0, 4.0, 2.0).unwrap().1, 0.0);
+        assert_eq!(axis_section(&axis, 99.0, 4.0, 2.0).unwrap().1, 20.0);
+        assert!(axis_section(&axis[..1], 0.0, 4.0, 2.0).is_none());
+        let longer = bx.with_length(10.0);
+        assert!((longer.length() - 10.0).abs() < 1e-9);
+        assert!(near(
+            [(longer.a[0] + longer.b[0]) / 2.0, (longer.a[1] + longer.b[1]) / 2.0],
+            [(bx.a[0] + bx.b[0]) / 2.0, (bx.a[1] + bx.b[1]) / 2.0]
+        ));
+    }
+
     fn store() -> PointStore {
         let mut s = PointStore {
             stride: 1,
@@ -2791,6 +3008,110 @@ mod tests {
         assert_eq!(thin.len(), 100);
         assert_eq!(thin.total, 400);
         Ok(())
+    }
+
+    #[test]
+    fn a_point_is_described_with_what_the_store_knows() {
+        let mut s = store();
+        let plain = s.describe(1, "Vegetación alta");
+        assert_eq!(plain.len(), 3);
+        assert!(plain[0].starts_with("X 110.00   Y 200.00   Z 5.00"));
+        assert!(plain[1].contains("Clase 5") && plain[1].contains("Vegetación alta"));
+        assert!(plain[2].contains("Retorno 1 de 1"));
+        // con ángulo de barrido, altura sobre el suelo, copa y varios archivos salen sus líneas
+        s.scan = vec![0, -123, 0, 0];
+        s.hag = vec![0.0, 4.25, 0.0, 0.0];
+        s.tree = vec![0, 17, 0, 0];
+        s.files = vec!["a".into(), "b".into()];
+        let full = s.describe(1, "x");
+        assert_eq!(full.len(), 5);
+        assert!(full[3].contains("-12.3°") && full[3].contains("4.25 m"));
+        assert!(full[4].contains("Copa 17") && full[4].contains("Archivo a"));
+        // un punto sin ángulo de barrido ni copa no los menciona
+        let p0 = s.describe(0, "x");
+        assert!(!p0.iter().any(|l| l.contains("Barrido") || l.contains("Copa")));
+    }
+
+    #[test]
+    fn the_nearest_point_in_plan_is_the_closest_and_then_the_highest() {
+        let st = Style::default();
+        let s = store();
+        assert_eq!(nearest_point(&s, &st, 110.2, 200.1, 1.0), Some(1));
+        assert_eq!(nearest_point(&s, &st, 105.0, 205.0, 1.0), None);
+        // dos puntos en el mismo sitio: el más alto
+        let mut two = store();
+        two.x.push(0.0);
+        two.y.push(0.0);
+        two.z.push(40.0);
+        two.class.push(2);
+        two.intensity.push(1);
+        two.ret.push(0x11);
+        two.src.push(0);
+        two.file.push(0);
+        assert_eq!(nearest_point(&two, &st, 100.0, 200.0, 1.0), Some(4));
+    }
+
+    #[test]
+    fn a_click_on_the_profile_picks_the_point_drawn_there() {
+        let st = Style::default();
+        let s = store();
+        let bx = ProfileBox {
+            a: [100.0, 200.0],
+            b: [110.0, 200.0],
+            width: 2.0,
+        };
+        let (w, h) = (200usize, 100usize);
+        let (_, zlo, zhi) = render_profile(&s, &bx, w, h, &st, None);
+        // el píxel de un punto, con la transformación de `render_profile`
+        let at = |u: f64, z: f64| {
+            let len = bx.length();
+            let k = (w as f64 / len).min(h as f64 / (zhi - zlo));
+            let (ox, oy) = (
+                (w as f64 - len * k) / 2.0,
+                (h as f64 - (zhi - zlo) * k) / 2.0,
+            );
+            (ox + u * k, h as f64 - oy - (z - zlo) * k)
+        };
+        let pick = |px: (f64, f64)| {
+            nearest_in_profile(&s, &st, &bx, (w, h), (zlo, zhi), (px.0 + 1.0, px.1 - 1.0), 6.0)
+        };
+        assert_eq!(pick(at(0.0, 1.0)), Some(0));
+        assert_eq!(pick(at(10.0, 5.0)), Some(1));
+        // los puntos fuera de la caja (y = 210) no están en el perfil
+        assert_eq!(pick(at(10.0, 9.0)), None);
+        assert_eq!(pick((100.0, 3.0)), None);
+    }
+
+    #[test]
+    fn a_click_in_3d_picks_what_is_in_front() {
+        let st = Style::default();
+        // dos puntos en la misma línea de visión, el de y = 2 listado primero
+        let mut s = PointStore {
+            stride: 1,
+            total: 2,
+            ..PointStore::default()
+        };
+        for y in [2.0f32, 0.0] {
+            s.x.push(0.0);
+            s.y.push(y);
+            s.z.push(0.0);
+            s.class.push(2);
+            s.intensity.push(1);
+            s.ret.push(0x11);
+            s.src.push(0);
+            s.file.push(0);
+        }
+        let cam = Orbit {
+            target: [0.0; 3],
+            yaw: 0.0,
+            pitch: 0.0,
+            dist: 20.0,
+            exaggeration: 1.0,
+        }
+        .projector(100, 100);
+        // mirando al norte, la profundidad es 20 + y: el de y = 0 está más cerca
+        assert_eq!(nearest_in_view(&s, &st, &cam, (50.0, 50.0), 3.0), Some(1));
+        assert_eq!(nearest_in_view(&s, &st, &cam, (90.0, 50.0), 3.0), None);
     }
 }
 

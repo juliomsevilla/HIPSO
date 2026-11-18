@@ -66,7 +66,6 @@ use std::time::{Duration, Instant};
 use eframe::egui::{self, Align2, Color32, FontId, Key, Pos2, Rect, Sense, Stroke, Vec2};
 use hipso_core::classes::ClassSet;
 use hipso_core::grid::Grid;
-use hipso_core::inspect;
 use hipso_core::jobs;
 use hipso_core::markup::Aoi;
 use hipso_core::view::{self, ColorBy, Image, Orbit, Plan, PointStore, ProfileBox, Style};
@@ -503,6 +502,10 @@ struct App {
     follow_plan: bool,
     profile: Option<ProfileBox>,
     profile_clicks: Vec<[f64; 2]>,
+    /// El eje curvo que recorre el perfil (una línea de una capa) y la estación actual, en metros
+    /// desde su principio: con eje, el paso de la rueda avanza por él en lugar de en recta.
+    profile_axis: Option<Vec<[f64; 2]>>,
+    profile_s: f64,
     profile_width: f64,
     /// Cuánto avanza la caja del perfil con cada paso de la rueda o de las flechas.
     profile_step: ProfileStep,
@@ -572,6 +575,7 @@ struct App {
     /// punto y la ficha de texto que muestra, que permanece hasta que se cierra o un clic no
     /// encuentra nada.
     query_card: Option<([f64; 3], Vec<String>)>,
+    query_view: QueryView,
     density: Option<String>,
     drag_start: Option<Pos2>,
     cursor_map: Option<(f64, f64)>,
@@ -682,6 +686,8 @@ impl Default for App {
             follow_plan: false,
             profile: None,
             profile_clicks: Vec::new(),
+            profile_axis: None,
+            profile_s: 0.0,
             profile_width: 10.0,
             profile_step: ProfileStep::Full,
             profile_step_m: 1.0,
@@ -726,6 +732,7 @@ impl Default for App {
             measure: Vec::new(),
             query: None,
             query_card: None,
+            query_view: QueryView::Plan,
             density: None,
             drag_start: None,
             cursor_map: None,
@@ -799,6 +806,42 @@ fn close_button(ui: &mut egui::Ui, painter: &egui::Painter, card: Rect, id: &str
         );
     }
     resp.on_hover_text("Cerrar").clicked()
+}
+
+/// En qué vista se hizo la consulta de «Consultar punto»: la tarjeta con los datos sale solo allí,
+/// y el punto se marca en las tres vistas.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+enum QueryView {
+    #[default]
+    Plan,
+    Profile,
+    Scene,
+}
+
+/// La tarjeta de «Consultar punto», con una línea por dato y su botón de cerrar; verdadero cuando se
+/// ha cerrado.
+fn paint_query_box(
+    ui: &mut egui::Ui,
+    painter: &egui::Painter,
+    rect: Rect,
+    lines: &[String],
+    id: &str,
+) -> bool {
+    let box_rect = Rect::from_min_size(
+        rect.left_top() + Vec2::new(10.0, 46.0),
+        Vec2::new(330.0, 12.0 + 17.0 * lines.len() as f32),
+    );
+    painter.rect_filled(box_rect, 4.0, Color32::from_black_alpha(190));
+    for (k, l) in lines.iter().enumerate() {
+        painter.text(
+            box_rect.min + Vec2::new(8.0, 6.0 + k as f32 * 17.0),
+            Align2::LEFT_TOP,
+            l,
+            FontId::proportional(12.0),
+            Color32::WHITE,
+        );
+    }
+    close_button(ui, painter, box_rect, id)
 }
 
 fn polygon_text(pts: &[[f64; 3]]) -> String {
@@ -1293,6 +1336,10 @@ impl App {
                         tool("@colorize", "Colorear con imagen", ToolId::Colorize),
                         tool("@intensity", "Normalizar intensidad", ToolId::Intensity),
                         tool("@density", "Imagen de intensidad", ToolId::IntensityImage),
+                    ],
+                    vec![
+                        tool("@propagate", "Propagar clase", ToolId::Propagate),
+                        tool("@editlines", "Editar con capas", ToolId::EditLayers),
                     ],
                 ],
             },
@@ -2733,6 +2780,8 @@ impl App {
                 "Imagen de intensidad",
                 Action::Tool(ToolId::IntensityImage),
             ),
+            ("Propagar la clase a otra nube", Action::Tool(ToolId::Propagate)),
+            ("Editar con polígonos o líneas", Action::Tool(ToolId::EditLayers)),
             ("Calcular MDT", Action::Tool(ToolId::Dtm)),
             ("Calcular MDS / CHM", Action::Tool(ToolId::Chm)),
             ("Métricas por celda", Action::Tool(ToolId::Metrics)),
@@ -3251,6 +3300,22 @@ ui.menu_button("⚙", |ui| {
                                                         .suffix(" m"),
                                                 )
                                                 .on_hover_text("Ancho de la caja del perfil");
+                                                // el largo de la caja; sin caja dibujada no hay nada que cambiar
+                                                let mut len = self.profile.map_or(0.0, |b| b.length());
+                                                let changed = ui
+                                                    .add_enabled(
+                                                        self.profile.is_some(),
+                                                        crate::numfield::NumField::new(&mut len)
+                                                            .range(1.0..=100000.0)
+                                                            .speed(1.0)
+                                                            .prefix("Largo ")
+                                                            .suffix(" m"),
+                                                    )
+                                                    .on_hover_text("Largo de la caja del perfil: lo que se ve a lo largo. Cambia manteniendo el centro y la orientación. Se activa al dibujar el perfil.")
+                                                    .changed();
+                                                if changed && let Some(b) = self.profile {
+                                                    self.profile = Some(b.with_length(len));
+                                                }
                                                 ui.checkbox(&mut self.prof_grid, "Cuadrícula")
                                                     .on_hover_text("Líneas horizontales con las cotas en el lado izquierdo del perfil");
                                             });
@@ -3283,6 +3348,21 @@ ui.menu_button("⚙", |ui| {
                                                             .speed(0.1)
                                                             .suffix(" m"),
                                                     );
+                                                }
+                                                if ui
+                                                    .button("Eje de capa")
+                                                    .on_hover_text("Toma como eje la línea elegida de la capa vectorial activa (o su primera línea) y coloca el perfil a través de ella: la rueda y las flechas lo hacen avanzar por el eje, girando con sus curvas.")
+                                                    .clicked()
+                                                {
+                                                    self.set_profile_axis();
+                                                }
+                                                if self.profile_axis.is_some()
+                                                    && ui
+                                                        .button("Quitar eje")
+                                                        .on_hover_text("Vuelve a mover el perfil en línea recta.")
+                                                        .clicked()
+                                                {
+                                                    self.profile_axis = None;
                                                 }
                                             });
                                             ui.end_row();
@@ -3832,24 +3912,11 @@ ui.menu_button("⚙", |ui| {
                         .and_then(|s| view::nearest_point(s, &self.style, m.0, m.1, tol));
                     self.query_card = self.query.zip(store.as_ref()).and_then(|(i, store)| {
                         (i < store.len()).then(|| {
-                            let p = store.xyz(i);
-                            let class = store.class[i];
-                            (
-                                p,
-                                vec![
-                                    format!("X {:.2}   Y {:.2}   Z {:.2}", p[0], p[1], p[2]),
-                                    format!("Clase {class} · {}", inspect::class_name(class)),
-                                    format!(
-                                        "Intensidad {}   Retorno {} de {}   Fuente {}",
-                                        store.intensity[i],
-                                        store.ret[i] & 15,
-                                        store.ret[i] >> 4,
-                                        store.src[i]
-                                    ),
-                                ],
-                            )
+                            let name = self.ctable.name(store.class[i]).to_string();
+                            (store.xyz(i), store.describe(i, &name))
                         })
                     });
+                    self.query_view = QueryView::Plan;
                     self.ident = self.identify(m.0, m.1, tol);
                 }
             }
@@ -3908,6 +3975,7 @@ ui.menu_button("⚙", |ui| {
                             width: self.profile_width,
                         });
                         self.profile_clicks.clear();
+                        self.profile_axis = None;
                         if self.layout == Layout::Plan {
                             self.layout = Layout::PlanProfile;
                         }
@@ -3955,7 +4023,9 @@ ui.menu_button("⚙", |ui| {
                 self.plan.cx.to_bits(),
                 self.plan.cy.to_bits(),
                 self.plan.scale.to_bits(),
-                detail.as_ref().map(|d| d.2),
+                // una ventana de detalle recién llegada puede no tener aún la altura sobre el
+                // suelo: al calcularla la imagen debe rehacerse
+                (detail.as_ref().map(|d| d.2), shown.hag.len()),
             ));
             if self.tex_plan.as_ref().is_none_or(|t| t.1 != key) {
                 let mut st = self.style.clone();
@@ -4144,21 +4214,9 @@ ui.menu_button("⚙", |ui| {
         if let Some((p, lines)) = self.query_card.clone() {
             let c = m2s(self, p[0], p[1]);
             painter.circle_stroke(c, 7.0, Stroke::new(2.0, Color32::WHITE));
-            let box_rect = Rect::from_min_size(
-                rect.left_top() + Vec2::new(10.0, 46.0),
-                Vec2::new(330.0, 62.0),
-            );
-            painter.rect_filled(box_rect, 4.0, Color32::from_black_alpha(190));
-            for (k, l) in lines.iter().enumerate() {
-                painter.text(
-                    box_rect.min + Vec2::new(8.0, 6.0 + k as f32 * 17.0),
-                    Align2::LEFT_TOP,
-                    l,
-                    FontId::proportional(12.0),
-                    Color32::WHITE,
-                );
-            }
-            if close_button(ui, &painter, box_rect, "query_card_x") {
+            if self.query_view == QueryView::Plan
+                && paint_query_box(ui, &painter, rect, &lines, "query_card_x")
+            {
                 self.query_card = None;
                 self.query = None;
             }
@@ -4439,7 +4497,22 @@ ui.menu_button("⚙", |ui| {
                         ProfileStep::Full => bx.width,
                         ProfileStep::Fixed => self.profile_step_m.max(0.01),
                     };
-                    self.profile = Some(bx.shifted(f64::from(k) * step));
+                    let along = match &self.profile_axis {
+                        Some(axis) => view::axis_section(
+                            axis,
+                            self.profile_s + f64::from(k) * step,
+                            bx.length(),
+                            bx.width,
+                        ),
+                        None => None,
+                    };
+                    self.profile = Some(match along {
+                        Some((nb, s)) => {
+                            self.profile_s = s;
+                            nb
+                        }
+                        None => bx.shifted(f64::from(k) * step),
+                    });
                 }
             }
             let bx = self.profile.unwrap_or(bx);
@@ -4575,6 +4648,12 @@ ui.menu_button("⚙", |ui| {
                         c,
                     );
                 }
+                if let Some((p, _)) = &self.query_card {
+                    let (u, t) = bx.local(p[0], p[1]);
+                    if u >= 0.0 && u <= len && t.abs() <= bx.width / 2.0 {
+                        painter.circle_stroke(at(&[u, p[2]]), 7.0, Stroke::new(2.0, Color32::WHITE));
+                    }
+                }
             }
             if self.profile_loading() {
                 painter.text(
@@ -4588,6 +4667,29 @@ ui.menu_button("⚙", |ui| {
             if let Some((_, _, lo, hi)) = &self.tex_prof {
                 let (lo, hi) = (*lo, *hi);
                 self.profile_select(ctx, &painter, &resp, rect, bx, (lo, hi));
+                if self.nav == Nav::Query
+                    && resp.clicked_by(egui::PointerButton::Primary)
+                    && let Some(pos) = resp.interact_pointer_pos()
+                {
+                    let (sx, sy) = (
+                        w as f64 / f64::from(rect.width()),
+                        h as f64 / f64::from(rect.height()),
+                    );
+                    let px = (f64::from(pos.x - rect.min.x) * sx, f64::from(pos.y - rect.min.y) * sy);
+                    self.query = view::nearest_in_profile(&store, &self.style, &bx, (w, h), (lo, hi), px, 6.0);
+                    self.query_card = self.query.map(|i| {
+                        let name = self.ctable.name(store.class[i]).to_string();
+                        (store.xyz(i), store.describe(i, &name))
+                    });
+                    self.query_view = QueryView::Profile;
+                }
+                if self.query_view == QueryView::Profile
+                    && let Some((_, lines)) = self.query_card.clone()
+                    && paint_query_box(ui, &painter, rect, &lines, "query_card_x_prof")
+                {
+                    self.query_card = None;
+                    self.query = None;
+                }
             }
         } else {
             let g = painter.layout("Herramienta Perfil: clic en el extremo izquierdo, en el derecho y en el borde de la caja".to_string(), FontId::proportional(13.0), t.weak, rect.width() - 40.0);
@@ -4842,7 +4944,8 @@ ui.menu_button("⚙", |ui| {
                 ),
                 (
                     st.window.map(|w| w.map(f64::to_bits)),
-                    over.as_ref().map(|d| d.2),
+                    over.as_ref().map(|d| (d.2, d.0.hag.len())),
+                    store.hag.len(),
                 ),
             ));
             if self.tex_3d.as_ref().is_none_or(|t| t.1 != key) {
@@ -4932,6 +5035,47 @@ ui.menu_button("⚙", |ui| {
             );
             if has_cloud && editing::is_select_3d(self.nav) {
                 self.view3d_select(ctx, &painter, &resp, rect, w, h);
+            }
+            if has_cloud {
+                let cam = self.orbit.projector(w, h);
+                let (sx, sy) = (
+                    f64::from(rect.width()) / w as f64,
+                    f64::from(rect.height()) / h as f64,
+                );
+                if self.nav == Nav::Query
+                    && resp.clicked_by(egui::PointerButton::Primary)
+                    && let Some(pos) = resp.interact_pointer_pos()
+                {
+                    let px = (
+                        f64::from(pos.x - rect.min.x) / sx,
+                        f64::from(pos.y - rect.min.y) / sy,
+                    );
+                    // primero los puntos de detalle (si los hay), luego los de la vista general
+                    let mut dst = st.clone();
+                    dst.hole = None;
+                    let hit = over
+                        .as_ref()
+                        .and_then(|d| view::nearest_in_view(&d.0, &dst, &cam, px, 6.0).map(|i| (d.0.clone(), i)))
+                        .or_else(|| view::nearest_in_view(&store, &st, &cam, px, 6.0).map(|i| (store.clone(), i)));
+                    self.query = hit.as_ref().map(|h| h.1);
+                    self.query_card = hit.map(|(s, i)| {
+                        let name = self.ctable.name(s.class[i]).to_string();
+                        (s.xyz(i), s.describe(i, &name))
+                    });
+                    self.query_view = QueryView::Scene;
+                }
+                if let Some((p, lines)) = self.query_card.clone() {
+                    if let Some((x, y, _)) = cam.apply(p) {
+                        let c = rect.min + Vec2::new((x * sx) as f32, (y * sy) as f32);
+                        painter.circle_stroke(c, 7.0, Stroke::new(2.0, Color32::WHITE));
+                    }
+                    if self.query_view == QueryView::Scene
+                        && paint_query_box(ui, &painter, rect, &lines, "query_card_x_3d")
+                    {
+                        self.query_card = None;
+                        self.query = None;
+                    }
+                }
             }
             // flecha del norte: un doble clic en ella pone el norte arriba
             let c = compass_centre(rect);

@@ -92,6 +92,8 @@ pub mod sqlite;
 pub mod stools;
 pub mod terrain;
 pub mod terrainlines;
+pub mod layeredit;
+pub mod propagate;
 pub mod thin;
 pub mod tile;
 pub mod tiled;

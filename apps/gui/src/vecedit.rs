@@ -197,6 +197,35 @@ impl App {
         }
     }
 
+    /// Fija como eje del perfil la línea elegida de la capa vectorial activa (o su primera línea) y
+    /// coloca el perfil al principio, a través de ella, con el largo de la caja actual (40 m si no
+    /// había).
+    pub fn set_profile_axis(&mut self) {
+        let axis = self.active_vec().and_then(|v| {
+            let mut ids: Vec<usize> = v.selected.iter().copied().collect();
+            ids.sort_unstable();
+            let line = |i: &usize| v.data.features.get(*i);
+            let from = |it: &mut dyn Iterator<Item = &view::Feature>| {
+                it.flat_map(|f| f.parts.iter()).find(|p| p.len() >= 2).cloned()
+            };
+            from(&mut ids.iter().filter_map(line)).or_else(|| from(&mut v.data.features.iter()))
+        });
+        let Some(axis) = axis.filter(|_| self.active_vec().is_some_and(|v| v.kind == view::GeomKind::Line))
+        else {
+            self.log.push("El eje sale de una capa de líneas: actívala en el panel de capas.".into());
+            return;
+        };
+        let len = self.profile.map_or(40.0, |b| b.length()).max(1.0);
+        if let Some((bx, s)) = view::axis_section(&axis, 0.0, len, self.profile_width) {
+            self.profile = Some(bx);
+            self.profile_s = s;
+            self.profile_axis = Some(axis);
+            if self.layout == Layout::Plan {
+                self.layout = Layout::PlanProfile;
+            }
+        }
+    }
+
     fn tol(&self, px: f64) -> f64 {
         px / self.plan.scale.max(1e-12)
     }

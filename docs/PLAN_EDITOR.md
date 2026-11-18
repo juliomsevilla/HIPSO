@@ -4,7 +4,7 @@ Documento de trabajo para quien vaya a construir las funciones. Resume qué tien
 
 ## Estado actual (rama `version-0.8.2`)
 
-**Hecho: E01, E02 y E03** (Fase 0) y **E04 a E09** (Fase 1), todos comprobados a mano salvo lo que se lista en «Qué falta comprobar». Todo lo demás está sin empezar. Las fichas de E01–E03 de la sección 4 llevan una nota **Implementado** con lo que se hizo y en qué se apartó del diseño.
+**Hecho: E01, E02 y E03** (Fase 0) y **E04 a E11, E13 y E17**, comprobados a mano salvo lo que se lista en «Qué falta comprobar». Todo lo demás está sin empezar. Las fichas de E01–E03 de la sección 4 llevan una nota **Implementado** con lo que se hizo y en qué se apartó del diseño.
 
 | ID | Estado | Resumen |
 |---|---|---|
@@ -17,6 +17,10 @@ Documento de trabajo para quien vaya a construir las funciones. Resume qué tien
 | E07 | Hecho, **comprobado a mano** | *Seleccionar con plano local*: `Region::PlaneBand` con los coeficientes del ajuste |
 | E08 | Hecho, **comprobado a mano** | Color *Altura sobre el suelo* con `PointStore::compute_hag` |
 | E09 | Hecho, **comprobado a mano** | Colores *Ángulo de barrido*, *Clase + intensidad* y *Elevación + intensidad*; el color pasa a un botón grande con un icono por modo |
+| E10 | Hecho, **comprobado a mano** | *Consultar punto* (Q) ahora funciona también en perfil y 3D, con tarjeta de todos los atributos (clase, intensidad, retorno, barrido, altura sobre el suelo, copa, archivo) y un aro en las tres vistas; `PointStore::describe`, `nearest_in_profile`, `nearest_in_view` |
+| E11 | Hecho, **comprobado a mano** | `hipso propagate-class --reference … --radius R [--classes] [--flat]`: cada punto toma la clase del punto de referencia más cercano; módulo `propagate.rs`; ventana en *LiDAR → Preparar → Propagar clase* |
+| E17 | Hecho (ventana *Editar con capas*), **comprobado a mano** | `hipso edit --lines capa --distance D`: puntos a menos de D de las líneas (pincel `PlanBrush`); por polígonos ya existía con `--regions`, con filtro de clase y cotas |
+| E13 | Hecho (versión de recorrido), **comprobado a mano**; además, campo *Largo* en el panel Perfil | *Vista → Perfil → Eje de capa*: la rueda hace avanzar el perfil por una línea de una capa y la caja gira con sus curvas (`view::axis_section`); no se generalizó `ProfileBox` (ver nota en la ficha) |
 
 ### Comprobado a mano
 
@@ -62,7 +66,7 @@ cargo run --release -p hipso-gui -- ruta/a/una/nube.laz
 
 ### Siguiente paso recomendado
 
-Cerrar la comprobación de E04–E06 (véase abajo) y la Fase 1 con **E10** (inspeccionar punto) y **E11** (propagar la clase).
+Lo siguiente de la sección 5 (Fase 2: E12, E15, E16, E14, E18, E19). Al tocar el color por altura sobre el suelo, recordar que las ventanas de detalle de COPC llegan sin `hag` y que la imagen de la planta y la del 3D incluyen `hag.len()` en su clave para rehacerse al calcularla.
 
 ## 0. Cómo usar este documento
 
@@ -134,21 +138,21 @@ Prioridad: **P0** cimiento, **P1** alto retorno, **P2** merece la pena, **P3** s
 |---|---|---|---|---|
 | E01 | Foco de vista (aislar sin archivo) y *Volver a la nube* | M | P0 | Hacer |
 | E02 | *Exportar selección* como botón aparte | S | P0 | Hacer (con E01) |
-| E03 | Sesión de edición guardable, recuperable y reaplicable | S–M | P0 | Hacer |
-| E04 | Paso de avance del perfil configurable y atajos | S | P1 | Hacer |
-| E05 | *Close to line*: sobre, cerca y bajo una línea de una vez | S | P1 | Hacer |
-| E06 | Línea de varios vértices en *sobre/bajo una línea* | S | P1 | Hacer |
-| E07 | Reclasificar por plano local ajustado (ruido, vegetación sobre suelo, añadir al suelo) | M | P1 | Hacer |
-| E08 | Colorear por altura sobre el suelo | M | P1 | Hacer |
-| E09 | Colorear por ángulo de barrido y por combinaciones (clase+intensidad, elevación+intensidad) | S | P1 | Hacer |
-| E10 | *Inspect Point*: atributos del punto bajo el cursor | S–M | P1 | Hacer |
-| E11 | Propagar la clase a toda la nube desde una nube adelgazada (*Closeby points*) | M | P1 | Hacer |
+| E03 | Sesión de edición guardable, recuperable y reaplicable | S–M | P0 | Hecho |
+| E04 | Paso de avance del perfil configurable y atajos | S | P1 | Hecho |
+| E05 | *Close to line*: sobre, cerca y bajo una línea de una vez | S | P1 | Hecho |
+| E06 | Línea de varios vértices en *sobre/bajo una línea* | S | P1 | Hecho |
+| E07 | Reclasificar por plano local ajustado (ruido, vegetación sobre suelo, añadir al suelo) | M | P1 | Hecho |
+| E08 | Colorear por altura sobre el suelo | M | P1 | Hecho |
+| E09 | Colorear por ángulo de barrido y por combinaciones (clase+intensidad, elevación+intensidad) | S | P1 | Hecho |
+| E10 | *Inspect Point*: atributos del punto bajo el cursor | S–M | P1 | Hecho |
+| E11 | Propagar la clase a toda la nube desde una nube adelgazada (*Closeby points*) | M | P1 | Hecho |
 | E12 | Marcar *withheld* en vez de borrar | S–M | P2 | Hacer |
-| E13 | Perfil a lo largo de una polilínea (eje curvo) | L | P2 | Hacer |
+| E13 | Perfil a lo largo de una polilínea (eje curvo) | L | P2 | Hecho |
 | E14 | Cursor sincronizado entre planta, perfil y 3D | M | P2 | Hacer |
 | E15 | Perfil perpendicular con un clic (*Cut Section*) | S | P2 | Hacer |
 | E16 | Rebanada horizontal (*Draw Horizontal Section*) | S | P2 | Hacer si falta (verificar) |
-| E17 | Clasificar con una capa de polígonos o de líneas | S–M | P2 | Hacer |
+| E17 | Clasificar con una capa de polígonos o de líneas | S–M | P2 | Hecho |
 | E18 | Revisar individuos uno a uno (*Inspect Groups* sobre `treeID`) | M | P2 | Hacer |
 | E19 | Atajos de teclado configurables y paleta de comandos | M | P2 | Hacer |
 | E20 | Acciones nuevas en el modelo: `SetZ`, `Add` | L | P3 | Solo si se hace E21 o E22 |
@@ -351,6 +355,8 @@ Descartes razonados en la sección 6.
 **Archivos.** `crates/core/src/view.rs` (marco), `crates/core/src/edit.rs` (regiones), `apps/gui/src/profile_data.rs`, `apps/gui/src/main.rs`, `docs/MANUAL.md`.
 
 **Riesgo principal.** Toca el perfil, el dibujo y varias regiones de selección a la vez. Hacerlo **después** de E04 y E05, con pruebas de regresión del perfil recto.
+
+**Implementado (versión de recorrido).** No se generalizó `ProfileBox`: el perfil sigue siendo una caja recta, y lo que recorre un eje curvo es la *posición* de esa caja. `view::axis_section(eje, estación, largo, ancho)` da la caja centrada en el eje y perpendicular a él en esa estación; con un eje (*Vista → Perfil → Eje de capa*), la rueda y las flechas avanzan la estación en vez de usar `ProfileBox::shifted`. Así las regiones `Profile`, `Side`, `Near`, el archivo de ediciones y `apply-edits` no cambian y no hay riesgo de regresión del perfil recto. Lo que no hace: ver a la vez una franja curva «desenrollada» (cada sección se ve por separado) ni dibujar el eje con clics; se toma de una capa de líneas.
 
 ### E14. Cursor sincronizado — P2, M
 

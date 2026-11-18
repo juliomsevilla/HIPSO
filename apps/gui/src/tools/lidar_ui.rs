@@ -34,6 +34,22 @@ pub struct State {
     pub merge_dups: usize,
     pub hag: HagParams,
     pub cmp_ref: String,
+    pub prop_ref: String,
+    pub prop_radius: f64,
+    pub prop_classes: String,
+    pub prop_flat: bool,
+    /// De dónde salen las regiones de «Editar con capas»: 0 toda la nube, 1 polígonos, 2 líneas.
+    pub el_source: usize,
+    pub el_layer: String,
+    pub el_distance: f64,
+    pub el_radius: f64,
+    pub el_outside: bool,
+    pub el_classes: String,
+    pub el_use_z: bool,
+    pub el_zmin: f64,
+    pub el_zmax: f64,
+    pub el_delete: bool,
+    pub el_to_class: f64,
     pub cmp_dist: f64,
     pub cmp_neigh: f64,
     pub fit_ref: String,
@@ -121,6 +137,21 @@ impl Default for State {
             merge_dups: 0,
             hag: HagParams::default(),
             cmp_ref: String::new(),
+            prop_ref: String::new(),
+            prop_radius: 1.0,
+            prop_classes: String::new(),
+            prop_flat: false,
+            el_source: 2,
+            el_layer: String::new(),
+            el_distance: 5.0,
+            el_radius: 10.0,
+            el_outside: false,
+            el_classes: String::new(),
+            el_use_z: false,
+            el_zmin: 0.0,
+            el_zmax: 100.0,
+            el_delete: false,
+            el_to_class: 2.0,
             cmp_dist: 0.5,
             cmp_neigh: 3.0,
             fit_ref: String::new(),
@@ -745,6 +776,76 @@ impl Tools {
         let mut class = f64::from(s.hag.ground_class);
         num(ui, "Clase del suelo", &mut class, 0.0..=255.0, 1.0);
         s.hag.ground_class = class as u8;
+    }
+
+    pub fn propagate_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        let s = &mut self.lx;
+        ui.label(egui::RichText::new("Copia la clase de una nube ya clasificada (por ejemplo, una versión adelgazada) a los puntos de la nube cargada, que es más densa: cada punto toma la clase del punto de referencia más cercano, y los que no tienen ninguno a menos del radio conservan la suya. Se escribe una copia nueva (…_propagada).").color(t.weak).size(11.0));
+        Self::reference_row(ui, &mut s.prop_ref);
+        num(ui, "Radio de búsqueda (m)", &mut s.prop_radius, 0.01..=1000.0, 0.1);
+        ui.horizontal(|ui| {
+            ui.label("Clases que se propagan");
+            ui.add(egui::TextEdit::singleline(&mut s.prop_classes).desired_width(120.0).hint_text("todas"));
+        })
+        .response
+        .on_hover_text("Clases de la referencia que cuentan, por ejemplo 2,5-6. Vacío: todas.");
+        ui.checkbox(&mut s.prop_flat, "Medir solo en planta (sin la cota)");
+    }
+
+    pub fn edit_layers_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        let loaded = self.vectors.clone();
+        let s = &mut self.lx;
+        ui.label(egui::RichText::new("Borra o reclasifica los puntos de la nube cargada que están dentro de polígonos o a cierta distancia de líneas (ejes, caminos, cauces), con filtros de clase y de cota. Se escribe una copia nueva (…_editada); el original no se toca.").color(t.weak).size(11.0));
+        ui.radio_value(&mut s.el_source, 2, "A menos de una distancia de unas líneas");
+        ui.radio_value(&mut s.el_source, 1, "Dentro de unos polígonos (o parcelas)");
+        ui.radio_value(&mut s.el_source, 0, "En toda la nube (solo por clase y cota)");
+        if s.el_source != 0 {
+            ui.horizontal(|ui| {
+                ui.label("Capa");
+                ui.add(egui::TextEdit::singleline(&mut s.el_layer).desired_width(330.0));
+                if ui.button("…").clicked()
+                    && let Some(p) = pick_file("Capa vectorial", &["shp", "geojson", "json", "gpkg", "kml", "kmz", "csv", "txt"])
+                {
+                    s.el_layer = p.display().to_string();
+                }
+                ui.menu_button("De las capas cargadas", |ui| {
+                    for (name, path) in &loaded {
+                        if ui.button(name).clicked() {
+                            s.el_layer = path.display().to_string();
+                            ui.close();
+                        }
+                    }
+                    if loaded.is_empty() {
+                        ui.label("No hay capas vectoriales cargadas");
+                    }
+                });
+            });
+        }
+        if s.el_source == 2 {
+            num(ui, "Distancia a cada lado (m)", &mut s.el_distance, 0.01..=10000.0, 0.5);
+        }
+        if s.el_source == 1 {
+            num(ui, "Radio si son puntos de parcela (m)", &mut s.el_radius, 0.1..=10000.0, 0.5);
+        }
+        if s.el_source != 0 {
+            ui.checkbox(&mut s.el_outside, "Elegir en cambio lo que queda fuera");
+        }
+        ui.horizontal(|ui| {
+            ui.label("Solo estas clases");
+            ui.add(egui::TextEdit::singleline(&mut s.el_classes).desired_width(120.0).hint_text("todas"));
+        })
+        .response
+        .on_hover_text("Por ejemplo 2,5 o ~7,18 (todas menos 7 y 18). Vacío: todas.");
+        ui.checkbox(&mut s.el_use_z, "Limitar por cota");
+        if s.el_use_z {
+            num(ui, "Cota mínima (m)", &mut s.el_zmin, -10000.0..=100000.0, 1.0);
+            num(ui, "Cota máxima (m)", &mut s.el_zmax, -10000.0..=100000.0, 1.0);
+        }
+        ui.radio_value(&mut s.el_delete, false, "Pasar los puntos elegidos a la clase");
+        if !s.el_delete {
+            num(ui, "Clase", &mut s.el_to_class, 0.0..=255.0, 1.0);
+        }
+        ui.radio_value(&mut s.el_delete, true, "Borrar los puntos elegidos");
     }
 
     pub fn compare_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
@@ -1394,6 +1495,86 @@ impl Tools {
                     show,
                     outputs,
                 });
+            }
+            ToolId::Propagate => {
+                let reference = PathBuf::from(self.lx.prop_ref.trim());
+                if !reference.is_file() {
+                    _log.push("Elige la nube clasificada de referencia.".into());
+                    return None;
+                }
+                let classes = match class_mask(&self.lx.prop_classes) {
+                    Ok(c) => c.set,
+                    Err(e) => {
+                        _log.push(format!("Clases: {e}"));
+                        return None;
+                    }
+                };
+                let params = hipso_core::propagate::PropagateParams {
+                    radius: self.lx.prop_radius,
+                    classes,
+                    flat: self.lx.prop_flat,
+                };
+                let outs = names("propagada");
+                let outputs: Vec<PathBuf> = outs.values().cloned().collect();
+                (
+                    Box::new(move || {
+                        let mut lines = Vec::new();
+                        for p in &inputs_v {
+                            hipso_core::check_cancel()?;
+                            let out = outs.get(p).cloned().unwrap_or_default();
+                            let r = hipso_core::propagate::propagate_class(&reference, p, &out, &params)?;
+                            lines.push(hipso_core::propagate::report_text(&r, &out));
+                        }
+                        Ok(lines.join("\n"))
+                    }),
+                    outputs,
+                )
+            }
+            ToolId::EditLayers => {
+                use hipso_core::layeredit::{Layer, LayerEdit};
+                let s = &self.lx;
+                let layer_path = PathBuf::from(s.el_layer.trim());
+                let layer = match s.el_source {
+                    0 => Layer::None,
+                    src => {
+                        if !layer_path.is_file() {
+                            _log.push("Elige la capa de polígonos o de líneas.".into());
+                            return None;
+                        }
+                        if src == 2 {
+                            Layer::Lines { path: layer_path, distance: s.el_distance }
+                        } else {
+                            Layer::Polygons { path: layer_path, radius: Some(s.el_radius) }
+                        }
+                    }
+                };
+                let spec = LayerEdit {
+                    layer,
+                    outside: s.el_outside && s.el_source != 0,
+                    classes: s.el_classes.clone(),
+                    zmin: s.el_use_z.then_some(s.el_zmin),
+                    zmax: s.el_use_z.then_some(s.el_zmax),
+                    action: if s.el_delete {
+                        hipso_core::edit::Action::Delete
+                    } else {
+                        hipso_core::edit::Action::Reclassify(s.el_to_class.round().clamp(0.0, 255.0) as u8)
+                    },
+                };
+                let outs = names("editada");
+                let outputs: Vec<PathBuf> = outs.values().cloned().collect();
+                (
+                    Box::new(move || {
+                        let mut lines = Vec::new();
+                        for p in &inputs_v {
+                            hipso_core::check_cancel()?;
+                            let out = outs.get(p).cloned().unwrap_or_default();
+                            let r = hipso_core::layeredit::edit_by_layer(p, &out, &spec)?;
+                            lines.push(hipso_core::edit::report_text(&r, &out));
+                        }
+                        Ok(lines.join("\n"))
+                    }),
+                    outputs,
+                )
             }
             ToolId::Compare | ToolId::Fit => {
                 let reference = PathBuf::from(if tool == ToolId::Compare {

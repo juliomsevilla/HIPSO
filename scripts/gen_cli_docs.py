@@ -19,7 +19,7 @@ HIPSO = RAIZ / "target" / "release" / ("hipso.exe" if sys.platform == "win32" el
 
 # (título del área, órdenes)
 GRUPOS = [
-    ("Revisar y preparar nubes", "info catalog crs import dedup merge-clouds tile clip filter thin edit apply-edits colorize intensity swath flightlines compare fit hag"),
+    ("Revisar y preparar nubes", "info catalog crs import dedup merge-clouds tile clip filter thin edit apply-edits propagate-class colorize intensity swath flightlines compare fit hag"),
     ("Clasificar y modelar superficies", "classify dtm dsm chm hillshade contour raster metrics"),
     ("Vegetación e inventario", "trees obia stem-volume model change corridor"),
     ("Ráster", "stack mosaic align reproject cog reclass clip-raster sieve proximity fill-nodata calc vectorize rasterize focal rstats tabulate zonal"),
@@ -38,8 +38,9 @@ DONDE = {
     "clip": ("LiDAR → ALS → Extraer muestras", "7.3"),
     "filter": ("LiDAR → Preparar → Exportar puntos (con normalizar)", "7.1"),
     "thin": ("LiDAR → Preparar → Adelgazar nube", "7.1"),
-    "edit": ("panel lateral → Edición (nubes de puntos)", "6"),
+    "edit": ("panel lateral → Edición (nubes de puntos) y LiDAR → Preparar → Editar con capas", "6"),
     "apply-edits": ("panel lateral → Edición → Guardar ediciones… y Cargar ediciones…", "6"),
+    "propagate-class": ("LiDAR → Preparar → Propagar clase. Flujo típico: `thin`, `classify` sobre lo adelgazado y `propagate-class` sobre la nube completa", None),
     "colorize": ("LiDAR → Preparar → Colorear con imagen", "7.1"),
     "intensity": ("LiDAR → Preparar → Normalizar intensidad", "7.1"),
     "swath": ("LiDAR → Calidad → Entre pasadas", "7.1"),

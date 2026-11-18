@@ -167,7 +167,7 @@ Atajo Z. La rueda acerca y aleja. Un clic acerca ×2, un clic derecho aleja y ar
 
 ##### Consultar
 
-Atajo Q. Un clic sobre un punto de la nube da sus atributos, y sobre una capa vectorial, la fila de su tabla (apartado 5).
+Atajo Q. Un clic sobre un punto de la nube da sus atributos (coordenadas, clase, intensidad, retorno, pasada y, cuando la nube los tiene, ángulo de barrido, altura sobre el suelo, árbol y archivo de origen), y sobre una capa vectorial, la fila de su tabla (apartado 5). Funciona en la planta, en el perfil y en la vista 3D; en 3D elige el punto más cercano a la cámara entre los que caen bajo el cursor. El punto queda marcado con un aro en todas las vistas, y la tarjeta con los datos sale en la que se hizo el clic.
 
 ##### Limpiar marcas
 
@@ -234,6 +234,10 @@ Ancho de la caja del perfil, de 0,5 a 1000 m.
 ##### Paso
 
 Cuánto avanza la caja del perfil con cada paso de la rueda o de las flechas: *Medio ancho*, *Casi el ancho (0,95)*, *Ancho completo* (el valor por defecto) o *Fijo*, con una distancia en metros. Una muesca de la rueda del ratón es un paso, también en los ratones con rueda suave. *Casi el ancho* deja un pequeño solape entre una posición y la siguiente, para no perder puntos del borde por el redondeo al acercar la vista.
+
+##### Eje
+
+*Eje de capa* toma como eje de recorrido la línea elegida de la capa vectorial activa (o la primera, si no hay ninguna elegida) y coloca el perfil al principio, a través de ella, con el largo de la caja actual. Con un eje, la rueda y las flechas hacen avanzar el perfil por el eje en lugar de en línea recta, y la caja gira con sus curvas, de modo que cada sección es perpendicular al eje en ese punto. *Quitar eje* devuelve el movimiento recto; dibujar una caja nueva también lo quita. Las ediciones hechas sobre cada sección son ediciones de perfil normales.
 
 ##### Cuadrícula
 
@@ -1844,6 +1848,7 @@ Además, el mismo clic identifica todas las capas visibles en ese lugar y las li
 |---|---|---|
 | Ancho | *Vista → Perfil* | Ancho de la caja (de 0,5 a 1000 m); sustituye al que se fijó con el tercer clic. |
 | Paso | *Vista → Perfil* | Cuánto avanza la caja con cada paso de la rueda o de las flechas: medio ancho, casi el ancho, el ancho completo o una distancia fija. |
+| Eje (*Eje de capa*, *Quitar eje*) | *Vista → Perfil* | Recorre una línea de una capa vectorial: el perfil avanza por ella y gira con sus curvas. |
 | Cuadrícula | *Vista → Perfil* | Líneas horizontales con las cotas en el lado izquierdo. |
 | Puntos (− y +) | *Vista → Perfil* | Tamaño de los puntos del perfil, independiente del de la planta y el 3D. |
 | Sin decimar | *Vista → Perfil* | Lee de los archivos todos los puntos de la caja, en segundo plano; desmarcada, usa los de la pantalla. |

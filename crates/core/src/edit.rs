@@ -946,7 +946,7 @@ pub fn extract_selected(input: &Path, ops: &[SelOp], output: &Path) -> Result<u6
 
 pub fn report_text(r: &SaveReport, output: &Path) -> String {
     format!(
-        "{} puntos leídos, {} escritos, {} eliminados, {} reclasificados: {}",
+        "{} puntos leídos, {} escritos, {} eliminados, {} reclasificados -> {}",
         r.read,
         r.written,
         r.deleted,
