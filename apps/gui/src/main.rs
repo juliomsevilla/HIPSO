@@ -3701,7 +3701,10 @@ ui.menu_button("⚙", |ui| {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(t.canvas))
             .show(ui, |ui| {
-                let full = ui.available_rect_before_wrap();
+                let whole = ui.available_rect_before_wrap();
+                // la tabla de atributos acoplada ocupa la franja de abajo; las vistas, el resto
+                let table_h = self.table_height(whole.height());
+                let full = Rect::from_min_max(whole.min, Pos2::new(whole.max.x, whole.max.y - table_h));
                 let gap = 3.0;
                 let (plan, prof, d3) = match self.layout {
                     Layout::Plan => (Some(full), None, None),
@@ -3750,6 +3753,10 @@ ui.menu_button("⚙", |ui| {
                 }
                 self.dividers(ui, full);
                 self.sync_views();
+                if table_h > 0.0 {
+                    let area = Rect::from_min_max(Pos2::new(whole.min.x, whole.max.y - table_h), whole.max);
+                    self.table_window(ui, area, (whole.height() * 0.75).max(220.0));
+                }
             });
     }
 
@@ -5681,7 +5688,6 @@ impl eframe::App for App {
         self.edit_confirm_window(&ctx);
         self.vecmore_windows(&ctx);
         self.gpkg_window(&ctx);
-        self.table_window(&ctx);
         self.rs_window(&ctx);
         self.raster_tools_window(&ctx);
         self.terrain_windows(&ctx);

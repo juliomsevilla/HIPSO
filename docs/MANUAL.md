@@ -830,7 +830,7 @@ La capa se crea vacía y se rellena con *Digitalizar* en el panel *Edición*. Lo
 
 ##### Tabla de atributos
 
-Abre la tabla de la capa vectorial elegida. Sus celdas se editan con una comprobación del tipo de cada campo, y desde ella se seleccionan filas (*Seleccionar todo*, *Invertir*, *Limpiar* y *Seleccionar por atributo*), se hace *Zoom a la selección*, se *Elimina*, se *Añade campo* y se *Guarda*; la casilla *Solo seleccionados* limita la vista a la selección. Véase el apartado 9.
+Abre la tabla de la capa vectorial elegida, **acoplada bajo las vistas** (a la derecha del panel lateral, como en QGIS o ArcGIS); su borde superior se arrastra para cambiar la altura y la × de la derecha la cierra. La barra de iconos tiene, de izquierda a derecha, el nombre de la capa con el contador de elementos seleccionados, *Seleccionar por atributos*, *Seleccionar todo*, *Invertir la selección*, *Limpiar la selección*, *Zoom a la selección*, *Eliminar* los seleccionados, *Deshacer*, *Rehacer*, *Guardar* y *Añadir campo*; a la derecha están la casilla *Solo seleccionados* y el cuadro *Filtrar filas…*, que deja solo las filas que contienen el texto en algún campo (sin distinguir mayúsculas). Las celdas se editan con una comprobación del tipo de cada campo, las columnas se ordenan con un clic en la cabecera y se ensanchan arrastrando su borde, y el menú contextual de la cabecera cambia el tipo del campo. Véase el apartado 9.
 
 
 | Control | Qué hace |

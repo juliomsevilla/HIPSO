@@ -271,7 +271,7 @@ fn shift_click_cuts_perpendicular_and_the_cursor_is_shared() {
         pressed,
         modifiers: egui::Modifiers::SHIFT,
     };
-    let mut run = |app: &mut App, t: f64, mut events: Vec<egui::Event>| {
+    let run = |app: &mut App, t: f64, mut events: Vec<egui::Event>| {
         events.insert(0, egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
         let out = ctx.run_ui(shifted(t, events), |ui| {
             let ctx = ui.ctx().clone();
@@ -294,6 +294,110 @@ fn shift_click_cuts_perpendicular_and_the_cursor_is_shared() {
     run(&mut app, t + 0.9, vec![sbutton(q, false, egui::PointerButton::Secondary)]);
     assert_eq!(app.profile.unwrap().a, [0.0, 0.0]);
     assert!(app.profile_back.is_empty());
+}
+
+#[test]
+fn the_attribute_table_is_docked_and_filters_rows() {
+    let mut data = view::VectorData::default();
+    data.fields = vec!["name".to_string()];
+    for n in ["Fiji", "Tanzania", "Canada"] {
+        data.features.push(view::Feature { parts: vec![vec![[0.0, 0.0]]] });
+        data.text.push(vec![n.to_string()]);
+        data.num.push(vec![f64::NAN]);
+    }
+    data.points = true;
+    let mut app = App::default();
+    app.refs.push(RefLayer {
+        name: "Countries".into(),
+        path: PathBuf::from("/tmp/countries.shp"),
+        kind: RefKind::Vector(Box::new(layers::VecLayer::new(data, view::GeomKind::Point))),
+        visible: true,
+        opacity: 1.0,
+    });
+    app.table_layer = Some(0);
+    app.vedit.filter = " AN ".into();
+    let ctx = egui::Context::default();
+    for k in 0..3 {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0))),
+            time: Some(f64::from(k) * 0.05),
+            ..egui::RawInput::default()
+        };
+        // la tabla ocupa la franja de abajo con su altura (250), sin crecer hasta ocupar la vista
+        let total = 600.0;
+        let h = app.table_height(total);
+        assert_eq!(h, 250.0);
+        let area = Rect::from_min_max(Pos2::new(300.0, 100.0 + total - h), Pos2::new(1200.0, 100.0 + total));
+        let out = ctx.run_ui(input, |ui| app.table_window(ui, area, total * 0.75));
+        // la barra de herramientas se dibuja dentro de la franja
+        let mut found = false;
+        for cs in &out.shapes {
+            if let egui::epaint::Shape::Text(ts) = &cs.shape
+                && ts.galley.text().contains("de 3 seleccionados")
+            {
+                found = ts.pos.y >= area.top() && ts.pos.y <= area.top() + 40.0;
+            }
+        }
+        assert!(found, "la barra de la tabla no está arriba de su franja");
+        out.drop_without_applying_deltas();
+    }
+    // otra altura se respeta, y no pasa del 75 % de la zona
+    app.vedit.height = 150.0;
+    assert_eq!(app.table_height(600.0), 150.0);
+    app.vedit.height = 5000.0;
+    assert_eq!(app.table_height(600.0), 450.0);
+    app.vedit.height = 20.0;
+    assert_eq!(app.table_height(600.0), 130.0);
+    // sigue abierta y el filtro (sin distinguir mayúsculas) deja Tanzania y Canada
+    assert_eq!(app.table_layer, Some(0));
+    assert_eq!(app.vedit.filter_rows, vec![1, 2]);
+}
+
+#[test]
+fn the_docked_table_shows_its_toolbar_inside_the_whole_app() {
+    use eframe::App as _;
+    let mut data = view::VectorData::default();
+    data.fields = vec!["Nombre".to_string()];
+    for n in ["15", "14", "13"] {
+        data.features.push(view::Feature { parts: vec![vec![[0.0, 0.0]]] });
+        data.text.push(vec![n.to_string()]);
+        data.num.push(vec![n.parse().unwrap_or(f64::NAN)]);
+    }
+    data.points = true;
+    let mut app = App::default();
+    app.refs.push(RefLayer {
+        name: "Capa 3.shp".into(),
+        path: PathBuf::from("/tmp/capa3.shp"),
+        kind: RefKind::Vector(Box::new(layers::VecLayer::new(data, view::GeomKind::Point))),
+        visible: true,
+        opacity: 1.0,
+    });
+    app.table_layer = Some(0);
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    let mut found = Vec::new();
+    for k in 0..4 {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1400.0, 720.0))),
+            time: Some(f64::from(k) * 0.05),
+            ..egui::RawInput::default()
+        };
+        let out = ctx.run_ui(input, |ui| app.ui(ui, &mut frame));
+        found.clear();
+        for cs in &out.shapes {
+            if let egui::epaint::Shape::Text(ts) = &cs.shape {
+                let s = ts.galley.text().to_string();
+                if s.contains("seleccionados") || s.contains("Capa 3") || s.contains("Nombre") || s.contains("Planta") {
+                    found.push((s, cs.clip_rect.min.y, cs.clip_rect.max.y, ts.pos.y));
+                }
+            }
+        }
+        out.drop_without_applying_deltas();
+    }
+    // la barra de la tabla queda debajo de todo lo que dibuja la vista del mapa
+    let plan_bottom = found.iter().find(|f| f.0.contains("Planta")).map(|f| f.2).unwrap_or(f32::MAX);
+    let bar_top = found.iter().find(|f| f.0.contains("de 3 seleccionados")).map(|f| f.3).unwrap_or(0.0);
+    assert!(bar_top >= plan_bottom, "la vista llega a {plan_bottom} y la barra está en {bar_top}: {found:?}");
 }
 
 #[test]
@@ -646,7 +750,7 @@ fn real_cloud_profile_with_edited_on_top() {
     let mut t2 = 100.0;
     for _ in 0..120 {
         let input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1400.0, 900.0))),
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1400.0, 720.0))),
             time: Some(t2),
             events: vec![mv(Pos2::new(700.0, 600.0))],
             ..egui::RawInput::default()

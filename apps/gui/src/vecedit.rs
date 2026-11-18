@@ -97,6 +97,16 @@ pub struct VecEditState {
     /// El orden de las filas para `sort_key` (capa, orden, número de filas).
     order: Vec<usize>,
     sort_key: Option<(usize, Option<(usize, bool)>, usize)>,
+    /// Texto del cuadro «Filtrar filas»: solo se muestran las filas que lo contienen en algún campo.
+    pub filter: String,
+    /// Las filas que pasan el filtro, para `filter_key` (capa, texto, nº de filas, versión de los
+    /// datos).
+    pub(crate) filter_rows: Vec<usize>,
+    filter_key: Option<(usize, String, usize, u64)>,
+    /// Sube con cada cambio de los datos de la tabla, para rehacer el filtro.
+    rev: u64,
+    /// Altura de la tabla acoplada, en puntos; se cambia arrastrando su borde superior.
+    pub height: f32,
 }
 
 impl Default for VecEditState {
@@ -121,6 +131,11 @@ impl Default for VecEditState {
             sort: None,
             order: Vec::new(),
             sort_key: None,
+            filter: String::new(),
+            filter_rows: Vec::new(),
+            filter_key: None,
+            rev: 0,
+            height: 250.0,
         }
     }
 }
@@ -959,7 +974,24 @@ impl App {
 
     // ------------------------------------------------------------------------ la tabla
 
-    pub fn table_window(&mut self, ctx: &egui::Context) {
+    /// Si hay una tabla de atributos que mostrar acoplada (la de una capa vectorial).
+    pub fn table_open(&self) -> bool {
+        self.table_layer
+            .is_some_and(|k| matches!(self.refs.get(k).map(|r| &r.kind), Some(RefKind::Vector(_))))
+    }
+
+    /// El alto que ocupa la tabla acoplada dentro de una zona de `total` puntos de alto (0 si no hay
+    /// tabla).
+    pub fn table_height(&self, total: f32) -> f32 {
+        if !self.table_open() {
+            return 0.0;
+        }
+        self.vedit.height.clamp(130.0, (total * 0.75).max(220.0)).min(total)
+    }
+
+    /// La tabla de atributos, acoplada en `area`, la franja inferior de la zona de las vistas. La
+    /// reserva `views` y la dibuja encima, sin depender de cómo reparte egui los paneles.
+    pub fn table_window(&mut self, ui: &mut egui::Ui, area: Rect, max_h: f32) {
         let Some(k) = self.table_layer else { return };
         if !matches!(self.refs.get(k).map(|r| &r.kind), Some(RefKind::Vector(_))) {
             self.table_layer = None;
@@ -974,46 +1006,52 @@ impl App {
         let RefKind::Vector(v) = &mut self.refs[k].kind else {
             return;
         };
-        const ROW_H: f32 = 22.0;
-        const HEAD_H: f32 = 28.0;
+        const ROW_H: f32 = 26.0;
+        const HEAD_H: f32 = 30.0;
         const NUM_W: f32 = 56.0;
-        egui::Window::new(format!("Tabla de atributos · {name}"))
-            .default_pos([330.0, 190.0])
-            .open(&mut open)
-            .default_size([560.0, 460.0])
-            .max_height(((v.data.features.len() as f32) * ROW_H + HEAD_H + 110.0).min((ctx.content_rect().height() - 90.0).max(240.0)))
-            .min_size([360.0, 220.0])
-            .resizable(true)
-            .show(ctx, |ui| {
-                // ---- la barra de herramientas
-                ui.horizontal_wrapped(|ui| {
-                    if ui.button("Seleccionar todo").clicked() {
-                        v.selected = (0..v.data.features.len()).collect();
-                    }
-                    if ui.button("Invertir").clicked() {
-                        v.selected = (0..v.data.features.len()).filter(|i| !v.selected.contains(i)).collect();
-                    }
-                    if ui.button("Limpiar").clicked() {
-                        v.selected.clear();
-                    }
-                    if ui.add_enabled(!v.selected.is_empty(), egui::Button::new("Zoom a la selección")).clicked() {
-                        zoom = true;
-                    }
-                    if ui.add_enabled(!v.selected.is_empty(), egui::Button::new("Eliminar")).on_hover_text("Elimina los elementos seleccionados").clicked() {
-                        delete = true;
-                    }
-                    ui.separator();
-                    if ui.add_enabled(!v.undo.is_empty(), egui::Button::new("↶")).on_hover_text("Deshacer").clicked() {
-                        undo = 1;
-                    }
-                    if ui.add_enabled(!v.redo.is_empty(), egui::Button::new("↷")).on_hover_text("Rehacer").clicked() {
-                        undo = 2;
-                    }
-                    if ui.add_enabled(v.dirty, egui::Button::new("Guardar")).clicked() {
-                        save = true;
-                    }
-                    ui.separator();
-                    ui.menu_button("Seleccionar por atributo", |ui| {
+        // la altura es propia (no la del contenido): la zona la fija `views` y la tabla se dibuja en
+        // un hijo con ese rectángulo exacto
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(area)
+                .layout(egui::Layout::top_down(egui::Align::Min)),
+        );
+        child.set_clip_rect(area.intersect(ui.clip_rect()));
+        egui::Frame::new()
+            .fill(t.pane)
+            .inner_margin(egui::Margin::symmetric(8, 4))
+            .stroke(Stroke::new(1.0, t.border))
+            .show(&mut child, |ui| {
+                ui.set_min_size(Vec2::new(area.width() - 18.0, area.height() - 10.0));
+                ui.set_max_size(Vec2::new(area.width() - 18.0, area.height() - 10.0));
+                // el borde superior se arrastra para cambiar la altura
+                let grip = Rect::from_min_size(
+                    Pos2::new(area.left(), area.top() - 3.0),
+                    Vec2::new(area.width(), 8.0),
+                );
+                let g = ui.interact(grip, ui.id().with("attr_grip"), Sense::drag());
+                if g.hovered() || g.dragged() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                }
+                if g.dragged() {
+                    ed.height = (ed.height - g.drag_delta().y).clamp(130.0, max_h);
+                }
+                // ---- la barra de herramientas: título, iconos, filtro y cierre
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 3.0;
+                    crate::ribbon::draw_icon(ui.painter(), ui.cursor().left_center() + Vec2::new(9.0, 0.0), 15.0, "@table", t.text);
+                    ui.add_space(20.0);
+                    ui.label(egui::RichText::new(&name).strong());
+                    ui.label(
+                        egui::RichText::new(format!("{} de {} seleccionados", v.selected.len(), v.data.features.len()))
+                            .size(11.5)
+                            .color(t.weak),
+                    );
+                    ui.add_space(8.0);
+                    let r_sel = crate::ribbon::small_button(ui, &t, "@exprsel", "Seleccionar por atributos", false);
+                    egui::Popup::menu(&r_sel)
+                        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                        .show(|ui| {
                         if v.data.fields.is_empty() {
                             ui.label("La capa no tiene campos");
                             return;
@@ -1076,8 +1114,47 @@ impl App {
                                 }
                             }
                         });
+                        });
+                    ui.separator();
+                    if crate::ribbon::icon_button(ui, &t, "@selall", "Seleccionar todo").clicked() {
+                        v.selected = (0..v.data.features.len()).collect();
+                    }
+                    if crate::ribbon::icon_button(ui, &t, "@invert", "Invertir la selección").clicked() {
+                        v.selected = (0..v.data.features.len()).filter(|i| !v.selected.contains(i)).collect();
+                    }
+                    if crate::ribbon::icon_button(ui, &t, "@deselect", "Limpiar la selección").clicked() {
+                        v.selected.clear();
+                    }
+                    let has_sel = !v.selected.is_empty();
+                    ui.add_enabled_ui(has_sel, |ui| {
+                        if crate::ribbon::icon_button(ui, &t, "@zoomsel", "Zoom a la selección").clicked() {
+                            zoom = true;
+                        }
+                        if crate::ribbon::icon_button(ui, &t, "@trash", "Elimina los elementos seleccionados").clicked() {
+                            delete = true;
+                        }
                     });
-                    ui.menu_button("Añadir campo", |ui| {
+                    ui.separator();
+                    ui.add_enabled_ui(!v.undo.is_empty(), |ui| {
+                        if crate::ribbon::icon_button(ui, &t, "@undo", "Deshacer").clicked() {
+                            undo = 1;
+                        }
+                    });
+                    ui.add_enabled_ui(!v.redo.is_empty(), |ui| {
+                        if crate::ribbon::icon_button(ui, &t, "@redo", "Rehacer").clicked() {
+                            undo = 2;
+                        }
+                    });
+                    ui.add_enabled_ui(v.dirty, |ui| {
+                        if crate::ribbon::icon_button(ui, &t, "@save", "Guardar los cambios de la capa").clicked() {
+                            save = true;
+                        }
+                    });
+                    ui.separator();
+                    let r_add = crate::ribbon::icon_button(ui, &t, "@add", "Añadir campo");
+                    egui::Popup::menu(&r_add)
+                        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                        .show(|ui| {
                         ui.add(egui::TextEdit::singleline(&mut new_field).hint_text("nombre del campo").desired_width(130.0));
                         egui::ComboBox::from_id_salt("new_field_type")
                             .selected_text(ed.new_type.name())
@@ -1098,8 +1175,18 @@ impl App {
                             v.dirty = true;
                             ui.close();
                         }
+                        });
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if crate::ribbon::icon_button(ui, &t, "@close", "Cerrar la tabla").clicked() {
+                            open = false;
+                        }
+                        ui.add(
+                            egui::TextEdit::singleline(&mut ed.filter)
+                                .hint_text("Filtrar filas…")
+                                .desired_width(170.0),
+                        );
+                        ui.checkbox(&mut ed.only_selected, "Solo seleccionados");
                     });
-                    ui.checkbox(&mut ed.only_selected, "Solo seleccionados");
                 });
                 ui.add_space(2.0);
                 // ---- el orden de las filas
@@ -1129,10 +1216,27 @@ impl App {
                     ed.order = order;
                     ed.sort_key = Some(key);
                 }
-                let rows: Vec<usize> = if ed.only_selected {
-                    ed.order.iter().copied().filter(|i| v.selected.contains(i)).collect()
-                } else {
+                // el filtro de texto: se rehace solo cuando cambian el texto, los datos o el orden
+                let needle = ed.filter.trim().to_lowercase();
+                let rows: Vec<usize> = if needle.is_empty() {
                     ed.order.clone()
+                } else {
+                    let fkey = (k, needle.clone(), v.data.features.len(), ed.rev + v.undo.len() as u64);
+                    if ed.filter_key.as_ref() != Some(&fkey) {
+                        ed.filter_rows = (0..v.data.features.len())
+                            .filter(|&i| {
+                                v.data.text.get(i).is_some_and(|r| r.iter().any(|s| s.to_lowercase().contains(&needle)))
+                            })
+                            .collect();
+                        ed.filter_key = Some(fkey);
+                    }
+                    let keep: HashSet<usize> = ed.filter_rows.iter().copied().collect();
+                    ed.order.iter().copied().filter(|i| keep.contains(i)).collect()
+                };
+                let rows: Vec<usize> = if ed.only_selected {
+                    rows.into_iter().filter(|i| v.selected.contains(i)).collect()
+                } else {
+                    rows
                 };
                 // ---- las columnas: sus anchos se guardan para la capa y se ajustan al contenido
                 let widths = ed.col_w.entry(k).or_default();
@@ -1214,6 +1318,7 @@ impl App {
                                                 Ok(_) => {
                                                     v.push_undo();
                                                     let _ = v.data.set_value(i, c, &ed.edit_buf);
+                                                    ed.rev += 1;
                                                     v.dirty = true;
                                                     ed.err = None;
                                                     if ed.sort.is_some_and(|(sc, _)| sc == c) {
@@ -1282,12 +1387,6 @@ impl App {
                             }
                             // líneas de cuadrícula
                             painter.line_segment([Pos2::new(row_rect.left(), y + ROW_H), Pos2::new(row_rect.right(), y + ROW_H)], Stroke::new(1.0, t.border.gamma_multiply(0.5)));
-                        }
-                        for x in &xs[1..] {
-                            painter.line_segment(
-                                [Pos2::new(*x, area.top() + HEAD_H), Pos2::new(*x, area.bottom())],
-                                Stroke::new(1.0, t.border.gamma_multiply(0.5)),
-                            );
                         }
                         // ---- la cabecera se queda arriba en la vista
                         let top = area.top() + view.min.y;
@@ -1373,6 +1472,7 @@ impl App {
                             ));
                         }
                         None => {
+                            ed.rev += 1;
                             v.push_undo();
                             v.data.fix_types();
                             v.data.types[c] = to;
@@ -1443,6 +1543,7 @@ impl App {
         }
         if undo != 0 || delete {
             ed.sort_key = None;
+            ed.rev += 1;
         }
         if delete && !v.selected.is_empty() {
             v.push_undo();

@@ -8,8 +8,8 @@ Documento de trabajo para quien vaya a construir las funciones. Resume qué tien
 
 | ID | Estado | Resumen |
 |---|---|---|
-| E01 | Hecho, **aislar comprobado a mano** (guardar con foco y planta+3D, pendiente) | *Aislar selección* fija un foco y no crea archivos; *Volver a la nube* lo quita |
-| E02 | Hecho (ya existía) | *Exportar puntos…* ya exportaba la selección; se retiró el camino viejo, se corrigieron textos y se quitó el botón duplicado del panel *Edición* (queda el de la cinta) |
+| E01 | Hecho, **comprobado a mano** | *Aislar selección* fija un foco y no crea archivos; *Volver a la nube* lo quita |
+| E02 | Hecho (ya existía), **comprobado a mano** | *Exportar puntos…* ya exportaba la selección; se retiró el camino viejo, se corrigieron textos y se quitó el botón duplicado del panel *Edición* (queda el de la cinta) |
 | E03 | Hecho, **recuperación comprobada a mano** | Ediciones a JSON, `hipso apply-edits`, *Guardar/Cargar ediciones…*, sesión recuperable |
 | E04 | Hecho, **comprobado a mano** | *Vista → Perfil → Paso*: medio ancho, casi el ancho (0,95), ancho completo o distancia fija |
 | E05 | Hecho, **comprobado a mano** | *Seleccionar cerca de una línea* y *Clasificar a lo largo de una línea* (tres tramos, una edición agrupada) |
@@ -70,7 +70,7 @@ cargo run --release -p hipso-gui -- ruta/a/una/nube.laz
 
 ### Siguiente paso recomendado
 
-Comprobar a mano E12, E14, E15 y E16. Nota del cursor compartido: el perfil da el punto completo (x, y, z) a la planta y al 3D, pero la planta solo da una posición al perfil (no sabe la cota) y el 3D no da nada. Después, lo que quede de las fases 2 y 3 (E18, E19…). Al tocar el color por altura sobre el suelo, recordar que las ventanas de detalle de COPC llegan sin `hag` y que la imagen de la planta y la del 3D incluyen `hag.len()` en su clave.
+El plan del clasificador con machine learning (sin empezar) está en `docs/PLAN_CLASIFICADOR_ML.md`. Comprobar a mano E12, E14, E15 y E16. Nota del cursor compartido: el perfil da el punto completo (x, y, z) a la planta y al 3D, pero la planta solo da una posición al perfil (no sabe la cota) y el 3D no da nada. Después, lo que quede de las fases 2 y 3 (E18, E19…). Al tocar el color por altura sobre el suelo, recordar que las ventanas de detalle de COPC llegan sin `hag` y que la imagen de la planta y la del 3D incluyen `hag.len()` en su clave.
 
 ## 0. Cómo usar este documento
 
@@ -140,8 +140,8 @@ Prioridad: **P0** cimiento, **P1** alto retorno, **P2** merece la pena, **P3** s
 
 | ID | Función | Esfuerzo | Prioridad | Veredicto |
 |---|---|---|---|---|
-| E01 | Foco de vista (aislar sin archivo) y *Volver a la nube* | M | P0 | Hacer |
-| E02 | *Exportar selección* como botón aparte | S | P0 | Hacer (con E01) |
+| E01 | Foco de vista (aislar sin archivo) y *Volver a la nube* | M | P0 | Hecho |
+| E02 | *Exportar selección* como botón aparte | S | P0 | Hecho |
 | E03 | Sesión de edición guardable, recuperable y reaplicable | S–M | P0 | Hecho |
 | E04 | Paso de avance del perfil configurable y atajos | S | P1 | Hecho |
 | E05 | *Close to line*: sobre, cerca y bajo una línea de una vez | S | P1 | Hecho |
