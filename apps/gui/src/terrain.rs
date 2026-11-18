@@ -110,13 +110,10 @@ impl App {
             .collect();
         let weak = self.tokens().weak;
         let mut open = true;
+        let accent = self.tokens().accent;
         let mut go = false;
-        egui::Window::new(self.tt[i].product.name())
-            .default_pos([(ctx.content_rect().right() - 560.0).max(320.0), 190.0])
-            .vscroll(true)
-            .max_height((ctx.content_rect().height() - 90.0).max(240.0))
+        crate::procwin::window(ctx, self.tt[i].product.name())
             .open(&mut open)
-            .default_width(520.0)
             .show(ctx, |ui| {
                 crate::tools::output_row(ui, &mut self.tools.out_dir);
                 ui.separator();
@@ -233,7 +230,7 @@ impl App {
                     ui.label(egui::RichText::new("Escribe las coordenadas X e Y del observador (las del mapa).").color(weak).size(11.0));
                 }
                 let ready = t.input.is_some() && observer_ok;
-                if ui.add_enabled(ready && self.running.is_none(), egui::Button::new("▶ Calcular")).clicked() {
+                if crate::procwin::run_bar(ui, accent, "Calcular", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

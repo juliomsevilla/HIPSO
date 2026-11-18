@@ -51,6 +51,8 @@ Las herramientas de las pestañas *LiDAR*, *Vectorial* y *Raster* abren una vent
 
 Las herramientas de la pestaña *LiDAR* que trabajan con nubes comparten una cabecera: *Entrada* (las nubes cargadas que procesa la herramienta, una hoja cada una), *Guardar en* (la carpeta de resultados, con un botón *…* para elegirla; vacía, cada resultado se escribe junto a su nube) y, al pie, el botón *▶ Ejecutar*, que mientras corre se convierte en *■ Detener y borrar lo parcial*. Si la ruta de salida elegida a mano ya existe, la ventana pregunta antes de sobrescribirla. Esos controles son iguales en todas las ventanas y por eso no se repiten en las tablas siguientes.
 
+**Todas las ventanas de proceso tienen la misma forma**, sea cual sea la pestaña (LiDAR, Vectorial, Raster, terreno): se abren a la derecha, bajo la cinta, con el mismo ancho, y siguen este orden: arriba *Guardar en* y un párrafo de ayuda que dice qué hace el proceso; después las entradas, cada una con *Archivo…* (o *Añadir…*, si admite varias) y *De las capas cargadas*, que ofrece las capas del mapa del tipo que toca; luego los ajustes, con el aviso de lo que falte; y al pie el botón principal, relleno con el color de acento (*▶ Ejecutar*, *▶ Calcular*, *▶ Reproyectar*…), que mientras hay un proceso en marcha se desactiva y deja ver *■ Detener y borrar lo parcial* y una rueda. Las ventanas pequeñas de edición de una capa (*Calculadora de campos*, *Seleccionar por expresión*, *Transformar selección*, *Comprobar topología*) son cuadros de diálogo y no siguen este orden.
+
 ### 4.2 La cabecera y el botón Inicio
 
 #### Abrir (Ctrl+O)
@@ -997,7 +999,7 @@ Da la celda de Voronoi de cada punto (el área que está más cerca de él que d
 Añade a una capa un campo por banda de uno o varios rásteres, con el valor bajo cada elemento (el CHM en cada parcela o árbol). Véase el apartado 9, *Capas y tablas*.
 
 
-La ventana se genera a partir de la orden `hipso extract`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y un desplegable *Del mapa…* para tomarlos de las capas cargadas. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso extract`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
@@ -1013,7 +1015,7 @@ La ventana se genera a partir de la orden `hipso extract`: cada control es una d
 Une a una capa las columnas de una tabla (csv, texto o Excel) por un campo clave, como el inventario de campo a las parcelas. Véase el apartado 9.
 
 
-La ventana se genera a partir de la orden `hipso join-table`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y un desplegable *Del mapa…* para tomarlos de las capas cargadas. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso join-table`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
@@ -1029,7 +1031,7 @@ La ventana se genera a partir de la orden `hipso join-table`: cada control es un
 Junta varias capas del mismo tipo de geometría en una; los campos son la unión de los de todas. Véase el apartado 9.
 
 
-La ventana se genera a partir de la orden `hipso merge`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y un desplegable *Del mapa…* para tomarlos de las capas cargadas. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso merge`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
@@ -1042,7 +1044,7 @@ La ventana se genera a partir de la orden `hipso merge`: cada control es una de 
 Escribe una capa por cada valor distinto de un campo (un archivo por rodal, por especie…). Véase el apartado 9.
 
 
-La ventana se genera a partir de la orden `hipso split`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y un desplegable *Del mapa…* para tomarlos de las capas cargadas. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso split`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
@@ -1055,7 +1057,7 @@ La ventana se genera a partir de la orden `hipso split`: cada control es una de 
 Recorta una capa de puntos, líneas o polígonos con los polígonos de otra, o borra de ella lo que cubren. Véase el apartado 9.
 
 
-La ventana se genera a partir de la orden `hipso clip-vector`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y un desplegable *Del mapa…* para tomarlos de las capas cargadas. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso clip-vector`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
@@ -1069,7 +1071,7 @@ La ventana se genera a partir de la orden `hipso clip-vector`: cada control es u
 Añade a cada elemento la distancia al elemento más cercano de otra capa, su número de orden y, si se pide, uno de sus campos. Véase el apartado 9.
 
 
-La ventana se genera a partir de la orden `hipso near`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y un desplegable *Del mapa…* para tomarlos de las capas cargadas. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso near`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
@@ -1084,7 +1086,7 @@ La ventana se genera a partir de la orden `hipso near`: cada control es una de s
 Recuento, suma, media, mínimo, máximo y desviación de campos numéricos de una capa o tabla, por grupos de un campo. Véase el apartado 9.
 
 
-La ventana se genera a partir de la orden `hipso summary`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y un desplegable *Del mapa…* para tomarlos de las capas cargadas. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso summary`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
@@ -1298,7 +1300,7 @@ Los polígonos llevan el valor, el área y las celdas como atributos. La orden e
 Convierte una capa vectorial en ráster: cada celda recibe el valor de un campo del último elemento que la cubre. Véase el apartado 8, *Análisis ráster*.
 
 
-La ventana se genera a partir de la orden `hipso rasterize`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y un desplegable *Del mapa…* para tomarlos de las capas cargadas. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso rasterize`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
@@ -1313,7 +1315,7 @@ La ventana se genera a partir de la orden `hipso rasterize`: cada control es una
 Media, mediana, mínimo, máximo, suma, rango, desviación, mayoría o suavizado gaussiano de cada celda sobre una ventana a su alrededor. Véase el apartado 8.
 
 
-La ventana se genera a partir de la orden `hipso focal`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y un desplegable *Del mapa…* para tomarlos de las capas cargadas. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso focal`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
@@ -1330,7 +1332,7 @@ La ventana se genera a partir de la orden `hipso focal`: cada control es una de 
 Recuento, mínimo, máximo, media, desviación, mediana, percentiles e histograma de un ráster. Véase el apartado 8.
 
 
-La ventana se genera a partir de la orden `hipso rstats`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y un desplegable *Del mapa…* para tomarlos de las capas cargadas. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso rstats`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
@@ -1343,7 +1345,7 @@ La ventana se genera a partir de la orden `hipso rstats`: cada control es una de
 Área de cada clase de un ráster dentro de cada zona de otro, como tabla CSV. Véase el apartado 8.
 
 
-La ventana se genera a partir de la orden `hipso tabulate`: cada control es una de sus opciones, con un nombre en español y su ayuda debajo (las obligatorias llevan un asterisco), y las que son archivos tienen un botón *…* para elegirlos y un desplegable *Del mapa…* para tomarlos de las capas cargadas. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso tabulate`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|

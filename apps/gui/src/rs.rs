@@ -786,13 +786,10 @@ impl App {
             return;
         }
         let mut open = true;
+        let accent = self.tokens().accent;
         let images = self.image_layers();
-        egui::Window::new("Índices espectrales")
-            .default_pos([(ctx.content_rect().right() - 560.0).max(320.0), 190.0])
-            .vscroll(true)
-            .max_height((ctx.content_rect().height() - 90.0).max(240.0))
+        crate::procwin::window(ctx, "Índices espectrales")
             .open(&mut open)
-            .default_width(430.0)
             .show(ctx, |ui| {
                 crate::tools::output_row(ui, &mut self.tools.out_dir);
                 ui.separator();
@@ -871,7 +868,7 @@ impl App {
                         }
                     }
                 });
-                if ui.button("Calcular índice").clicked() {
+                if ui.add(crate::procwin::primary("Calcular índice", accent)).clicked() {
                     self.compute_index(ctx);
                 }
                 if let Some((name, _)) = &self.rs.last {

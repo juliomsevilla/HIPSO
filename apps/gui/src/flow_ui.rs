@@ -978,14 +978,14 @@ impl App {
                         .filter(|a| !(a.required || wired(&a.id)))
                         .collect();
                     for a in main {
-                        arg_widget(ui, &t, tool, a, args, wired(&a.id));
+                        arg_widget(ui, &t, tool, a, args, wired(&a.id), false);
                     }
                     if !more.is_empty() {
                         egui::CollapsingHeader::new(format!("Más opciones ({})", more.len()))
                             .id_salt(("flow_more", &id))
                             .show(ui, |ui| {
                                 for a in more {
-                                    arg_widget(ui, &t, tool, a, args, false);
+                                    arg_widget(ui, &t, tool, a, args, false, false);
                                 }
                             });
                     }
@@ -1259,6 +1259,7 @@ pub(crate) fn arg_widget(
     a: &model::ArgSpec,
     args: &mut std::collections::BTreeMap<String, Vec<String>>,
     wired: bool,
+    full_help: bool,
 ) {
     let name = label_es(tool, &a.id)
         .map(str::to_string)
@@ -1322,7 +1323,9 @@ pub(crate) fn arg_widget(
         }
     }
     if !a.help.is_empty() {
-        ui.label(egui::RichText::new(a.help.lines().next().unwrap_or("")).size(10.5).color(t.weak));
+        // la ventana de la herramienta enseña la ayuda entera; el constructor de flujos, su primera línea
+        let text = if full_help { a.help.as_str() } else { a.help.lines().next().unwrap_or("") };
+        ui.label(egui::RichText::new(text).size(if full_help { 11.0 } else { 10.5 }).color(t.weak));
     }
 }
 

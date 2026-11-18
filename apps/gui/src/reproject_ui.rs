@@ -141,13 +141,10 @@ impl App {
         let weak = self.tokens().weak;
         let red = egui::Color32::from_rgb(200, 60, 40);
         let mut open = true;
+        let accent = self.tokens().accent;
         let mut go = false;
-        egui::Window::new("Reproyectar")
-            .default_pos([(ctx.content_rect().right() - 560.0).max(320.0), 190.0])
-            .vscroll(true)
-            .max_height((ctx.content_rect().height() - 90.0).max(240.0))
+        crate::procwin::window(ctx, "Reproyectar")
             .open(&mut open)
-            .default_width(600.0)
             .show(ctx, |ui| {
                 crate::tools::output_row(ui, &mut self.tools.out_dir);
                 ui.separator();
@@ -303,7 +300,7 @@ impl App {
                     }
                 };
                 let ready = to_ok && !t.inputs.is_empty() && !problems;
-                if ui.add_enabled(ready && self.running.is_none(), egui::Button::new("▶ Reproyectar")).clicked() {
+                if crate::procwin::run_bar(ui, accent, "Reproyectar", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

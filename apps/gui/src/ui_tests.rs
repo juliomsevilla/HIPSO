@@ -891,3 +891,37 @@ fn a_combo_box_inside_a_folded_ribbon_group_does_not() {
     // el fallo que había en el paso del perfil: se deja como prueba de que la prueba lo detecta
     assert!(!folded_pick(0));
 }
+
+#[test]
+fn the_generic_tool_window_draws_file_options_like_the_other_windows() {
+    use hipso_core::model::{ArgSpec, Kind};
+    let app = App::default();
+    let t = app.tokens();
+    let ctx = egui::Context::default();
+    let spec = |id: &str, multiple: bool| ArgSpec {
+        id: id.into(),
+        long: Some(id.into()),
+        short: None,
+        help: "Ayuda de la opción, entera y no solo su primera línea.".into(),
+        positional: false,
+        flag: false,
+        multiple,
+        required: true,
+        path: true,
+        values: Vec::new(),
+        default: None,
+    };
+    let files = vec![("mdt.tif".to_string(), std::path::PathBuf::from("/tmp/mdt.tif"))];
+    let mut args = std::collections::BTreeMap::new();
+    args.insert("inputs".to_string(), vec!["/tmp/a.tif".to_string(), "/tmp/b.tif".to_string()]);
+    let input = egui::RawInput {
+        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0))),
+        ..egui::RawInput::default()
+    };
+    let out = ctx.run_ui(input, |ui| {
+        app.cli_file_row(ui, &t, "rasterize", &spec("inputs", true), Kind::Raster, &files, &mut args);
+        app.cli_file_row(ui, &t, "rasterize", &spec("layer", false), Kind::Vector, &[], &mut args);
+    });
+    out.drop_without_applying_deltas();
+    assert_eq!(args["inputs"].len(), 2, "dibujar no cambia lo elegido");
+}

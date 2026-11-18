@@ -115,13 +115,10 @@ impl App {
         let clouds = self.clouds.clone();
         let weak = self.tokens().weak;
         let mut open = true;
+        let accent = self.tokens().accent;
         let mut go = false;
-        egui::Window::new("OBIA: análisis por objetos")
-            .default_pos([(ctx.content_rect().right() - 560.0).max(320.0), 190.0])
-            .vscroll(true)
-            .max_height((ctx.content_rect().height() - 90.0).max(240.0))
+        crate::procwin::window(ctx, "OBIA: análisis por objetos")
             .open(&mut open)
-            .default_width(560.0)
             .show(ctx, |ui| {
                 crate::tools::output_row(ui, &mut self.tools.out_dir);
                 ui.separator();
@@ -358,7 +355,7 @@ if t.autorun && ready && self.running.is_none() {
                     t.autorun = false;
                     go = true;
                 }
-                if ui.add_enabled(ready && self.running.is_none(), egui::Button::new("▶ Calcular")).clicked() {
+                if crate::procwin::run_bar(ui, accent, "Calcular", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

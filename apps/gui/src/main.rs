@@ -45,6 +45,7 @@ mod flood_ui;
 mod lines_ui;
 mod route_ui;
 mod pick;
+mod procwin;
 mod piles_ui;
 mod ponds_ui;
 mod theme;
@@ -5651,6 +5652,15 @@ impl eframe::App for App {
             .filter(|r| matches!(r.kind, RefKind::Vector(_)))
             .map(|r| (r.name.clone(), r.path.clone()))
             .collect();
+        // las capas del mapa que ofrecen las filas de archivo de todas las ventanas de proceso
+        procwin::set_loaded(
+            self.loaded_rasters(),
+            self.loaded_vectors(),
+            self.clouds
+                .iter()
+                .map(|p| (p.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned()), p.clone()))
+                .collect(),
+        );
         if let Some(mut l) = self.tools.window(&ctx, &t, &inputs, &aois, busy, &mut log) {
             if let (Some(s), true) = (&sel, !pairs.is_empty()) {
                 let (ops, inner) = (s.3.clone(), l.task);

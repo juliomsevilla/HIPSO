@@ -508,6 +508,7 @@ impl Tools {
             {
                 *text = p.display().to_string();
             }
+            crate::procwin::layers_menu(ui, crate::procwin::Layers::Cloud, text);
         });
     }
 
@@ -598,6 +599,7 @@ impl Tools {
             {
                 s.col_image = p.display().to_string();
             }
+            crate::procwin::layers_menu(ui, crate::procwin::Layers::Raster, &mut s.col_image);
         });
         ui.horizontal(|ui| {
             ui.label("Bandas: rojo");
@@ -1089,6 +1091,7 @@ impl Tools {
             {
                 *text = p.display().to_string();
             }
+            crate::procwin::layers_menu(ui, crate::procwin::Layers::Raster, text);
         });
     }
 
@@ -1192,6 +1195,7 @@ impl Tools {
                 {
                     s.vol_file = p.display().to_string();
                 }
+                crate::procwin::layers_menu(ui, crate::procwin::Layers::Vector, &mut s.vol_file);
             });
         }
     }

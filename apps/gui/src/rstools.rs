@@ -61,13 +61,11 @@ impl App {
             .map(|r| (r.name.clone(), r.path.clone()))
             .collect();
         let mut open = true;
+        let accent = self.tokens().accent;
         let mut go = false;
         let weak = self.tokens().weak;
-        egui::Window::new(title)
-            .vscroll(true)
-            .max_height((ctx.content_rect().height() - 90.0).max(240.0))
+        crate::procwin::window(ctx, title)
             .open(&mut open)
-            .default_width(560.0)
             .show(ctx, |ui| {
                 crate::tools::output_row(ui, &mut self.tools.out_dir);
                 ui.separator();
@@ -240,7 +238,7 @@ impl App {
                 });
                 ui.label(egui::RichText::new("La salida se escribe por franjas comprimidas (deflate), sin cargar las imágenes enteras.").color(weak).size(11.0));
                 let ready = !rt.files.is_empty() && !rt.out.trim().is_empty() && !(mode == 1 && rt.files.len() < 2);
-                if ui.add_enabled(ready && self.running.is_none(), egui::Button::new("▶ Crear")).clicked() {
+                if crate::procwin::run_bar(ui, accent, "Crear", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

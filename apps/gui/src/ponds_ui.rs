@@ -92,13 +92,10 @@ impl App {
             .collect();
         let weak = self.tokens().weak;
         let mut open = true;
+        let accent = self.tokens().accent;
         let mut go = false;
-        egui::Window::new("Zonas encharcadas")
-            .default_pos([(ctx.content_rect().right() - 560.0).max(320.0), 190.0])
-            .vscroll(true)
-            .max_height((ctx.content_rect().height() - 90.0).max(240.0))
+        crate::procwin::window(ctx, "Zonas encharcadas")
             .open(&mut open)
-            .default_width(520.0)
             .show(ctx, |ui| {
                 crate::tools::output_row(ui, &mut self.tools.out_dir);
                 ui.separator();
@@ -184,7 +181,7 @@ impl App {
                 });
                 let ready = t.input.is_some()
                     && (t.raster || t.depth_raster || t.shp || t.gpkg);
-                if ui.add_enabled(ready && self.running.is_none(), egui::Button::new("▶ Delimitar charcos")).clicked() {
+                if crate::procwin::run_bar(ui, accent, "Delimitar charcos", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

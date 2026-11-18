@@ -185,15 +185,20 @@ impl FoundPath {
         ui.horizontal(|ui| {
             ui.label(label);
             if ui
-                .add(egui::TextEdit::singleline(&mut self.text).desired_width(330.0))
+                .add(egui::TextEdit::singleline(&mut self.text).desired_width(300.0))
                 .changed()
             {
                 self.manual = true;
             }
-            if ui.button("…").clicked()
+            if ui.button("Archivo…").clicked()
                 && let Some(p) = pick()
             {
                 self.text = p.display().to_string();
+                self.manual = true;
+            }
+            let before = self.text.clone();
+            crate::procwin::layers_menu(ui, crate::procwin::Layers::Raster, &mut self.text);
+            if self.text != before {
                 self.manual = true;
             }
             if self.manual && ui.button("auto").clicked() {
@@ -1085,8 +1090,8 @@ impl Tools {
         let right = ctx.content_rect().right();
         egui::Window::new(tool.title())
             .open(&mut open)
-            .default_width(520.0)
-            .default_pos([(right - 560.0).max(320.0), 190.0])
+            .default_width(crate::procwin::WIDTH)
+            .default_pos([(right - 600.0).max(320.0), 190.0])
             .show(ctx, |ui| {
                 if self.autorun && !busy && first.is_some() {
                     run = true;

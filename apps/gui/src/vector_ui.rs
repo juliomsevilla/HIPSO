@@ -214,14 +214,11 @@ impl App {
             .collect();
         let weak = self.tokens().weak;
         let mut open = true;
+        let accent = self.tokens().accent;
         let mut go = false;
         let title = self.vt[i].op.name();
-        egui::Window::new(title)
-            .default_pos([(ctx.content_rect().right() - 560.0).max(320.0), 190.0])
-            .vscroll(true)
-            .max_height((ctx.content_rect().height() - 90.0).max(240.0))
+        crate::procwin::window(ctx, title)
             .open(&mut open)
-            .default_width(620.0)
             .show(ctx, |ui| {
                 crate::tools::output_row(ui, &mut self.tools.out_dir);
                 ui.separator();
@@ -325,12 +322,10 @@ impl App {
                     && (t.op != Op::Zonal || t.raster.is_some())
                     && (!two || t.second.is_some())
                     && (t.op != Op::Voronoi || t.clip_mode != 2 || t.second.is_some());
-                ui.horizontal(|ui| {
-                    if ui.add_enabled(ready && self.running.is_none(), egui::Button::new("▶ Ejecutar")).clicked() {
-                        go = true;
-                    }
-                    ui.label(egui::RichText::new("El resultado es una capa nueva junto a la original; los originales no se tocan.").color(weak).size(11.0));
-                });
+                ui.label(egui::RichText::new("El resultado es una capa nueva junto a la original; los originales no se tocan.").color(weak).size(11.0));
+                if crate::procwin::run_bar(ui, accent, "Ejecutar", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
+                    go = true;
+                }
                 if !t.report.is_empty() {
                     ui.separator();
                     ui.label(egui::RichText::new(&t.report).size(12.0));

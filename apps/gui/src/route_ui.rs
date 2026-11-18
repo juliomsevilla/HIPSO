@@ -82,13 +82,10 @@ impl App {
         let (rasters, vectors) = (self.loaded_rasters(), self.loaded_vectors());
         let weak = self.tokens().weak;
         let mut open = true;
+        let accent = self.tokens().accent;
         let mut go = false;
-        egui::Window::new("Ruta de menor coste")
-            .default_pos([(ctx.content_rect().right() - 560.0).max(320.0), 190.0])
-            .vscroll(true)
-            .max_height((ctx.content_rect().height() - 90.0).max(240.0))
+        crate::procwin::window(ctx, "Ruta de menor coste")
             .open(&mut open)
-            .default_width(560.0)
             .show(ctx, |ui| {
                 crate::tools::output_row(ui, &mut self.tools.out_dir);
                 ui.separator();
@@ -158,7 +155,7 @@ impl App {
                     && via_ok
                     && to_ok
                     && (t.model != Model::Raster || t.cost_raster.is_some());
-                if ui.add_enabled(ready && self.running.is_none(), egui::Button::new("▶ Buscar la ruta")).clicked() {
+                if crate::procwin::run_bar(ui, accent, "Buscar la ruta", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

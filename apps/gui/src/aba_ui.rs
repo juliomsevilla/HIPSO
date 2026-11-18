@@ -255,10 +255,9 @@ impl App {
         let weak = self.tokens().weak;
         let mut open = true;
         let mut go = false;
-        egui::Window::new("Modelos lineales")
-            .default_pos([330.0, 190.0])
+        let accent = self.tokens().accent;
+        crate::procwin::window(ctx, "Modelos lineales")
             .open(&mut open)
-            .default_width(620.0)
             .show(ctx, |ui| {
                 crate::tools::output_row(ui, &mut self.tools.out_dir);
                 ui.separator();
@@ -284,7 +283,7 @@ impl App {
                 }
                 ui.horizontal(|ui| {
                     if ui
-                        .add_enabled(missing.is_empty() && !busy, egui::Button::new("▶ Ajustar y validar"))
+                        .add_enabled(missing.is_empty() && !busy, crate::procwin::primary("Ajustar y validar", accent))
                         .clicked()
                     {
                         go = true;

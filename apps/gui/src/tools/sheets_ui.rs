@@ -338,6 +338,7 @@ impl Tools {
             {
                 self.s2.dtm_breaklines = p.display().to_string();
             }
+            crate::procwin::layers_menu(ui, crate::procwin::Layers::Vector, &mut self.s2.dtm_breaklines);
             if !self.s2.dtm_breaklines.is_empty() && ui.small_button("✕").on_hover_text("Sin líneas de rotura").clicked() {
                 self.s2.dtm_breaklines.clear();
             }
@@ -557,6 +558,7 @@ impl Tools {
                 {
                     self.s2.crs_file = p.display().to_string();
                 }
+                crate::procwin::layers_menu(ui, crate::procwin::Layers::Cloud, &mut self.s2.crs_file);
             });
         } else {
             ui.horizontal(|ui| {
@@ -610,6 +612,7 @@ impl Tools {
                     {
                         self.s2.file = p.display().to_string();
                     }
+                    crate::procwin::layers_menu(ui, crate::procwin::Layers::Vector, &mut self.s2.file);
                 });
                 ui.label(weak("Polígonos (se usan tal cual) o puntos con el centro de cada unidad de muestreo (la forma y el tamaño se dan abajo)."));
                 ui.horizontal(|ui| {
@@ -721,6 +724,7 @@ impl Tools {
                     {
                         self.s2.limit = p.display().to_string();
                     }
+                    crate::procwin::layers_menu(ui, crate::procwin::Layers::Vector, &mut self.s2.limit);
                 });
                 ui.label(weak(
                     "La ubicación de las unidades de muestreo generadas se guarda como capa vectorial.",
