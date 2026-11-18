@@ -234,6 +234,69 @@ fn with_an_axis_the_wheel_turns_the_profile_along_the_bend() {
 }
 
 #[test]
+fn shift_click_cuts_perpendicular_and_the_cursor_is_shared() {
+    let mut app = app_with_profile(Nav::Zoom);
+    app.profile_width = 4.0;
+    let ctx = egui::Context::default();
+    let mut t = warm_up(&mut app, &ctx);
+    let (lo, hi) = app.tex_prof.as_ref().map(|t| (t.2, t.3)).unwrap();
+    let (w, h) = (RECT.width() as f64, RECT.height() as f64);
+    let len = 20.0;
+    let k = (w / len).min(h / (hi - lo));
+    let (ox, oy) = ((w - len * k) / 2.0, (h - (hi - lo) * k) / 2.0);
+    let at = |u: f64, z: f64| Pos2::new((ox + u * k) as f32, (h - oy - (z - lo) * k) as f32);
+    // el cursor sobre el perfil da el punto del mundo al fotograma siguiente
+    let p = at(5.0, 12.0);
+    frame(&mut app, &ctx, t, vec![mv(p)]);
+    t += 0.05;
+    frame(&mut app, &ctx, t, vec![]);
+    let Some(Hover::Point(w3)) = app.hover_next else {
+        panic!("sin cursor compartido");
+    };
+    assert!((w3[0] - 5.0).abs() < 0.2 && w3[1].abs() < 1e-6 && (w3[2] - 12.0).abs() < 0.2, "{w3:?}");
+    // Mayús + clic: caja perpendicular por ese punto, con el mismo largo y ancho
+    let shifted = |t: f64, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0))),
+            time: Some(t),
+            events,
+            ..egui::RawInput::default()
+        };
+        input
+    };
+    // las teclas modificadoras llegan con los eventos de botón
+    let sbutton = |p: Pos2, pressed: bool, button: egui::PointerButton| egui::Event::PointerButton {
+        pos: p,
+        button,
+        pressed,
+        modifiers: egui::Modifiers::SHIFT,
+    };
+    let mut run = |app: &mut App, t: f64, mut events: Vec<egui::Event>| {
+        events.insert(0, egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+        let out = ctx.run_ui(shifted(t, events), |ui| {
+            let ctx = ui.ctx().clone();
+            app.profile_view(ui, &ctx, RECT);
+        });
+        out.drop_without_applying_deltas();
+    };
+    run(&mut app, t + 0.1, vec![mv(p)]);
+    run(&mut app, t + 0.15, vec![sbutton(p, true, egui::PointerButton::Primary)]);
+    run(&mut app, t + 0.2, vec![sbutton(p, false, egui::PointerButton::Primary)]);
+    let b = app.profile.unwrap();
+    assert!((b.a[0] - 5.0).abs() < 0.2 && (b.b[0] - 5.0).abs() < 0.2, "{b:?}");
+    assert!((b.length() - 20.0).abs() < 1e-6 && (b.a[1] + b.b[1]).abs() < 1e-6, "{b:?}");
+    assert_eq!(b.width, 4.0);
+    assert_eq!(app.profile_back.len(), 1);
+    // Mayús + clic derecho: vuelve a la caja anterior
+    let q = at(10.0, 12.0);
+    run(&mut app, t + 0.8, vec![mv(q)]);
+    run(&mut app, t + 0.85, vec![sbutton(q, true, egui::PointerButton::Secondary)]);
+    run(&mut app, t + 0.9, vec![sbutton(q, false, egui::PointerButton::Secondary)]);
+    assert_eq!(app.profile.unwrap().a, [0.0, 0.0]);
+    assert!(app.profile_back.is_empty());
+}
+
+#[test]
 fn the_profile_is_colored_by_height_above_ground() {
     let mut app = app_with_profile(Nav::Zoom);
     app.style.color_by = ColorBy::HeightAboveGround;

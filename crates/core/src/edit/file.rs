@@ -227,6 +227,7 @@ pub fn to_json(edits: &[Edit]) -> String {
         .map(|e| {
             let action = match e.action {
                 Action::Delete => "{\"type\":\"delete\"}".to_string(),
+                Action::Withhold => "{\"type\":\"withhold\"}".to_string(),
                 Action::Reclassify(c) => format!("{{\"type\":\"reclassify\",\"class\":{c}}}"),
             };
             let group = if e.group == 0 {
@@ -502,6 +503,7 @@ pub fn from_json(text: &str) -> Result<Vec<Edit>> {
         let a = field(e, "action")?;
         let action = match str_of(field(a, "type")?, "type")? {
             "delete" => Action::Delete,
+            "withhold" => Action::Withhold,
             "reclassify" => {
                 let c = f64_of(field(a, "class")?, "class")?;
                 if !(0.0..=255.0).contains(&c) {
@@ -695,6 +697,13 @@ mod tests {
                 sel: sel.clone(),
                 action: Action::Reclassify(66),
                 label: "Clase 66 «a» \"b\"\n".to_string(),
+                enabled: true,
+                group: 0,
+            },
+            Edit {
+                sel: sel.clone(),
+                action: Action::Withhold,
+                label: "Retener".to_string(),
                 enabled: true,
                 group: 0,
             },

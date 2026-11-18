@@ -356,6 +356,9 @@ pub struct SelOp {
 pub enum Action {
     Delete,
     Reclassify(u8),
+    /// Marca los puntos como retenidos (*withheld*) en lugar de quitarlos: siguen en el archivo y
+    /// se pueden recuperar, pero los procesos los ignoran. En pantalla se ven como borrados.
+    Withhold,
 }
 
 /// Una selección y lo que se hace con ella.
@@ -702,7 +705,7 @@ impl Session {
         if sel.is_empty() {
             return 0;
         }
-        if matches!(e.action, Action::Delete) && s.deleted.is_empty() {
+        if matches!(e.action, Action::Delete | Action::Withhold) && s.deleted.is_empty() {
             s.deleted = vec![false; s.len()];
         }
         let mut n = 0;
@@ -711,7 +714,7 @@ impl Session {
                 continue;
             }
             match e.action {
-                Action::Delete => s.deleted[i] = true,
+                Action::Delete | Action::Withhold => s.deleted[i] = true,
                 Action::Reclassify(c) => s.class[i] = c,
             }
             n += 1;
@@ -817,6 +820,8 @@ pub struct SaveReport {
     pub written: u64,
     pub deleted: u64,
     pub reclassified: u64,
+    /// Puntos marcados como retenidos (siguen en el archivo).
+    pub withheld: u64,
 }
 
 /// Aplica las ediciones a todos los puntos de `input` y escribe el resto en `output` (LAS, o LAZ
@@ -855,19 +860,21 @@ pub fn save(input: &Path, output: &Path, edits: &[Edit]) -> Result<SaveReport> {
     let mut conv = Vec::new();
     r.scan_raw(|bytes| {
         let recs: Vec<&[u8]> = bytes.chunks_exact(rec_len).collect();
-        // por registro: eliminado, o su clase nueva cuando se cambió
-        let out: Vec<(bool, Option<u8>)> = recs
+        // por registro: eliminado, su clase nueva cuando se cambió y si se retiene
+        let out: Vec<(bool, Option<u8>, bool)> = recs
             .par_iter()
             .map(|rec| {
                 let Some(p) = r.decode(rec) else {
-                    return (false, None);
+                    return (false, None, false);
                 };
                 let mut s = sample_of_record(&r, rec, &p, extra);
                 let mut changed = false;
+                let mut held = false;
                 for e in edits {
                     if selected(&e.sel, &s) {
                         match e.action {
-                            Action::Delete => return (true, None),
+                            Action::Delete => return (true, None, false),
+                            Action::Withhold => held = true,
                             Action::Reclassify(c) => {
                                 s.class = c;
                                 changed = true;
@@ -875,11 +882,11 @@ pub fn save(input: &Path, output: &Path, edits: &[Edit]) -> Result<SaveReport> {
                         }
                     }
                 }
-                (false, changed.then_some(s.class))
+                (false, changed.then_some(s.class), held)
             })
             .collect();
         let mut buf = vec![0u8; rec_len];
-        for (rec, (gone, class)) in recs.iter().zip(out) {
+        for (rec, (gone, class, held)) in recs.iter().zip(out) {
             rep.read += 1;
             if gone {
                 rep.deleted += 1;
@@ -891,12 +898,22 @@ pub fn save(input: &Path, output: &Path, edits: &[Edit]) -> Result<SaveReport> {
                     las::set_class(format, &mut conv, c);
                     rep.reclassified += 1;
                 }
+                if held {
+                    las::set_withheld(format, &mut conv);
+                    rep.withheld += 1;
+                }
                 w.write(&conv)?;
-            } else if let Some(c) = class {
+            } else if class.is_some() || held {
                 buf.copy_from_slice(rec);
-                las::set_class(format, &mut buf, c);
+                if let Some(c) = class {
+                    las::set_class(format, &mut buf, c);
+                    rep.reclassified += 1;
+                }
+                if held {
+                    las::set_withheld(format, &mut buf);
+                    rep.withheld += 1;
+                }
                 w.write(&buf)?;
-                rep.reclassified += 1;
             } else {
                 w.write(rec)?;
             }
@@ -945,8 +962,13 @@ pub fn extract_selected(input: &Path, ops: &[SelOp], output: &Path) -> Result<u6
 }
 
 pub fn report_text(r: &SaveReport, output: &Path) -> String {
+    let held = if r.withheld > 0 {
+        format!(", {} retenidos", r.withheld)
+    } else {
+        String::new()
+    };
     format!(
-        "{} puntos leídos, {} escritos, {} eliminados, {} reclasificados -> {}",
+        "{} puntos leídos, {} escritos, {} eliminados, {} reclasificados{held} -> {}",
         r.read,
         r.written,
         r.deleted,
@@ -1289,6 +1311,50 @@ mod tests {
         assert_eq!(kept, 2);
         assert_eq!((del.read, del.deleted, del.written), (6, 2, 4));
         assert_eq!((re.deleted, re.reclassified), (0, 1));
+        Ok(())
+    }
+
+    #[test]
+    fn withholding_keeps_the_points_and_marks_them() -> Result<()> {
+        let bytes = las_with(&[(0, 1), (5, 1), (-4, 2), (35, 1), (-40, 3), (10, 2)]);
+        let dir = std::env::temp_dir();
+        let id = std::process::id();
+        let (input, out) = (
+            dir.join(format!("hipso_hold_in_{id}.las")),
+            dir.join(format!("hipso_hold_out_{id}.las")),
+        );
+        std::fs::write(&input, &bytes)?;
+        // la pasada 2 se retiene
+        let edit = Edit {
+            sel: vec![SelOp {
+                mode: Mode::New,
+                region: Region::All,
+                attr: Attr {
+                    ranges: vec![RangeSel {
+                        kind: AttrKind::Source,
+                        bins: vec![(2.0, 3.0)],
+                    }],
+                    ..Attr::default()
+                },
+            }],
+            action: Action::Withhold,
+            label: "retener".into(),
+            enabled: true,
+            group: 0,
+        };
+        let rep = save(&input, &out, std::slice::from_ref(&edit))?;
+        let r = Reader::open(&out)?;
+        let len = usize::from(r.header.record_len);
+        let mut flags = Vec::new();
+        r.scan_raw(|b| {
+            flags.extend(b.chunks_exact(len).filter_map(|c| r.decode(c)).map(|p| p.withheld));
+            Ok(())
+        })?;
+        let _ = std::fs::remove_file(&input);
+        let _ = std::fs::remove_file(&out);
+        assert_eq!((rep.read, rep.written, rep.deleted, rep.withheld), (6, 6, 0, 2));
+        assert_eq!(flags, [false, false, true, false, false, true]);
+        assert!(report_text(&rep, &out).contains("2 retenidos"));
         Ok(())
     }
 

@@ -49,6 +49,7 @@ pub struct State {
     pub el_zmin: f64,
     pub el_zmax: f64,
     pub el_delete: bool,
+    pub el_withhold: bool,
     pub el_to_class: f64,
     pub cmp_dist: f64,
     pub cmp_neigh: f64,
@@ -151,6 +152,7 @@ impl Default for State {
             el_zmin: 0.0,
             el_zmax: 100.0,
             el_delete: false,
+            el_withhold: false,
             el_to_class: 2.0,
             cmp_dist: 0.5,
             cmp_neigh: 3.0,
@@ -841,11 +843,14 @@ impl Tools {
             num(ui, "Cota mínima (m)", &mut s.el_zmin, -10000.0..=100000.0, 1.0);
             num(ui, "Cota máxima (m)", &mut s.el_zmax, -10000.0..=100000.0, 1.0);
         }
-        ui.radio_value(&mut s.el_delete, false, "Pasar los puntos elegidos a la clase");
-        if !s.el_delete {
+        let mut mode = if s.el_withhold { 2 } else { usize::from(s.el_delete) };
+        ui.radio_value(&mut mode, 0, "Pasar los puntos elegidos a la clase");
+        if mode == 0 {
             num(ui, "Clase", &mut s.el_to_class, 0.0..=255.0, 1.0);
         }
-        ui.radio_value(&mut s.el_delete, true, "Borrar los puntos elegidos");
+        ui.radio_value(&mut mode, 1, "Borrar los puntos elegidos");
+        ui.radio_value(&mut mode, 2, "Retener los puntos elegidos (siguen en el archivo, marcados como withheld)");
+        (s.el_delete, s.el_withhold) = (mode == 1, mode == 2);
     }
 
     pub fn compare_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
@@ -1554,7 +1559,9 @@ impl Tools {
                     classes: s.el_classes.clone(),
                     zmin: s.el_use_z.then_some(s.el_zmin),
                     zmax: s.el_use_z.then_some(s.el_zmax),
-                    action: if s.el_delete {
+                    action: if s.el_withhold {
+                        hipso_core::edit::Action::Withhold
+                    } else if s.el_delete {
                         hipso_core::edit::Action::Delete
                     } else {
                         hipso_core::edit::Action::Reclassify(s.el_to_class.round().clamp(0.0, 255.0) as u8)

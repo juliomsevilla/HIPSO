@@ -245,6 +245,7 @@ pub fn tip(label: &str) -> Option<&'static str> {
             "Aplica a la nube abierta las ediciones de un archivo guardado con Guardar ediciones…"
         }
         "Eliminar" => "Elimina los puntos seleccionados (Supr).",
+        "Retener" => "Marca los puntos seleccionados como retenidos (withheld): siguen en el archivo y se pueden recuperar, pero los procesos los ignoran. En pantalla desaparecen como si se borraran.",
         "Cambiar clase" => "Asigna la clase elegida a los puntos seleccionados.",
         "Quitar duplicados" => "Elimina los puntos repetidos y escribe una nube nueva.",
         "Unir nubes" => "Une dos o más nubes en una nueva y decide qué hacer con los puntos repetidos.",

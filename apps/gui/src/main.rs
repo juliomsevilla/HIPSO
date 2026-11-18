@@ -506,6 +506,12 @@ struct App {
     /// desde su principio: con eje, el paso de la rueda avanza por él en lugar de en recta.
     profile_axis: Option<Vec<[f64; 2]>>,
     profile_s: f64,
+    /// Lo que señala el cursor en una vista, para marcarlo en las demás: lo que se puso en el
+    /// fotograma anterior (`hover`) y lo que se pone en este (`hover_next`).
+    hover: Option<Hover>,
+    hover_next: Option<Hover>,
+    /// Las cajas de perfil que quedaron atrás al hacer cortes perpendiculares (Mayús + clic).
+    profile_back: Vec<ProfileBox>,
     profile_width: f64,
     /// Cuánto avanza la caja del perfil con cada paso de la rueda o de las flechas.
     profile_step: ProfileStep,
@@ -688,6 +694,9 @@ impl Default for App {
             profile_clicks: Vec::new(),
             profile_axis: None,
             profile_s: 0.0,
+            hover: None,
+            hover_next: None,
+            profile_back: Vec::new(),
             profile_width: 10.0,
             profile_step: ProfileStep::Full,
             profile_step_m: 1.0,
@@ -816,6 +825,15 @@ enum QueryView {
     Plan,
     Profile,
     Scene,
+}
+
+/// Lo que señala el cursor en una vista.
+#[derive(Clone, Copy, PartialEq)]
+enum Hover {
+    /// Un punto del mundo (x, y, z), cuando la vista lo determina (el perfil).
+    Point([f64; 3]),
+    /// Solo una posición en planta (la planta no sabe a qué cota).
+    Plan([f64; 2]),
 }
 
 /// La tarjeta de «Consultar punto», con una línea por dato y su botón de cerrar; verdadero cuando se
@@ -2210,6 +2228,21 @@ impl App {
         }
     }
 
+    /// Rebanada horizontal: mueve la franja de cota que se dibuja un grosor hacia arriba o abajo
+    /// (con las teclas `[` y `]`). Si no había franja, la crea de un grosor razonable en la base
+    /// de la nube.
+    fn slice_step(&mut self, dir: f64) {
+        let Some((lo, hi)) = self.store.as_ref().map(|s| (s.bounds[2], s.bounds[5])) else {
+            return;
+        };
+        let thick = ((hi - lo) / 20.0).max(0.5);
+        let z = self.style.zlim.get_or_insert([lo, lo + thick]);
+        let t = (z[1] - z[0]).max(0.01);
+        let shift = (dir * t).clamp(lo - t - z[0], hi + t - z[1]);
+        *z = [z[0] + shift, z[1] + shift];
+        self.touch();
+    }
+
     fn filters_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.label(egui::RichText::new("Retornos").strong());
         for (k, n) in [
@@ -2235,7 +2268,7 @@ impl App {
         let mut z_on = self.style.zlim.is_some();
         if ui
             .checkbox(&mut z_on, "Dibujar solo entre dos cotas")
-            .on_hover_text("Oculta los puntos que quedan fuera del rango, en la planta, el perfil y el 3D. No cambia los colores: para eso está «Rampa de color».")
+            .on_hover_text("Oculta los puntos que quedan fuera del rango, en la planta, el perfil y el 3D. Con una franja fina es una rebanada horizontal, útil para ver troncos, postes y fachadas: las teclas [ y ] la bajan y la suben. No cambia los colores: para eso está «Rampa de color».")
             .changed()
         {
             self.style.zlim = z_on.then_some([lo, hi]);
@@ -2254,6 +2287,47 @@ impl App {
                         .range(lo - 1000.0..=hi + 1000.0)
                         .speed(0.5),
                 );
+            });
+            // rebanada horizontal: centro y grosor de la franja, y subirla o bajarla un grosor
+            let (mut centre, mut thick) = ((z[0] + z[1]) / 2.0, (z[1] - z[0]).abs());
+            let mut moved = false;
+            ui.horizontal(|ui| {
+                ui.label("Centro");
+                moved |= ui
+                    .add(
+                        crate::numfield::NumField::new(&mut centre)
+                            .range(lo - 1000.0..=hi + 1000.0)
+                            .width(70.0),
+                    )
+                    .changed();
+                ui.label("Grosor");
+                moved |= ui
+                    .add(
+                        crate::numfield::NumField::new(&mut thick)
+                            .range(0.01..=100000.0)
+                            .width(70.0),
+                    )
+                    .changed();
+            });
+            if moved {
+                *z = [centre - thick / 2.0, centre + thick / 2.0];
+            }
+            ui.horizontal(|ui| {
+                let shift = (z[1] - z[0]).abs().max(0.01);
+                if ui
+                    .button("▼ Bajar")
+                    .on_hover_text("Baja la franja un grosor (tecla [)")
+                    .clicked()
+                {
+                    *z = [z[0] - shift, z[1] - shift];
+                }
+                if ui
+                    .button("▲ Subir")
+                    .on_hover_text("Sube la franja un grosor (tecla ])")
+                    .clicked()
+                {
+                    *z = [z[0] + shift, z[1] + shift];
+                }
             });
             if ui.button("Todo el rango de la nube").clicked() {
                 *z = [lo, hi];
@@ -3297,9 +3371,12 @@ ui.menu_button("⚙", |ui| {
                                                     crate::numfield::NumField::new(&mut self.profile_width)
                                                         .range(0.5..=1000.0)
                                                         .speed(0.5)
+                                                        .width(70.0)
+                                                        .fixed_decimals(1)
                                                         .suffix(" m"),
                                                 )
                                                 .on_hover_text("Ancho de la caja del perfil");
+                                                ui.label("Largo");
                                                 // el largo de la caja; sin caja dibujada no hay nada que cambiar
                                                 let mut len = self.profile.map_or(0.0, |b| b.length());
                                                 let changed = ui
@@ -3308,7 +3385,8 @@ ui.menu_button("⚙", |ui| {
                                                         crate::numfield::NumField::new(&mut len)
                                                             .range(1.0..=100000.0)
                                                             .speed(1.0)
-                                                            .prefix("Largo ")
+                                                            .width(70.0)
+                                                            .fixed_decimals(1)
                                                             .suffix(" m"),
                                                     )
                                                     .on_hover_text("Largo de la caja del perfil: lo que se ve a lo largo. Cambia manteniendo el centro y la orientación. Se activa al dibujar el perfil.")
@@ -4098,6 +4176,21 @@ ui.menu_button("⚙", |ui| {
         self.paint_draft(&painter, pointer, rect, w, h);
         // la caja marca lo que muestra la ventana del perfil: sin esa ventana no se dibuja
         let profile_shown = matches!(self.layout, Layout::PlanProfile | Layout::All);
+        // cursor sincronizado: la planta da una posición al perfil y recibe el punto que señala
+        if profile_shown
+            && self.profile.is_some()
+            && let Some(p) = resp.hover_pos()
+        {
+            let m = to_map(self, p);
+            self.hover_next = Some(Hover::Plan([m.0, m.1]));
+        }
+        if let Some(Hover::Point(p)) = self.hover {
+            let c = m2s(self, p[0], p[1]);
+            let col = Color32::from_rgb(0, 220, 255);
+            painter.circle_stroke(c, 6.0, Stroke::new(1.5, col));
+            painter.line_segment([c - Vec2::new(10.0, 0.0), c + Vec2::new(10.0, 0.0)], Stroke::new(1.0, col));
+            painter.line_segment([c - Vec2::new(0.0, 10.0), c + Vec2::new(0.0, 10.0)], Stroke::new(1.0, col));
+        }
         if let Some(bx) = self.profile.as_ref().filter(|_| profile_shown) {
             let l = bx.length().max(1e-9);
             let (nx, ny) = (
@@ -4571,7 +4664,7 @@ ui.menu_button("⚙", |ui| {
                     rect.right_top() + Vec2::new(-8.0, 6.0),
                     Align2::RIGHT_TOP,
                     format!(
-                        "Z {lo:.1} – {hi:.1} m · longitud {:.1} m · ancho {:.1} m · {} puntos{}{}",
+                        "Z {lo:.1} – {hi:.1} m · longitud {:.1} m · ancho {:.1} m · {} puntos{}{} · Mayús+clic: corte perpendicular (Mayús+clic derecho: volver)",
                         bx.length(),
                         bx.width,
                         store.len(),
@@ -4667,6 +4760,63 @@ ui.menu_button("⚙", |ui| {
             if let Some((_, _, lo, hi)) = &self.tex_prof {
                 let (lo, hi) = (*lo, *hi);
                 self.profile_select(ctx, &painter, &resp, rect, bx, (lo, hi));
+                // cursor sincronizado y corte perpendicular, con la misma transformación que el dibujo
+                {
+                    let len = bx.length().max(1e-9);
+                    let k = (w as f64 / len).min(h as f64 / (hi - lo));
+                    let (ox, oy) = (
+                        (w as f64 - len * k) / 2.0,
+                        (h as f64 - (hi - lo) * k) / 2.0,
+                    );
+                    let (sx, sy) = (
+                        w as f64 / f64::from(rect.width()),
+                        h as f64 / f64::from(rect.height()),
+                    );
+                    let (dx, dy) = ((bx.b[0] - bx.a[0]) / len, (bx.b[1] - bx.a[1]) / len);
+                    let at_u = |u: f64| [bx.a[0] + u * dx, bx.a[1] + u * dy];
+                    let col = Color32::from_rgb(0, 220, 255);
+                    if let Some(pos) = resp.hover_pos() {
+                        let u = (f64::from(pos.x - rect.min.x) * sx - ox) / k;
+                        let z = lo + (h as f64 - oy - f64::from(pos.y - rect.min.y) * sy) / k;
+                        if (0.0..=len).contains(&u) {
+                            let xy = at_u(u);
+                            self.hover_next = Some(Hover::Point([xy[0], xy[1], z]));
+                        }
+                    }
+                    if let Some(Hover::Plan(p)) = self.hover {
+                        let (u, t) = bx.local(p[0], p[1]);
+                        if (0.0..=len).contains(&u) && t.abs() <= bx.width / 2.0 {
+                            let x = rect.min.x + ((ox + u * k) / sx) as f32;
+                            painter.line_segment(
+                                [Pos2::new(x, rect.min.y), Pos2::new(x, rect.max.y)],
+                                Stroke::new(1.0, col),
+                            );
+                        }
+                    }
+                    if !editing::is_select(self.nav) && ui.input(|i| i.modifiers.shift) {
+                        if resp.clicked_by(egui::PointerButton::Primary)
+                            && let Some(pos) = resp.interact_pointer_pos()
+                        {
+                            // corte perpendicular: la caja nueva cruza la actual por el punto del
+                            // clic, con el mismo largo y ancho
+                            let u = ((f64::from(pos.x - rect.min.x) * sx - ox) / k).clamp(0.0, len);
+                            let c = at_u(u);
+                            let (hx, hy) = (-dy * len / 2.0, dx * len / 2.0);
+                            self.profile_back.push(bx);
+                            self.profile = Some(ProfileBox {
+                                a: [c[0] - hx, c[1] - hy],
+                                b: [c[0] + hx, c[1] + hy],
+                                width: bx.width,
+                            });
+                            self.profile_axis = None;
+                        } else if resp.clicked_by(egui::PointerButton::Secondary)
+                            && let Some(prev) = self.profile_back.pop()
+                        {
+                            self.profile = Some(prev);
+                            self.profile_axis = None;
+                        }
+                    }
+                }
                 if self.nav == Nav::Query
                     && resp.clicked_by(egui::PointerButton::Primary)
                     && let Some(pos) = resp.interact_pointer_pos()
@@ -5064,6 +5214,14 @@ ui.menu_button("⚙", |ui| {
                     });
                     self.query_view = QueryView::Scene;
                 }
+                if let Some(Hover::Point(p)) = self.hover
+                    && let Some((x, y, _)) = cam.apply(p)
+                {
+                    let c = rect.min + Vec2::new((x * sx) as f32, (y * sy) as f32);
+                    let col = Color32::from_rgb(0, 220, 255);
+                    painter.circle_stroke(c, 6.0, Stroke::new(1.5, col));
+                    painter.circle_filled(c, 2.0, col);
+                }
                 if let Some((p, lines)) = self.query_card.clone() {
                     if let Some((x, y, _)) = cam.apply(p) {
                         let c = rect.min + Vec2::new((x * sx) as f32, (y * sy) as f32);
@@ -5299,6 +5457,8 @@ ui.menu_button("⚙", |ui| {
                     Key::Plus,
                     Key::Equals,
                     Key::Minus,
+                    Key::OpenBracket,
+                    Key::CloseBracket,
                     Key::Escape,
                     Key::F1,
                 ]
@@ -5342,6 +5502,8 @@ ui.menu_button("⚙", |ui| {
                         Action::PointSize(-1)
                     },
                 ),
+                (Key::OpenBracket, false) => self.slice_step(-1.0),
+                (Key::CloseBracket, false) => self.slice_step(1.0),
                 (Key::F1, _) => self.show_backstage(backstage::Page::Manual),
                 (Key::Escape, _) => {
                     self.dig_draft.clear();
@@ -5357,6 +5519,8 @@ ui.menu_button("⚙", |ui| {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // lo que señaló el cursor en el fotograma anterior se marca en las demás vistas
+        self.hover = self.hover_next.take();
         // el dibujo de la herramienta de medir desaparece con la herramienta
         if self.nav != Nav::Measure && !self.measure.is_empty() {
             self.measure.clear();

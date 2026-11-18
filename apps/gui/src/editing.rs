@@ -15,6 +15,8 @@ pub enum Cmd {
     All,
     Invert,
     Delete,
+    /// Marca los puntos seleccionados como retenidos en lugar de quitarlos.
+    Withhold,
     Reclass(u8),
     Undo,
     Redo,
@@ -1043,7 +1045,7 @@ impl App {
                         attr: visible_attr(&self.style, Attr::default()),
                     });
                 }
-                Cmd::Delete | Cmd::Reclass(_) => {
+                Cmd::Delete | Cmd::Withhold | Cmd::Reclass(_) => {
                     if self.ed.ops.is_empty() {
                         self.log
                             .push("Edición: no hay puntos seleccionados.".into());
@@ -1051,6 +1053,7 @@ impl App {
                     }
                     let action = match c {
                         Cmd::Reclass(k) => edit::Action::Reclassify(k),
+                        Cmd::Withhold => edit::Action::Withhold,
                         _ => edit::Action::Delete,
                     };
                     let sel_ops = with_focus(&self.ed.ops, &self.ed.focus);
@@ -1065,6 +1068,7 @@ impl App {
                     }
                     let label = match action {
                         edit::Action::Delete => format!("Eliminar {n} puntos"),
+                        edit::Action::Withhold => format!("Retener {n} puntos"),
                         edit::Action::Reclassify(k) => {
                             format!("Clase {k} ({}) a {n} puntos", self.ctable.name(k))
                         }
@@ -1669,6 +1673,11 @@ impl App {
                                 .clicked()
                             {
                                 self.queue(Cmd::Delete);
+                            }
+                            if ribbon::small_button(ui, &t, "@withhold", "Retener", false)
+                                .clicked()
+                            {
+                                self.queue(Cmd::Withhold);
                             }
                             if ribbon::small_button(ui, &t, "@reclass", "Cambiar clase", false)
                                 .clicked()

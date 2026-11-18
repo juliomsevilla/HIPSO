@@ -4,7 +4,7 @@ Documento de trabajo para quien vaya a construir las funciones. Resume qué tien
 
 ## Estado actual (rama `version-0.8.2`)
 
-**Hecho: E01, E02 y E03** (Fase 0) y **E04 a E11, E13 y E17**, comprobados a mano salvo lo que se lista en «Qué falta comprobar». Todo lo demás está sin empezar. Las fichas de E01–E03 de la sección 4 llevan una nota **Implementado** con lo que se hizo y en qué se apartó del diseño.
+**Hecho: E01, E02 y E03** (Fase 0) y **E04 a E17**, comprobados a mano salvo lo que se lista en «Qué falta comprobar». Todo lo demás está sin empezar. Las fichas de E01–E03 de la sección 4 llevan una nota **Implementado** con lo que se hizo y en qué se apartó del diseño.
 
 | ID | Estado | Resumen |
 |---|---|---|
@@ -20,6 +20,10 @@ Documento de trabajo para quien vaya a construir las funciones. Resume qué tien
 | E10 | Hecho, **comprobado a mano** | *Consultar punto* (Q) ahora funciona también en perfil y 3D, con tarjeta de todos los atributos (clase, intensidad, retorno, barrido, altura sobre el suelo, copa, archivo) y un aro en las tres vistas; `PointStore::describe`, `nearest_in_profile`, `nearest_in_view` |
 | E11 | Hecho, **comprobado a mano** | `hipso propagate-class --reference … --radius R [--classes] [--flat]`: cada punto toma la clase del punto de referencia más cercano; módulo `propagate.rs`; ventana en *LiDAR → Preparar → Propagar clase* |
 | E17 | Hecho (ventana *Editar con capas*), **comprobado a mano** | `hipso edit --lines capa --distance D`: puntos a menos de D de las líneas (pincel `PlanBrush`); por polígonos ya existía con `--regions`, con filtro de clase y cotas |
+| E12 | Hecho, **pendiente de comprobar** | *Retener* en el panel de edición, `hipso edit --withhold`, `Action::Withhold` en el archivo de ediciones; al guardar se marca el bit *withheld* y el punto se queda |
+| E14 | Hecho, **pendiente de comprobar** | Cursor compartido: el perfil marca el punto en planta y 3D, y la planta marca una línea en el perfil |
+| E15 | Hecho, **pendiente de comprobar** | Mayús + clic en el perfil: corte perpendicular con el mismo largo y ancho; Mayús + clic derecho vuelve |
+| E16 | Hecho, **pendiente de comprobar** | La franja de cota ya existía en Filtros; se añaden Centro y Grosor, Bajar y Subir y las teclas `[` y `]` |
 | E13 | Hecho (versión de recorrido), **comprobado a mano**; además, campo *Largo* en el panel Perfil | *Vista → Perfil → Eje de capa*: la rueda hace avanzar el perfil por una línea de una capa y la caja gira con sus curvas (`view::axis_section`); no se generalizó `ProfileBox` (ver nota en la ficha) |
 
 ### Comprobado a mano
@@ -66,7 +70,7 @@ cargo run --release -p hipso-gui -- ruta/a/una/nube.laz
 
 ### Siguiente paso recomendado
 
-Lo siguiente de la sección 5 (Fase 2: E12, E15, E16, E14, E18, E19). Al tocar el color por altura sobre el suelo, recordar que las ventanas de detalle de COPC llegan sin `hag` y que la imagen de la planta y la del 3D incluyen `hag.len()` en su clave para rehacerse al calcularla.
+Comprobar a mano E12, E14, E15 y E16. Nota del cursor compartido: el perfil da el punto completo (x, y, z) a la planta y al 3D, pero la planta solo da una posición al perfil (no sabe la cota) y el 3D no da nada. Después, lo que quede de las fases 2 y 3 (E18, E19…). Al tocar el color por altura sobre el suelo, recordar que las ventanas de detalle de COPC llegan sin `hag` y que la imagen de la planta y la del 3D incluyen `hag.len()` en su clave.
 
 ## 0. Cómo usar este documento
 
@@ -147,11 +151,11 @@ Prioridad: **P0** cimiento, **P1** alto retorno, **P2** merece la pena, **P3** s
 | E09 | Colorear por ángulo de barrido y por combinaciones (clase+intensidad, elevación+intensidad) | S | P1 | Hecho |
 | E10 | *Inspect Point*: atributos del punto bajo el cursor | S–M | P1 | Hecho |
 | E11 | Propagar la clase a toda la nube desde una nube adelgazada (*Closeby points*) | M | P1 | Hecho |
-| E12 | Marcar *withheld* en vez de borrar | S–M | P2 | Hacer |
+| E12 | Marcar *withheld* en vez de borrar | S–M | P2 | Hecho |
 | E13 | Perfil a lo largo de una polilínea (eje curvo) | L | P2 | Hecho |
-| E14 | Cursor sincronizado entre planta, perfil y 3D | M | P2 | Hacer |
-| E15 | Perfil perpendicular con un clic (*Cut Section*) | S | P2 | Hacer |
-| E16 | Rebanada horizontal (*Draw Horizontal Section*) | S | P2 | Hacer si falta (verificar) |
+| E14 | Cursor sincronizado entre planta, perfil y 3D | M | P2 | Hecho |
+| E15 | Perfil perpendicular con un clic (*Cut Section*) | S | P2 | Hecho |
+| E16 | Rebanada horizontal (*Draw Horizontal Section*) | S | P2 | Hecho |
 | E17 | Clasificar con una capa de polígonos o de líneas | S–M | P2 | Hecho |
 | E18 | Revisar individuos uno a uno (*Inspect Groups* sobre `treeID`) | M | P2 | Hacer |
 | E19 | Atajos de teclado configurables y paleta de comandos | M | P2 | Hacer |

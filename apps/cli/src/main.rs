@@ -1726,8 +1726,11 @@ enum Cmd {
         #[arg(long, allow_negative_numbers = true)]
         zmax: Option<f64>,
         /// Borra los puntos seleccionados
-        #[arg(long, conflicts_with = "set_class")]
+        #[arg(long, conflicts_with_all = ["set_class", "withhold"])]
         delete: bool,
+        /// Marca los puntos seleccionados como retenidos (withheld): siguen en el archivo pero los procesos los ignoran
+        #[arg(long, conflicts_with = "set_class")]
+        withhold: bool,
         /// Cambia los puntos seleccionados a esta clase
         #[arg(long)]
         set_class: Option<u8>,
@@ -4499,16 +4502,18 @@ fn run(cmd: Cmd) -> Result<()> {
             zmin,
             zmax,
             delete,
+            withhold,
             set_class,
         } => {
             use hipso_core::edit::{self, Action};
             use hipso_core::layeredit::{Layer, LayerEdit, edit_by_layer};
             let action = match (delete, set_class) {
+                _ if withhold => Action::Withhold,
                 (true, _) => Action::Delete,
                 (false, Some(c)) => Action::Reclassify(c),
                 _ => {
                     return Err(hipso_core::Error::Param(
-                        "indica qué hacer: --delete o --set-class N".into(),
+                        "indica qué hacer: --delete, --withhold o --set-class N".into(),
                     ));
                 }
             };

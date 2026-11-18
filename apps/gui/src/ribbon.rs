@@ -1083,6 +1083,14 @@ fn icon_shapes(name: &str) -> (Vec<Line>, Vec<[f32; 2]>) {
             ],
             vec![[0.3, 0.3], [0.7, 0.7]],
         ),
+        // un ojo tachado: el punto sigue ahí pero no cuenta
+        "withhold" => (
+            vec![
+                (vec![[0.05, 0.5], [0.3, 0.25], [0.7, 0.25], [0.95, 0.5], [0.7, 0.75], [0.3, 0.75]], true),
+                open(&[[0.15, 0.9], [0.85, 0.1]]),
+            ],
+            vec![[0.5, 0.5]],
+        ),
         // una nube clara que reparte su clase a otra más densa
         "propagate" => (
             vec![

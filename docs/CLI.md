@@ -200,6 +200,7 @@ Edita puntos como si fueran elementos: borra o reclasifica los puntos dentro de 
 | `--zmin` | texto o número | ninguno | Elevación mínima (m) de los puntos que se seleccionan. |
 | `--zmax` | texto o número | ninguno | Elevación máxima (m) de los puntos que se seleccionan. |
 | `--delete` | casilla | desactivada | Borra los puntos seleccionados. |
+| `--withhold` | casilla | desactivada | Marca los puntos seleccionados como retenidos (withheld): siguen en el archivo pero los procesos los ignoran. |
 | `--set-class` | texto o número | ninguno | Cambia los puntos seleccionados a esta clase. |
 
 ### hipso apply-edits

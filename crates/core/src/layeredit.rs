@@ -109,6 +109,7 @@ pub fn edit_by_layer(input: &Path, output: &Path, spec: &LayerEdit) -> Result<Sa
     }
     let label = match spec.action {
         Action::Delete => "eliminar".to_string(),
+        Action::Withhold => "retener".to_string(),
         Action::Reclassify(c) => format!("clase {c}"),
     };
     edit::save(input, output, &[Edit::new(sel, spec.action, label)])
