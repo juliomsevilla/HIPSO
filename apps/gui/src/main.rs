@@ -891,6 +891,15 @@ fn color32(c: [u8; 3]) -> Color32 {
     Color32::from_rgb(c[0], c[1], c[2])
 }
 
+/// El filtro de las capas ráster de datos (MDT, densidad, CHM…): al acercar se ven las celdas con sus
+/// bordes, cada una de un solo color, como en cualquier SIG; al alejar se suaviza para no dar
+/// dientes de sierra. Con el filtro lineal también al acercar, una celda de 5 m a 18 píxeles se ve
+/// como una mancha borrosa.
+const GRID_TEXTURE: egui::TextureOptions = egui::TextureOptions {
+    magnification: egui::TextureFilter::Nearest,
+    ..egui::TextureOptions::LINEAR
+};
+
 fn to_texture(
     ctx: &egui::Context,
     name: &str,
@@ -1849,7 +1858,7 @@ impl App {
             ctx,
             &format!("ref-{}", path.display()),
             &rs::render_grid(&shown, &style),
-            egui::TextureOptions::LINEAR,
+            GRID_TEXTURE,
         );
         self.remove_paths(&path);
         let k = self.add_ref(

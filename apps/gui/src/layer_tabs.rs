@@ -690,7 +690,7 @@ impl App {
                 ctx,
                 &format!("ref-{name}"),
                 &render_grid(grid, &st),
-                egui::TextureOptions::LINEAR,
+                crate::GRID_TEXTURE,
             );
         }
     }
