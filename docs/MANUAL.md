@@ -410,6 +410,36 @@ Calcula la altura de cada punto sobre el suelo. Véase el apartado 6.3.
 
 Un TIN de los puntos de suelo da el suelo bajo cada punto, de modo que no hace falta un MDT aparte. La orden es `hipso hag`.
 
+##### Propagar clase
+
+Copia la clase de una nube de referencia, ya clasificada, a los puntos de otra más densa. Véase el apartado 7.1.
+
+| Control | Qué hace |
+|---|---|
+| Nube de referencia | La nube clasificada de la que se toma la clase. |
+| Radio de búsqueda (m) | Distancia máxima a la que un punto de referencia da su clase (1 m por defecto). |
+| Clases que se propagan | Clases de la referencia que cuentan, por ejemplo `2,5-6`. Vacío: todas. |
+| Medir solo en planta (sin la cota) | Mide la distancia solo con X e Y. |
+
+Escribe una copia nueva (`…_propagada`). La orden es `hipso propagate-class`.
+
+##### Editar con capas
+
+Borra, retiene o reclasifica los puntos que caen dentro de polígonos o cerca de líneas de una capa. Véase el apartado 7.1.
+
+| Control | Qué hace |
+|---|---|
+| Región | De dónde salen los puntos que se editan: *A menos de una distancia de unas líneas*, *Dentro de unos polígonos (o parcelas)* o *En toda la nube (solo por clase y cota)*. |
+| Capa | La capa vectorial (de un archivo o de las capas cargadas). |
+| Distancia a cada lado (m) | Con líneas, el ancho de la banda a cada lado. |
+| Radio si son puntos de parcela (m) | Con puntos, el radio del círculo que se toma alrededor de cada uno. |
+| Elegir en cambio lo que queda fuera | Invierte la región. |
+| Solo estas clases | Clases que se editan, por ejemplo `2,5` o `~7,18` (todas menos la 7 y la 18). Vacío: todas. |
+| Limitar por cota | Cota mínima y máxima (m) de los puntos que se editan. |
+| Acción | Pasar los puntos elegidos a una clase, borrarlos o retenerlos (siguen en el archivo, marcados como *withheld*). |
+
+Escribe una copia nueva (`…_editada`). La orden es `hipso edit`.
+
 ##### Quitar duplicados
 
 Elimina los puntos repetidos y escribe una nube nueva. Véase el apartado 6.4.
@@ -1581,9 +1611,39 @@ Lleva el informe entero al portapapeles. El botón derecho sobre el texto copia 
 
 El panel se divide en *Selección*, *Editar* e *Historial*. Las ediciones no tocan el archivo original: se guardan al escribir una nube nueva.
 
-La **Selección** tiene once herramientas, que se eligen por su icono: *Seleccionar con rectángulo*, *con polígono*, *con lazo* y *con círculo*, *Pincel redondo* y *Pincel cuadrado* (arrastrar para pintar, los puntos tocados se seleccionan, y las teclas [ y ] cambian el tamaño, en planta y en perfil), *Seleccionar todo lo que queda sobre* o *bajo una línea del perfil*, *Seleccionar cerca de una línea*, *Clasificar a lo largo de una línea* y *Seleccionar con plano local*. Las herramientas de línea trabajan en la ventana del perfil: al elegir una se muestra el perfil y, si aún no hay caja, se pasa a trazarla con tres clics en la planta y la herramienta se activa sola al terminar. En el perfil, la línea se traza arrastrando (una recta) o con un clic por vértice y doble clic, Intro o botón derecho para acabar (una línea quebrada, con los vértices marcados y una indicación en el propio perfil, que sigue por ejemplo un cable que cuelga entre dos postes); la línea se ordena por la distancia a lo largo de la caja. *Cerca* es lo que queda a no más de una tolerancia por encima (↑) y por debajo (↓) de la línea. *Clasificar a lo largo de una línea* hace de una vez lo que haría falta en tres selecciones: con un solo trazo, lo que queda sobre, cerca y bajo la línea pasa a la clase que se elija para cada tramo (cada tramo se puede dejar sin tocar). Las tres franjas no se solapan, el filtro de atributos limita qué puntos se tocan y la operación se deshace y se rehace de una vez, aunque en el historial salga como tres ediciones. Cuando una herramienta de selección está activa, el botón izquierdo dibuja la selección y el giro de la vista 3D pasa al botón central. *Todo* (Ctrl+A) selecciona todos los puntos, *Invertir* (Ctrl+I) invierte la selección y *Quitar* (Esc) la limpia. *Combinar selección* decide qué pasa con una selección nueva: *Nueva* sustituye a la anterior, *Añadir* (Mayús) la suma, *Restar* (Alt) la quita e *Intersecar* (Ctrl) deja solo lo común. *Seleccionar con plano local* (solo en la planta) hace un clic: ajusta un plano, o una curva de segundo grado, a los puntos de una clase (por defecto, el suelo) que caen en un círculo de radio elegido, y selecciona los puntos que quedan *sobre* él, *bajo* él o *cerca* de él, a más o a menos de una tolerancia en metros o en desviaciones típicas del ajuste. Sirve para quitar ruido bajo el suelo, vegetación pegada al terreno o para añadir puntos al suelo, con *Cambiar clase* o *Eliminar* después. El ajuste se hace al hacer clic y lo que se guarda en la edición son sus coeficientes, no los puntos, de modo que el archivo guardado da lo mismo que se ve en pantalla y la edición se puede reaplicar con `hipso apply-edits`. Con pocos puntos en el círculo (menos de tres para el plano, de seis para la curva) o alineados, el programa lo dice en el registro y no selecciona. *Rebanada en 3D ±* limita la selección en profundidad. *Aislar selección* fija un foco: deja a la vista solo lo seleccionado, con toda su densidad, y limita a ello las ediciones, sin crear ningún archivo; *Volver a la nube* lo quita. *Filtro de atributos de las selecciones* acota la selección por atributos. Las selecciones, y con ellas *Eliminar* y *Cambiar clase*, solo alcanzan los puntos que los filtros de *Vista → Filtros* dejan ver (las clases marcadas en *Clases y colores…*, los retornos marcados y el rango de cotas): lo que está oculto no se selecciona ni se edita. El filtro por archivo no cuenta. Las ediciones también se ven al acercar la vista, donde el visor vuelve a leer la nube con todo su detalle. Debajo se indica cuántos puntos están seleccionados en pantalla y cuántos equivalen en el archivo.
+La **Selección** tiene doce herramientas, que se eligen por su icono: *Seleccionar con rectángulo*, *con polígono*, *con lazo* y *con círculo*, *Pincel redondo* y *Pincel cuadrado* (arrastrar para pintar, los puntos tocados se seleccionan, y las teclas [ y ] cambian el tamaño, en planta y en perfil), *Seleccionar todo lo que queda sobre* o *bajo una línea del perfil*, *Seleccionar cerca de una línea*, *Clasificar a lo largo de una línea*, *Seleccionar con plano local* y *Varita mágica* (esta última se explica en su propio apartado). Las herramientas de línea trabajan en la ventana del perfil: al elegir una se muestra el perfil y, si aún no hay caja, se pasa a trazarla con tres clics en la planta y la herramienta se activa sola al terminar. En el perfil, la línea se traza arrastrando (una recta) o con un clic por vértice y doble clic, Intro o botón derecho para acabar (una línea quebrada, con los vértices marcados y una indicación en el propio perfil, que sigue por ejemplo un cable que cuelga entre dos postes); la línea se ordena por la distancia a lo largo de la caja. *Cerca* es lo que queda a no más de una tolerancia por encima (↑) y por debajo (↓) de la línea. *Clasificar a lo largo de una línea* hace de una vez lo que haría falta en tres selecciones: con un solo trazo, lo que queda sobre, cerca y bajo la línea pasa a la clase que se elija para cada tramo (cada tramo se puede dejar sin tocar). Las tres franjas no se solapan, el filtro de atributos limita qué puntos se tocan y la operación se deshace y se rehace de una vez, aunque en el historial salga como tres ediciones. Cuando una herramienta de selección está activa, el botón izquierdo dibuja la selección y el giro de la vista 3D pasa al botón central. *Todo* (Ctrl+A) selecciona todos los puntos, *Invertir* (Ctrl+I) invierte la selección y *Quitar* (Esc) la limpia. *Combinar selección* decide qué pasa con una selección nueva: *Nueva* sustituye a la anterior, *Añadir* (Mayús) la suma, *Restar* (Alt) la quita e *Intersecar* (Ctrl) deja solo lo común. *Seleccionar con plano local* (solo en la planta) hace un clic: ajusta un plano, o una curva de segundo grado, a los puntos de una clase (por defecto, el suelo) que caen en un círculo de radio elegido, y selecciona los puntos que quedan *sobre* él, *bajo* él o *cerca* de él, a más o a menos de una tolerancia en metros o en desviaciones típicas del ajuste. Sirve para quitar ruido bajo el suelo, vegetación pegada al terreno o para añadir puntos al suelo, con *Cambiar clase* o *Eliminar* después. El ajuste se hace al hacer clic con todos los puntos del círculo, aunque la vista muestre solo una muestra de la nube (véase *Varita mágica*), y lo que se guarda en la edición son sus coeficientes, no los puntos, de modo que el archivo guardado da lo mismo que se ve en pantalla y la edición se puede reaplicar con `hipso apply-edits`. Con pocos puntos en el círculo (menos de tres para el plano, de seis para la curva) o alineados, el programa lo dice en el registro y no selecciona. *Rebanada en 3D ±* limita la selección en profundidad. *Aislar selección* fija un foco: deja a la vista solo lo seleccionado, con toda su densidad, y limita a ello las ediciones, sin crear ningún archivo; *Volver a la nube* lo quita. *Filtro de atributos de las selecciones* acota la selección por atributos. Las selecciones, y con ellas *Eliminar* y *Cambiar clase*, solo alcanzan los puntos que los filtros de *Vista → Filtros* dejan ver (las clases marcadas en *Clases y colores…*, los retornos marcados y el rango de cotas): lo que está oculto no se selecciona ni se edita. El filtro por archivo no cuenta. Las ediciones también se ven al acercar la vista, donde el visor vuelve a leer la nube con todo su detalle. Debajo se indica cuántos puntos están seleccionados en pantalla y cuántos equivalen en el archivo.
 
 **Editar** tiene *Eliminar* (Supr) para quitar los puntos seleccionados, *Retener* para marcarlos como retenidos (*withheld*) en lugar de quitarlos (siguen en el archivo guardado, marcados, y se pueden recuperar; los procesos de HIPSO y de otros programas los ignoran, y en pantalla desaparecen como si se borraran), *Cambiar clase* con un selector de clase y atajos para las más frecuentes (*Suelo*, *Veg. baja*, *Veg. media*, *Veg. alta*, *Edificio*, *Ruido* y *Sin clasificar*), *Histogramas* (apartado 6.1). *Guardar nube editada…* escribe una nube nueva con las ediciones, y *Descartar todo* vuelve a la nube original. *Deshacer* (Ctrl+Z) y *Rehacer* (Ctrl+Y) recorren las ediciones, y el *Historial* lista las hechas. Todo el detalle de la edición está en el capítulo 6.
+
+###### Varita mágica
+
+La herramienta *Varita mágica* (icono de la varita, en *Selección*) selecciona con un solo clic los puntos que están conectados con el punto pulsado y se le parecen, de modo que una cubierta, un tramo de calzada o el suelo de un claro se eligen enteros sin dibujar su contorno. Después se usa *Cambiar clase* o *Eliminar*, como con cualquier otra selección, y se combina igual: Mayús suma, Alt resta y Ctrl interseca. Funciona en la planta (todavía no en el perfil ni en la vista 3D). Mientras se pasa el cursor por la planta se dibuja un círculo con el radio máximo que puede alcanzar la región.
+
+La región crece desde el punto pulsado, de vecino en vecino: un punto entra si está a menos de *Alcance* de otro de la región y cumple lo que pide el modo. Antes de crecer solo se leen los puntos visibles dentro del radio máximo, de modo que el tiempo no depende del tamaño de la nube.
+
+| Control | Qué hace |
+|---|---|
+| Alcance | Distancia máxima (m) entre dos puntos enlazados y radio con el que se calcula el plano local de cada punto. Por defecto 0,5 m, que va bien con unos 65 puntos por metro cuadrado. Se sube si la región se queda corta en zonas poco densas (vegetación) y se baja si la nube es muy densa y la herramienta va lenta. |
+| Ángulo | Cuánto puede girar el plano local de un punto al siguiente (15° por defecto): la región se detiene en una arista o en un cambio de pendiente. |
+| Radio máximo | Hasta dónde puede crecer la región desde el punto pulsado, en planta (30 m por defecto). Acota el tiempo en nubes grandes. |
+| Misma clase | Solo entran los puntos de la misma clase que el pulsado. Viene desactivada: así decide solo la forma, que sirve para clasificar desde cero y para corregir zonas mal clasificadas. Se activa para retocar una clasificación ya hecha. |
+| Modo | *Auto*, *Superficie* o *Volumen* (véase abajo). |
+
+El *Modo* decide cómo crece la región.
+
+| Modo | Qué hace |
+|---|---|
+| Superficie | Sigue una superficie lisa (suelo, tejado, calzada, pared). Un vecino entra si su plano local gira menos del *Ángulo* respecto del punto del que se llega y menos de 25° respecto de la semilla, si está en una zona plana y si no hay un escalón de más de 0,3 m entre los dos puntos. La región se detiene en las aristas (una cumbrera, un bordillo) y en los escalones (el borde de un tejado, la base de un tronco), pero sigue una superficie curva suave, como un talud. |
+| Volumen | Entra todo punto conectado a menos de *Alcance* de otro de la región, sin mirar la forma. Sirve para vegetación y cables, donde los puntos no forman un plano y el modo *Superficie* se quedaría casi sin selección. Es menos selectivo (puede arrastrar suelo pegado a la vegetación), por lo que conviene activar *Misma clase* y subir el *Alcance*. |
+| Auto | Elige *Superficie* si el entorno del punto pulsado es un plano (planaridad de 0,5 o más) y *Volumen* si no. Con puntos sueltos o de borde puede equivocarse, y entonces se fuerza el modo. |
+
+El plano local de cada punto sale de los valores propios de la covarianza de sus vecinos (Demantké et al., 2011; Weinmann et al., 2015), igual que las formas del entorno de las reglas de clasificación (apartado *Reglas*). En una prueba con una nube aérea de 8,4 millones de puntos, un clic sobre suelo, sin exigir la clase, seleccionó suelo en el 99,9 % de los casos usando solo la geometría.
+
+La varita trabaja siempre con todos los puntos, no con la muestra que dibuja la vista. Si la nube mostrada es una muestra (uno de cada n puntos), lee de la copia COPC de la caché la zona alrededor del clic con toda su densidad, aplicándole las ediciones de la sesión y el foco para ver lo mismo que la vista. Mientras esa copia se prepara (el registro dice «Preparando el detalle al acercar») la herramienta no selecciona y lo avisa en el registro; cuando dice «Detalle al acercar listo» ya se puede usar. El *Plano local* sigue la misma regla.
+
+Las demás regiones son reglas que cada punto del archivo cumple o no por sí solo, y así se aplican al guardar. La varita decide mirando a los vecinos, y al guardar cada punto se evalúa solo, de modo que la edición lleva ya calculado el conjunto de puntos (sus coordenadas redondeadas al centímetro, con tolerancia al redondeo con que la vista guarda las coordenadas). El archivo guardado da lo mismo que se ve en pantalla y la edición se reaplica con `hipso apply-edits`. A cambio, el archivo de ediciones crece con los puntos seleccionados (del orden de 20 bytes por punto: una región de un millón de puntos añade unos 20 MB), y dos puntos que coinciden en menos de un centímetro se seleccionan juntos.
+
+El clic espera a que termine el cálculo, del orden de un microsegundo por punto en el modo *Volumen* y de uno a tres en el modo *Superficie* (una región de 200 000 puntos tarda entre 0,2 y 0,5 s).
 
 ###### Histogramas de atributos
 
@@ -1817,7 +1877,9 @@ Las herramientas de consulta no modifican la nube, solo la preguntan, y se agrup
 
 ### Consultar (Q)
 
-*Consultar* (*Vista → Navegación → Consultar*, tecla Q) interroga lo que hay bajo el cursor, sin modificar nada. Un clic selecciona el punto de la nube visible más cercano, dentro de unos 6 píxeles, lo rodea con un círculo blanco y abre una tarjeta en la esquina superior izquierda de la planta con tres líneas: sus coordenadas X, Y y Z, su clase (con el nombre ASPRS) y su intensidad, su número de retorno (el retorno *n* de *m*) y su ID de fuente. Si no hay ningún punto a esa distancia, no se muestra tarjeta de punto.
+*Consultar* (*Vista → Navegación → Consultar*, tecla Q) interroga lo que hay bajo el cursor, sin modificar nada. Un clic selecciona el punto de la nube visible más cercano, dentro de unos 6 píxeles, lo rodea con un círculo blanco y abre una tarjeta en la esquina superior izquierda de la planta con sus coordenadas X, Y y Z, su clase (con el nombre ASPRS), su intensidad, su número de retorno (el retorno *n* de *m*) y su ID de fuente. Cuando la nube los tiene, la tarjeta añade el ángulo de barrido, la altura sobre el suelo (si está calculada, por ejemplo al colorear por ella), el número de copa (*treeID*) y, con varias nubes cargadas, el archivo de origen. Si no hay ningún punto a esa distancia, no se muestra tarjeta de punto.
+
+La herramienta funciona también en el perfil y en la vista 3D, con la misma tarjeta y el mismo círculo. En el perfil se elige el punto más cercano al cursor dentro de la imagen del perfil, y en la vista 3D el más cercano a la cámara entre los que quedan a unos 6 píxeles del cursor.
 
 Además, el mismo clic identifica todas las capas visibles en ese lugar y las lista en una segunda tarjeta: de cada ráster, el nombre de la capa y el valor de la celda (tres decimales); de cada imagen, el valor de cada banda; y de cada capa vectorial, el nombre, el número del elemento y los valores de sus campos (hasta catorce, con la indicación «… n campos más» si hay más). Las capas ocultas y las celdas sin dato no aparecen. Ambas tarjetas se cierran con su aspa, y *Limpiar marcas* (*Vista → Navegación*) las quita también.
 
@@ -2366,6 +2428,14 @@ La normalización resulta útil para trabajar con otros programas que esperan al
 Elegir el formato COPC en *Exportar puntos* reescribe la nube como COPC (Cloud Optimized Point Cloud), un LAZ 1.4 normal cuyos bloques son los nodos de un octree. Cada nodo guarda un punto por celda de una malla de 128 × 128 × 128 sobre su cubo y pasa el resto a sus ocho hijos, hasta nodos de 100 000 puntos como mucho. Cualquier programa que lea LAZ lo lee entero, y los que conocen COPC (QGIS, visores web, este mismo programa) leen solo la zona y el detalle que necesitan: recortar 4 ha de una hoja de 13 millones de puntos lee menos de un millón.
 
 Se conservan todos los atributos (comprobado punto a punto con lidR). Los formatos 0 a 3 pasan a 6 o 7, que son los que admite COPC, y el sistema de coordenadas se escribe como WKT, que COPC exige (si la nube no lo declara, el informe avisa). La nube se ordena en memoria: hasta 30 millones de puntos se sostiene entera (unos 70 bytes por punto) y, por encima, se lee dos veces, una para las posiciones y otra, por lotes de nodos, para los registros de cada bloque, con lo que la memoria baja a unos 35-50 bytes por punto (el fichero resultante es idéntico). Por encima de 100 millones de puntos se escribe por celdas (ver el apartado 4.2), sin límite práctico de tamaño. Una hoja PNOA de 13 millones de puntos tarda 1,3 s. Escribe `<nombre>.copc.laz`. En la línea de comandos: `hipso copc nube.laz`.
+
+#### Propagar clase
+
+Copia la clase de una nube de referencia, ya clasificada, a los puntos de otra más densa: cada punto toma la clase del punto de referencia más cercano dentro de un radio, y los que no tienen ninguno a esa distancia conservan la suya. Permite clasificar con un algoritmo costoso solo una fracción de los puntos (por ejemplo, una versión adelgazada con *Adelgazar nube*) y obtener la clasificación de todos. El flujo habitual es *Adelgazar nube*, *Clasificar* sobre la nube adelgazada y *Propagar clase* sobre la nube completa. La referencia se carga en memoria (unos 13 bytes por punto) y la nube destino se recorre en flujo, de modo que no hace falta que quepa entera. Escribe una copia nueva (`…_propagada`) y el original no se toca. En la línea de comandos es `hipso propagate-class`.
+
+#### Editar con capas
+
+Borra, retiene o reclasifica los puntos de la nube cargada que están dentro de polígonos o a cierta distancia de líneas (ejes, caminos, cauces), con filtros de clase y de cota, sin tener que dibujar la selección. Es la misma edición del panel *Edición* (véase la edición de nubes de puntos), pero con la región tomada de una capa vectorial. Escribe una copia nueva (`…_editada`) y el original no se toca. En la línea de comandos es `hipso edit`.
 
 ### 7.2 Superficies
 

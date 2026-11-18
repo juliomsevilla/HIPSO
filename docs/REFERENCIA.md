@@ -236,6 +236,7 @@ Las imágenes se leen **por ventana y nivel de pirámide**: se usan las vistas r
 **Edición de puntos.** La pestaña *Edición* del panel lateral, con una nube elegida, trabaja como las herramientas vectoriales de un SIG:
 
 - Selecciona con rectángulo (un clic elige los puntos cercanos), polígono (clic derecho o doble clic cierra), lazo o círculo, en la planta o en el perfil.
+- Selecciona también con la varita mágica (en la planta): un clic elige los puntos conectados con el pulsado y parecidos a él, siguiendo una superficie lisa (por el plano local de cada punto) o un volumen, con todos los puntos del archivo y no con la muestra que dibuja la vista.
 - Combina selecciones: nueva, añadir (Mayús), restar (Alt), intersecar (Ctrl), invertir (Ctrl+I) y todo (Ctrl+A). Un filtro de atributos (clases, elevación, intensidad, tipo de retorno) restringe lo que se selecciona, o selecciona por atributos sin región.
 - Elimina (Supr) o cambia la clase de la selección. Deshacer y rehacer (Ctrl+Z, Ctrl+Y), con un historial visible. Los puntos seleccionados se pintan en cian.
 - Guardar crea un archivo nuevo (nunca sobrescribe el original). Los cambios son reglas: en pantalla se aplican a los puntos que se ven, y al guardar se aplican a **todos** los puntos del archivo en una sola pasada por todos los núcleos, así que el resultado es exacto aunque la nube esté decimada y la memoria no crece. En el borde de un polígono, unos pocos puntos pueden contarse distinto en pantalla (coordenadas decimales en f32) que en el archivo; el archivo es el exacto.

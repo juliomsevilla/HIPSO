@@ -25,6 +25,7 @@ Documento de trabajo para quien vaya a construir las funciones. Resume qué tien
 | E15 | Hecho, **pendiente de comprobar** | Mayús + clic en el perfil: corte perpendicular con el mismo largo y ancho; Mayús + clic derecho vuelve |
 | E16 | Hecho, **pendiente de comprobar** | La franja de cota ya existía en Filtros; se añaden Centro y Grosor, Bajar y Subir y las teclas `[` y `]` |
 | E13 | Hecho (versión de recorrido), **comprobado a mano**; además, campo *Largo* en el panel Perfil | *Vista → Perfil → Eje de capa*: la rueda hace avanzar el perfil por una línea de una capa y la caja gira con sus curvas (`view::axis_section`); no se generalizó `ProfileBox` (ver nota en la ficha) |
+| E18 | Hecho en planta, **pendiente de comprobar a mano** | *Varita mágica* (`Nav::SelWand`, módulo `wand.rs`): crece desde el punto pulsado por superficie (plano local) o por volumen; la edición lleva el conjunto de puntos ya calculado (`Region::Points`, `PointSet`, también en el archivo de ediciones). Falta: vista 3D, ejecutarla en un hilo aparte y alcance automático según la densidad (manual, README y referencia ya al día) |
 
 ### Comprobado a mano
 
