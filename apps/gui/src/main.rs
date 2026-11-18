@@ -3400,24 +3400,29 @@ ui.menu_button("⚙", |ui| {
                                             ui.end_row();
                                             ui.label("Paso");
                                             ui.horizontal(|ui| {
-                                                egui::ComboBox::from_id_salt("rb_profile_step")
-                                                    .selected_text(match self.profile_step {
-                                                        ProfileStep::Half => "Medio ancho",
-                                                        ProfileStep::AlmostFull => "Casi el ancho",
-                                                        ProfileStep::Full => "Ancho completo",
-                                                        ProfileStep::Fixed => "Fijo",
-                                                    })
-                                                    .show_ui(ui, |ui| {
-                                                        for (v, n) in [
-                                                            (ProfileStep::Half, "Medio ancho"),
-                                                            (ProfileStep::AlmostFull, "Casi el ancho (0,95)"),
-                                                            (ProfileStep::Full, "Ancho completo"),
-                                                            (ProfileStep::Fixed, "Fijo"),
-                                                        ] {
-                                                            ui.selectable_value(&mut self.profile_step, v, n);
+                                                // un menú y no un cuadro combinado: cuando el grupo se pliega,
+                                                // sus controles viven en un menú emergente que un cuadro
+                                                // combinado cerraría antes de poder elegir
+                                                let now = match self.profile_step {
+                                                    ProfileStep::Half => "Medio ancho",
+                                                    ProfileStep::AlmostFull => "Casi el ancho",
+                                                    ProfileStep::Full => "Ancho completo",
+                                                    ProfileStep::Fixed => "Fijo",
+                                                };
+                                                ui.menu_button(format!("{now}  ▾"), |ui| {
+                                                    for (v, n) in [
+                                                        (ProfileStep::Half, "Medio ancho"),
+                                                        (ProfileStep::AlmostFull, "Casi el ancho (0,95)"),
+                                                        (ProfileStep::Full, "Ancho completo"),
+                                                        (ProfileStep::Fixed, "Fijo"),
+                                                    ] {
+                                                        if ui.selectable_label(self.profile_step == v, n).clicked() {
+                                                            self.profile_step = v;
+                                                            ui.close();
                                                         }
-                                                    })
-                                                    .response
+                                                    }
+                                                })
+                                                .response
                                                     .on_hover_text("Cuánto avanza la caja del perfil con cada paso de la rueda o de las flechas. «Casi el ancho» deja un pequeño solape para no perder puntos del borde.");
                                                 if self.profile_step == ProfileStep::Fixed {
                                                     ui.add(

@@ -786,3 +786,108 @@ fn real_cloud_profile_with_edited_on_top() {
         }
     }
 }
+
+/// Un control que abre una lista, dentro de un grupo de la cinta plegado en un botón: ¿se puede
+/// elegir algo? `kind`: 0 cuadro combinado, 1 menú, 2 `ribbon::small_menu`.
+fn folded_pick(kind: u8) -> bool {
+    use std::cell::Cell;
+    let app = App::default();
+    let t = app.tokens();
+    let ctx = egui::Context::default();
+    let chosen = Cell::new(false);
+    let item = Cell::new(None::<Rect>);
+    let trigger = Cell::new(None::<Rect>);
+    let open = Cell::new(false);
+    let run = |avail: f32, t_now: f64, events: Vec<egui::Event>| {
+        open.set(false);
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 400.0))),
+            time: Some(t_now),
+            events,
+            ..egui::RawInput::default()
+        };
+        let out = ctx.run_ui(input, |ui| {
+            let ctx = ui.ctx().clone();
+            ribbon::fold_begin(&ctx, avail);
+            ui.horizontal(|ui| {
+                ribbon::fold_group(ui, &t, "Paso", "@profilegear", 0, |ui| {
+                    if ribbon::in_folded_popup(&ctx) {
+                        open.set(true);
+                    }
+                    let pick = |ui: &mut egui::Ui| {
+                        let r = ui.selectable_label(false, "Fijo");
+                        item.set(Some(r.rect));
+                        if r.clicked() {
+                            chosen.set(true);
+                            ui.close();
+                        }
+                    };
+                    match kind {
+                        0 => {
+                            let r = egui::ComboBox::from_id_salt("x")
+                                .selected_text("Medio")
+                                .show_ui(ui, pick);
+                            trigger.set(Some(r.response.rect));
+                        }
+                        1 => {
+                            let r = ui.menu_button("Medio  ▾", pick);
+                            trigger.set(Some(r.response.rect));
+                        }
+                        _ => {
+                            let r = ribbon::small_menu(ui, &t, "@recent", "Medio", true, pick);
+                            trigger.set(Some(r.rect));
+                        }
+                    }
+                });
+            });
+        });
+        out.drop_without_applying_deltas();
+    };
+    let click = |p: Pos2, mut now: f64| -> f64 {
+        run(10.0, now, vec![mv(p)]);
+        now += 0.05;
+        run(10.0, now, vec![button(p, true, egui::PointerButton::Primary)]);
+        now += 0.05;
+        run(10.0, now, vec![button(p, false, egui::PointerButton::Primary)]);
+        now += 0.05;
+        run(10.0, now, vec![]);
+        now + 0.4
+    };
+    // primero con sitio de sobra, para que el grupo mida su ancho; después sin él: se pliega
+    let mut now = 0.0;
+    for _ in 0..3 {
+        run(10_000.0, now, vec![]);
+        now += 0.05;
+    }
+    run(10.0, now, vec![]);
+    // se busca el botón del grupo plegado: el primer sitio donde un clic abre su menú
+    'scan: for y in (10..80).step_by(8) {
+        for x in (10..200).step_by(10) {
+            now = click(Pos2::new(x as f32, y as f32), now);
+            if open.get() {
+                break 'scan;
+            }
+        }
+    }
+    if !open.get() {
+        return false;
+    }
+    // con el menú del grupo abierto: abrir la lista y elegir
+    let Some(tr) = trigger.get() else { return false };
+    now = click(tr.center(), now);
+    let Some(it) = item.get() else { return false };
+    click(it.center(), now);
+    chosen.get()
+}
+
+#[test]
+fn a_menu_inside_a_folded_ribbon_group_lets_you_choose() {
+    assert!(folded_pick(1), "un menú dentro de un grupo plegado debe dejar elegir");
+    assert!(folded_pick(2), "small_menu dentro de un grupo plegado debe dejar elegir");
+}
+
+#[test]
+fn a_combo_box_inside_a_folded_ribbon_group_does_not() {
+    // el fallo que había en el paso del perfil: se deja como prueba de que la prueba lo detecta
+    assert!(!folded_pick(0));
+}

@@ -112,6 +112,13 @@ pub fn small_menu(
     add: impl FnOnce(&mut Ui),
 ) -> Response {
     let text = format!("{label}  ▾");
+    // dentro del menú emergente de un grupo plegado, un menú emergente propio cerraría el primero
+    // antes de que se pudiera elegir nada: tiene que ser un submenú
+    if in_folded_popup(ui.ctx()) {
+        return ui
+            .add_enabled_ui(enabled, |ui| ui.menu_button(text, add).response)
+            .inner;
+    }
     let r = ui
         .add_enabled_ui(enabled, |ui| small_button_body(ui, t, icon, &text, false, true))
         .inner;
