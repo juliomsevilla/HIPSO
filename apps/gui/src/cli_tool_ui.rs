@@ -434,9 +434,10 @@ impl App {
             .id(egui::Id::new(("cli_tool", name)))
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut out_dir);
-                ui.separator();
-                crate::procwin::help(ui, t.weak, help_for(name));
+                crate::procwin::begin(ui, t.weak, help_for(name));
+                if !missing.is_empty() {
+                    crate::procwin::note(format!("Falta: {}", missing.join(", ")));
+                }
                 for a in spec.args.iter().filter(|a| !hidden(a)) {
                     // las opciones de archivo: el archivo, «Archivo…» y las capas cargadas
                     if model::wirable(name, a) || (a.path && a.id != "output") {
@@ -448,14 +449,11 @@ impl App {
                     }
                 }
                 ui.add_space(6.0);
-                if !missing.is_empty() {
-                    ui.label(egui::RichText::new(format!("Falta: {}", missing.join(", "))).size(11.0).color(t.weak));
-                }
                 if !self.cli.message.is_empty() {
                     ui.label(egui::RichText::new(&self.cli.message).size(11.5).color(theme::brand_text(&t)));
                 }
                 let why = format!("Falta: {}", missing.join(", "));
-                if crate::procwin::run_bar(ui, accent, "Ejecutar", missing.is_empty(), running, &why, &mut busy_stop) {
+                if crate::procwin::footer(ui, &mut out_dir, accent, "Ejecutar", missing.is_empty(), running, &why, &mut busy_stop) {
                     run = true;
                 }
             });

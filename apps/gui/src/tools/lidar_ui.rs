@@ -231,7 +231,6 @@ impl Tools {
     }
 
     pub fn thin_form(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf]) {
-        ui.label(egui::RichText::new("Reduce la densidad de la nube sin cambiar su extensión. Sirve para llevar a la misma densidad nubes de coberturas distintas (por ejemplo la primera y la tercera del PNOA) antes de compararlas. Se escribe una copia nueva por hoja (…_delgada_…); la original no cambia.").color(t.weak).size(11.0));
         ui.label(format!(
             "{} hoja(s): cada una se adelgaza por separado",
             inputs.len()
@@ -315,7 +314,6 @@ impl Tools {
 
     pub fn tls_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         let weak = |s: &str| egui::RichText::new(s.to_string()).color(t.weak).size(11.0);
-        ui.label(weak("Mide el diámetro del tronco a lo largo de todo el tronco en nubes de escáner terrestre, móvil o fotogramétrico, y estima el volumen de cada individuo con la fórmula de Smalian: V = (A₁ + A₂)/2 · L por cada troza, desde la altura de la base hasta donde el diámetro baja al diámetro de punta delgada. Cada nube es una hoja y da su propio resultado."));
         let s = &mut self.lx.tls;
         ui.horizontal(|ui| {
             ui.label("Equipo:");
@@ -512,9 +510,8 @@ impl Tools {
         });
     }
 
-    pub fn dups_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+    pub fn dups_form(&mut self, ui: &mut egui::Ui, _t: &Tokens) {
         let s = &mut self.lx;
-        ui.label(egui::RichText::new("Quita los puntos que están en el mismo sitio (x, y, z iguales). Marca los atributos que también deben coincidir para que dos puntos cuenten como repetidos. Se escribe una copia nueva (…_sin_duplicados).").color(t.weak).size(11.0));
         ui.checkbox(&mut s.dup.class, "Misma clase");
         ui.checkbox(&mut s.dup.gps_time, "Mismo tiempo GPS");
         ui.checkbox(&mut s.dup.intensity, "Misma intensidad");
@@ -536,8 +533,7 @@ impl Tools {
             .collect()
     }
 
-    pub fn merge_form(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf]) {
-        ui.label(egui::RichText::new("Une dos o más nubes en una nueva (…_unida). Sirve, por ejemplo, para juntar trozos que se extrajeron para editarlos. Las nubes pueden tener otra escala o sistema de coordenadas, pero el mismo formato de punto. Marca las nubes que se unen y qué hacer con los puntos que quedan repetidos (mismas x, y, z).").color(t.weak).size(11.0));
+    pub fn merge_form(&mut self, ui: &mut egui::Ui, _t: &Tokens, inputs: &[PathBuf]) {
         for p in inputs {
             let mut on = !self.lx.merge_skip.contains(p);
             let name = p
@@ -557,7 +553,7 @@ impl Tools {
         }
         let n = self.merge_chosen(inputs).len();
         if n < 2 {
-            ui.colored_label(egui::Color32::from_rgb(230, 160, 40), "Elige dos o más nubes.");
+            crate::procwin::note("Elige dos o más nubes.");
         }
         ui.add_space(4.0);
         ui.label("Puntos duplicados");
@@ -584,9 +580,8 @@ impl Tools {
         }
     }
 
-    pub fn colorize_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+    pub fn colorize_form(&mut self, ui: &mut egui::Ui, _t: &Tokens) {
         let s = &mut self.lx;
-        ui.label(egui::RichText::new("Da a cada punto el color del píxel de una imagen del mismo sitio (una ortofoto PNOA, por ejemplo): rojo, verde y azul, y el infrarrojo si la nube es de formato 8 y la imagen tiene esa banda. La imagen debe estar en el mismo sistema de coordenadas que la nube. Las nubes sin color (formatos 0, 1 y 6) se guardan en formato 7. Se escribe una copia nueva (…_rgb).").color(t.weak).size(11.0));
         ui.horizontal(|ui| {
             ui.label("Imagen");
             ui.add(
@@ -627,9 +622,8 @@ impl Tools {
         );
     }
 
-    pub fn intensity_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+    pub fn intensity_form(&mut self, ui: &mut egui::Ui, _t: &Tokens) {
         let s = &mut self.lx;
-        ui.label(egui::RichText::new("La intensidad cae con el cuadrado de la distancia al escáner: la misma superficie sale más oscura en el borde de una pasada o desde una pasada más alta. Se corrige multiplicando por (R / R_ref)^a (Höfle y Pfeifer, 2007). R sale de la trayectoria del vuelo (lo más exacto) o, si no la tienes, de la altura de vuelo y el ángulo de escaneo. Se escribe una copia nueva (…_intensidad).").color(t.weak).size(11.0));
         ui.radio_value(
             &mut s.int_mode,
             0,
@@ -683,7 +677,6 @@ impl Tools {
     pub fn clip_poly_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         let loaded = self.vectors.clone();
         let s = &mut self.lx;
-        ui.label(egui::RichText::new("Recorta la nube (o las nubes) con los polígonos de una capa: se queda lo que cae dentro. Con varios polígonos puedes obtener una nube por cada uno o una sola ajustada al perímetro de todos. El búfer deja una zona de seguridad alrededor del perímetro (negativo: lo estrecha). Se escribe una copia nueva (…_recorte…); la original no cambia.").color(t.weak).size(11.0));
         ui.separator();
         ui.horizontal(|ui| {
             ui.label("Capa de polígonos");
@@ -763,9 +756,8 @@ impl Tools {
         })
     }
 
-    pub fn hag_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+    pub fn hag_form(&mut self, ui: &mut egui::Ui, _t: &Tokens) {
         let s = &mut self.lx;
-        ui.label(egui::RichText::new("Calcula la altura de cada punto sobre el suelo a partir de los puntos de suelo que ya tiene la nube (clasifícala antes si no los tiene): una TIN de esos puntos da el suelo bajo cada punto. No hace falta un MDT aparte. Se escribe una copia nueva (…_alturas).").color(t.weak).size(11.0));
         ui.radio_value(
             &mut s.hag.replace_z,
             false,
@@ -782,9 +774,8 @@ impl Tools {
         s.hag.ground_class = class as u8;
     }
 
-    pub fn propagate_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+    pub fn propagate_form(&mut self, ui: &mut egui::Ui, _t: &Tokens) {
         let s = &mut self.lx;
-        ui.label(egui::RichText::new("Copia la clase de una nube ya clasificada (por ejemplo, una versión adelgazada) a los puntos de la nube cargada, que es más densa: cada punto toma la clase del punto de referencia más cercano, y los que no tienen ninguno a menos del radio conservan la suya. Se escribe una copia nueva (…_propagada).").color(t.weak).size(11.0));
         Self::reference_row(ui, &mut s.prop_ref);
         num(ui, "Radio de búsqueda (m)", &mut s.prop_radius, 0.01..=1000.0, 0.1);
         ui.horizontal(|ui| {
@@ -796,10 +787,9 @@ impl Tools {
         ui.checkbox(&mut s.prop_flat, "Medir solo en planta (sin la cota)");
     }
 
-    pub fn edit_layers_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+    pub fn edit_layers_form(&mut self, ui: &mut egui::Ui, _t: &Tokens) {
         let loaded = self.vectors.clone();
         let s = &mut self.lx;
-        ui.label(egui::RichText::new("Borra o reclasifica los puntos de la nube cargada que están dentro de polígonos o a cierta distancia de líneas (ejes, caminos, cauces), con filtros de clase y de cota. Se escribe una copia nueva (…_editada); el original no se toca.").color(t.weak).size(11.0));
         ui.radio_value(&mut s.el_source, 2, "A menos de una distancia de unas líneas");
         ui.radio_value(&mut s.el_source, 1, "Dentro de unos polígonos (o parcelas)");
         ui.radio_value(&mut s.el_source, 0, "En toda la nube (solo por clase y cota)");
@@ -855,9 +845,8 @@ impl Tools {
         (s.el_delete, s.el_withhold) = (mode == 1, mode == 2);
     }
 
-    pub fn compare_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+    pub fn compare_form(&mut self, ui: &mut egui::Ui, _t: &Tokens) {
         let s = &mut self.lx;
-        ui.label(egui::RichText::new("Detección de cambios: escribe los puntos de la nube cargada que están a más de la distancia indicada de todos los puntos de la referencia (por ejemplo, la primera y la tercera cobertura del PNOA adelgazadas a la misma densidad). Da también la distancia media y la compleción.").color(t.weak).size(11.0));
         Self::reference_row(ui, &mut s.cmp_ref);
         num(
             ui,
@@ -875,9 +864,8 @@ impl Tools {
         );
     }
 
-    pub fn fit_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+    pub fn fit_form(&mut self, ui: &mut egui::Ui, _t: &Tokens) {
         let s = &mut self.lx;
-        ui.label(egui::RichText::new("Mueve la nube cargada para que encaje con la de referencia (punto más cercano iterativo, ICP) y escribe una copia (…_ajustada). Usa los últimos retornos de ambas.").color(t.weak).size(11.0));
         Self::reference_row(ui, &mut s.fit_ref);
         num(
             ui,
@@ -924,7 +912,6 @@ impl Tools {
 
     pub fn swath_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         let s = &mut self.lx;
-        ui.label(egui::RichText::new("Diferencia de altura entre pasadas de vuelo: por celda, la mayor distancia entre las elevaciones medias de las pasadas (ID de fuente) que la cubren. Se guarda un ráster (…_pasadas) y se da el porcentaje de celdas que pasa de 8 y 16 cm.").color(t.weak).size(11.0));
         num(ui, "Celda (m)", &mut s.sw_cell, 0.1..=100.0, 0.1);
         ui.horizontal(|ui| {
             ui.label("Retornos");
@@ -955,9 +942,8 @@ impl Tools {
         ui.label(egui::RichText::new("Útil cuando el ID de fuente no distingue las pasadas (todos los puntos con el mismo valor).").color(t.weak).size(11.0));
     }
 
-    pub fn flightlines_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+    pub fn flightlines_form(&mut self, ui: &mut egui::Ui, _t: &Tokens) {
         let s = &mut self.lx;
-        ui.label(egui::RichText::new("Encuentra las líneas de vuelo de una nube aérea por los huecos en el tiempo GPS: el avión vuela una línea, gira decenas de segundos sin registrar y vuela la siguiente. Da cuántas líneas hay, cuándo, cuántos puntos y dónde. Con varias nubes, el tiempo cuenta para todas juntas. Hace falta una nube con tiempo GPS (formatos de punto 1 y 3 en adelante). Si el tiempo es de semana (no ajustado) y el vuelo cruza el domingo a medianoche, se avisa y no se corrige.").color(t.weak).size(11.0));
         num(ui, "Hueco que separa dos líneas (s)", &mut s.fl_gap, 1.0..=3600.0, 1.0);
         num(ui, "Puntos mínimos de una línea", &mut s.fl_min_points, 1.0..=1.0e9, 100.0);
         ui.horizontal(|ui| {
@@ -972,7 +958,6 @@ impl Tools {
 
     pub fn intensity_image_form(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf]) {
         let s = &mut self.lx;
-        ui.label(egui::RichText::new("Imagen en tonos de gris de la nube: en cada celda, la intensidad media de sus puntos, como GeoTIFF en el sistema de la nube. Las celdas sin puntos se rellenan con las vecinas hasta el número de celdas indicado; los huecos mayores (agua, falta de pasada) quedan transparentes, y la imagen se recorta a los datos. La intensidad se corrige por el ángulo de escaneo (la señal cae con el cuadrado de la distancia al sensor, así que los bordes de pasada salen oscuros) y se guarda como imagen de 8 bits, con una sola escala de tonos para todas las hojas (del percentil 2 al 98), de modo que se unen sin saltos. Con los primeros retornos la imagen es más nítida, y una celda de 2 a 4 veces la separación media de los puntos deja pocos huecos.").color(t.weak).size(11.0));
         num(ui, "Celda de la imagen (m)", &mut s.dn_cell, 0.05..=1000.0, 0.05);
         if let Some(sp) = inputs
             .first()
@@ -1022,18 +1007,17 @@ impl Tools {
         });
         ui.checkbox(&mut s.dn_mosaic, "Unir las hojas en un mosaico (…_mosaico)");
         if let Err(e) = hipso_core::filter::ReturnSel::parse(&s.dn_returns) {
-            ui.label(egui::RichText::new(e.to_string()).color(egui::Color32::from_rgb(200, 60, 40)).size(11.0));
+            crate::procwin::note(e.to_string());
         }
         if !s.dn_classes.trim().is_empty()
             && let Err(e) = hipso_core::filter::ClassSel::parse(&s.dn_classes)
         {
-            ui.label(egui::RichText::new(e.to_string()).color(egui::Color32::from_rgb(200, 60, 40)).size(11.0));
+            crate::procwin::note(e.to_string());
         }
     }
 
     pub fn vdensity_form(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         let s = &mut self.lx;
-        ui.label(egui::RichText::new("Densidad de puntos con celdas de Voronoi, para el control de calidad: en cada celda del ráster, n / suma de las áreas de Voronoi de sus puntos, que no depende de por dónde caiga el borde de la celda. Las celdas de Voronoi mayores que el límite son huecos de datos (agua, tejados sin retorno) y no cuentan para la densidad; su área se da aparte. Se guarda el ráster de densidad, el de cumple / no cumple y una tabla con la media, la mediana, los percentiles 5 y 95 y el porcentaje que llega al umbral.").color(t.weak).size(11.0));
         num(ui, "Celda del ráster (m)", &mut s.vd_cell, 0.5..=1000.0, 0.5);
         num(ui, "Umbral (puntos/m²)", &mut s.vd_threshold, 0.0..=10000.0, 0.5);
         num(ui, "Hueco de datos: celda de Voronoi mayor que (m²)", &mut s.vd_max_area, 0.1..=1.0e6, 1.0);
@@ -1065,12 +1049,12 @@ impl Tools {
         });
         ui.label(egui::RichText::new("Retornos: F primeros y únicos (los pulsos), L últimos, A todos, o los números de retorno. Clases: una lista como 2,5 o, con «~», todas menos esas. Con las clases vacías se dejan fuera el ruido (7 y 18) y los puntos retenidos.").color(t.weak).size(11.0));
         if let Err(e) = hipso_core::filter::ReturnSel::parse(&s.vd_returns) {
-            ui.label(egui::RichText::new(e.to_string()).color(egui::Color32::from_rgb(200, 60, 40)).size(11.0));
+            crate::procwin::note(e.to_string());
         }
         if !s.vd_classes.trim().is_empty()
             && let Err(e) = hipso_core::filter::ClassSel::parse(&s.vd_classes)
         {
-            ui.label(egui::RichText::new(e.to_string()).color(egui::Color32::from_rgb(200, 60, 40)).size(11.0));
+            crate::procwin::note(e.to_string());
         }
         ui.checkbox(&mut s.vd_pass, "Ráster de cumple / no cumple");
         ui.checkbox(&mut s.vd_csv, "Tabla (CSV)");
@@ -1097,7 +1081,6 @@ impl Tools {
 
     pub fn volume_form(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf], aois: &[Aoi]) {
         self.sheet_note(ui, t, inputs, "volumen", "csv");
-        ui.label(egui::RichText::new("Volumen entre una superficie y el terreno, celda a celda: V = Σ (altura de la superficie − MDT) · celda². Las celdas por encima del MDT suman al volumen sobre él y las que quedan por debajo, al volumen bajo él (vaciados). Con un CHM las alturas ya son sobre el suelo y no hace falta MDT. Todas las hojas dan una sola tabla (.csv); busca los rásteres de esa nube en su carpeta de resultados.").color(t.weak).size(11.0));
         let s = &mut self.lx;
         egui::ComboBox::from_id_salt("vol_source")
             .width(400.0)
@@ -1155,9 +1138,7 @@ impl Tools {
                 _ => found(paths::find_dsm(p), &s.vol_surface),
             };
             if !ok {
-                ui.colored_label(
-                    egui::Color32::from_rgb(230, 160, 60),
-                    format!(
+                crate::procwin::note(format!(
                         "{}: faltan rásteres; genéralos antes (CHM, MDS, MDT) o elígelos a mano.",
                         paths::stem(p)
                     ),

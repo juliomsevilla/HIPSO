@@ -41,14 +41,8 @@ impl App {
         crate::procwin::window(ctx, "Crestas y drenaje")
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut self.tools.out_dir);
-                ui.separator();
                 let t = &mut self.ln;
-                ui.label(
-                    egui::RichText::new("Traza las líneas de cresta o de drenaje de un MDT como líneas 3D, con el orden de Strahler (las cabeceras son 1; dos tramos del mismo orden que se juntan dan el siguiente), la longitud y la pendiente media de cada tramo. Una línea nace donde se recoge la superficie mínima. En una cresta o un cauce perfectamente llano la línea sale en dos mitades que se tocan en el centro. Metros y sistema métrico.")
-                        .color(weak)
-                        .size(11.0),
-                );
+                crate::procwin::begin(ui, weak, "Traza las líneas de cresta o de drenaje de un MDT como líneas 3D, con el orden de Strahler (las cabeceras son 1; dos tramos del mismo orden que se juntan dan el siguiente), la longitud y la pendiente media de cada tramo. Una línea nace donde se recoge la superficie mínima. En una cresta o un cauce perfectamente llano la línea sale en dos mitades que se tocan en el centro. Metros y sistema métrico.");
                 crate::pick::raster(ui, "MDT", &mut t.dtm, &rasters);
                 ui.horizontal(|ui| {
                     ui.label("Líneas de");
@@ -66,7 +60,7 @@ impl App {
                     ui.add(NumField::new(&mut t.smooth).range(0.0..=5.0).speed(0.2));
                     ui.label(egui::RichText::new("pasadas de Chaikin; 0 sigue las celdas").color(weak).size(11.0));
                 });
-                if crate::procwin::run_bar(ui, accent, "Trazar", t.dtm.is_some(), self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
+                if crate::procwin::footer(ui, &mut self.tools.out_dir, accent, "Trazar", t.dtm.is_some(), self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

@@ -78,14 +78,8 @@ impl App {
         crate::procwin::window(ctx, "Inundación")
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut self.tools.out_dir);
-                ui.separator();
                 let t = &mut self.fl;
-                ui.label(
-                    egui::RichText::new("Simula el agua de uno o varios niveles sobre un MDT: área inundada, volumen, profundidad y masas de agua. El agua solo llena lo que puede alcanzar desde el origen pasando por celdas que no superan el nivel: un hoyo detrás de una loma queda seco. Con «bañera» se inunda todo lo que está bajo el nivel, llegue o no el agua. Metros y sistema métrico.")
-                        .color(weak)
-                        .size(11.0),
-                );
+                crate::procwin::begin(ui, weak, "Simula el agua de uno o varios niveles sobre un MDT: área inundada, volumen, profundidad y masas de agua. El agua solo llena lo que puede alcanzar desde el origen pasando por celdas que no superan el nivel: un hoyo detrás de una loma queda seco. Con «bañera» se inunda todo lo que está bajo el nivel, llegue o no el agua. Metros y sistema métrico.");
                 crate::pick::raster(ui, "MDT", &mut t.dtm, &rasters);
                 ui.separator();
                 ui.label("Origen del agua");
@@ -140,7 +134,7 @@ impl App {
                     ui.label(egui::RichText::new("La serie va de menor a mayor, con paso positivo y 1000 niveles como máximo.").color(weak).size(11.0));
                 }
                 let ready = t.dtm.is_some() && seeds_ok && series_ok;
-                if crate::procwin::run_bar(ui, accent, "Simular", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
+                if crate::procwin::footer(ui, &mut self.tools.out_dir, accent, "Simular", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

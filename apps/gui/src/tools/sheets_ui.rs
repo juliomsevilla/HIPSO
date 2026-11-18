@@ -344,7 +344,7 @@ impl Tools {
             }
         });
         if !self.s2.dtm_breaklines.is_empty() && self.dtm_surface == Surface::Mean {
-            ui.label(egui::RichText::new("Las líneas de rotura necesitan TIN o IDW: con «Media por celda» no se pueden usar.").color(egui::Color32::from_rgb(200, 60, 40)).size(11.0));
+            crate::procwin::note("Las líneas de rotura necesitan TIN o IDW: con «Media por celda» no se pueden usar.");
         }
         self.neighbors_row(ui, t, inputs);
         ui.checkbox(
@@ -379,7 +379,6 @@ impl Tools {
             .filter(|p| paths::find_dtm(p).is_none())
             .map(|p| paths::stem(p))
             .collect();
-        ui.label(egui::RichText::new("Superficie de lo más alto que ve el sensor (copas, tejados). Con el MDT se resta y sale la altura sobre el suelo (CHM); sin él, la elevación absoluta (MDS).").color(t.weak).size(11.0));
         ui.checkbox(
             &mut self.s2.surf_dtm,
             "Restar el MDT (altura sobre el suelo, CHM)",
@@ -392,9 +391,7 @@ impl Tools {
                         .size(11.0),
                 );
             } else {
-                ui.colored_label(
-                    egui::Color32::from_rgb(230, 160, 60),
-                    format!(
+                crate::procwin::note(format!(
                         "Sin MDT: {}. Se hará el MDS (elevación absoluta); genera antes el MDT para obtener el CHM.",
                         missing.join(", ")
                     ),
@@ -461,9 +458,7 @@ impl Tools {
             .map(|p| paths::stem(p))
             .collect();
         if !missing.is_empty() {
-            ui.colored_label(
-                egui::Color32::from_rgb(230, 160, 60),
-                format!(
+            crate::procwin::note(format!(
                     "Sin MDT: {}. Genera antes el MDT de esas hojas.",
                     missing.join(", ")
                 ),
@@ -530,8 +525,7 @@ impl Tools {
         self.mp.memory = (mb as u64) << 20;
     }
 
-    pub fn crs_form(&mut self, ui: &mut egui::Ui, t: &Tokens, inputs: &[PathBuf]) {
-        ui.label(egui::RichText::new("Da a las nubes cargadas que no tienen sistema de coordenadas el de otra nube, o un código EPSG. Se escribe una copia nueva (…_crs); los puntos no cambian.").color(t.weak).size(11.0));
+    pub fn crs_form(&mut self, ui: &mut egui::Ui, _t: &Tokens, inputs: &[PathBuf]) {
         for p in inputs {
             let has = Reader::open(p)
                 .ok()

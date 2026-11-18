@@ -206,15 +206,9 @@ impl FoundPath {
             }
         });
         if self.text.trim().is_empty() {
-            ui.colored_label(
-                egui::Color32::from_rgb(230, 160, 60),
-                format!("No hay {what} de esta nube: genéralo antes o elige uno a mano."),
-            );
+            crate::procwin::note(format!("No hay {what} de esta nube: genéralo antes o elige uno a mano."));
         } else if !Path::new(self.text.trim()).exists() {
-            ui.colored_label(
-                egui::Color32::from_rgb(230, 90, 70),
-                "El archivo no existe.",
-            );
+            crate::procwin::note(format!("{what}: el archivo no existe."));
         } else if !self.manual {
             ui.label(
                 egui::RichText::new(format!("{what} de esta nube (automático)"))
@@ -730,6 +724,37 @@ fn axelsson_fields(ui: &mut egui::Ui, p: &mut AxelssonParams) {
     );
 }
 
+/// La descripción de lo que hace cada herramienta: lo primero que se lee en su ventana.
+fn describe(tool: ToolId) -> &'static str {
+    match tool {
+        ToolId::Classify => "Clasifica el ruido, el suelo y los edificios, y si se pide la vegetación, los cables y los postes, hoja a hoja y en paralelo por teselas, y escribe los puntos con su clase en una copia nueva. Las clases se aplican en un orden fijo (solape, ruido, suelo, edificios, carreteras y agua, vegetación, cables y postes, reglas) y cada paso solo ve lo que dejaron los anteriores. Las hojas no se unen: se clasifica una a una y cada una se escribe en su propio archivo. Se puede partir de una receta y guardar la propia.",
+        ToolId::Dtm => "Calcula el modelo digital del terreno (MDT) a partir de los puntos de suelo de la nube: una rejilla con la cota del suelo en cada celda, por promedio de las celdas, por TIN o por ponderación inversa de la distancia (IDW), con líneas de rotura opcionales y relleno de huecos. Hace falta que la nube tenga el suelo clasificado (clase 2): clasifícala antes si no lo tiene. Se escribe un GeoTIFF en el sistema de la nube, uno por hoja.",
+        ToolId::Chm => "Superficie de lo más alto que ve el sensor (copas, tejados). Con el MDT se resta y sale la altura sobre el suelo (CHM); sin él, la elevación absoluta (MDS).",
+        ToolId::Metrics => "Calcula métricas de altura y de densidad de la vegetación por celda a partir de las alturas sobre el suelo de los puntos: percentiles de altura, media, desviación y cobertura sobre una altura de corte, y si se piden las métricas de intensidad, por estratos y de estructura (huecos, índice de área foliar, complejidad vertical, base de la copa). Escribe una capa (shapefile) y/o una tabla (CSV) con una fila por celda. Hace falta un MDT de la nube para normalizar las alturas.",
+        ToolId::Trees => "Detecta los individuos y sus copas en un modelo de alturas (CHM) en cinco pasos: suavizado del CHM, búsqueda de las cimas (máximos locales o un archivo de ápices), delimitación de las copas (Dalponte y Coomes, Silva o cuencas), filtros y comprobación con un inventario de campo. Escribe los individuos como capa (shapefile) y/o tabla (CSV) y, si se pide, etiqueta los puntos de la nube con el número de cada uno.",
+        ToolId::Clip => "Corta las nubes por unidades de muestreo (parcelas) y calcula sus métricas. Las unidades pueden venir de un archivo vectorial, generarse al azar o en malla, o tomarse de los polígonos dibujados, y ser circulares o cuadradas. Escribe una nube por unidad, la capa con su ubicación si se generaron, y la tabla de métricas.",
+        ToolId::Export => "Saca los puntos a otro formato: LAZ, LAS, texto con las columnas que se elijan o shapefile 3D, con filtro por clases, uno de cada n puntos y, si se marca Normalizar, alturas sobre el suelo. Con puntos seleccionados en pantalla, exporta solo la selección.",
+        ToolId::Crs => "Da a las nubes cargadas que no tienen sistema de coordenadas el de otra nube, o un código EPSG. Se escribe una copia nueva (…_crs); los puntos no cambian.",
+        ToolId::Thin => "Reduce la densidad de la nube sin cambiar su extensión. Sirve para llevar a la misma densidad nubes de coberturas distintas (por ejemplo la primera y la tercera del PNOA) antes de compararlas. Se escribe una copia nueva por hoja (…_delgada_…); la original no cambia.",
+        ToolId::Tls => "Mide el diámetro del tronco a lo largo de todo el tronco en nubes de escáner terrestre, móvil o fotogramétrico, y estima el volumen de cada individuo con la fórmula de Smalian: V = (A₁ + A₂)/2 · L por cada troza, desde la altura de la base hasta donde el diámetro baja al diámetro de punta delgada. Cada nube es una hoja y da su propio resultado.",
+        ToolId::Dups => "Quita los puntos que están en el mismo sitio (x, y, z iguales). Marca los atributos que también deben coincidir para que dos puntos cuenten como repetidos. Se escribe una copia nueva (…_sin_duplicados).",
+        ToolId::Merge => "Une dos o más nubes en una nueva (…_unida). Sirve, por ejemplo, para juntar trozos que se extrajeron para editarlos. Las nubes pueden tener otra escala o sistema de coordenadas, pero el mismo formato de punto. Marca las nubes que se unen y qué hacer con los puntos que quedan repetidos (mismas x, y, z).",
+        ToolId::Compare => "Detección de cambios: escribe los puntos de la nube cargada que están a más de la distancia indicada de todos los puntos de la referencia (por ejemplo, la primera y la tercera cobertura del PNOA adelgazadas a la misma densidad). Da también la distancia media y la compleción.",
+        ToolId::Fit => "Mueve la nube cargada para que encaje con la de referencia (punto más cercano iterativo, ICP) y escribe una copia (…_ajustada). Usa los últimos retornos de ambas.",
+        ToolId::Swath => "Diferencia de altura entre pasadas de vuelo: por celda, la mayor distancia entre las elevaciones medias de las pasadas (ID de fuente) que la cubren. Se guarda un ráster (…_pasadas) y se da el porcentaje de celdas que pasa de 8 y 16 cm.",
+        ToolId::FlightLines => "Encuentra las líneas de vuelo de una nube aérea por los huecos en el tiempo GPS: el avión vuela una línea, gira decenas de segundos sin registrar y vuela la siguiente. Da cuántas líneas hay, cuándo, cuántos puntos y dónde. Con varias nubes, el tiempo cuenta para todas juntas. Hace falta una nube con tiempo GPS (formatos de punto 1 y 3 en adelante). Si el tiempo es de semana (no ajustado) y el vuelo cruza el domingo a medianoche, se avisa y no se corrige.",
+        ToolId::VDensity => "Densidad de puntos con celdas de Voronoi, para el control de calidad: en cada celda del ráster, n / suma de las áreas de Voronoi de sus puntos, que no depende de por dónde caiga el borde de la celda. Las celdas de Voronoi mayores que el límite son huecos de datos (agua, tejados sin retorno) y no cuentan para la densidad; su área se da aparte. Se guarda el ráster de densidad, el de cumple / no cumple y una tabla con la media, la mediana, los percentiles 5 y 95 y el porcentaje que llega al umbral.",
+        ToolId::IntensityImage => "Imagen en tonos de gris de la nube: en cada celda, la intensidad media de sus puntos, como GeoTIFF en el sistema de la nube. Las celdas sin puntos se rellenan con las vecinas hasta el número de celdas indicado; los huecos mayores (agua, falta de pasada) quedan transparentes, y la imagen se recorta a los datos. La intensidad se corrige por el ángulo de escaneo (la señal cae con el cuadrado de la distancia al sensor, así que los bordes de pasada salen oscuros) y se guarda como imagen de 8 bits, con una sola escala de tonos para todas las hojas (del percentil 2 al 98), de modo que se unen sin saltos. Con los primeros retornos la imagen es más nítida, y una celda de 2 a 4 veces la separación media de los puntos deja pocos huecos.",
+        ToolId::Volume => "Volumen entre una superficie y el terreno, celda a celda: V = Σ (altura de la superficie − MDT) · celda². Las celdas por encima del MDT suman al volumen sobre él y las que quedan por debajo, al volumen bajo él (vaciados). Con un CHM las alturas ya son sobre el suelo y no hace falta MDT. Todas las hojas dan una sola tabla (.csv); busca los rásteres de esa nube en su carpeta de resultados.",
+        ToolId::Hag => "Calcula la altura de cada punto sobre el suelo a partir de los puntos de suelo que ya tiene la nube (clasifícala antes si no los tiene): una TIN de esos puntos da el suelo bajo cada punto. No hace falta un MDT aparte. Se escribe una copia nueva (…_alturas).",
+        ToolId::Colorize => "Da a cada punto el color del píxel de una imagen del mismo sitio (una ortofoto PNOA, por ejemplo): rojo, verde y azul, y el infrarrojo si la nube es de formato 8 y la imagen tiene esa banda. La imagen debe estar en el mismo sistema de coordenadas que la nube. Las nubes sin color (formatos 0, 1 y 6) se guardan en formato 7. Se escribe una copia nueva (…_rgb).",
+        ToolId::Intensity => "La intensidad cae con el cuadrado de la distancia al escáner: la misma superficie sale más oscura en el borde de una pasada o desde una pasada más alta. Se corrige multiplicando por (R / R_ref)^a (Höfle y Pfeifer, 2007). R sale de la trayectoria del vuelo (lo más exacto) o, si no la tienes, de la altura de vuelo y el ángulo de escaneo. Se escribe una copia nueva (…_intensidad).",
+        ToolId::ClipPoly => "Recorta la nube (o las nubes) con los polígonos de una capa: se queda lo que cae dentro. Con varios polígonos puedes obtener una nube por cada uno o una sola ajustada al perímetro de todos. El búfer deja una zona de seguridad alrededor del perímetro (negativo: lo estrecha). Se escribe una copia nueva (…_recorte…); la original no cambia.",
+        ToolId::Propagate => "Copia la clase de una nube ya clasificada (por ejemplo, una versión adelgazada) a los puntos de la nube cargada, que es más densa: cada punto toma la clase del punto de referencia más cercano, y los que no tienen ninguno a menos del radio conservan la suya. Se escribe una copia nueva (…_propagada).",
+        ToolId::EditLayers => "Borra o reclasifica los puntos de la nube cargada que están dentro de polígonos o a cierta distancia de líneas (ejes, caminos, cauces), con filtros de clase y de cota. Se escribe una copia nueva (…_editada); el original no se toca.",
+    }
+}
+
 pub fn num(
     ui: &mut egui::Ui,
     label: &str,
@@ -1097,51 +1122,30 @@ impl Tools {
                     run = true;
                     self.autorun = false;
                 }
-                // la entrada, por su nombre: la ruta completa está en la ayuda emergente
-                match &first {
-                    Some(f) => {
-                        let name = f
-                            .file_name()
-                            .map_or(String::new(), |n| n.to_string_lossy().into_owned());
-                        let text = if inputs.len() > 1 {
-                            format!("Entrada: {name} y {} más", inputs.len() - 1)
-                        } else {
-                            format!("Entrada: {name}")
-                        };
-                        ui.label(egui::RichText::new(text).strong())
-                            .on_hover_text(f.display().to_string());
-                    }
-                    None => {
-                        ui.label(
-                            egui::RichText::new("Abre primero una nube LAS/LAZ.").color(t.weak),
-                        );
-                    }
+                // lo primero, qué hace la herramienta; debajo, los avisos
+                crate::procwin::begin(ui, t.weak, describe(tool));
+                if first.is_none() {
+                    crate::procwin::note("Abre primero una nube LAS/LAZ.");
                 }
-                ui.horizontal(|ui| {
-                    ui.label("Guardar en");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.out_dir)
-                            .hint_text("carpeta de resultados (vacío: junto a cada nube)")
-                            .desired_width(300.0),
-                    );
-                    if ui.button("…").clicked()
-                        && let Some(d) = crate::prefs::dialog()
-                            .set_title("Carpeta donde guardar los resultados")
-                            .pick_folder()
-                    {
-                        self.out_dir = d.display().to_string();
-                    }
-                    if !self.out_dir.is_empty() && ui.button("auto").clicked() {
-                        self.out_dir.clear();
-                    }
-                });
-                ui.separator();
+                if let Some(n) = &self.s2.sel_note {
+                    crate::procwin::note(n.clone());
+                }
+                // la entrada, por su nombre: la ruta completa está en la ayuda emergente
+                if let Some(f) = &first {
+                    let name = f
+                        .file_name()
+                        .map_or(String::new(), |n| n.to_string_lossy().into_owned());
+                    let text = if inputs.len() > 1 {
+                        format!("Entrada: {name} y {} más", inputs.len() - 1)
+                    } else {
+                        format!("Entrada: {name}")
+                    };
+                    ui.label(egui::RichText::new(text).strong())
+                        .on_hover_text(f.display().to_string());
+                }
                 egui::ScrollArea::vertical()
                     .max_height(ctx.content_rect().height() - 360.0)
                     .show(ui, |ui| {
-                        if let Some(n) = &self.s2.sel_note {
-                            ui.colored_label(egui::Color32::from_rgb(0, 220, 220), n.clone());
-                        }
                         ui.add_space(4.0);
                         match tool {
                             ToolId::Classify => self.classify_form(ui, t, inputs),
@@ -1171,37 +1175,21 @@ impl Tools {
                             ToolId::Export => self.export_form(ui),
                         }
                     });
-                // el botón de ejecutar, solo al pie, como acción principal de la ventana
-                ui.separator();
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let go = egui::Button::new(
-                        egui::RichText::new("▶  Ejecutar")
-                            .strong()
-                            .color(egui::Color32::WHITE),
-                    )
-                    .fill(t.accent)
-                    .min_size(egui::vec2(120.0, 30.0));
-                    let merge_ok = tool != ToolId::Merge || self.merge_chosen(inputs).len() >= 2;
-                    if ui
-                        .add_enabled(!busy && first.is_some() && merge_ok, go)
-                        .on_disabled_hover_text(if busy {
-                            "Hay un proceso en marcha"
-                        } else if !merge_ok {
-                            "Elige dos o más nubes"
-                        } else {
-                            "Abre primero una nube"
-                        })
-                        .clicked()
-                    {
-                        run = true;
-                    }
-                    if busy {
-                        if ui.button("■ Detener y borrar lo parcial").clicked() {
-                            self.s2.stop = true;
-                        }
-                        ui.spinner();
-                    }
-                });
+                // dónde guardar y el botón de ejecutar, al pie, como en toda ventana de proceso
+                let merge_ok = tool != ToolId::Merge || self.merge_chosen(inputs).len() >= 2;
+                let why = if !merge_ok { "Elige dos o más nubes" } else { "Abre primero una nube" };
+                if crate::procwin::footer(
+                    ui,
+                    &mut self.out_dir,
+                    t.accent,
+                    "Ejecutar",
+                    first.is_some() && merge_ok,
+                    busy,
+                    why,
+                    &mut self.s2.stop,
+                ) {
+                    run = true;
+                }
             });
         if self.confirm == Some(tool) {
             egui::Window::new("El archivo ya existe")

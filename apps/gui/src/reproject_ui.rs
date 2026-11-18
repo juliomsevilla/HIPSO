@@ -139,21 +139,14 @@ impl App {
             .map(|r| (r.name.clone(), r.path.clone()))
             .collect();
         let weak = self.tokens().weak;
-        let red = egui::Color32::from_rgb(200, 60, 40);
         let mut open = true;
         let accent = self.tokens().accent;
         let mut go = false;
         crate::procwin::window(ctx, "Reproyectar")
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut self.tools.out_dir);
-                ui.separator();
                 let t = &mut self.rp;
-                ui.label(
-                    egui::RichText::new("Pasa nubes (LAS/LAZ) y rásteres a otro sistema de coordenadas y, si lo pides, cambia la referencia vertical de las alturas (por ejemplo, de elipsoidales a ortométricas con el modelo de geoide). Cada resultado es un archivo nuevo; los originales no se tocan. Si una transformación no puede hacerse con precisión (falta una rejilla o el punto cae fuera de su cobertura) se rechaza con un error, salvo que aceptes aproximaciones.")
-                        .color(weak)
-                        .size(11.0),
-                );
+                crate::procwin::begin(ui, weak, "Pasa nubes (LAS/LAZ) y rásteres a otro sistema de coordenadas y, si lo pides, cambia la referencia vertical de las alturas (por ejemplo, de elipsoidales a ortométricas con el modelo de geoide). Cada resultado es un archivo nuevo; los originales no se tocan. Si una transformación no puede hacerse con precisión (falta una rejilla o el punto cae fuera de su cobertura) se rechaza con un error, salvo que aceptes aproximaciones.");
                 ui.horizontal(|ui| {
                     ui.label("Archivos");
                     if ui.button("Añadir archivos…").clicked()
@@ -202,7 +195,7 @@ impl App {
                         if let Ok(v) = &vertical
                             && let Some(m) = t.problem(f, v)
                         {
-                            ui.label(egui::RichText::new(format!("      {m}")).color(red).size(11.0));
+                            crate::procwin::note(format!("{}: {m}", paths::stem(p)));
                         }
                     }
                 });
@@ -295,12 +288,12 @@ impl App {
                 let problems = match &vertical {
                     Ok(v) => t.inputs.iter().any(|(_, f)| t.problem(f, v).is_some()),
                     Err(m) => {
-                        ui.label(egui::RichText::new(m).color(red).size(11.0));
+                        crate::procwin::note(m.clone());
                         true
                     }
                 };
                 let ready = to_ok && !t.inputs.is_empty() && !problems;
-                if crate::procwin::run_bar(ui, accent, "Reproyectar", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
+                if crate::procwin::footer(ui, &mut self.tools.out_dir, accent, "Reproyectar", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

@@ -268,15 +268,12 @@ impl App {
             .map(|r| (r.name.clone(), r.path.clone()))
             .collect();
         let weak = self.tokens().weak;
-        let red = egui::Color32::from_rgb(200, 60, 40);
         let mut open = true;
         let accent = self.tokens().accent;
         let mut go = false;
         crate::procwin::window(ctx, self.ro[i].op.label())
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut self.tools.out_dir);
-                ui.separator();
                 let t = &mut self.ro[i];
                 let help = match t.op {
                     Op::Sieve => "Quita los parches pequeños de un ráster de clases: las celdas conexas de un mismo valor que son menos que el umbral toman el valor del parche vecino más grande. Las celdas vacías no se tocan.",
@@ -287,7 +284,7 @@ impl App {
                     Op::Clip => "Deja vacío lo que cae fuera de una máscara y, si quieres, corta el ráster a la caja de la máscara. La máscara puede ser una capa de polígonos o otro ráster (se conservan las celdas donde tiene datos distintos de cero). Las celdas son las del ráster original: no se remuestrea nada.",
                     Op::Fill => "Rellena las celdas vacías con las celdas con valor de alrededor, ponderadas por el inverso del cuadrado de la distancia en ocho direcciones. Lo que no tiene ninguna a su alcance sigue vacío.",
                 };
-                ui.label(egui::RichText::new(help).color(weak).size(11.0));
+                crate::procwin::begin(ui, weak, help);
                 if t.op != Op::Calc {
                 ui.horizontal(|ui| {
                     ui.label("Ráster");
@@ -578,9 +575,9 @@ impl App {
                     problem = Some("El archivo no existe.".into());
                 }
                 if let Some(m) = &problem {
-                    ui.label(egui::RichText::new(m).color(red).size(11.0));
+                    crate::procwin::note(m.clone());
                 }
-                if crate::procwin::run_bar(ui, accent, "Ejecutar", problem.is_none(), self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
+                if crate::procwin::footer(ui, &mut self.tools.out_dir, accent, "Ejecutar", problem.is_none(), self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

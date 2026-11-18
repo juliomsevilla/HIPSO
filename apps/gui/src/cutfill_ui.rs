@@ -68,14 +68,8 @@ impl App {
         crate::procwin::window(ctx, "Desmonte y terraplén")
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut self.tools.out_dir);
-                ui.separator();
                 let t = &mut self.cf;
-                ui.label(
-                    egui::RichText::new("Calcula la tierra que hay que quitar (desmonte) y la que hay que añadir (terraplén) para llevar un terreno existente a un diseño. La diferencia es diseño menos terreno: positiva es terraplén, negativa es desmonte. Las diferencias de hasta la tolerancia cuentan como sin cambio. Metros y sistema métrico.")
-                        .color(weak)
-                        .size(11.0),
-                );
+                crate::procwin::begin(ui, weak, "Calcula la tierra que hay que quitar (desmonte) y la que hay que añadir (terraplén) para llevar un terreno existente a un diseño. La diferencia es diseño menos terreno: positiva es terraplén, negativa es desmonte. Las diferencias de hasta la tolerancia cuentan como sin cambio. Metros y sistema métrico.");
                 crate::pick::raster(ui, "Terreno existente", &mut t.existing, &rasters);
                 ui.separator();
                 ui.label("Diseño");
@@ -119,12 +113,12 @@ impl App {
                 let plane_ok = t.kind != DesignKind::Plane
                     || (number(&t.origin_x).is_some() && number(&t.origin_y).is_some());
                 if !plane_ok {
-                    ui.label(egui::RichText::new("Escribe las coordenadas X e Y del origen del plano.").color(weak).size(11.0));
+                    crate::procwin::note("Escribe las coordenadas X e Y del origen del plano.");
                 }
                 let ready = t.existing.is_some()
                     && (t.kind != DesignKind::Surface || t.design.is_some())
                     && plane_ok;
-                if crate::procwin::run_bar(ui, accent, "Calcular", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
+                if crate::procwin::footer(ui, &mut self.tools.out_dir, accent, "Calcular", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

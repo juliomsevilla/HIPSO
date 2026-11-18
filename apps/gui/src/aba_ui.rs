@@ -259,8 +259,6 @@ impl App {
         crate::procwin::window(ctx, "Modelos lineales")
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut self.tools.out_dir);
-                ui.separator();
                 let t = &mut self.mo;
                 // el botón se queda arriba, sea como sea el formulario de debajo
                 let missing = if t.plots.trim().is_empty() {
@@ -281,32 +279,13 @@ impl App {
                     t.autorun = false;
                     go = true;
                 }
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(missing.is_empty() && !busy, crate::procwin::primary("Ajustar y validar", accent))
-                        .clicked()
-                    {
-                        go = true;
-                    }
-                    if t.diag.is_some() && ui.button("Gráficas").on_hover_text("Gráficas de diagnóstico del último modelo").clicked() {
-                        t.diag_open = true;
-                    }
-                    if busy {
-                        ui.spinner();
-                        ui.label("Hay otro proceso en marcha: espera a que termine");
-                    } else if !missing.is_empty() {
-                        ui.colored_label(egui::Color32::from_rgb(230, 160, 60), missing);
-                    }
-                });
-                ui.separator();
+                crate::procwin::begin(ui, weak, "Un modelo lineal relaciona una variable medida en campo (volumen, área basimétrica, biomasa…) con las métricas LiDAR de las mismas unidades de muestreo y, si se quiere, dibuja su mapa. Se ajusta una regresión lineal y se valida dejando fuera una unidad de muestreo cada vez, repitiendo la elección de métricas: esa es la cifra de error que cabe esperar en unidades de muestreo nuevas. Hacen falta al menos unas 20 unidades de muestreo; con menos, el resultado es muy inestable.");
+                if !missing.is_empty() {
+                    crate::procwin::note(missing);
+                }
                 egui::ScrollArea::vertical()
                     .max_height((ctx.content_rect().height() - 200.0).max(220.0))
                     .show(ui, |ui| {
-                ui.label(
-                    egui::RichText::new("Un modelo lineal relaciona una variable medida en campo (volumen, área basimétrica, biomasa…) con las métricas LiDAR de las mismas unidades de muestreo y, si se quiere, dibuja su mapa. Se ajusta una regresión lineal y se valida dejando fuera una unidad de muestreo cada vez, repitiendo la elección de métricas: esa es la cifra de error que cabe esperar en unidades de muestreo nuevas. Hacen falta al menos unas 20 unidades de muestreo; con menos, el resultado es muy inestable.")
-                        .color(weak)
-                        .size(11.0),
-                );
                 ui.horizontal(|ui| {
                     ui.label("Capa de unidades de muestreo con métricas");
                     ui.add(egui::TextEdit::singleline(&mut t.plots).desired_width(330.0));
@@ -444,7 +423,7 @@ impl App {
                             ui.label(format!("Con el logaritmo: Shapiro–Wilk {}", line(l)));
                         }
                         for a in &sc.advice {
-                            ui.colored_label(egui::Color32::from_rgb(230, 160, 60), a);
+                            crate::procwin::note(a.clone());
                         }
                         let ticked = t.cand_on.iter().filter(|b| **b).count();
                         let most = (sc.response.n / 10).clamp(2, 5);
@@ -458,7 +437,7 @@ impl App {
                             }
                         });
                         if ticked > most {
-                            ui.colored_label(egui::Color32::from_rgb(230, 160, 60), format!("Con {} unidades de muestreo, más de {most} variables arriesga el sobreajuste.", sc.response.n));
+                            crate::procwin::note(format!("Con {} unidades de muestreo, más de {most} variables arriesga el sobreajuste.", sc.response.n));
                         }
                         egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
                             egui::Grid::new("mo_cands").striped(true).show(ui, |ui| {
@@ -506,7 +485,8 @@ impl App {
                     ui.checkbox(&mut t.interval, "Guardar también el intervalo de predicción del 95 % (semiancho)");
                     ui.checkbox(&mut t.extrapolate, "Estimar también las celdas fuera del rango de las unidades de muestreo");
                     ui.label(egui::RichText::new("Por defecto esas celdas quedan vacías: el modelo no ha visto nada similar y extrapolar da cifras sin respaldo.").color(weak).size(11.0));
-                    if !t.out_manual {
+                    t.out_manual = false;
+                    {
                         t.out = if t.plots.trim().is_empty() {
                             String::new()
                         } else {
@@ -515,20 +495,19 @@ impl App {
                             paths::unique_with(&paths::product(&p, &format!("mapa_{resp}"), "tif"), hipso_core::aba::COMPANIONS).display().to_string()
                         };
                     }
-                    ui.horizontal(|ui| {
-                        ui.label("Mapa");
-                        if ui.add(egui::TextEdit::singleline(&mut t.out).desired_width(430.0)).changed() {
-                            t.out_manual = true;
-                        }
-                        if t.out_manual && ui.button("auto").clicked() {
-                            t.out_manual = false;
-                        }
-                    });
                 } else if !t.plots.trim().is_empty() {
                     let p = PathBuf::from(t.plots.trim());
                     t.out = p.with_file_name("modelo.tif").display().to_string();
                 }
                     });
+                if t.diag.is_some()
+                    && ui.button("Gráficas").on_hover_text("Gráficas de diagnóstico del último modelo").clicked()
+                {
+                    t.diag_open = true;
+                }
+                if crate::procwin::footer(ui, &mut self.tools.out_dir, accent, "Ajustar y validar", missing.is_empty(), busy, missing, &mut self.tools.s2.stop) {
+                    go = true;
+                }
             });
         if go {
             let job = self.mo.job();

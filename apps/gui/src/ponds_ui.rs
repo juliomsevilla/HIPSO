@@ -97,14 +97,8 @@ impl App {
         crate::procwin::window(ctx, "Zonas encharcadas")
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut self.tools.out_dir);
-                ui.separator();
                 let t = &mut self.pt;
-                ui.label(
-                    egui::RichText::new("Delimita donde se queda el agua en un MDT: se rellenan las depresiones hasta su punto de desborde y cada mancha de agua más honda que el mínimo es un charco, con su área, profundidad, volumen y cota de desborde. Metros y sistema métrico (UTM).")
-                        .color(weak)
-                        .size(11.0),
-                );
+                crate::procwin::begin(ui, weak, "Delimita donde se queda el agua en un MDT: se rellenan las depresiones hasta su punto de desborde y cada mancha de agua más honda que el mínimo es un charco, con su área, profundidad, volumen y cota de desborde. Metros y sistema métrico (UTM).");
                 ui.horizontal(|ui| {
                     ui.label("MDT");
                     ui.label(t.input.as_deref().map_or("(elige un MDT)".to_string(), paths::stem));
@@ -181,7 +175,7 @@ impl App {
                 });
                 let ready = t.input.is_some()
                     && (t.raster || t.depth_raster || t.shp || t.gpkg);
-                if crate::procwin::run_bar(ui, accent, "Delimitar charcos", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
+                if crate::procwin::footer(ui, &mut self.tools.out_dir, accent, "Delimitar charcos", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

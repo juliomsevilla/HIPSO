@@ -791,10 +791,10 @@ impl App {
         crate::procwin::window(ctx, "Índices espectrales")
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut self.tools.out_dir);
-                ui.separator();
+                let weak = self.tokens().weak;
+                crate::procwin::begin(ui, weak, "Calcula un índice espectral (NDVI, NDWI y otros) con las bandas de una imagen multibanda: se elige qué banda es cada una (rojo, verde, azul, infrarrojo cercano, infrarrojo de onda corta) y una expresión sobre ellas. El resultado se añade al mapa como una capa nueva de índice y, si se quiere, se guarda después como GeoTIFF.");
                 if images.is_empty() {
-                    ui.label("Carga una imagen multibanda (GeoTIFF) con «Abrir».");
+                    crate::procwin::note("Carga una imagen multibanda (GeoTIFF) con «Abrir».");
                     return;
                 }
                 if !images.contains(&self.rs.layer) {
@@ -868,15 +868,19 @@ impl App {
                         }
                     }
                 });
-                if ui.add(crate::procwin::primary("Calcular índice", accent)).clicked() {
-                    self.compute_index(ctx);
-                }
                 if let Some((name, _)) = &self.rs.last {
                     ui.label(format!("Último: {name}"));
                     if ui.button("Guardar como GeoTIFF…").clicked() {
                         self.save_index();
                     }
                 }
+                ui.separator();
+                crate::procwin::end(ctx);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.add(crate::procwin::primary("Calcular índice", accent)).clicked() {
+                        self.compute_index(ctx);
+                    }
+                });
             });
         self.rs.open = open;
     }

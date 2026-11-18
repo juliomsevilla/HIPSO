@@ -61,14 +61,8 @@ impl App {
         crate::procwin::window(ctx, "Corredores eléctricos")
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut self.tools.out_dir);
-                ui.separator();
                 let t = &mut self.co;
-                ui.label(
-                    egui::RichText::new("Reconstruye los conductores con los puntos de cable (clase 14), localiza los postes (clase 15) y marca la vegetación que queda más cerca del conductor que la distancia de seguridad o que podría alcanzarlo si cayera. Clasifica antes «Cables y postes» en Clasificar. El resultado trae un informe por vano.")
-                        .color(weak)
-                        .size(11.0),
-                );
+                crate::procwin::begin(ui, weak, "Reconstruye los conductores con los puntos de cable (clase 14), localiza los postes (clase 15) y marca la vegetación que queda más cerca del conductor que la distancia de seguridad o que podría alcanzarlo si cayera. Clasifica antes «Cables y postes» en Clasificar. El resultado trae un informe por vano.");
                 if clouds.is_empty() {
                     ui.label("Abre una o varias nubes ya clasificadas (cables y postes).");
                 } else {
@@ -141,7 +135,7 @@ impl App {
                 });
                 let have_dtm = t.dtm.is_some() || clouds.first().and_then(|c| paths::find_dtm(c)).is_some();
                 let ready = !clouds.is_empty() && have_dtm && !t.out.trim().is_empty() && ClassSel::parse(&t.vegetation).is_ok();
-                if crate::procwin::run_bar(ui, accent, "Calcular", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
+                if crate::procwin::footer(ui, &mut self.tools.out_dir, accent, "Calcular", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

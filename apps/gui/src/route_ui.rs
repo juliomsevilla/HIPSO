@@ -87,14 +87,8 @@ impl App {
         crate::procwin::window(ctx, "Ruta de menor coste")
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut self.tools.out_dir);
-                ui.separator();
                 let t = &mut self.rt_route;
-                ui.label(
-                    egui::RichText::new("Busca el camino más barato sobre un MDT entre un origen y un destino, con paradas si se quiere. Se mueve por las ocho celdas vecinas, así que sigue algo la retícula (hasta un 8 % más larga que la recta). Da la ruta como una línea 3D con su longitud, pendientes, subida y bajada. Metros y sistema métrico; las coordenadas son las del mapa.")
-                        .color(weak)
-                        .size(11.0),
-                );
+                crate::procwin::begin(ui, weak, "Busca el camino más barato sobre un MDT entre un origen y un destino, con paradas si se quiere. Se mueve por las ocho celdas vecinas, así que sigue algo la retícula (hasta un 8 % más larga que la recta). Da la ruta como una línea 3D con su longitud, pendientes, subida y bajada. Metros y sistema métrico; las coordenadas son las del mapa.");
                 crate::pick::raster(ui, "MDT", &mut t.dtm, &rasters);
                 ui.separator();
                 ui.horizontal(|ui| {
@@ -155,7 +149,7 @@ impl App {
                     && via_ok
                     && to_ok
                     && (t.model != Model::Raster || t.cost_raster.is_some());
-                if crate::procwin::run_bar(ui, accent, "Buscar la ruta", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
+                if crate::procwin::footer(ui, &mut self.tools.out_dir, accent, "Buscar la ruta", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

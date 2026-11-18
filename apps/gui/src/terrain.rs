@@ -115,14 +115,8 @@ impl App {
         crate::procwin::window(ctx, self.tt[i].product.name())
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut self.tools.out_dir);
-                ui.separator();
                 let t = &mut self.tt[i];
-                ui.label(
-                    egui::RichText::new(format!("{} Se calcula sobre un MDT en un sistema métrico (UTM); el resultado es un GeoTIFF del mismo tamaño que el MDT.", help(t.product)))
-                        .color(weak)
-                        .size(11.0),
-                );
+                crate::procwin::begin(ui, weak, &format!("{} Se calcula sobre un MDT en un sistema métrico (UTM); el resultado es un GeoTIFF del mismo tamaño que el MDT.", help(t.product)));
                 ui.horizontal(|ui| {
                     ui.label("MDT");
                     let shown = t.input.as_deref().map_or("(elige un MDT)".to_string(), paths::stem);
@@ -230,7 +224,7 @@ impl App {
                     ui.label(egui::RichText::new("Escribe las coordenadas X e Y del observador (las del mapa).").color(weak).size(11.0));
                 }
                 let ready = t.input.is_some() && observer_ok;
-                if crate::procwin::run_bar(ui, accent, "Calcular", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
+                if crate::procwin::footer(ui, &mut self.tools.out_dir, accent, "Calcular", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

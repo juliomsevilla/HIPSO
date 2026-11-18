@@ -67,18 +67,12 @@ impl App {
         crate::procwin::window(ctx, title)
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut self.tools.out_dir);
-                ui.separator();
                 let rt = &mut self.rt;
-                ui.label(
-                    egui::RichText::new(if mode == 0 {
+                crate::procwin::begin(ui, weak, if mode == 0 {
                         "Cada banda de cada ráster de la lista pasa a ser una banda de la imagen nueva, en el orden de la lista (como apilar canales sueltos R, G, B, NIR en un solo archivo). En «Bandas» se pueden elegir las de cada ráster (por ejemplo 1,3); vacío = todas."
                     } else {
                         "Une rásteres que se tocan o se solapan en uno solo. Dónde hay píxeles de varios, el valor sale de la regla elegida. Todos deben tener el mismo número de bandas."
-                    })
-                    .color(weak)
-                    .size(11.0),
-                );
+                    });
                 ui.horizontal(|ui| {
                     if ui.button("Añadir archivos…").clicked()
                         && let Some(v) = crate::prefs::dialog()
@@ -222,7 +216,7 @@ impl App {
                 });
                 ui.label(egui::RichText::new("La salida se escribe por franjas comprimidas (deflate), sin cargar las imágenes enteras.").color(weak).size(11.0));
                 let ready = !rt.files.is_empty() && !rt.out.trim().is_empty() && !(mode == 1 && rt.files.len() < 2);
-                if crate::procwin::run_bar(ui, accent, "Crear", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
+                if crate::procwin::footer(ui, &mut self.tools.out_dir, accent, "Crear", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

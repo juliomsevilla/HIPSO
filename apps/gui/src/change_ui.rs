@@ -106,14 +106,8 @@ impl App {
         crate::procwin::window(ctx, "Cambio de la cubierta vegetal")
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut self.tools.out_dir);
-                ui.separator();
                 let t = &mut self.ct;
-                ui.label(
-                    egui::RichText::new("Compara los modelos de alturas (CHM) de dos fechas: cuánto ha crecido o bajado cada celda, dónde se ha perdido o ganado cubierta vegetal, las manchas perturbadas, el resumen por unidad de gestión y el crecimiento de cada individuo. Los dos CHM deben coincidir celda a celda (Ráster → Igualar rásteres).")
-                        .color(weak)
-                        .size(11.0),
-                );
+                crate::procwin::begin(ui, weak, "Compara los modelos de alturas (CHM) de dos fechas: cuánto ha crecido o bajado cada celda, dónde se ha perdido o ganado cubierta vegetal, las manchas perturbadas, el resumen por unidad de gestión y el crecimiento de cada individuo. Los dos CHM deben coincidir celda a celda (Ráster → Igualar rásteres).");
                 pick_raster(ui, "CHM de la primera fecha", &mut t.before, &loaded);
                 pick_raster(ui, "CHM de la segunda fecha", &mut t.after, &loaded);
                 ui.horizontal(|ui| {
@@ -179,7 +173,7 @@ impl App {
                     }
                 });
                 let ready = t.before.is_some() && t.after.is_some() && !t.out.trim().is_empty() && (t.vector || t.csv);
-                if crate::procwin::run_bar(ui, accent, "Calcular", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
+                if crate::procwin::footer(ui, &mut self.tools.out_dir, accent, "Calcular", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

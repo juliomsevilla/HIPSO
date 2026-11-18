@@ -120,14 +120,8 @@ impl App {
         crate::procwin::window(ctx, "OBIA: análisis por objetos")
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut self.tools.out_dir);
-                ui.separator();
                 let t = &mut self.ot;
-                ui.label(
-                    egui::RichText::new("Agrupa las celdas en objetos (copas de árboles concretos, unidades de gestión, tejados…) a partir del CHM y de otras capas, los describe y, si quieres, los clasifica. Todas las capas deben coincidir celda a celda.")
-                        .color(weak)
-                        .size(11.0),
-                );
+                crate::procwin::begin(ui, weak, "Agrupa las celdas en objetos (copas de árboles concretos, unidades de gestión, tejados…) a partir del CHM y de otras capas, los describe y, si quieres, los clasifica. Todas las capas deben coincidir celda a celda.");
                 ui.horizontal(|ui| {
                     ui.label("CHM");
                     ui.label(t.chm.as_deref().map_or("(elige un CHM)".to_string(), paths::stem));
@@ -355,7 +349,7 @@ if t.autorun && ready && self.running.is_none() {
                     t.autorun = false;
                     go = true;
                 }
-                if crate::procwin::run_bar(ui, accent, "Calcular", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
+                if crate::procwin::footer(ui, &mut self.tools.out_dir, accent, "Calcular", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

@@ -141,14 +141,8 @@ impl App {
         crate::procwin::window(ctx, "Igualar rásteres")
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut self.tools.out_dir);
-                ui.separator();
                 let t = &mut self.at;
-                ui.label(
-                    egui::RichText::new("Pone varios rásteres sobre las celdas de uno de referencia (mismo origen, tamaño de celda y dimensiones), para poder apilarlos o usarlos juntos celda a celda, por ejemplo en el análisis por objetos. Cada ráster da un archivo nuevo; los originales no se tocan. Si un ráster está en otro sistema de coordenadas, se reproyecta al de la referencia; así un solo paso lo reproyecta, lo recorta o amplía a la extensión de la referencia y lo remuestrea a su celda.")
-                        .color(weak)
-                        .size(11.0),
-                );
+                crate::procwin::begin(ui, weak, "Pone varios rásteres sobre las celdas de uno de referencia (mismo origen, tamaño de celda y dimensiones), para poder apilarlos o usarlos juntos celda a celda, por ejemplo en el análisis por objetos. Cada ráster da un archivo nuevo; los originales no se tocan. Si un ráster está en otro sistema de coordenadas, se reproyecta al de la referencia; así un solo paso lo reproyecta, lo recorta o amplía a la extensión de la referencia y lo remuestrea a su celda.");
                 ui.horizontal(|ui| {
                     ui.label("Referencia");
                     ui.label(
@@ -245,7 +239,7 @@ impl App {
                         .color(weak)
                         .size(11.0),
                 );
-                if crate::procwin::run_bar(ui, accent, "Igualar", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
+                if crate::procwin::footer(ui, &mut self.tools.out_dir, accent, "Igualar", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });

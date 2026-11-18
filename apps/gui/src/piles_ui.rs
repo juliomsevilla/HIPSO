@@ -63,14 +63,8 @@ impl App {
         crate::procwin::window(ctx, "Cubicación de pilas")
             .open(&mut open)
             .show(ctx, |ui| {
-                crate::tools::output_row(ui, &mut self.tools.out_dir);
-                ui.separator();
                 let t = &mut self.pl;
-                ui.label(
-                    egui::RichText::new("Mide el material que hay sobre una superficie base dentro del contorno de cada pila: volumen, área en planta y sobre la pendiente, altura media y máxima y, con la densidad, la masa. El modelo de superficie (MDS) debe estar en un sistema métrico. El volumen se decide por el centro de cada celda: el error es del orden del perímetro por media celda por la altura del borde, y baja con celdas más finas.")
-                        .color(weak)
-                        .size(11.0),
-                );
+                crate::procwin::begin(ui, weak, "Mide el material que hay sobre una superficie base dentro del contorno de cada pila: volumen, área en planta y sobre la pendiente, altura media y máxima y, con la densidad, la masa. El modelo de superficie (MDS) debe estar en un sistema métrico. El volumen se decide por el centro de cada celda: el error es del orden del perímetro por media celda por la altura del borde, y baja con celdas más finas.");
                 crate::pick::raster(ui, "Modelo de superficie", &mut t.surface, &rasters);
                 crate::pick::vector(ui, "Contornos de las pilas", &mut t.piles, &vectors);
                 ui.separator();
@@ -114,7 +108,7 @@ impl App {
                 let ready = t.surface.is_some()
                     && t.piles.is_some()
                     && (t.kind != BaseKind::Dtm || t.dtm.is_some());
-                if crate::procwin::run_bar(ui, accent, "Cubicar", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
+                if crate::procwin::footer(ui, &mut self.tools.out_dir, accent, "Cubicar", ready, self.running.is_some(), "Faltan datos por elegir", &mut self.tools.s2.stop) {
                     go = true;
                 }
             });
