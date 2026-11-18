@@ -19,6 +19,9 @@ use crate::view::{Orbit, PointStore, ProfileBox, Projector, return_bit};
 use crate::{Error, Result};
 
 pub mod file;
+mod points;
+
+pub use points::PointSet;
 
 /// Dónde mira una operación de selección.
 #[derive(Clone, Debug)]
@@ -72,6 +75,10 @@ pub enum Region {
         lo: f64,
         hi: f64,
     },
+    /// Un conjunto de puntos dado por sus coordenadas: lo que elige la varita mágica, que decide
+    /// mirando a los vecinos de un punto y por eso lleva el resultado ya calculado. Véase
+    /// [`PointSet`].
+    Points(std::sync::Arc<PointSet>),
     /// Lo que elige una selección entera, construida con sus propios pasos. Es el foco de la
     /// edición: las ediciones hechas con un foco se limitan a él con una intersección con esta
     /// región.
@@ -469,6 +476,7 @@ impl SelOp {
                 let dz = p.z - surface_at(coef, dx / r, dy / r);
                 dz >= *lo && dz <= *hi
             }
+            Region::Points(set) => set.contains(p.x, p.y, p.z),
             Region::Within(ops) => selected(ops, p),
         }
     }
@@ -1529,6 +1537,34 @@ mod tests {
         let _ = std::fs::remove_file(&input);
         let _ = std::fs::remove_file(&out);
         assert_eq!((direct.read, direct.deleted, direct.written), (6, 3, 3));
+        assert_eq!(replay, direct);
+        Ok(())
+    }
+
+    #[test]
+    fn a_point_set_gives_the_same_answer_in_the_file_as_on_screen() -> Result<()> {
+        // seis puntos en x = 0…5, y = 0, z = 0; el conjunto toma los de x = 1 y 2, con el ruido de
+        // una coordenada que la vista guarda como f32
+        let bytes = las_with(&[(0, 1); 6]);
+        let id = std::process::id();
+        let dir = std::env::temp_dir();
+        let (input, out) = (
+            dir.join(format!("hipso_set_in_{id}.las")),
+            dir.join(format!("hipso_set_out_{id}.las")),
+        );
+        std::fs::write(&input, &bytes)?;
+        let set = PointSet::new([0.0; 3], [[1.0003, 0.0003, 0.0], [1.9997, -0.0003, 0.0]]);
+        let edit = Edit::new(
+            vec![op(Mode::New, Region::Points(std::sync::Arc::new(set)), Attr::default())],
+            Action::Delete,
+            "conjunto".into(),
+        );
+        let direct = save(&input, &out, std::slice::from_ref(&edit))?;
+        let restored = file::from_json(&file::to_json(&[edit]))?;
+        let replay = save(&input, &out, &restored)?;
+        let _ = std::fs::remove_file(&input);
+        let _ = std::fs::remove_file(&out);
+        assert_eq!((direct.read, direct.deleted, direct.written), (6, 2, 4));
         assert_eq!(replay, direct);
         Ok(())
     }

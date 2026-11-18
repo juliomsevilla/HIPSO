@@ -161,6 +161,23 @@ fn region_json(r: &Region) -> String {
                 num(*hi)
             )
         }
+        Region::Points(set) => {
+            let o = set.origin();
+            let mut keys = String::new();
+            for (n, k) in set.keys().iter().enumerate() {
+                if n > 0 {
+                    keys.push(',');
+                }
+                keys.push_str(&format!("{},{},{}", k[0], k[1], k[2]));
+            }
+            format!(
+                "{{\"type\":\"points\",\"origin\":[{},{},{}],\"keys\":[{}]}}",
+                num(o[0]),
+                num(o[1]),
+                num(o[2]),
+                keys
+            )
+        }
         Region::Within(ops) => format!("{{\"type\":\"within\",\"ops\":{}}}", ops_json(ops)),
     }
 }
@@ -417,6 +434,29 @@ fn region_of(j: &Json) -> Result<Region> {
                 lo: f64_of(field(j, "lo")?, "lo")?,
                 hi: f64_of(field(j, "hi")?, "hi")?,
             }
+        }
+        "points" => {
+            let o = arr_of(field(j, "origin")?, "origin")?;
+            if o.len() != 3 {
+                return Err(bad("el origen de un conjunto de puntos no tiene 3 coordenadas"));
+            }
+            let mut origin = [0.0; 3];
+            for (slot, v) in origin.iter_mut().zip(o) {
+                *slot = f64_of(v, "origin")?;
+            }
+            let flat = arr_of(field(j, "keys")?, "keys")?;
+            if flat.len() % 3 != 0 {
+                return Err(bad("las celdas de un conjunto de puntos no son múltiplo de 3"));
+            }
+            let mut keys = Vec::with_capacity(flat.len() / 3);
+            for c in flat.chunks_exact(3) {
+                let mut k = [0i32; 3];
+                for (slot, v) in k.iter_mut().zip(c) {
+                    *slot = f64_of(v, "keys")? as i32;
+                }
+                keys.push(k);
+            }
+            Region::Points(std::sync::Arc::new(super::PointSet::from_keys(origin, keys)))
         }
         "within" => Region::Within(ops_of(field(j, "ops")?)?),
         other => return Err(bad(&format!("región desconocida «{other}»"))),
@@ -687,6 +727,14 @@ mod tests {
                     lo: -1.0,
                     hi: f64::INFINITY,
                 },
+                Attr::default(),
+            ),
+            op(
+                Mode::Add,
+                Region::Points(std::sync::Arc::new(crate::edit::PointSet::new(
+                    [440_000.5, 4_400_000.25, 600.0],
+                    [[440_001.0, 4_400_002.0, 601.5], [440_003.25, 4_400_001.0, 600.0]],
+                ))),
                 Attr::default(),
             ),
             op(Mode::Intersect, Region::Within(inner), Attr::default()),

@@ -96,6 +96,14 @@ pub struct Editing {
     pub plane_tol: f64,
     pub plane_sigma: bool,
     pub plane_k: f64,
+    /// Ajuste de la varita mágica: alcance entre puntos enlazados (m), ángulo máximo entre planos
+    /// vecinos (grados), radio máximo en planta (m), si exige la misma clase que el punto pulsado
+    /// y cómo elige entre superficie y volumen.
+    pub wand_link: f64,
+    pub wand_angle: f64,
+    pub wand_radius: f64,
+    pub wand_class: bool,
+    pub wand_mode: hipso_core::wand::WandMode,
     /// Las selecciones en 3D alcanzan solo tantos metros a cada lado del plano del objetivo.
     pub slab: bool,
     pub slab_half: f64,
@@ -148,6 +156,11 @@ impl Default for Editing {
             plane_tol: 0.3,
             plane_sigma: false,
             plane_k: 2.5,
+            wand_link: 0.5,
+            wand_angle: 15.0,
+            wand_radius: 30.0,
+            wand_class: false,
+            wand_mode: hipso_core::wand::WandMode::Auto,
             slab: false,
             slab_half: 1.0,
             sel_rev: 0,
@@ -177,7 +190,7 @@ fn parse(s: &str) -> Option<f64> {
 }
 
 pub fn is_select(n: Nav) -> bool {
-    is_select_3d(n) || is_brush(n) || is_line(n) || n == Nav::SelPlane
+    is_select_3d(n) || is_brush(n) || is_line(n) || matches!(n, Nav::SelPlane | Nav::SelWand)
 }
 
 /// Las herramientas que funcionan también en la vista 3D: formas dibujadas en la pantalla. Los
@@ -478,6 +491,15 @@ impl App {
             }
             return;
         }
+        if self.nav == Nav::SelWand {
+            if resp.clicked_by(egui::PointerButton::Primary)
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                let c = to(p);
+                self.select_by_wand(ctx, c[0], c[1]);
+            }
+            return;
+        }
         let start = self.drag_start;
         if let Some(poly) =
             finished_shape(self.nav, resp, start, &mut self.ed.draft, &to, plan.scale)
@@ -497,18 +519,13 @@ impl App {
 
     /// «Plano local»: ajusta un plano (o una curva) a los puntos de la clase elegida que caen en un
     /// círculo alrededor de `(x, y)` y añade a la selección los que quedan por encima, por debajo o
-    /// cerca de él. Toma los puntos de la ventana de detalle si la tiene y el clic cae dentro, y del
-    /// almacén de la vista si no. La selección es una región (los coeficientes y la banda), no una
-    /// lista de puntos: el archivo guardado da lo mismo que se ve.
+    /// cerca de él. Trabaja con todos los puntos del archivo (véase
+    /// `full_density_around`). La selección es una región (los coeficientes y la banda), no una lista
+    /// de puntos: el archivo guardado da lo mismo que se ve.
     fn select_by_plane(&mut self, ctx: &egui::Context, x: f64, y: f64) {
         let r = self.ed.plane_r.max(0.01);
         let class = self.ed.plane_class;
-        let detail = self
-            .detail
-            .as_ref()
-            .filter(|d| x >= d.window[0] && x <= d.window[2] && y >= d.window[1] && y <= d.window[3])
-            .map(|d| d.store.clone());
-        let Some(store) = detail.or_else(|| self.store.clone()) else {
+        let Some(store) = self.full_density_around("Plano local", x, y, r * 1.05) else {
             return;
         };
         let live = |i: usize| {
@@ -553,6 +570,104 @@ impl App {
         self.queue(Cmd::AddOp(Box::new(op)));
     }
 
+    /// Los puntos de la zona a `reach` metros de `(x, y)` con toda su densidad, para las herramientas
+    /// que miran a los vecinos de un punto o ajustan una superficie y no pueden trabajar con la muestra
+    /// que dibuja la vista. Con la nube entera en el almacén es el propio almacén; si es una muestra,
+    /// se lee la ventana del COPC de la caché, y si esa copia aún no está lista se avisa y da `None`.
+    /// La lectura es del archivo sin editar: se le aplican las ediciones de la sesión (clases
+    /// cambiadas y puntos eliminados) y el foco, para ver lo mismo que el almacén de la vista.
+    fn full_density_around(
+        &mut self,
+        tool: &str,
+        x: f64,
+        y: f64,
+        reach: f64,
+    ) -> Option<Arc<PointStore>> {
+        let base = self.store.clone()?;
+        if base.stride <= 1 {
+            return Some(base);
+        }
+        if self.detail_src.is_empty() {
+            self.log(format!("{tool}: la nube mostrada es una muestra y aún se prepara la copia con todos los puntos. Espera a que el registro diga «Detalle al acercar listo» y vuelve a pulsar."));
+            return None;
+        }
+        let window = [x - reach, y - reach, x + reach, y + reach];
+        let read = hipso_core::copc_detail::load_detail(
+            &self.detail_src,
+            window,
+            30_000_000,
+            0.0,
+            base.origin,
+            &base.files,
+        );
+        let mut s = match read {
+            Ok(Some((s, _))) if !s.is_empty() => s,
+            Ok(_) => {
+                self.log(format!("{tool}: no hay puntos en esa zona del archivo."));
+                return None;
+            }
+            Err(e) => {
+                self.log(format!("{tool}: no se pudo leer la zona con todos los puntos: {e}"));
+                return None;
+            }
+        };
+        if let Some(ses) = &self.ed.session {
+            ses.apply_to(&mut s);
+        }
+        if let Some(f) = &self.ed.focus {
+            s.outside = hipso_core::edit::outside_focus(&s, &f.inner);
+        }
+        Some(Arc::new(s))
+    }
+
+    /// «Varita mágica»: selecciona los puntos conectados con el que está bajo el cursor y parecidos a
+    /// él (misma superficie, o mismo volumen en vegetación), a no más de un radio. Trabaja siempre
+    /// con todos los puntos del archivo: si la vista muestra una muestra de la nube, lee del COPC de
+    /// la caché la ventana alrededor del clic con toda su densidad, y si esa copia aún no está lista
+    /// no selecciona. Decide mirando a los vecinos, así que la edición lleva el conjunto ya
+    /// calculado (una región de puntos): al guardar, el archivo da lo mismo que se ve.
+    pub(crate) fn select_by_wand(&mut self, ctx: &egui::Context, x: f64, y: f64) {
+        let t = std::time::Instant::now();
+        let reach = self.ed.wand_radius.max(0.1) + 3.0 * self.ed.wand_link.max(0.02) + 1.0;
+        let Some(store) = self.full_density_around("Varita mágica", x, y, reach) else {
+            return;
+        };
+        let tol = 8.0 / self.plan.scale;
+        let Some(seed) = view::nearest_point(&store, &self.style, x, y, tol) else {
+            self.log("Varita mágica: no hay ningún punto visible bajo el cursor.");
+            return;
+        };
+        let prm = hipso_core::wand::WandParams {
+            mode: self.ed.wand_mode,
+            link: self.ed.wand_link.max(0.02),
+            normal_radius: self.ed.wand_link.max(0.02),
+            angle_tol: self.ed.wand_angle,
+            same_class: self.ed.wand_class,
+            max_radius: self.ed.wand_radius.max(0.1),
+            ..Default::default()
+        };
+        let style = self.style.clone();
+        let (found, surface) = hipso_core::wand::grow_in_store(
+            &store,
+            &|i| style.visible(&store, i),
+            seed,
+            &prm,
+        );
+        let set = hipso_core::edit::PointSet::new(store.origin, found.iter().map(|&i| store.xyz(i)));
+        self.log(format!(
+            "Varita mágica: {} puntos ({}) en {:.2} s.",
+            found.len(),
+            if surface { "superficie" } else { "volumen" },
+            t.elapsed().as_secs_f64()
+        ));
+        let op = SelOp {
+            mode: self.mode_now(ctx),
+            region: Region::Points(std::sync::Arc::new(set)),
+            attr: self.ed.attr.clone(),
+        };
+        self.queue(Cmd::AddOp(Box::new(op)));
+    }
+
     /// Dibuja la selección en curso sobre la planta.
     pub fn paint_plan_select(
         &self,
@@ -591,6 +706,19 @@ impl App {
                     (self.ed.plane_r * self.plan.scale) as f32,
                     c.gamma_multiply(0.10),
                     Stroke::new(1.5, c),
+                );
+            }
+            return;
+        }
+        if self.nav == Nav::SelWand {
+            // hasta dónde puede llegar la región desde el punto pulsado
+            if let Some(h) = resp.hover_pos() {
+                let c = Color32::from_rgb(0, 255, 255);
+                painter.circle(
+                    h,
+                    (self.ed.wand_radius * self.plan.scale) as f32,
+                    Color32::TRANSPARENT,
+                    Stroke::new(1.0, c.gamma_multiply(0.6)),
                 );
             }
             return;
@@ -1452,6 +1580,7 @@ impl App {
                                 ("@linenear", "Seleccionar lo que queda cerca de una línea del perfil", Nav::SelNear),
                                 ("@lineclass", "Clasificar de una vez sobre, cerca y bajo una línea del perfil", Nav::ClassLine),
                                 ("@planefit", "Seleccionar con plano local", Nav::SelPlane),
+                                ("@wand", "Varita mágica: selecciona los puntos conectados y parecidos al que pulses (planta)", Nav::SelWand),
                             ] {
                                 if ribbon::tool_button(ui, &t, icon, name, self.nav == n).clicked()
                                 {
@@ -1459,7 +1588,54 @@ impl App {
                                 }
                             }
                         });
-                        if self.nav == Nav::SelPlane {
+                        if self.nav == Nav::SelWand {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label("Alcance");
+                                ui.add(
+                                    egui::DragValue::new(&mut self.ed.wand_link)
+                                        .range(0.05..=20.0)
+                                        .speed(0.01)
+                                        .suffix(" m"),
+                                )
+                                .on_hover_text("Distancia máxima entre dos puntos enlazados, y radio con que se estima el plano de cada punto. Súbelo si la región se queda corta en zonas poco densas (vegetación); bájalo si es muy densa y va lenta.");
+                                ui.label("Ángulo");
+                                ui.add(
+                                    egui::DragValue::new(&mut self.ed.wand_angle)
+                                        .range(1.0..=89.0)
+                                        .speed(0.2)
+                                        .suffix("°"),
+                                )
+                                .on_hover_text("Cuánto puede girar el plano local de un punto a otro: la región se detiene en una arista o un escalón.");
+                            });
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label("Radio máximo");
+                                ui.add(
+                                    egui::DragValue::new(&mut self.ed.wand_radius)
+                                        .range(1.0..=2000.0)
+                                        .speed(0.5)
+                                        .suffix(" m"),
+                                )
+                                .on_hover_text("Hasta dónde puede crecer la región desde el punto pulsado, en planta. Acota el tiempo en nubes grandes.");
+                                ui.checkbox(&mut self.ed.wand_class, "Misma clase")
+                                    .on_hover_text("Solo entran los puntos de la misma clase que el pulsado. Desactivado, decide solo la forma: sirve para clasificar desde cero.");
+                            });
+                            ui.horizontal_wrapped(|ui| {
+                                use hipso_core::wand::WandMode;
+                                ui.radio_value(&mut self.ed.wand_mode, WandMode::Auto, "Auto")
+                                    .on_hover_text("Elige superficie o volumen según la forma del entorno del punto pulsado.");
+                                ui.radio_value(&mut self.ed.wand_mode, WandMode::Surface, "Superficie")
+                                    .on_hover_text("Sigue una superficie lisa (suelo, tejado, calzada) y se detiene en escalones y aristas.");
+                                ui.radio_value(&mut self.ed.wand_mode, WandMode::Volume, "Volumen")
+                                    .on_hover_text("Toma todo lo conectado a distancia de alcance (vegetación, cables).");
+                            });
+                            ui.label(
+                                egui::RichText::new(
+                                    "Clic en la planta: se selecciona lo conectado y parecido al punto pulsado. Mayús suma, Alt resta. Después, Cambiar clase o Eliminar. Trabaja siempre con todos los puntos del archivo, aunque la vista muestre una muestra.",
+                                )
+                                .size(11.0)
+                                .color(t.weak),
+                            );
+                        } else if self.nav == Nav::SelPlane {
                             ui.horizontal_wrapped(|ui| {
                                 ui.label("Radio");
                                 ui.add(

@@ -132,7 +132,7 @@ fn describe(nb: &[[f64; 3]]) -> Option<Features> {
 
 /// Autovector unitario del menor autovalor `l3` de una matriz simétrica: una dirección en el
 /// espacio nulo de `c − l3·I`, el mayor producto vectorial de dos de sus filas.
-fn smallest_direction(c: [[f64; 3]; 3], l3: f64) -> [f64; 3] {
+pub(crate) fn smallest_direction(c: [[f64; 3]; 3], l3: f64) -> [f64; 3] {
     let r = [
         [c[0][0] - l3, c[0][1], c[0][2]],
         [c[1][0], c[1][1] - l3, c[1][2]],

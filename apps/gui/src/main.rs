@@ -231,6 +231,8 @@ enum Nav {
     SelBelow,
     /// Selecciona respecto de un plano (o curva) ajustado a los puntos de suelo de un círculo.
     SelPlane,
+    /// Selecciona los puntos conectados y parecidos al que se pulsa (crecimiento de regiones).
+    SelWand,
     /// Selecciona lo que queda cerca de una línea del perfil.
     SelNear,
     /// Clasifica de una vez lo que queda sobre, cerca y bajo una línea del perfil.
@@ -259,6 +261,7 @@ impl Nav {
             Nav::SelAbove => "Seleccionar sobre una línea",
             Nav::SelBelow => "Seleccionar bajo una línea",
             Nav::SelPlane => "Seleccionar con plano local",
+            Nav::SelWand => "Varita mágica",
             Nav::SelNear => "Seleccionar cerca de una línea",
             Nav::ClassLine => "Clasificar a lo largo de una línea",
         }
@@ -2838,6 +2841,7 @@ impl App {
                 "Editar: seleccionar con plano local",
                 Action::Nav(Nav::SelPlane),
             ),
+            ("Editar: varita mágica", Action::Nav(Nav::SelWand)),
             ("Información de los datos", Action::Info),
             ("Clasificar puntos", Action::Tool(ToolId::Classify)),
             ("Asignar sistema de coordenadas", Action::Tool(ToolId::Crs)),
@@ -3998,7 +4002,8 @@ ui.menu_button("⚙", |ui| {
             | Nav::SelCircle
             | Nav::SelBrush
             | Nav::SelBrushSq
-            | Nav::SelPlane => {
+            | Nav::SelPlane
+            | Nav::SelWand => {
                 if store.is_some() {
                     self.plan_select(ctx, &resp, rect, w, h)
                 }

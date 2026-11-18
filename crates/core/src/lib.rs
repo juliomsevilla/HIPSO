@@ -108,6 +108,7 @@ pub mod view;
 pub mod viewshed;
 pub mod volume;
 pub mod voronoi;
+pub mod wand;
 pub mod xlsx;
 pub mod zonal;
 

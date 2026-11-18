@@ -925,3 +925,58 @@ fn the_generic_tool_window_draws_file_options_like_the_other_windows() {
     out.drop_without_applying_deltas();
     assert_eq!(args["inputs"].len(), 2, "dibujar no cambia lo elegido");
 }
+
+/// Un suelo a cota 0 con un tejado de 8×8 m a cota 5, en rejilla de 0,25 m.
+fn ground_and_roof() -> PointStore {
+    let mut s = PointStore {
+        stride: 1,
+        ..PointStore::default()
+    };
+    for i in 0..120 {
+        for j in 0..120 {
+            let (x, y) = (i as f32 * 0.25, j as f32 * 0.25);
+            let roof = (10.0..18.0).contains(&x) && (10.0..18.0).contains(&y);
+            s.x.push(x);
+            s.y.push(y);
+            s.z.push(if roof { 5.0 } else { 0.0 });
+            s.class.push(2);
+            s.intensity.push(100);
+            s.ret.push(0x11);
+            s.src.push(0);
+            s.scan.push(0);
+            s.file.push(0);
+        }
+    }
+    s.total = s.len() as u64;
+    s.bounds = [0.0, 0.0, 0.0, 30.0, 30.0, 5.0];
+    s
+}
+
+#[test]
+fn the_wand_selects_the_roof_and_not_the_ground_and_a_class_change_sticks() {
+    let store = ground_and_roof();
+    let mut app = App::default();
+    app.ed.session = Some(Session::new(&store));
+    app.store = Some(Arc::new(store));
+    app.plan.scale = 10.0;
+    app.ed.wand_link = 0.5;
+    let ctx = egui::Context::default();
+    app.select_by_wand(&ctx, 14.1, 14.1);
+    app.process_edit_cmds();
+    let store = app.store.clone().unwrap();
+    let on_roof = |i: usize| store.z[i] > 1.0;
+    let n_roof = (0..store.len()).filter(|&i| on_roof(i)).count();
+    let picked: Vec<usize> = (0..store.len()).filter(|&i| store.selected[i]).collect();
+    assert!(picked.iter().all(|&i| on_roof(i)), "se coló suelo");
+    assert!(picked.len() * 10 > n_roof * 8, "{} de {n_roof}", picked.len());
+    // clasificar lo seleccionado y comprobar que el archivo de ediciones lo repite
+    app.queue(editing::Cmd::Reclass(6));
+    app.process_edit_cmds();
+    let store = app.store.clone().unwrap();
+    assert!(picked.iter().all(|&i| store.class[i] == 6));
+    assert!((0..store.len()).filter(|&i| !on_roof(i)).all(|i| store.class[i] == 2));
+    let ses = app.ed.session.as_ref().unwrap();
+    let json = hipso_core::edit::file::to_json(&ses.edits);
+    assert!(json.contains("\"points\""));
+    assert!(hipso_core::edit::file::from_json(&json).is_ok());
+}
