@@ -44,6 +44,62 @@ fn help_for(name: &str) -> &'static str {
     }
 }
 
+/// Los nombres cortos de las opciones en la ventana: la etiqueta va junto al control, como en las
+/// demás ventanas, así que no caben frases; lo que explica una opción está en su ayuda de debajo.
+fn short_label(tool: &str, id: &str) -> Option<String> {
+    let t = match id {
+        "layer" | "input" => {
+            if matches!(tool, "rasterize" | "extract" | "join-table") { "Capa" } else { "Entrada" }
+        }
+        "inputs" => "Capas",
+        "raster" => "Ráster",
+        "bands" => "Bandas",
+        "bilinear" => "Interpolación bilineal",
+        "prefix" => "Prefijo de los campos",
+        "table" => "Tabla",
+        "layer_key" => "Campo clave",
+        "table_key" => "Columna clave",
+        "origin" => "Campo de origen",
+        "field" => if tool == "split" { "Campo de división" } else { "Campo del valor" },
+        "mask" => "Polígonos",
+        "erase" => "Borrar lo que cubren",
+        "to" => "Capa destino",
+        "carry" => "Campo a copiar",
+        "max" => "Distancia máxima",
+        "by" => "Agrupar por",
+        "fields" => "Campos",
+        "reference" => "Ráster de referencia",
+        "cell" => "Tamaño de celda",
+        "stat" => "Estadístico",
+        "radius" => "Radio (celdas)",
+        "circle" => "Ventana circular",
+        "sigma" => "Sigma (celdas)",
+        "min_valid" => "Mínimo de celdas",
+        "bins" => "Intervalos",
+        "zones" => "Ráster de zonas",
+        "values" => "Ráster de clases",
+        _ => return None,
+    };
+    Some(t.to_string())
+}
+
+/// Las opciones cuyo valor es uno de una lista corta aunque la orden no lo declare como tal.
+fn known_values(tool: &str, id: &str) -> Vec<String> {
+    match (tool, id) {
+        ("focal", "stat") => ["mean", "median", "min", "max", "sum", "range", "std", "majority", "gaussian"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Las opciones que la ventana no enseña: la salida la decide «Guardar en» (la carpeta de resultados)
+/// y los nombres de archivo los pone el programa.
+fn hidden(a: &model::ArgSpec) -> bool {
+    matches!(a.id.as_str(), "results_dir" | "output" | "dir")
+}
+
 enum Msg {
     Line(String),
     Done(Result<(), String>),
@@ -63,6 +119,96 @@ pub struct CliTool {
     args: Vec<BTreeMap<String, Vec<String>>>,
     running: Option<Running>,
     message: String,
+}
+
+/// Una opción que no es un archivo, con el aspecto de los ajustes de las demás ventanas: la etiqueta y
+/// el control en la misma fila, el control con un ancho a su medida (nunca el de toda la ventana) y la
+/// ayuda entera debajo, en gris.
+fn cli_option_row(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    tool: &str,
+    a: &model::ArgSpec,
+    args: &mut BTreeMap<String, Vec<String>>,
+) {
+    let name = short_label(tool, &a.id).unwrap_or_else(|| {
+        a.long.clone().map_or(a.id.clone(), |l| if a.positional { l } else { format!("--{l}") })
+    });
+    let title = if a.required { format!("{name} *") } else { name };
+    ui.add_space(4.0);
+    let help = |ui: &mut egui::Ui| {
+        if !a.help.is_empty() {
+            ui.label(egui::RichText::new(&a.help).size(11.0).color(t.weak));
+        }
+    };
+    if a.flag {
+        let mut on = args.get(&a.id).is_some_and(|v| v.first().is_some_and(|s| s == "true"));
+        if ui.checkbox(&mut on, title).on_hover_text(&a.help).changed() {
+            if on {
+                args.insert(a.id.clone(), vec!["true".into()]);
+            } else {
+                args.remove(&a.id);
+            }
+        }
+        help(ui);
+        return;
+    }
+    let hint = a.default.clone().unwrap_or_default();
+    let mut values = a.values.clone();
+    if values.is_empty() {
+        values = known_values(tool, &a.id);
+    }
+    let mut text = args.get(&a.id).map(|v| v.join("\n")).unwrap_or_default();
+    if !values.is_empty() {
+        let now = args.get(&a.id).and_then(|v| v.first().cloned()).unwrap_or_default();
+        ui.horizontal(|ui| {
+            ui.label(&title).on_hover_text(&a.help);
+            let shown = if now.is_empty() { format!("(por defecto: {hint})") } else { now.clone() };
+            egui::ComboBox::from_id_salt(("cli_arg", tool, &a.id))
+                .selected_text(shown)
+                .width(190.0)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(now.is_empty(), "(por defecto)").clicked() {
+                        args.remove(&a.id);
+                    }
+                    for v in &values {
+                        if ui.selectable_label(*v == now, v).clicked() {
+                            args.insert(a.id.clone(), vec![v.clone()]);
+                        }
+                    }
+                });
+        });
+        help(ui);
+        return;
+    }
+    let numeric = hint.trim().parse::<f64>().is_ok()
+        || matches!(a.id.as_str(), "cell" | "radius" | "sigma" | "min_valid" | "bins" | "max");
+    let mut changed = false;
+    if a.multiple {
+        ui.label(&title).on_hover_text(&a.help);
+        changed = ui
+            .add(egui::TextEdit::multiline(&mut text).desired_rows(3).hint_text("uno por línea").desired_width(330.0))
+            .changed();
+    } else {
+        ui.horizontal(|ui| {
+            ui.label(&title).on_hover_text(&a.help);
+            changed = ui
+                .add(
+                    egui::TextEdit::singleline(&mut text)
+                        .hint_text(hint)
+                        .desired_width(if numeric { 90.0 } else { 260.0 }),
+                )
+                .changed();
+        });
+    }
+    if changed {
+        if text.trim().is_empty() {
+            args.remove(&a.id);
+        } else {
+            args.insert(a.id.clone(), text.lines().map(str::to_string).collect());
+        }
+    }
+    help(ui);
 }
 
 impl App {
@@ -158,10 +304,9 @@ impl App {
         files: &[(String, PathBuf)],
         args: &mut BTreeMap<String, Vec<String>>,
     ) {
-        let name = crate::flow_ui::label_es(tool, &a.id).map_or_else(
-            || a.long.clone().map_or(a.id.clone(), |l| if a.positional { l } else { format!("--{l}") }),
-            str::to_string,
-        );
+        let name = short_label(tool, &a.id).unwrap_or_else(|| {
+            a.long.clone().map_or(a.id.clone(), |l| if a.positional { l } else { format!("--{l}") })
+        });
         ui.add_space(4.0);
         let none = match kind {
             Kind::Raster => "No hay rásteres cargados",
@@ -278,9 +423,9 @@ impl App {
         let missing: Vec<String> = spec
             .args
             .iter()
-            .filter(|a| a.required && !a.flag && a.default.is_none() && a.id != "results_dir")
+            .filter(|a| a.required && !a.flag && a.default.is_none() && !hidden(a))
             .filter(|a| args.get(&a.id).is_none_or(|v| v.iter().all(|s| s.trim().is_empty())))
-            .map(|a| crate::flow_ui::label_es(name, &a.id).map_or_else(|| a.long.clone().map_or(a.id.clone(), |l| format!("--{l}")), str::to_string))
+            .map(|a| short_label(name, &a.id).unwrap_or_else(|| a.long.clone().map_or(a.id.clone(), |l| format!("--{l}"))))
             .collect();
         let accent = t.accent;
         let mut busy_stop = false;
@@ -292,14 +437,14 @@ impl App {
                 crate::tools::output_row(ui, &mut out_dir);
                 ui.separator();
                 crate::procwin::help(ui, t.weak, help_for(name));
-                for a in spec.args.iter().filter(|a| a.id != "results_dir") {
+                for a in spec.args.iter().filter(|a| !hidden(a)) {
                     // las opciones de archivo: el archivo, «Archivo…» y las capas cargadas
                     if model::wirable(name, a) || (a.path && a.id != "output") {
                         let kind = model::arg_kind(name, &a.id);
                         let files = self.map_files(kind);
                         self.cli_file_row(ui, &t, name, a, kind, &files, &mut args);
                     } else {
-                        crate::flow_ui::arg_widget(ui, &t, name, a, &mut args, false, true);
+                        cli_option_row(ui, &t, name, a, &mut args);
                     }
                 }
                 ui.add_space(6.0);

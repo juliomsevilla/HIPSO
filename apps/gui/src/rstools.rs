@@ -213,28 +213,12 @@ impl App {
                     ui.label("en la salida");
                     ui.add(egui::TextEdit::singleline(&mut rt.nodata).desired_width(60.0));
                 });
-                // la salida: junto al primer ráster, con el nombre de la herramienta, hasta que se
-                // edita
-                if !rt.out_manual {
-                    rt.out = rt.files.first().map_or(String::new(), |f| {
-                        let t = if mode == 1 { format!("{tag}_{}", rt.overlap.tag()) } else { tag.to_string() };
-                        paths::unique(&paths::product(&f.0, &t, "tif")).display().to_string()
-                    });
-                }
-                ui.horizontal(|ui| {
-                    ui.label("Salida");
-                    if ui.add(egui::TextEdit::singleline(&mut rt.out).desired_width(380.0)).changed() {
-                        rt.out_manual = true;
-                    }
-                    if ui.button("…").clicked()
-                        && let Some(p) = crate::prefs::dialog().add_filter("GeoTIFF", &["tif"]).set_file_name("salida.tif").save_file()
-                    {
-                        rt.out = p.display().to_string();
-                        rt.out_manual = true;
-                    }
-                    if rt.out_manual && ui.button("auto").clicked() {
-                        rt.out_manual = false;
-                    }
+                // la salida la decide «Guardar en», como en todas las ventanas de proceso: la carpeta
+                // de resultados (o la del primer ráster) y el nombre de la herramienta
+                rt.out_manual = false;
+                rt.out = rt.files.first().map_or(String::new(), |f| {
+                    let t = if mode == 1 { format!("{tag}_{}", rt.overlap.tag()) } else { tag.to_string() };
+                    paths::unique(&paths::product(&f.0, &t, "tif")).display().to_string()
                 });
                 ui.label(egui::RichText::new("La salida se escribe por franjas comprimidas (deflate), sin cargar las imágenes enteras.").color(weak).size(11.0));
                 let ready = !rt.files.is_empty() && !rt.out.trim().is_empty() && !(mode == 1 && rt.files.len() < 2);

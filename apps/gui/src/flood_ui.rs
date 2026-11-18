@@ -98,7 +98,7 @@ impl App {
                         egui::TextEdit::multiline(&mut t.seeds)
                             .hint_text("512345.5 4678123.0")
                             .desired_rows(2)
-                            .desired_width(f32::INFINITY),
+                            .desired_width(330.0),
                     );
                 }
                 ui.separator();

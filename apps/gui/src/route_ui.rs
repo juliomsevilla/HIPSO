@@ -102,11 +102,11 @@ impl App {
                     ui.add(egui::TextEdit::singleline(&mut t.from).desired_width(220.0));
                 });
                 ui.label("Paradas intermedias (una por línea, opcional)");
-                ui.add(egui::TextEdit::multiline(&mut t.via).desired_rows(2).desired_width(f32::INFINITY));
+                ui.add(egui::TextEdit::multiline(&mut t.via).desired_rows(2).desired_width(330.0));
                 ui.checkbox(&mut t.nearest, "Varios destinos: ir al más barato");
                 ui.label(if t.nearest { "Destinos (uno por línea)" } else { "Destino, «x y»" });
                 if t.nearest {
-                    ui.add(egui::TextEdit::multiline(&mut t.to).desired_rows(2).desired_width(f32::INFINITY));
+                    ui.add(egui::TextEdit::multiline(&mut t.to).desired_rows(2).desired_width(330.0));
                 } else {
                     ui.add(egui::TextEdit::singleline(&mut t.to).desired_width(220.0));
                 }

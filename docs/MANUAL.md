@@ -999,101 +999,94 @@ Da la celda de Voronoi de cada punto (el área que está más cerca de él que d
 Añade a una capa un campo por banda de uno o varios rásteres, con el valor bajo cada elemento (el CHM en cada parcela o árbol). Véase el apartado 9, *Capas y tablas*.
 
 
-La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso extract`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso extract`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
 | Capa | `LAYER` | archivo o carpeta | ninguno | La capa (puntos, líneas o polígonos), en el mismo sistema que los rásteres. **Obligatoria.** |
 | Ráster | `--raster` | archivo o carpeta | ninguno | Un ráster (se repite para varios) **Obligatoria.** Se puede repetir. |
-| Bandas (una por línea; vacío: todas) | `--bands` | texto o número | ninguno | Bandas que extraer, contando desde 1 (por defecto, todas) Se puede repetir. |
+| Bandas | `--bands` | texto o número | ninguno | Bandas que extraer, contando desde 1 (por defecto, todas) Se puede repetir. |
 | Interpolación bilineal | `--bilinear` | casilla | desactivada | Interpola entre los cuatro centros de celda más cercanos en lugar de tomar la celda que contiene el punto. |
-| Prefijo de los campos nuevos | `--prefix` | texto | ninguno | Prefijo de los campos nuevos. |
-| Salida (vacío: junto a la entrada) | `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_valores.<ext>. |
+| Prefijo de los campos | `--prefix` | texto | ninguno | Prefijo de los campos nuevos. |
 
 ##### Unir tabla
 
 Une a una capa las columnas de una tabla (csv, texto o Excel) por un campo clave, como el inventario de campo a las parcelas. Véase el apartado 9.
 
 
-La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso join-table`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso join-table`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
 | Capa | `LAYER` | archivo o carpeta | ninguno | La capa a la que se añaden las columnas (.shp, .gpkg o .geojson) **Obligatoria.** |
 | Tabla | `TABLE` | archivo o carpeta | ninguno | La tabla (.csv, texto o .xlsx) de la que salen las columnas. **Obligatoria.** |
-| Campo clave de la capa | `--layer-key` | texto o número | ninguno | Campo clave de la capa. **Obligatoria.** |
-| Columna clave de la tabla | `--table-key` | texto o número | ninguno | Columna clave de la tabla (por defecto, el mismo nombre) |
-| Prefijo de los campos nuevos | `--prefix` | texto | ninguno | Prefijo de los campos nuevos. |
-| Salida (vacío: junto a la entrada) | `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_union.<ext>. |
+| Campo clave | `--layer-key` | texto o número | ninguno | Campo clave de la capa. **Obligatoria.** |
+| Columna clave | `--table-key` | texto o número | ninguno | Columna clave de la tabla (por defecto, el mismo nombre) |
+| Prefijo de los campos | `--prefix` | texto | ninguno | Prefijo de los campos nuevos. |
 
 ##### Combinar capas
 
 Junta varias capas del mismo tipo de geometría en una; los campos son la unión de los de todas. Véase el apartado 9.
 
 
-La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso merge`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso merge`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
 | Capas | `INPUTS` | archivo o carpeta | ninguno | Las capas que combinar. **Obligatoria.** Se puede repetir. |
-| Campo con el archivo de origen | `--origin` | texto o número | ninguno | Añade un campo con el nombre del archivo de origen de cada elemento. |
-| Salida (vacío: junto a la entrada) | `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<primera>_combinada.<ext>. |
+| Campo de origen | `--origin` | texto o número | ninguno | Añade un campo con el nombre del archivo de origen de cada elemento. |
 
 ##### Dividir por campo
 
 Escribe una capa por cada valor distinto de un campo (un archivo por rodal, por especie…). Véase el apartado 9.
 
 
-La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso split`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso split`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
 | Entrada | `INPUT` | archivo o carpeta | ninguno | La capa que se divide (.shp, .gpkg o .geojson) **Obligatoria.** |
-| Campo por el que dividir | `--field` | texto o número | ninguno | El campo por el que dividir. **Obligatoria.** |
-| Carpeta de salida | `--dir` | archivo o carpeta | ninguno | Carpeta de salida; por defecto: <resultados>/<capa>_partes. |
+| Campo de división | `--field` | texto o número | ninguno | El campo por el que dividir. **Obligatoria.** |
 
 ##### Recortar capa
 
 Recorta una capa de puntos, líneas o polígonos con los polígonos de otra, o borra de ella lo que cubren. Véase el apartado 9.
 
 
-La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso clip-vector`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso clip-vector`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
 | Entrada | `INPUT` | archivo o carpeta | ninguno | La capa que recortar. **Obligatoria.** |
 | Polígonos | `--mask` | archivo o carpeta | ninguno | Los polígonos con los que recortar. **Obligatoria.** |
-| Borrar lo que cubren en lugar de conservarlo | `--erase` | casilla | desactivada | Borra lo que cubren los polígonos en lugar de conservarlo. |
-| Salida (vacío: junto a la entrada) | `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_recortada.<ext> (o _borrada) |
+| Borrar lo que cubren | `--erase` | casilla | desactivada | Borra lo que cubren los polígonos en lugar de conservarlo. |
 
 ##### Cercanía
 
 Añade a cada elemento la distancia al elemento más cercano de otra capa, su número de orden y, si se pide, uno de sus campos. Véase el apartado 9.
 
 
-La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso near`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso near`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
 | Entrada | `INPUT` | archivo o carpeta | ninguno | La capa. **Obligatoria.** |
-| Capa de la que buscar el elemento más cercano | `--to` | archivo o carpeta | ninguno | La capa de la que se busca el elemento más cercano. **Obligatoria.** |
-| Campo del elemento cercano que copiar | `--carry` | texto o número | ninguno | Campo de la otra capa que se copia del elemento más cercano. |
+| Capa destino | `--to` | archivo o carpeta | ninguno | La capa de la que se busca el elemento más cercano. **Obligatoria.** |
+| Campo a copiar | `--carry` | texto o número | ninguno | Campo de la otra capa que se copia del elemento más cercano. |
 | Distancia máxima | `--max` | texto o número | ninguno | Distancia máxima: los más lejanos quedan sin valor. |
-| Salida (vacío: junto a la entrada) | `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_cercania.<ext>. |
 
 ##### Resumen estadístico
 
 Recuento, suma, media, mínimo, máximo y desviación de campos numéricos de una capa o tabla, por grupos de un campo. Véase el apartado 9.
 
 
-La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso summary`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso summary`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
 | Entrada | `INPUT` | archivo o carpeta | ninguno | La capa o la tabla (csv, texto, xlsx) **Obligatoria.** |
-| Agrupar por el campo | `--by` | texto o número | ninguno | Campo por el que agrupar (sin él, un solo grupo) |
-| Campos que resumir (uno por línea; vacío: todos los numéricos) | `--fields` | texto o número | ninguno | Campos numéricos que resumir, separados por comas (por defecto, todos los numéricos) Se puede repetir. |
-| Salida (vacío: junto a la entrada) | `-o`, `--output` | archivo o carpeta | ninguno | Tabla CSV de salida; por defecto: <resultados>/<entrada>_resumen.csv. |
+| Agrupar por | `--by` | texto o número | ninguno | Campo por el que agrupar (sin él, un solo grupo) |
+| Campos | `--fields` | texto o número | ninguno | Campos numéricos que resumir, separados por comas (por defecto, todos los numéricos) Se puede repetir. |
 
 ### 4.7 Pestaña Raster
 
@@ -1153,7 +1146,7 @@ Une varias imágenes de una banda en una sola multibanda, en el orden de la list
 | Tipo de dato | *Como el primero*, *8 bits*, *16 bits* o *Decimal de 32 bits*. |
 | Tamaño de píxel | El menor de los rásteres si se deja vacío, o uno propio. |
 | Sin datos en la entrada, en la salida | Valor de las entradas que significa «sin datos» (ninguno por defecto) y valor que se escribe donde no hay datos (0 por defecto). |
-| Salida | GeoTIFF; por defecto, junto al primer ráster, con el nombre de la herramienta. El botón *…* elige otra ruta y *auto* vuelve a la automática. |
+| Resultado | GeoTIFF en *Guardar en* (por defecto, junto al primer ráster), con el nombre de la herramienta. |
 
 Cada banda de cada ráster de la lista pasa a ser una banda de la imagen nueva, como al apilar canales sueltos R, G, B y NIR en un solo archivo. La salida se escribe por franjas comprimidas (deflate), sin cargar las imágenes enteras. La orden es `hipso stack`.
 
@@ -1300,58 +1293,54 @@ Los polígonos llevan el valor, el área y las celdas como atributos. La orden e
 Convierte una capa vectorial en ráster: cada celda recibe el valor de un campo del último elemento que la cubre. Véase el apartado 8, *Análisis ráster*.
 
 
-La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso rasterize`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso rasterize`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
 | Capa | `LAYER` | archivo o carpeta | ninguno | La capa. **Obligatoria.** |
-| Ráster de referencia (sus celdas) | `--reference` | archivo o carpeta | ninguno | Ráster de referencia: toma sus celdas. |
+| Ráster de referencia | `--reference` | archivo o carpeta | ninguno | Ráster de referencia: toma sus celdas. |
 | Tamaño de celda | `--cell` | texto o número | ninguno | Tamaño de celda cuando no hay referencia. |
-| Campo con el valor | `--field` | texto o número | ninguno | Campo con el valor que se pinta (sin él, 1) |
-| Salida (vacío: junto a la entrada) | `-o`, `--output` | archivo o carpeta | ninguno | GeoTIFF de salida; por defecto: <resultados>/<capa>_raster.tif. |
+| Campo del valor | `--field` | texto o número | ninguno | Campo con el valor que se pinta (sin él, 1) |
 
 ##### Filtro focal
 
 Media, mediana, mínimo, máximo, suma, rango, desviación, mayoría o suavizado gaussiano de cada celda sobre una ventana a su alrededor. Véase el apartado 8.
 
 
-La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso focal`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso focal`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
 | Entrada | `INPUT` | archivo o carpeta | ninguno | El ráster (GeoTIFF) **Obligatoria.** |
-| Estadístico (mean, median, min, max, sum, range, std, majority, gaussian) | `--stat` | texto | `mean` | mean, median, min, max, sum, range, std, majority o gaussian. |
-| Radio de la ventana (celdas) | `--radius` | número | `1` | Radio de la ventana en celdas. |
+| Estadístico | `--stat` | texto | `mean` | mean, median, min, max, sum, range, std, majority o gaussian. |
+| Radio (celdas) | `--radius` | número | `1` | Radio de la ventana en celdas. |
 | Ventana circular | `--circle` | casilla | desactivada | Ventana circular en lugar de cuadrada. |
-| Sigma del filtro gaussiano (celdas) | `--sigma` | texto o número | ninguno | Desviación típica del filtro gaussiano, en celdas (por defecto, la mitad del radio) |
-| Mínimo de celdas con valor en la ventana | `--min-valid` | número | `1` | Menos celdas con valor que esto dejan la celda vacía. |
-| Salida (vacío: junto a la entrada) | `-o`, `--output` | archivo o carpeta | ninguno | GeoTIFF de salida; por defecto: <resultados>/<entrada>_focal.tif. |
+| Sigma (celdas) | `--sigma` | texto o número | ninguno | Desviación típica del filtro gaussiano, en celdas (por defecto, la mitad del radio) |
+| Mínimo de celdas | `--min-valid` | número | `1` | Menos celdas con valor que esto dejan la celda vacía. |
 
 ##### Estadísticas ráster
 
 Recuento, mínimo, máximo, media, desviación, mediana, percentiles e histograma de un ráster. Véase el apartado 8.
 
 
-La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso rstats`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso rstats`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
 | Entrada | `INPUT` | archivo o carpeta | ninguno | El ráster (GeoTIFF) **Obligatoria.** |
-| Intervalos del histograma | `--bins` | número | `20` | Intervalos del histograma. |
-| Salida (vacío: junto a la entrada) | `-o`, `--output` | archivo o carpeta | ninguno | CSV del histograma; por defecto: <resultados>/<entrada>_histograma.csv. |
+| Intervalos | `--bins` | número | `20` | Intervalos del histograma. |
 
 ##### Tabular áreas
 
 Área de cada clase de un ráster dentro de cada zona de otro, como tabla CSV. Véase el apartado 8.
 
 
-La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso tabulate`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+La ventana es como la de los demás procesos: arriba *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y un párrafo que explica qué hace la herramienta; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco), y al pie *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso tabulate`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
 
 | En la ventana | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|---|
 | Ráster de zonas | `ZONES` | archivo o carpeta | ninguno | El ráster de zonas (clases enteras) **Obligatoria.** |
 | Ráster de clases | `--values` | archivo o carpeta | ninguno | El ráster de clases que se mide dentro de cada zona. **Obligatoria.** |
-| Salida (vacío: junto a la entrada) | `-o`, `--output` | archivo o carpeta | ninguno | CSV de salida; por defecto: <resultados>/<zonas>_tabulado.csv. |
 
 #### Raster → Análisis del terreno
 
