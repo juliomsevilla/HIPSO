@@ -135,7 +135,15 @@ impl App {
                         t.stands = None;
                     }
                     ui.label("Campo del nombre");
-                    ui.add(egui::TextEdit::singleline(&mut t.stand_field).desired_width(80.0));
+                    // los campos de la capa, en una lista; sin capa o si no se lee, un cuadro de texto
+                    match t.stands.as_deref().map(crate::fieldpick::fields_of) {
+                        Some(Ok(fields)) => {
+                            crate::fieldpick::combo(ui, "change_stand_field", &mut t.stand_field, &fields, false, true, "");
+                        }
+                        _ => {
+                            ui.add(egui::TextEdit::singleline(&mut t.stand_field).desired_width(80.0));
+                        }
+                    }
                 });
                 ui.checkbox(&mut t.trees, "Emparejar los individuos de las dos fechas y medir su crecimiento");
                 if t.trees {

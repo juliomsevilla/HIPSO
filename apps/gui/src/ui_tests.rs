@@ -980,3 +980,271 @@ fn the_wand_selects_the_roof_and_not_the_ground_and_a_class_change_sticks() {
     assert!(json.contains("\"points\""));
     assert!(hipso_core::edit::file::from_json(&json).is_ok());
 }
+
+/// Una capa de 40 rodales con altura y edad, para los gráficos.
+fn charts_app() -> App {
+    let mut d = view::VectorData { polygons: false, points: true, ..view::VectorData::default() };
+    d.features = (0..40).map(|i| view::Feature { parts: vec![vec![[f64::from(i), 0.0]]] }).collect();
+    d.text = vec![Vec::new(); 40];
+    d.num = vec![Vec::new(); 40];
+    let h = d.add_field("altura", hipso_core::fieldtype::FieldType::Real);
+    let e = d.add_field("edad", hipso_core::fieldtype::FieldType::Real);
+    for i in 0..40 {
+        let _ = d.set_value(i, h, &format!("{}", 5 + i / 2));
+        let _ = d.set_value(i, e, &format!("{}", 10 + i));
+    }
+    let mut app = App::default();
+    app.refs.push(RefLayer {
+        name: "Rodales".into(),
+        path: PathBuf::from("/tmp/rodales.shp"),
+        kind: RefKind::Vector(Box::new(layers::VecLayer::new(d, view::GeomKind::Point))),
+        visible: true,
+        opacity: 1.0,
+    });
+    app.ch.open = true;
+    app
+}
+
+fn charts_frame(app: &mut App, ctx: &egui::Context, t: f64, events: Vec<egui::Event>) {
+    let input = egui::RawInput {
+        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0))),
+        time: Some(t),
+        events,
+        ..egui::RawInput::default()
+    };
+    let area = Rect::from_min_max(Pos2::new(0.0, 500.0), Pos2::new(1200.0, 800.0));
+    let out = ctx.run_ui(input, |ui| app.charts_dock(ui, area, 600.0));
+    out.drop_without_applying_deltas();
+}
+
+#[test]
+fn marking_a_histogram_range_selects_those_rows_and_the_rest_stay() {
+    let mut app = charts_app();
+    let ctx = egui::Context::default();
+    for k in 0..3 {
+        charts_frame(&mut app, &ctx, f64::from(k) * 0.05, vec![mv(Pos2::new(5.0, 5.0))]);
+    }
+    assert_eq!(app.ch_src_for_test(), Some(0));
+    // arrastrar sobre la parte izquierda del histograma (alturas bajas)
+    let (a, b) = (Pos2::new(110.0, 640.0), Pos2::new(200.0, 640.0));
+    let mut t = 0.2;
+    charts_frame(&mut app, &ctx, t, vec![mv(a)]);
+    t += 0.05;
+    charts_frame(&mut app, &ctx, t, vec![button(a, true, egui::PointerButton::Primary)]);
+    for k in 1..=6 {
+        t += 0.05;
+        charts_frame(&mut app, &ctx, t, vec![mv(a + (b - a) * (k as f32 / 6.0))]);
+    }
+    t += 0.05;
+    charts_frame(&mut app, &ctx, t, vec![button(b, false, egui::PointerButton::Primary)]);
+    charts_frame(&mut app, &ctx, t + 0.05, vec![]);
+    let RefKind::Vector(v) = &app.refs[0].kind else { panic!("sin capa") };
+    assert!(!v.selected.is_empty() && v.selected.len() < 40, "{} seleccionados", v.selected.len());
+    // son filas de alturas intermedias-bajas: ni la primera ni la última, y sin huecos
+    let (lo, hi) = (v.selected.iter().min().copied().unwrap_or(0), v.selected.iter().max().copied().unwrap_or(0));
+    assert!(lo > 0 && hi < 39, "{lo}..{hi}");
+    assert_eq!(v.selected.len(), hi - lo + 1, "la selección tiene huecos");
+}
+
+#[test]
+fn marking_a_scatter_rectangle_of_points_queues_one_rule_over_two_attributes() {
+    let store = cloud();
+    let mut app = App::default();
+    app.ed.session = Some(Session::new(&store));
+    app.store = Some(Arc::new(store));
+    app.ch.open = true;
+    let ctx = egui::Context::default();
+    for k in 0..3 {
+        charts_frame(&mut app, &ctx, f64::from(k) * 0.05, vec![mv(Pos2::new(5.0, 5.0))]);
+    }
+    assert_eq!(app.ch.src_is_points_for_test(), true);
+    // la dispersión es el segundo gráfico: arrastrar un rectángulo dentro de su trazado
+    let (a, b) = (Pos2::new(520.0, 620.0), Pos2::new(640.0, 700.0));
+    let mut t = 0.2;
+    charts_frame(&mut app, &ctx, t, vec![mv(a)]);
+    t += 0.05;
+    charts_frame(&mut app, &ctx, t, vec![button(a, true, egui::PointerButton::Primary)]);
+    for k in 1..=6 {
+        t += 0.05;
+        charts_frame(&mut app, &ctx, t, vec![mv(a + (b - a) * (k as f32 / 6.0))]);
+    }
+    t += 0.05;
+    charts_frame(&mut app, &ctx, t, vec![button(b, false, egui::PointerButton::Primary)]);
+    charts_frame(&mut app, &ctx, t + 0.05, vec![]);
+    let ops: Vec<&hipso_core::edit::SelOp> = app
+        .ed
+        .cmds
+        .iter()
+        .filter_map(|c| match c {
+            editing::Cmd::AddOp(op) => Some(op.as_ref()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ops.len(), 1, "la dispersión no puso ninguna regla");
+    assert_eq!(ops[0].attr.ranges.len(), 2);
+    assert!(matches!(ops[0].region, Region::All));
+}
+
+#[test]
+fn the_vector_ribbon_groups_are_in_order_and_hold_their_tools() {
+    let app = App::default();
+    let groups = app.vector_groups();
+    let captions: Vec<&str> = groups.iter().map(|g| g.caption).collect();
+    assert_eq!(captions, vec!["Capa", "Geometría", "Tabla", "Geoprocesos"]);
+    let labels = |caption: &str| -> Vec<&'static str> {
+        groups
+            .iter()
+            .find(|g| g.caption == caption)
+            .map(|g| g.columns.iter().flatten().map(|i| i.label).collect())
+            .unwrap_or_default()
+    };
+    let geometry = labels("Geometría");
+    for want in ["Comprobar validez", "Reparar geometrías", "Reparar topología", "Simplificar", "Paralela", "Recortar capa"] {
+        assert!(geometry.contains(&want), "falta {want} en Geometría: {geometry:?}");
+    }
+    let table = labels("Tabla");
+    for want in ["Unir tabla", "Dividir por campo", "Quitar y renombrar campos", "Extraer valores"] {
+        assert!(table.contains(&want), "falta {want} en Tabla: {table:?}");
+    }
+    let geo = labels("Geoprocesos");
+    for want in ["Búfer", "Disolver", "Unión", "Intersección", "Estadística zonal", "Combinar capas", "Cercanía"] {
+        assert!(geo.contains(&want), "falta {want} en Geoprocesos: {geo:?}");
+    }
+    // cada herramienta está en un solo grupo
+    let all: Vec<&str> = ["Geometría", "Tabla", "Geoprocesos"].iter().flat_map(|c| labels(c)).collect();
+    let mut unique = all.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(all.len(), unique.len(), "hay herramientas repetidas: {all:?}");
+}
+
+#[test]
+fn the_three_charts_fit_inside_the_dock() {
+    let mut app = charts_app();
+    let ctx = egui::Context::default();
+    for k in 0..4 {
+        charts_frame(&mut app, &ctx, f64::from(k) * 0.05, vec![mv(Pos2::new(5.0, 5.0))]);
+    }
+    let rects = app.ch_rects_for_test();
+    for r in rects {
+        assert!(r.is_positive(), "un gráfico no se dibujó: {rects:?}");
+    }
+    // el dock ocupa el ancho de 1200 puntos: ninguno de los tres se sale
+    assert!(rects[2].right() <= 1200.0 - 4.0, "el tercer gráfico se sale del dock: {rects:?}");
+    assert!(rects[0].left() < rects[1].left() && rects[1].left() < rects[2].left());
+}
+
+#[test]
+fn clicking_the_map_with_the_coordinates_tool_notes_the_point_and_opens_the_list() {
+    let mut app = charts_app();
+    app.nav = Nav::Coords;
+    let ctx = egui::Context::default();
+    let plan = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(800.0, 500.0));
+    let frame_at = |app: &mut App, t: f64, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 600.0))),
+            time: Some(t),
+            events,
+            ..egui::RawInput::default()
+        };
+        let out = ctx.run_ui(input, |ui| {
+            let c = ui.ctx().clone();
+            app.plan_view(ui, &c, plan);
+        });
+        out.drop_without_applying_deltas();
+    };
+    for k in 0..3 {
+        frame_at(&mut app, f64::from(k) * 0.05, vec![mv(Pos2::new(300.0, 300.0))]);
+    }
+    assert!(app.crd.list.is_empty());
+    let p = Pos2::new(400.0, 250.0);
+    frame_at(&mut app, 0.2, vec![mv(p)]);
+    frame_at(&mut app, 0.25, vec![button(p, true, egui::PointerButton::Primary)]);
+    frame_at(&mut app, 0.3, vec![button(p, false, egui::PointerButton::Primary)]);
+    frame_at(&mut app, 0.35, vec![]);
+    assert_eq!(app.crd.list.len(), 1, "el clic no anotó ninguna coordenada");
+    assert!(app.crd.open, "la ventana de capturas no se abrió");
+    // otro clic, otro punto distinto
+    let q = Pos2::new(500.0, 350.0);
+    frame_at(&mut app, 0.4, vec![mv(q)]);
+    frame_at(&mut app, 0.45, vec![button(q, true, egui::PointerButton::Primary)]);
+    frame_at(&mut app, 0.5, vec![button(q, false, egui::PointerButton::Primary)]);
+    frame_at(&mut app, 0.55, vec![]);
+    assert_eq!(app.crd.list.len(), 2);
+    assert_ne!(app.crd.list[0], app.crd.list[1]);
+}
+
+#[test]
+fn the_table_toolbar_does_not_overlap_its_texts_even_with_a_long_layer_name() {
+    let mut data = view::VectorData::default();
+    data.fields = vec!["name".to_string()];
+    for n in ["a", "b", "c"] {
+        data.features.push(view::Feature { parts: vec![vec![[0.0, 0.0]]] });
+        data.text.push(vec![n.to_string()]);
+        data.num.push(vec![f64::NAN]);
+    }
+    data.points = true;
+    for (name, width) in [
+        ("ATM_SUBASTA_NOGUEIRO5_cubicado_con_un_nombre_larguisimo_de_capa.shp", 1100.0f32),
+        ("ATM_SUBASTA_NOGUEIRO5_cubicado.shp", 1480.0),
+        ("capa.shp", 900.0),
+    ] {
+        let mut app = App::default();
+        app.refs.push(RefLayer {
+            name: name.into(),
+            path: PathBuf::from(format!("/tmp/{name}")),
+            kind: RefKind::Vector(Box::new(layers::VecLayer::new(data.clone(), view::GeomKind::Point))),
+            visible: true,
+            opacity: 1.0,
+        });
+        app.table_layer = Some(0);
+        let ctx = egui::Context::default();
+        let area = Rect::from_min_max(Pos2::new(0.0, 500.0), Pos2::new(width, 800.0));
+        for k in 0..4 {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(width + 20.0, 900.0))),
+                time: Some(f64::from(k) * 0.05),
+                ..egui::RawInput::default()
+            };
+            let out = ctx.run_ui(input, |ui| app.table_window(ui, area, 600.0));
+            if k < 3 {
+                out.drop_without_applying_deltas();
+                continue;
+            }
+            // los textos visibles de la barra de herramientas (franja de arriba de la tabla)
+            let mut texts: Vec<(String, Rect)> = Vec::new();
+            for cs in &out.shapes {
+                match &cs.shape {
+                    egui::epaint::Shape::Text(ts) => {
+                        let r = ts.galley.rect.translate(ts.pos.to_vec2()).intersect(cs.clip_rect);
+                        if r.is_positive() && r.top() >= area.top() && r.bottom() <= area.top() + 40.0 {
+                            texts.push((ts.galley.text().to_string(), r));
+                        }
+                    }
+                    // los iconos son mallas con textura
+                    egui::epaint::Shape::Mesh(m) if m.texture_id != egui::TextureId::default() || !m.indices.is_empty() => {
+                        let r = m.calc_bounds().intersect(cs.clip_rect);
+                        if r.is_positive() && r.width() < 40.0 && r.height() < 40.0 && r.top() >= area.top() && r.bottom() <= area.top() + 40.0 {
+                            texts.push(("(icono)".to_string(), r));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            assert!(texts.iter().any(|t| t.0.contains("seleccionados")), "{name}: no se dibujó la barra");
+            // con un ancho razonable no se queda fuera ningún botón: los 12 iconos (tabla, seleccionar por
+            // atributos, 5 de selección, deshacer, rehacer, guardar, añadir campo y cerrar) se ven
+            if width >= 1100.0 {
+                let icons = texts.iter().filter(|t| t.0 == "(icono)").count();
+                assert!(icons >= 12, "{name} ({width}): solo se ven {icons} iconos de la barra");
+            }
+            for (i, a) in texts.iter().enumerate() {
+                for b in texts.iter().skip(i + 1) {
+                    let inter = a.1.intersect(b.1);
+                    assert!(!(inter.width() > 1.0 && inter.height() > 1.0), "{name} ({width}): «{}» pisa a «{}»", a.0, b.0);
+                }
+            }
+            out.drop_without_applying_deltas();
+        }
+    }
+}

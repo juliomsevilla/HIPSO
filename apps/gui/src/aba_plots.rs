@@ -88,6 +88,8 @@ pub(crate) fn nice_step(span: f64, n: f64) -> f64 {
 }
 
 pub(crate) fn tick_text(v: f64, step: f64) -> String {
+    // un cero con el error de redondeo de sumar pasos no se escribe como «-0»
+    let v = if v.abs() < step * 1e-9 { 0.0 } else { v };
     let decimals = if step >= 1.0 {
         0
     } else {

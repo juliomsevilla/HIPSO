@@ -11,8 +11,11 @@ mod rasterops_ui;
 mod reproject_ui;
 mod vector_ui;
 mod backstage;
+mod charts;
 mod cli_tool_ui;
+mod coords;
 mod editmore;
+mod fieldpick;
 mod flow_ui;
 mod basemap;
 mod brand;
@@ -215,6 +218,8 @@ enum Nav {
     Pan,
     Query,
     Measure,
+    /// Anota las coordenadas del punto en que se pulsa.
+    Coords,
     Density,
     Profile,
     Digitize,
@@ -246,6 +251,7 @@ impl Nav {
             Nav::Pan => "Desplazar",
             Nav::Query => "Consultar punto",
             Nav::Measure => "Medir",
+            Nav::Coords => "Capturar coordenadas",
             Nav::Density => "Densidad",
             Nav::Profile => "Perfil",
             Nav::Digitize => "Digitalizar",
@@ -390,6 +396,8 @@ enum Action {
     SaveShot,
     ZoomFull,
     ZoomPrev,
+    /// Abre la ventana de «Ir a coordenadas».
+    GotoCoords,
     ZoomNext,
     ZoomSel,
     ZoomLayer,
@@ -423,6 +431,8 @@ enum Action {
     ToggleTin,
     ToggleContours,
     ToggleLog,
+    /// Muestra u oculta el dock del EDA.
+    ToggleCharts,
     ToggleBasemap,
     LoadRaster,
     LoadVector,
@@ -580,6 +590,14 @@ struct App {
     table_new_field: String,
     line_weight: f32,
     measure: Vec<[f64; 3]>,
+    /// Capturar coordenadas con el ratón e ir a unas coordenadas.
+    crd: coords::Coords,
+    /// El dock del EDA (análisis exploratorio de datos).
+    ch: charts::Charts,
+    /// `--window-png ruta`: guarda la ventana entera en esa ruta pasados unos fotogramas.
+    window_png: Option<charts::WindowShot>,
+    /// `--shot-wait segundos`: cuánto se espera antes de la captura de `--window-png`.
+    shot_wait: Option<f64>,
     query: Option<usize>,
     /// Lo que encontró la herramienta de consulta en el punto en que se usó por última vez: el
     /// punto y la ficha de texto que muestra, que permanece hasta que se cierra o un clic no
@@ -743,6 +761,10 @@ impl Default for App {
             table_new_field: String::new(),
             line_weight: 2.0,
             measure: Vec::new(),
+            crd: coords::Coords::default(),
+            ch: charts::Charts::default(),
+            window_png: None,
+            shot_wait: None,
             query: None,
             query_card: None,
             query_view: QueryView::Plan,
@@ -1061,6 +1083,22 @@ impl App {
                 }
                 "--rs" => self.rs.open = true,
                 "--histogram" => self.ed.hist.open = true,
+                "--charts" => self.ch.open = true,
+                "--window-png" => {
+                    if let Some(p) = it.next() {
+                        self.window_png = Some(charts::WindowShot::new(PathBuf::from(p)));
+                    }
+                }
+                "--shot-wait" => {
+                    if let Some(v) = it.next().and_then(|v| v.parse::<f64>().ok()) {
+                        self.shot_wait = Some(v);
+                    }
+                }
+                "--eda-png" => {
+                    if let Some(p) = it.next() {
+                        self.eda_png_at_start(PathBuf::from(p));
+                    }
+                }
                 "--bench" => self.bench = Some((Instant::now(), 0)),
                 "--table" => self.table_layer = Some(0),
                 "--ndvi" => self.rs.compute_at_start = true,
@@ -1143,6 +1181,8 @@ impl App {
                     }
                     Some("clitool") => Action::CliTool(0),
                     Some("clitool-near") => Action::CliTool(5),
+                    Some("clitool-fields") => Action::CliTool(14),
+                    Some("clitool-topology") => Action::CliTool(11),
                     _ => continue,
                 }),
                 "--obia" => {
@@ -1269,6 +1309,7 @@ impl App {
                 }
             }
             "shp" | "geojson" | "json" | "gpkg" | "kml" | "kmz" => self.add_vector(&p),
+            "csv" | "tsv" | "xlsx" => self.add_table(&p),
             "e57" => {
                 if self.running.is_some() {
                     self.log("Hay otro proceso en marcha: espera a que termine para abrir el E57.");
@@ -1478,17 +1519,16 @@ impl App {
             }
             cols
         };
-        // las herramientas de la ventana genérica, en columnas de hasta tres botones pequeños
-        let cli_columns = |r: std::ops::Range<usize>| -> Vec<Vec<Item<Action>>> {
-            let items: Vec<Item<Action>> = r
-                .map(|k| Item {
+        // los botones de las herramientas de la ventana genérica que se piden por su índice
+        let cli_items = |list: &[usize]| -> Vec<Item<Action>> {
+            list.iter()
+                .map(|&k| Item {
                     icon: cli_tool_ui::TOOLS[k].1,
                     label: cli_tool_ui::TOOLS[k].3,
                     on: self.cli_tool_open(k),
                     action: Action::CliTool(k as u8),
                 })
-                .collect();
-            items.chunks(3).map(|c| c.iter().map(|i| Item { icon: i.icon, label: i.label, on: i.on, action: i.action }).collect()).collect()
+                .collect()
         };
         vec![
             Group {
@@ -1516,21 +1556,26 @@ impl App {
                 icon: "@classify",
                 big: vec![],
                 menus: vec![],
-                columns: columns(ops(true)),
+                // validez, topología, simplificar, paralela y recortar: lo que cambia o repara la forma
+                // de los elementos (índices 11, 12, 13 y 4 de la ventana genérica)
+                columns: columns(ops(true).into_iter().chain(cli_items(&[11, 12, 13, 4])).collect()),
+            },
+            Group {
+                caption: "Tabla",
+                icon: "@jointable",
+                big: vec![],
+                menus: vec![],
+                // extraer valores de un ráster, unir una tabla, dividir por un campo y quitar o renombrar
+                // campos (índices 0, 1, 3 y 14)
+                columns: columns(cli_items(&[0, 1, 3, 14])),
             },
             Group {
                 caption: "Geoprocesos",
                 icon: "@zonal",
                 big: vec![],
                 menus: vec![],
-                columns: columns(ops(false)),
-            },
-            Group {
-                caption: "Capas y tablas",
-                icon: "@jointable",
-                big: vec![],
-                menus: vec![],
-                columns: cli_columns(0..7),
+                // los procesos puros entre capas: los de polígonos, combinar capas y cercanía (índices 2 y 5)
+                columns: columns(ops(false).into_iter().chain(cli_items(&[2, 5])).collect()),
             },
         ]
     }
@@ -1643,7 +1688,7 @@ impl App {
                     vec![
                         vec![op(5), op(0), op(1)],
                         vec![op(2), op(3), cli(7)],
-                        vec![cli(8), cli(9), cli(10)],
+                        vec![cli(8), cli(10)],
                     ]
                 },
             },
@@ -2539,6 +2584,11 @@ impl App {
                 self.plan_fit = true;
             }
             Action::ZoomPrev => self.zoom_back(),
+            Action::GotoCoords => {
+                if self.crd.goto.is_none() {
+                    self.crd.goto = Some(coords::Goto::default());
+                }
+            }
             Action::ZoomNext => {
                 if let Some(p) = self.next_plans.pop() {
                     self.prev_plans.push(self.plan);
@@ -2557,6 +2607,9 @@ impl App {
             Action::Nav(n) => {
                 if editing::is_select(n) {
                     self.side = Side::Edit;
+                }
+                if n == Nav::Coords {
+                    self.crd.open = true;
                 }
                 self.nav = n;
                 self.pending_nav = None;
@@ -2598,6 +2651,7 @@ impl App {
             Action::ToggleTin => self.tin_on = !self.tin_on,
             Action::ToggleContours => self.contours_on = !self.contours_on,
             Action::ToggleLog => self.show_log = !self.show_log,
+            Action::ToggleCharts => self.ch.open = !self.ch.open,
             Action::ToggleBasemap => {
                 let bm = self
                     .basemap
@@ -2626,6 +2680,7 @@ impl App {
             Action::LoadVector => {
                 for p in crate::prefs::dialog()
                     .add_filter("Capa vectorial", &["shp", "geojson", "json", "gpkg", "kml", "kmz"])
+                    .add_filter("Tabla (CSV, TSV, XLSX)", &["csv", "tsv", "xlsx"])
                     .pick_files()
                     .unwrap_or_default()
                 {
@@ -2765,6 +2820,8 @@ impl App {
             ("Herramienta: Desplazar", Action::Nav(Nav::Pan)),
             ("Herramienta: Consultar punto", Action::Nav(Nav::Query)),
             ("Herramienta: Medir", Action::Nav(Nav::Measure)),
+            ("Herramienta: Capturar coordenadas", Action::Nav(Nav::Coords)),
+            ("Ir a coordenadas", Action::GotoCoords),
             ("Herramienta: Densidad de puntos", Action::Nav(Nav::Density)),
             ("Herramienta: Perfil", Action::Nav(Nav::Profile)),
             (
@@ -2915,6 +2972,7 @@ impl App {
             ("Cambiar tema claro / oscuro", Action::ToggleTheme),
             ("Clases visibles y colores", Action::Classes),
             ("Mostrar u ocultar el registro", Action::ToggleLog),
+            ("EDA: análisis exploratorio de datos (histograma, dispersión, cajas y estadísticas)", Action::ToggleCharts),
             ("Ajustes (caché)", Action::Settings),
             ("Constructor de flujos", Action::Flows),
             ("Atajos de teclado", Action::Shortcuts),
@@ -2952,6 +3010,13 @@ impl App {
                         if ribbon::icon_button(ui, &t, icon, tip).clicked() {
                             self.act(ctx, a);
                         }
+                    }
+                    // capturar coordenadas con el ratón, junto a «Zoom anterior»: queda marcado mientras
+                    // la herramienta está activa y otro clic vuelve al zoom
+                    let capturing = self.nav == Nav::Coords;
+                    if ribbon::icon_button_on(ui, &t, "@coords", "Capturar coordenadas: cada clic en el mapa anota el punto y copia sus coordenadas", capturing).clicked() {
+                        let to = if capturing { Nav::Zoom } else { Nav::Coords };
+                        self.act(ctx, Action::Nav(to));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(10.0);
@@ -3065,6 +3130,11 @@ impl App {
                                             self.act(ctx, Action::CloseAll);
                                         }
                                     });
+                                });
+                                ribbon::fold_group(ui, &t, "Análisis", "@charts", 2, |ui| {
+                                    if ribbon::big_button(ui, &t, "@charts", "EDA", self.ch.open).clicked() {
+                                        self.act(ctx, Action::ToggleCharts);
+                                    }
                                 });
                                 ribbon::fold_group(ui, &t, "Interfaz", "@sun", 0, |ui| {
                                     if ribbon::big_button(
@@ -3556,6 +3626,7 @@ ui.menu_button("⚙", |ui| {
             Some(code) => hipso_core::crs::name(code),
             None => "sin declarar".to_string(),
         });
+        let mut stop_cli: Option<usize> = None;
         egui::Panel::bottom("status")
             .exact_size(24.0)
             .frame(
@@ -3606,6 +3677,9 @@ ui.menu_button("⚙", |ui| {
                         "Escala 1 px = {:.3} m",
                         1.0 / self.plan.scale.max(1e-9)
                     )));
+                    if ribbon::status_button(ui, &t, "@goto", "Ir a coordenadas").clicked() {
+                        self.act(ui.ctx(), Action::GotoCoords);
+                    }
                     if self.running.is_some() {
                         ui.separator();
                         if ui
@@ -3625,6 +3699,11 @@ ui.menu_button("⚙", |ui| {
                             r.started.elapsed().as_secs_f64(),
                             progress_text(r.started).map_or(String::new(), |p| format!(" · {p}"))
                         )));
+                    } else if let Some(j) = self.img_jobs.first() {
+                        ui.separator();
+                        ui.spinner();
+                        let name = j.path.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
+                        ui.label(small(format!("abriendo «{name}»… {:.0} s", j.started.elapsed().as_secs_f64())));
                     } else if let Some((_, st)) = &self.loading {
                         ui.separator();
                         ui.spinner();
@@ -3634,6 +3713,15 @@ ui.menu_button("⚙", |ui| {
                             progress_text(*st).map_or(String::new(), |p| format!(" · {p}"))
                         )));
                     }
+                    // las herramientas de las ventanas genéricas que están en marcha, cada una con su parada
+                    for (k, title, secs) in self.cli_running_list() {
+                        ui.separator();
+                        ui.spinner();
+                        ui.label(small(format!("{title} · {secs:.0} s")));
+                        if ui.small_button("■").on_hover_text(format!("Detener «{title}» y borrar lo que haya creado")).clicked() {
+                            stop_cli = Some(k);
+                        }
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if let Some(q) = &self.density {
                             ui.label(small(q.clone()));
@@ -3641,6 +3729,9 @@ ui.menu_button("⚙", |ui| {
                     });
                 });
             });
+        if let Some(k) = stop_cli {
+            self.cli_stop(k);
+        }
         if self.show_log {
             egui::Panel::bottom("log")
                 .default_size(150.0)
@@ -3723,7 +3814,9 @@ ui.menu_button("⚙", |ui| {
                 let whole = ui.available_rect_before_wrap();
                 // la tabla de atributos acoplada ocupa la franja de abajo; las vistas, el resto
                 let table_h = self.table_height(whole.height());
-                let full = Rect::from_min_max(whole.min, Pos2::new(whole.max.x, whole.max.y - table_h));
+                // los gráficos van encima de la tabla, si hay las dos
+                let charts_h = self.charts_height(whole.height() - table_h);
+                let full = Rect::from_min_max(whole.min, Pos2::new(whole.max.x, whole.max.y - table_h - charts_h));
                 let gap = 3.0;
                 let (plan, prof, d3) = match self.layout {
                     Layout::Plan => (Some(full), None, None),
@@ -3772,6 +3865,13 @@ ui.menu_button("⚙", |ui| {
                 }
                 self.dividers(ui, full);
                 self.sync_views();
+                if charts_h > 0.0 {
+                    let area = Rect::from_min_max(
+                        Pos2::new(whole.min.x, whole.max.y - table_h - charts_h),
+                        Pos2::new(whole.max.x, whole.max.y - table_h),
+                    );
+                    self.charts_dock(ui, area, (whole.height() * 0.7).max(240.0));
+                }
                 if table_h > 0.0 {
                     let area = Rect::from_min_max(Pos2::new(whole.min.x, whole.max.y - table_h), whole.max);
                     self.table_window(ui, area, (whole.height() * 0.75).max(220.0));
@@ -3849,10 +3949,16 @@ ui.menu_button("⚙", |ui| {
         painter.rect_filled(rect, 0.0, color32(self.style.background));
         let store = self.store.clone();
         if store.is_none() && self.refs.is_empty() {
+            let opening = self.img_jobs.first().map(|j| {
+                let name = j.path.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
+                format!("Abriendo «{name}»… {:.0} s", j.started.elapsed().as_secs_f64())
+            });
             let msg = if self.loading.is_some() {
-                "Cargando la nube…"
+                "Cargando la nube…".to_string()
+            } else if let Some(m) = opening {
+                m
             } else {
-                "Abre una nube LAS/LAZ con «Abrir», o arrástrala a esta ventana"
+                "Abre una nube LAS/LAZ con «Abrir», o arrástrala a esta ventana".to_string()
             };
             painter.text(
                 rect.center(),
@@ -4041,6 +4147,12 @@ ui.menu_button("⚙", |ui| {
                     self.measure.clear();
                 }
             }
+            Nav::Coords => {
+                if let Some(p) = click {
+                    let m = to_map(self, p);
+                    self.capture_coord(ctx, m);
+                }
+            }
             Nav::Density => {
                 if resp.drag_stopped_by(egui::PointerButton::Primary) {
                     if let (Some(a), Some(b), Some(s)) =
@@ -4171,17 +4283,11 @@ ui.menu_button("⚙", |ui| {
             None
         };
         let plan_now = self.plan;
-        if let Some(bm) = &mut self.basemap
-            && let Some(msg) = bm.paint(ctx, &painter, &plan_now, rect, w, h, project)
-        {
-            painter.text(
-                rect.left_top() + Vec2::new(10.0, 26.0),
-                egui::Align2::LEFT_TOP,
-                msg,
-                egui::FontId::proportional(12.0),
-                Color32::from_rgb(230, 170, 60),
-            );
-        }
+        // el aviso del mapa base se dibuja después de la nube, para que no lo tape
+        let basemap_note = match &mut self.basemap {
+            Some(bm) => bm.paint(ctx, &painter, &plan_now, rect, w, h, project),
+            None => None,
+        };
         self.paint_layers(&painter, rect, w, h, 0..slot);
         if let Some(store) = &store {
             if self.tin_on || self.contours_on {
@@ -4194,6 +4300,12 @@ ui.menu_button("⚙", |ui| {
             {
                 painter.image(tex.id(), rect, uv, Color32::WHITE);
             }
+        }
+        if let Some(msg) = basemap_note {
+            let galley = painter.layout(msg, egui::FontId::proportional(12.0), Color32::from_rgb(255, 205, 110), (rect.width() - 20.0).max(80.0));
+            let at = rect.left_top() + Vec2::new(10.0, 26.0);
+            painter.rect_filled(Rect::from_min_size(at - Vec2::new(4.0, 2.0), galley.size() + Vec2::new(8.0, 4.0)), 4.0, Color32::from_black_alpha(190));
+            painter.galley(at, galley, Color32::WHITE);
         }
         let m2s = |s: &Self, x: f64, y: f64| {
             let (px, py) = s.plan.to_screen(x, y, w, h);
@@ -4331,6 +4443,7 @@ ui.menu_button("⚙", |ui| {
                 }
             }
         }
+        self.paint_coords(&painter, |x, y| m2s(self, x, y));
         if let Some((p, lines)) = self.query_card.clone() {
             let c = m2s(self, p[0], p[1]);
             painter.circle_stroke(c, 7.0, Stroke::new(2.0, Color32::WHITE));
@@ -5548,6 +5661,12 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         // lo que señaló el cursor en el fotograma anterior se marca en las demás vistas
         self.hover = self.hover_next.take();
+        if let Some(w) = &mut self.window_png {
+            if let Some(secs) = self.shot_wait {
+                w.wait_secs = secs;
+            }
+            w.advance(&ctx);
+        }
         // el dibujo de la herramienta de medir desaparece con la herramienta
         if self.nav != Nav::Measure && !self.measure.is_empty() {
             self.measure.clear();
@@ -5732,6 +5851,8 @@ impl eframe::App for App {
         self.reproject_window(&ctx);
         self.rasterops_windows(&ctx);
         self.vector_windows(&ctx);
+        self.coords_window(&ctx);
+        self.goto_window(&ctx);
         self.change_window(&ctx);
         self.model_window(&ctx);
         self.corridor_window(&ctx);
@@ -5763,6 +5884,6 @@ fn progress_text(started: Instant) -> Option<String> {
 /// Extensiones de todo lo que abre el diálogo de Capas.
 fn layer_extensions() -> Vec<&'static str> {
     let mut v = hipso_core::raster::EXTENSIONS.to_vec();
-    v.extend(["shp", "geojson", "json", "gpkg", "kml", "kmz"]);
+    v.extend(["shp", "geojson", "json", "gpkg", "kml", "kmz", "csv", "tsv", "xlsx"]);
     v
 }

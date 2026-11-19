@@ -47,7 +47,79 @@ pub const PROVIDERS: &[Provider] = &[
         credit: "Mapa base © IGN, CC BY 4.0 scne.es",
         max_zoom: 19,
     },
+    // Sentinel-2 reciente: datos abiertos de Copernicus (uso libre, con la mención). El mosaico
+    // se registra al usarlo, con las escenas de los últimos `MOSAIC_DAYS` días y menos de un
+    // `MOSAIC_CLOUDS` % de nubes, de la más reciente a la más antigua, en el servicio de teselas del
+    // Microsoft Planetary Computer (sin clave; acceso anónimo con límite de peticiones). `{mosaic}`
+    // se sustituye por el identificador que devuelve. Las bandas B04, B03 y B02 dan el color
+    // natural y B08, B04 y B03 el infrarrojo color (la vegetación sana, en rojo).
+    Provider {
+        name: "Sentinel-2 color natural, reciente (mundial)",
+        url: "https://planetarycomputer.microsoft.com/api/data/v1/mosaic/{mosaic}/tiles/WebMercatorQuad/{z}/{x}/{y}@1x?collection=sentinel-2-l2a&assets=B04&assets=B03&assets=B02&rescale=0,4500&color_formula=gamma+RGB+1.4&pixel_selection=first",
+        credit: "Contiene datos modificados de Copernicus Sentinel (últimos 60 días), procesados por Microsoft Planetary Computer",
+        max_zoom: 15,
+    },
+    Provider {
+        name: "Sentinel-2 infrarrojo color, reciente (mundial)",
+        url: "https://planetarycomputer.microsoft.com/api/data/v1/mosaic/{mosaic}/tiles/WebMercatorQuad/{z}/{x}/{y}@1x?collection=sentinel-2-l2a&assets=B08&assets=B04&assets=B03&rescale=0,6500&color_formula=gamma+RGB+1.3&pixel_selection=first",
+        credit: "Contiene datos modificados de Copernicus Sentinel (últimos 60 días), procesados por Microsoft Planetary Computer",
+        max_zoom: 15,
+    },
 ];
+
+/// Cuántos días hacia atrás llegan las escenas del mosaico reciente de Sentinel-2.
+const MOSAIC_DAYS: i64 = 60;
+/// Nubosidad máxima, en %, de una escena del mosaico reciente.
+const MOSAIC_CLOUDS: u32 = 10;
+
+/// El mosaico reciente de Sentinel-2: se registra una vez por sesión y su identificador se pone en
+/// las direcciones de las teselas.
+#[derive(Clone, Debug)]
+enum Mosaic {
+    Idle,
+    Pending,
+    Ready(String),
+    /// Por qué falló el registro y cuándo; se reintenta pasado un minuto.
+    Failed(Instant, String),
+}
+
+/// Registra en el servicio el mosaico de las escenas recientes y devuelve su identificador.
+fn register_mosaic() -> Result<String, String> {
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs() as i64
+        / 86_400;
+    let day = |d: i64| {
+        let (y, m, dd) = hipso_core::fieldtype::civil_from_days(d);
+        format!("{y:04}-{m:02}-{dd:02}")
+    };
+    let body = format!(
+        r#"{{"collections":["sentinel-2-l2a"],"filter-lang":"cql2-json","filter":{{"op":"<","args":[{{"property":"eo:cloud_cover"}},{MOSAIC_CLOUDS}]}},"datetime":"{}/{}","sortby":[{{"field":"datetime","direction":"desc"}}],"metadata":{{"name":"HIPSO Sentinel-2 reciente"}}}}"#,
+        day(now - MOSAIC_DAYS),
+        day(now)
+    );
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .user_agent(USER_AGENT)
+        .timeout_global(Some(Duration::from_secs(30)))
+        .build()
+        .into();
+    let text = agent
+        .post("https://planetarycomputer.microsoft.com/api/data/v1/mosaic/register")
+        .header("Content-Type", "application/json")
+        .send(body)
+        .map_err(|e| e.to_string())?
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| e.to_string())?;
+    // {"id": …, "searchid":"pc1.…"}: el identificador es texto sin comillas ni barras
+    let at = text.find("\"searchid\":\"").ok_or("el servicio no devolvió un identificador")? + 12;
+    let id: String = text[at..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == '_' || *c == '-').collect();
+    if id.is_empty() {
+        return Err("el servicio devolvió un identificador vacío".into());
+    }
+    Ok(id)
+}
 
 /// El índice del proveedor cuya dirección escribe el usuario.
 pub const CUSTOM: usize = PROVIDERS.len();
@@ -107,6 +179,7 @@ pub struct Basemap {
     /// El sistema para el que se hicieron los transformadores de abajo, y Web Mercator hacia él.
     mapped: Option<(u16, Arc<Transformer>, Arc<Transformer>)>,
     frame: u64,
+    mosaic: Arc<Mutex<Mosaic>>,
 }
 
 impl Basemap {
@@ -129,6 +202,7 @@ impl Basemap {
             done,
             mapped: None,
             frame: 0,
+            mosaic: Arc::new(Mutex::new(Mosaic::Idle)),
         }
     }
 
@@ -206,6 +280,43 @@ impl Basemap {
         else {
             return Some("Mapa base: escribe una dirección con {z}, {x} e {y}".into());
         };
+        // la caché se guarda por la dirección con su hueco sin rellenar, de modo que el mosaico de
+        // cada sesión (que cambia con los días) comparta las teselas ya bajadas
+        let cache_id = Self::id(&template);
+        let template = if template.contains("{mosaic}") {
+            let state = self.mosaic.lock().map(|m| m.clone()).unwrap_or(Mosaic::Idle);
+            match state {
+                Mosaic::Ready(id) => template.replace("{mosaic}", &id),
+                Mosaic::Pending => {
+                    ctx.request_repaint_after(Duration::from_millis(500));
+                    return Some("Mapa base: preparando el mosaico reciente de Sentinel-2…".into());
+                }
+                Mosaic::Failed(at, why) if at.elapsed() < Duration::from_secs(60) => {
+                    ctx.request_repaint_after(Duration::from_secs(5));
+                    return Some(format!("Mapa base: no se pudo preparar el mosaico de Sentinel-2 ({why}); se reintenta en un minuto"));
+                }
+                Mosaic::Idle | Mosaic::Failed(..) => {
+                    if let Ok(mut m) = self.mosaic.lock() {
+                        *m = Mosaic::Pending;
+                    }
+                    let (shared, c) = (self.mosaic.clone(), ctx.clone());
+                    std::thread::spawn(move || {
+                        let r = register_mosaic();
+                        if let Ok(mut m) = shared.lock() {
+                            *m = match r {
+                                Ok(id) => Mosaic::Ready(id),
+                                Err(e) => Mosaic::Failed(Instant::now(), e),
+                            };
+                        }
+                        c.request_repaint();
+                    });
+                    ctx.request_repaint_after(Duration::from_millis(500));
+                    return Some("Mapa base: preparando el mosaico reciente de Sentinel-2…".into());
+                }
+            }
+        } else {
+            template
+        };
         if self.mapped.as_ref().is_none_or(|m| m.0 != project) {
             let pair = reproject::transformer(3857, project)
                 .and_then(|a| reproject::transformer(project, 3857).map(|b| (a, b)));
@@ -239,7 +350,7 @@ impl Basemap {
             z -= 1;
             tiles = tilemap::tiles_in(bounds, z);
         }
-        let pid = Self::id(&template);
+        let pid = cache_id;
         let tint = Color32::WHITE;
         let centre = [(bounds[0] + bounds[2]) / 2.0, (bounds[1] + bounds[3]) / 2.0];
         let mut missing: Vec<(f64, Key)> = Vec::new();

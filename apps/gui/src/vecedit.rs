@@ -90,6 +90,8 @@ pub struct VecEditState {
     pub err: Option<String>,
     /// El tipo elegido para un campo que se va a añadir.
     pub new_type: hipso_core::fieldtype::FieldType,
+    /// El nombre que se escribe en el menú de una cabecera para renombrar su campo.
+    rename_buf: String,
     /// Ancho de cada columna de la tabla de cada capa (el índice 0 es el número de fila).
     col_w: HashMap<usize, Vec<f32>>,
     /// Campo por el que se ordena la tabla y si sube.
@@ -126,6 +128,7 @@ impl Default for VecEditState {
             editing: None,
             edit_buf: String::new(),
             err: None,
+            rename_buf: String::new(),
             new_type: hipso_core::fieldtype::FieldType::Text,
             col_w: HashMap::new(),
             sort: None,
@@ -1038,17 +1041,27 @@ impl App {
                 }
                 // ---- la barra de herramientas: título, iconos, filtro y cierre
                 ui.horizontal(|ui| {
+                    // la zona de la derecha (filtro, «solo seleccionados» y cierre) se reserva primero: los
+                    // iconos de la izquierda no pueden pasar de lo que queda, y lo que no cabe se recorta
+                    let right_w = 330.0;
+                    let left_w = (ui.available_width() - right_w).max(280.0);
+                    ui.allocate_ui_with_layout(Vec2::new(left_w, 24.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
                     ui.spacing_mut().item_spacing.x = 3.0;
                     crate::ribbon::draw_icon(ui.painter(), ui.cursor().left_center() + Vec2::new(9.0, 0.0), 15.0, "@table", t.text);
                     ui.add_space(20.0);
-                    ui.label(egui::RichText::new(&name).strong());
+                    // el nombre se recorta con puntos suspensivos: no pisa lo que va a su derecha
+                    let name_w = (left_w * 0.2).clamp(70.0, 220.0);
+                    ui.allocate_ui(Vec2::new(name_w, 22.0), |ui| {
+                        ui.add(egui::Label::new(egui::RichText::new(&name).strong()).truncate()).on_hover_text(&name);
+                    });
                     ui.label(
                         egui::RichText::new(format!("{} de {} seleccionados", v.selected.len(), v.data.features.len()))
                             .size(11.5)
                             .color(t.weak),
                     );
                     ui.add_space(8.0);
-                    let r_sel = crate::ribbon::small_button(ui, &t, "@exprsel", "Seleccionar por atributos", false);
+                    let r_sel = crate::ribbon::icon_button(ui, &t, "@exprsel", "Seleccionar por atributos");
                     egui::Popup::menu(&r_sel)
                         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                         .show(|ui| {
@@ -1176,6 +1189,7 @@ impl App {
                             ui.close();
                         }
                         });
+                    });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if crate::ribbon::icon_button(ui, &t, "@close", "Cerrar la tabla").clicked() {
                             open = false;
@@ -1183,7 +1197,7 @@ impl App {
                         ui.add(
                             egui::TextEdit::singleline(&mut ed.filter)
                                 .hint_text("Filtrar filas…")
-                                .desired_width(170.0),
+                                .desired_width(130.0),
                         );
                         ui.checkbox(&mut ed.only_selected, "Solo seleccionados");
                     });
@@ -1266,6 +1280,8 @@ impl App {
                 let mut row_click: Option<(usize, bool, bool)> = None;
                 let types: Vec<FieldType> = (0..nfields).map(|c| v.data.field_type(c)).collect();
                 let mut retype: Option<(usize, FieldType)> = None;
+                let mut rename: Option<(usize, String)> = None;
+                let mut remove_col: Option<usize> = None;
                 egui::ScrollArea::both()
                     .auto_shrink([false, false])
                     .show_viewport(ui, |ui, view| {
@@ -1411,6 +1427,21 @@ impl App {
                                         ui.close();
                                     }
                                 }
+                                ui.separator();
+                                ui.label("Renombrar el campo");
+                                let r = ui.add(egui::TextEdit::singleline(&mut ed.rename_buf).hint_text(v.data.fields[c].as_str()).desired_width(140.0));
+                                let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                                if (ui.add_enabled(!ed.rename_buf.trim().is_empty(), egui::Button::new("Renombrar")).clicked() || enter)
+                                    && !ed.rename_buf.trim().is_empty()
+                                {
+                                    rename = Some((c, std::mem::take(&mut ed.rename_buf)));
+                                    ui.close();
+                                }
+                                ui.separator();
+                                if ui.button("Eliminar el campo").clicked() {
+                                    remove_col = Some(c);
+                                    ui.close();
+                                }
                             });
                             let arrow = match ed.sort {
                                 Some((sc, up)) if sc == c => {
@@ -1486,6 +1517,34 @@ impl App {
                             v.reclassify_if_data();
                         }
                     }
+                }
+                if let Some((c, name)) = rename {
+                    // se prueba en una copia: un nombre repetido o vacío no cambia nada
+                    let mut probe = v.data.clone();
+                    match probe.rename_field(c, &name) {
+                        Ok(()) => {
+                            ed.rev += 1;
+                            v.push_undo();
+                            let _ = v.data.rename_field(c, &name);
+                            v.dirty = true;
+                            ed.err = None;
+                            ed.sort_key = None;
+                        }
+                        Err(m) => ed.err = Some(format!("No se puede renombrar: {m}")),
+                    }
+                }
+                if let Some(c) = remove_col {
+                    ed.rev += 1;
+                    v.push_undo();
+                    v.data.remove_field(c);
+                    v.fix_field_refs(Some(c));
+                    v.dirty = true;
+                    ed.err = None;
+                    ed.sort = None;
+                    ed.sort_key = None;
+                    ed.col_w.remove(&k);
+                    ed.editing = None;
+                    v.reclassify_if_data();
                 }
                 if let Some(c) = sort_click {
                     ed.sort = match ed.sort {

@@ -1,5 +1,6 @@
-//! Reproyectar (Ráster y nubes): lleva nubes y rásteres a otro sistema de coordenadas y, cuando se
-//! pide, cambia la referencia vertical de sus alturas.
+//! Reproyectar (nubes, rásteres y capas vectoriales): lleva los archivos a otro sistema de
+//! coordenadas y, cuando se pide, cambia la referencia vertical de las alturas de las nubes y los
+//! rásteres.
 
 use super::*;
 use hipso_core::paths;
@@ -135,7 +136,7 @@ impl App {
         let loaded: Vec<(String, PathBuf)> = self
             .refs
             .iter()
-            .filter(|r| matches!(r.kind, RefKind::Raster { .. }))
+            .filter(|r| matches!(r.kind, RefKind::Raster { .. } | RefKind::Vector(_)))
             .map(|r| (r.name.clone(), r.path.clone()))
             .collect();
         let weak = self.tokens().weak;
@@ -146,12 +147,12 @@ impl App {
             .open(&mut open)
             .show(ctx, |ui| {
                 let t = &mut self.rp;
-                crate::procwin::begin(ui, weak, "Pasa nubes (LAS/LAZ) y rásteres a otro sistema de coordenadas y, si lo pides, cambia la referencia vertical de las alturas (por ejemplo, de elipsoidales a ortométricas con el modelo de geoide). Cada resultado es un archivo nuevo; los originales no se tocan. Si una transformación no puede hacerse con precisión (falta una rejilla o el punto cae fuera de su cobertura) se rechaza con un error, salvo que aceptes aproximaciones.");
+                crate::procwin::begin(ui, weak, "Pasa nubes (LAS/LAZ), rásteres y capas vectoriales (shapefile, GeoJSON, GeoPackage y KML) a otro sistema de coordenadas y, si lo pides, cambia la referencia vertical de las alturas de nubes y rásteres (por ejemplo, de elipsoidales a ortométricas con el modelo de geoide). Cada resultado es un archivo nuevo, con el mismo formato que el original; los originales no se tocan. Un KML solo admite WGS 84. Si una transformación no puede hacerse con precisión (falta una rejilla o el punto cae fuera de su cobertura) se rechaza con un error, salvo que aceptes aproximaciones.");
                 ui.horizontal(|ui| {
                     ui.label("Archivos");
                     if ui.button("Añadir archivos…").clicked()
                         && let Some(v) = crate::prefs::dialog()
-                            .add_filter("Nubes y rásteres", &["las", "laz", "tif", "tiff"])
+                            .add_filter("Nubes, rásteres y capas", &["las", "laz", "tif", "tiff", "shp", "geojson", "json", "gpkg", "kml", "kmz"])
                             .pick_files()
                     {
                         for p in v {

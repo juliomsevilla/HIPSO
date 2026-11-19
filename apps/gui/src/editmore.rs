@@ -32,6 +32,24 @@ pub struct TopoDlg {
     pub ran: bool,
 }
 
+/// Estado de la ventana de reparar la topología de la capa activa.
+pub struct RepairDlg {
+    /// Distancia de ajuste de vértices y extremos, en las unidades de la capa.
+    pub snap: f64,
+    /// Superficie máxima de un hueco entre polígonos que se rellena.
+    pub max_gap: f64,
+    /// Quién se queda la superficie de un solape; `None`, los solapes se dejan.
+    pub overlaps: Option<hipso_core::topofix::OverlapRule>,
+    /// Lo que se hizo la última vez, o por qué no se pudo.
+    pub msg: String,
+}
+
+impl Default for RepairDlg {
+    fn default() -> Self {
+        Self { snap: 0.0, max_gap: 0.0, overlaps: Some(hipso_core::topofix::OverlapRule::Larger), msg: String::new() }
+    }
+}
+
 impl Default for TopoDlg {
     fn default() -> Self {
         Self { tol: 1e-6, issues: Vec::new(), ran: false }
@@ -184,6 +202,91 @@ impl App {
         }
         if open {
             self.vm.transform = Some(d);
+        }
+    }
+
+    /// La ventana de «Reparar topología»: corrige la capa activa (ajusta vértices, quita solapes,
+    /// rellena huecos pequeños o une los extremos de líneas) y se puede deshacer.
+    pub fn repair_window(&mut self, ctx: &egui::Context) {
+        use hipso_core::topofix::OverlapRule;
+        let Some(mut d) = self.vm.repair.take() else { return };
+        let kind = self.active_vec().map(|v| v.kind);
+        let weak = self.tokens().weak;
+        let (mut open, mut run) = (true, false);
+        egui::Window::new("Reparar topología")
+            .open(&mut open)
+            .collapsible(false)
+            .default_width(380.0)
+            .show(ctx, |ui| {
+                let polygons = match kind {
+                    Some(view::GeomKind::Polygon) => true,
+                    Some(view::GeomKind::Line) => false,
+                    _ => {
+                        ui.label("Elige una capa de polígonos o de líneas.");
+                        return;
+                    }
+                };
+                ui.label(
+                    egui::RichText::new(if polygons {
+                        "Ajusta los vértices cercanos de polígonos vecinos para que sus bordes coincidan, quita los solapes y rellena los huecos pequeños entre polígonos con el vecino de más borde común. Los polígonos no válidos se reparan siempre."
+                    } else {
+                        "Lleva los extremos de las líneas que se quedan cortos a la línea más cercana, a una distancia como mucho: al vértice más próximo o a uno nuevo sobre el segmento."
+                    })
+                    .color(weak)
+                    .size(11.0),
+                );
+                ui.horizontal(|ui| {
+                    ui.label("Distancia de ajuste");
+                    ui.add(egui::DragValue::new(&mut d.snap).speed(0.01).range(0.0..=1e9))
+                        .on_hover_text("En las unidades de la capa. Los vértices (en líneas, los extremos) a menos de esta distancia se unen; 0 no ajusta nada.");
+                });
+                if polygons {
+                    ui.horizontal(|ui| {
+                        ui.label("Rellenar huecos hasta");
+                        ui.add(egui::DragValue::new(&mut d.max_gap).speed(0.1).range(0.0..=1e12).suffix(" de superficie"))
+                            .on_hover_text("Superficie máxima de un hueco entre polígonos que se rellena; 0 no rellena ninguno.");
+                    });
+                    egui::ComboBox::from_label("Solapes")
+                        .selected_text(match d.overlaps {
+                            Some(OverlapRule::Larger) => "Se queda el polígono mayor",
+                            Some(OverlapRule::Smaller) => "Se queda el polígono menor",
+                            Some(OverlapRule::First) => "Se queda el primero de la tabla",
+                            None => "Dejarlos como están",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut d.overlaps, Some(OverlapRule::Larger), "Se queda el polígono mayor");
+                            ui.selectable_value(&mut d.overlaps, Some(OverlapRule::Smaller), "Se queda el polígono menor");
+                            ui.selectable_value(&mut d.overlaps, Some(OverlapRule::First), "Se queda el primero de la tabla");
+                            ui.selectable_value(&mut d.overlaps, None, "Dejarlos como están");
+                        });
+                }
+                run = ui.button("Reparar").on_hover_text("Se puede deshacer con Deshacer.").clicked();
+                if !d.msg.is_empty() {
+                    ui.label(egui::RichText::new(&d.msg).size(11.5));
+                }
+            });
+        if run && let Some(v) = self.active_vec_mut() {
+            let opts = hipso_core::topofix::Options { snap: d.snap, max_gap: d.max_gap, overlaps: d.overlaps };
+            let mut work = v.data.clone();
+            match hipso_core::topofix::repair(&mut work, v.kind, &opts) {
+                Ok(r) => {
+                    v.push_undo();
+                    v.data = work;
+                    v.selected.clear();
+                    v.rebuild();
+                    v.dirty = true;
+                    v.fix_field_refs(None);
+                    v.reclassify();
+                    d.msg = format!(
+                        "{} vértices movidos y {} insertados; {} polígonos reparados; solapes quitados en {} (superficie {:.3}); {} huecos rellenados ({} más grandes se dejan); {} elementos sin geometría quitados.",
+                        r.moved, r.inserted, r.made_valid, r.overlaps_fixed, r.overlap_area, r.gaps_filled, r.gaps_left, r.dropped
+                    );
+                }
+                Err(e) => d.msg = format!("No se pudo reparar: {e}"),
+            }
+        }
+        if open {
+            self.vm.repair = Some(d);
         }
     }
 

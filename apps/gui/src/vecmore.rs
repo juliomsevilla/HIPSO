@@ -40,6 +40,8 @@ pub struct State {
     pub transform: Option<crate::editmore::TransformDlg>,
     /// La ventana de la comprobación de topología.
     pub topo: Option<crate::editmore::TopoDlg>,
+    /// La ventana de la reparación de topología de la capa activa.
+    pub repair: Option<crate::editmore::RepairDlg>,
     /// Los elementos copiados: sus datos y el tipo de geometría.
     pub clip: Option<(view::VectorData, view::GeomKind)>,
     /// Con la herramienta de digitalizar, el trazo reforma el contorno de los polígonos en lugar
@@ -125,6 +127,7 @@ impl App {
         self.gpkg_loss_window(ctx);
         self.transform_window(ctx);
         self.topology_window(ctx);
+        self.repair_window(ctx);
     }
 
     fn calc_window(&mut self, ctx: &egui::Context) {

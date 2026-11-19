@@ -12,7 +12,7 @@ use hipso_core::model::{self, Kind};
 use super::*;
 
 /// Las herramientas de esta ventana: orden, icono, rótulo de botón grande y de botón pequeño.
-pub const TOOLS: [(&str, &str, &str, &str); 11] = [
+pub const TOOLS: [(&str, &str, &str, &str); 15] = [
     ("extract", "@extract", "Extraer\nvalores", "Extraer valores"),
     ("join-table", "@jointable", "Unir\ntabla", "Unir tabla"),
     ("merge", "@merge", "Combinar\ncapas", "Combinar capas"),
@@ -24,6 +24,10 @@ pub const TOOLS: [(&str, &str, &str, &str); 11] = [
     ("focal", "@focal", "Filtro\nfocal", "Filtro focal"),
     ("rstats", "@rstats", "Estadísticas\nráster", "Estadísticas ráster"),
     ("tabulate", "@tabulate", "Tabular\náreas", "Tabular áreas"),
+    ("fix-topology", "@fixtopo", "Reparar\ntopología", "Reparar topología"),
+    ("simplify", "@simplify", "Simplificar", "Simplificar"),
+    ("parallel", "@parallel", "Paralela", "Paralela"),
+    ("fields", "@fields", "Quitar y renombrar\ncampos", "Quitar y renombrar campos"),
 ];
 
 /// El párrafo de ayuda de la ventana de cada herramienta: qué hace, qué espera y qué escribe.
@@ -40,6 +44,10 @@ fn help_for(name: &str) -> &'static str {
         "focal" => "Calcula para cada celda un estadístico de las celdas de su alrededor: media, mediana, mínimo, máximo, suma, rango, desviación, mayoría o suavizado gaussiano. La ventana es un cuadrado o un círculo del radio indicado, en celdas, y se puede exigir un mínimo de celdas con valor. Sirve para suavizar un modelo, quitar ruido o resumir una clasificación. Escribe un GeoTIFF con las celdas del original.",
         "rstats" => "Calcula el recuento, el mínimo, el máximo, la media, la desviación, la mediana, los percentiles y un histograma de las celdas con valor de un ráster, banda por banda. El resultado sale en el registro y como tabla CSV. No modifica el ráster.",
         "tabulate" => "Calcula el área de cada clase de un ráster dentro de cada zona de otro: por ejemplo, la superficie de cada tipo de cobertura en cada municipio. Los dos rásteres deben tener las mismas celdas. Escribe una tabla CSV con una fila por zona y una columna por clase.",
+        "fix-topology" => "Repara la topología de una capa de polígonos o de líneas. En polígonos ajusta a una distancia los vértices cercanos de vecinos (y apoya en el borde de otro el que queda cerca de él), de modo que los bordes que debían coincidir coincidan; quita los solapes, dejando la superficie común al polígono elegido; y rellena con el vecino de más borde común los huecos que no pasen de una superficie. En líneas lleva los extremos que se quedan cortos a la línea más cercana, a una distancia como mucho. Con los ajustes en cero solo se reparan los polígonos no válidos y se quitan los solapes. Escribe una capa nueva con los atributos de la original.",
+        "simplify" => "Quita vértices de las líneas y de los contornos de una capa: se conserva el que se aleja de la recta entre sus vecinos más que la tolerancia (Douglas y Peucker). En polígonos que comparten bordes, el borde común se simplifica una sola vez para los dos, de modo que no se abren huecos ni solapes; las esquinas donde se juntan tres vecinos y los extremos de las líneas no se mueven. Escribe una capa nueva con los atributos de la original.",
+        "parallel" => "Traza la paralela de cada línea a una distancia: positiva a su izquierda según se recorre, negativa a su derecha. Las esquinas exteriores se resuelven con una inglete, que se corta con un bisel cuando se alarga más que el límite, y los lazos que se forman en las esquinas interiores se recortan. Sirve para cunetas, zonas de servidumbre a un lado de una vía o márgenes de un cauce. Para ampliar un polígono, usa el búfer. Escribe una capa nueva con los atributos de la original.",
+        "fields" => "Quita campos de la tabla de una capa y renombra otros; los demás conservan sus valores y su tipo. Los nombres se escriben como «viejo=nuevo». Un shapefile corta los nombres a 10 caracteres al guardarse. Escribe una capa nueva; la original no se toca.",
         _ => "",
     }
 }
@@ -78,6 +86,15 @@ fn short_label(tool: &str, id: &str) -> Option<String> {
         "bins" => "Intervalos",
         "zones" => "Ráster de zonas",
         "values" => "Ráster de clases",
+        "snap" => "Distancia de ajuste",
+        "max_gap" => "Hueco máximo (superficie)",
+        "overlaps" => "Solapes",
+        "tolerance" => "Tolerancia",
+        "independent" => "Cada contorno por separado",
+        "distance" => "Distancia (izquierda +, derecha −)",
+        "miter" => "Límite de la inglete",
+        "drop" => "Campos que quitar",
+        "rename" => "Renombrar (viejo=nuevo)",
         _ => return None,
     };
     Some(t.to_string())
@@ -105,20 +122,28 @@ enum Msg {
     Done(Result<(), String>),
 }
 
+/// Una herramienta en marcha. Cada una es un proceso aparte (`hipso`), de modo que varias pueden
+/// correr a la vez, cada una con su ventana.
 struct Running {
+    /// El índice de la herramienta en [`TOOLS`].
+    tool: usize,
     rx: Receiver<Msg>,
     cancel: Arc<AtomicBool>,
     lines: Vec<String>,
+    started: std::time::Instant,
 }
 
 /// Lo que guarda la ventana entre fotogramas.
 #[derive(Default)]
 pub struct CliTool {
-    /// La herramienta cuya ventana está abierta (índice de [`TOOLS`]).
-    pub open: Option<usize>,
+    /// Las herramientas cuya ventana está abierta (índices de [`TOOLS`]), por orden de apertura:
+    /// abrir una nueva no cierra las demás.
+    pub open: Vec<usize>,
     args: Vec<BTreeMap<String, Vec<String>>>,
-    running: Option<Running>,
-    message: String,
+    /// Las herramientas que se están ejecutando; una misma herramienta no corre dos veces a la vez.
+    running: Vec<Running>,
+    /// Lo último que dijo cada herramienta (índice de [`TOOLS`]).
+    messages: Vec<String>,
 }
 
 /// Una opción que no es un archivo, con el aspecto de los ajustes de las demás ventanas: la etiqueta y
@@ -217,62 +242,115 @@ impl App {
         if self.cli.args.len() < TOOLS.len() {
             self.cli.args.resize(TOOLS.len(), BTreeMap::new());
         }
-        self.cli.open = Some(k);
-        self.cli.message.clear();
+        if self.cli.messages.len() < TOOLS.len() {
+            self.cli.messages.resize(TOOLS.len(), String::new());
+        }
+        if !self.cli.open.contains(&k) {
+            self.cli.open.push(k);
+            self.cli.messages[k].clear();
+            self.prefill_with_active_layer(k);
+        }
+    }
+
+    /// Si la primera opción de archivo que exige la herramienta está vacía y la capa activa es del
+    /// tipo que admite, la ventana se abre ya con ella: lo habitual es trabajar sobre la capa que se
+    /// tiene delante, y así se ven enseguida sus campos en las listas.
+    fn prefill_with_active_layer(&mut self, k: usize) {
+        let name = TOOLS[k].0;
+        let Some(schema) = self.tool_schema() else { return };
+        let Some(spec) = schema.tool(name) else { return };
+        let Some(a) = spec.args.iter().find(|a| a.required && model::wirable(name, a) && !a.multiple) else { return };
+        if self.cli.args[k].get(&a.id).is_some_and(|v| v.iter().any(|s| !s.trim().is_empty())) {
+            return;
+        }
+        let kind = model::arg_kind(name, &a.id);
+        let path = self.active.and_then(|i| self.refs.get(i)).map(|r| r.path.clone()).filter(|p| kind.accepts(p));
+        if let Some(p) = path {
+            self.cli.args[k].insert(a.id.clone(), vec![p.display().to_string()]);
+        }
     }
 
     /// Si la herramienta `k` tiene su ventana abierta (para iluminar su botón).
     pub fn cli_tool_open(&self, k: usize) -> bool {
-        self.cli.open == Some(k)
+        self.cli.open.contains(&k)
+    }
+
+    /// Las herramientas de la ventana genérica que están ejecutándose: su índice, su título y los
+    /// segundos que llevan.
+    pub fn cli_running_list(&self) -> Vec<(usize, &'static str, f64)> {
+        self.cli
+            .running
+            .iter()
+            .map(|r| (r.tool, model::entry(TOOLS[r.tool].0).map_or(TOOLS[r.tool].0, |e| e.title), r.started.elapsed().as_secs_f64()))
+            .collect()
+    }
+
+    /// Pide detener la herramienta `k` si está en marcha.
+    pub fn cli_stop(&mut self, k: usize) {
+        for r in self.cli.running.iter().filter(|r| r.tool == k) {
+            r.cancel.store(true, Ordering::Relaxed);
+        }
     }
 
     /// Lo que han dicho las órdenes en marcha: líneas al registro y, al terminar, los archivos
     /// nombrados tras `->` abiertos en el mapa.
     fn cli_tool_poll(&mut self, ctx: &egui::Context) {
-        let Some(run) = &mut self.cli.running else { return };
-        let mut done = None;
-        while let Ok(m) = run.rx.try_recv() {
-            match m {
-                Msg::Line(l) => {
-                    run.lines.push(l.clone());
-                    self.log.push(l);
+        // las líneas nuevas van al registro y se ve cuáles herramientas han terminado
+        let mut finished: Vec<(usize, Result<(), String>)> = Vec::new();
+        for run in &mut self.cli.running {
+            while let Ok(m) = run.rx.try_recv() {
+                match m {
+                    Msg::Line(l) => {
+                        run.lines.push(l.clone());
+                        self.log.push(l);
+                    }
+                    Msg::Done(r) => finished.push((run.tool, r)),
                 }
-                Msg::Done(r) => done = Some(r),
             }
         }
-        let Some(r) = done else { return };
-        let lines = self.cli.running.take().map(|r| r.lines).unwrap_or_default();
-        match r {
-            Ok(()) => {
-                let mut open = Vec::new();
-                for l in &lines {
-                    if let Some(p) = l.rsplit_once("-> ").map(|(_, p)| PathBuf::from(p.trim())) {
-                        if p.is_dir() {
-                            let mut files: Vec<PathBuf> = std::fs::read_dir(&p)
-                                .into_iter()
-                                .flatten()
-                                .flatten()
-                                .map(|e| e.path())
-                                .filter(|f| [Kind::Raster, Kind::Vector].iter().any(|k| k.accepts(f)))
-                                .collect();
-                            files.sort();
-                            open.extend(files);
-                        } else if [Kind::Raster, Kind::Vector, Kind::Cloud].iter().any(|k| k.accepts(&p)) {
-                            open.push(p);
+        for (tool, r) in finished {
+            let Some(pos) = self.cli.running.iter().position(|x| x.tool == tool) else { continue };
+            let lines = self.cli.running.remove(pos).lines;
+            let title = model::entry(TOOLS[tool].0).map_or(TOOLS[tool].0, |e| e.title);
+            if self.cli.messages.len() <= tool {
+                self.cli.messages.resize(TOOLS.len(), String::new());
+            }
+            match r {
+                Ok(()) => {
+                    let mut open = Vec::new();
+                    for l in &lines {
+                        if let Some(p) = l.rsplit_once("-> ").map(|(_, p)| PathBuf::from(p.trim())) {
+                            if p.is_dir() {
+                                let mut files: Vec<PathBuf> = std::fs::read_dir(&p)
+                                    .into_iter()
+                                    .flatten()
+                                    .flatten()
+                                    .map(|e| e.path())
+                                    .filter(|f| [Kind::Raster, Kind::Vector].iter().any(|k| k.accepts(f)))
+                                    .collect();
+                                files.sort();
+                                open.extend(files);
+                            } else if [Kind::Raster, Kind::Vector, Kind::Cloud].iter().any(|k| k.accepts(&p)) {
+                                open.push(p);
+                            }
                         }
                     }
+                    self.cli.messages[tool] = lines.last().cloned().unwrap_or_else(|| "Terminado.".into());
+                    self.log(format!("{title}: terminado."));
+                    if !open.is_empty() {
+                        self.open_files(ctx, open);
+                    }
                 }
-                self.cli.message = lines.last().cloned().unwrap_or_else(|| "Terminado.".into());
-                if !open.is_empty() {
-                    self.open_files(ctx, open);
+                Err(e) => {
+                    self.cli.messages[tool] = format!("Falló: {e}");
+                    self.notice = Some(format!("«{title}» falló: {e}"));
                 }
             }
-            Err(e) => {
-                self.cli.message = format!("Falló: {e}");
-                self.notice = Some(format!("La herramienta falló: {e}"));
-            }
+            self.show_log = true;
         }
-        self.show_log = true;
+        if !self.cli.running.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
     }
 
     /// Las capas del mapa que admite una opción de archivos de tipo `kind`, como (nombre, ruta).
@@ -404,18 +482,36 @@ impl App {
     /// La ventana de la herramienta abierta.
     pub fn cli_tool_window(&mut self, ctx: &egui::Context) {
         self.cli_tool_poll(ctx);
-        let Some(k) = self.cli.open else { return };
-        let Some(schema) = self.tool_schema() else {
-            self.cli.open = None;
+        if self.cli.open.is_empty() {
+            return;
+        }
+        if self.tool_schema().is_none() {
+            self.cli.open.clear();
             self.notice = Some("No se encuentra el ejecutable «hipso» junto al programa.".into());
             return;
-        };
+        }
+        // una ventana por herramienta abierta: abrir otra no cierra las demás ni detiene lo que corre
+        for k in self.cli.open.clone() {
+            if !self.cli_tool_one(ctx, k) {
+                self.cli.open.retain(|x| *x != k);
+            }
+        }
+    }
+
+    /// La ventana de la herramienta `k`; devuelve `false` cuando se cierra.
+    fn cli_tool_one(&mut self, ctx: &egui::Context, k: usize) -> bool {
+        let Some(schema) = self.tool_schema() else { return false };
         let name = TOOLS[k].0;
-        let Some(spec) = schema.tool(name) else { return };
+        let Some(spec) = schema.tool(name) else { return true };
         let title = model::entry(name).map_or(name, |e| e.title);
         let t = self.tokens();
         let mut open = true;
-        let running = self.cli.running.is_some();
+        let running = self.cli.running.iter().any(|r| r.tool == k);
+        // lo que lleva la herramienta en marcha: segundos y la última línea que dijo
+        let progress = self.cli.running.iter().find(|r| r.tool == k).map(|r| {
+            let last = r.lines.last().map(|l| format!(" · {l}")).unwrap_or_default();
+            format!("Ejecutando… {:.0} s{last}", r.started.elapsed().as_secs_f64())
+        });
         let mut run = false;
         let mut stop = false;
         let mut args = std::mem::take(&mut self.cli.args[k]);
@@ -439,6 +535,20 @@ impl App {
                     crate::procwin::note(format!("Falta: {}", missing.join(", ")));
                 }
                 for a in spec.args.iter().filter(|a| !hidden(a)) {
+                    // las opciones que nombran un campo: una lista con los campos de la tabla del archivo
+                    // elegido (si no se lee, el cuadro de texto de siempre)
+                    if let Some(fs) = model::field_source(name, &a.id) {
+                        let title = {
+                            let n = short_label(name, &a.id).unwrap_or_else(|| a.long.clone().map_or(a.id.clone(), |l| format!("--{l}")));
+                            if a.required { format!("{n} *") } else { n }
+                        };
+                        let source_label = short_label(name, fs.source).unwrap_or_else(|| fs.source.to_string()).to_lowercase();
+                        let source = args.get(fs.source).and_then(|v| v.first()).cloned();
+                        ui.add_space(4.0);
+                        if crate::fieldpick::row(ui, &t, name, a, &title, fs, &source_label, source.as_deref(), &mut args) {
+                            continue;
+                        }
+                    }
                     // las opciones de archivo: el archivo, «Archivo…» y las capas cargadas
                     if model::wirable(name, a) || (a.path && a.id != "output") {
                         let kind = model::arg_kind(name, &a.id);
@@ -449,8 +559,13 @@ impl App {
                     }
                 }
                 ui.add_space(6.0);
-                if !self.cli.message.is_empty() {
-                    ui.label(egui::RichText::new(&self.cli.message).size(11.5).color(theme::brand_text(&t)));
+                if let Some(p) = &progress {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(egui::RichText::new(p).size(11.5).color(theme::brand_text(&t)));
+                    });
+                } else if let Some(m) = self.cli.messages.get(k).filter(|m| !m.is_empty()) {
+                    ui.label(egui::RichText::new(m).size(11.5).color(theme::brand_text(&t)));
                 }
                 let why = format!("Falta: {}", missing.join(", "));
                 if crate::procwin::footer(ui, &mut out_dir, accent, "Ejecutar", missing.is_empty(), running, &why, &mut busy_stop) {
@@ -460,15 +575,13 @@ impl App {
         self.tools.out_dir = out_dir;
         stop |= busy_stop;
         self.cli.args[k] = args;
-        if !open {
-            self.cli.open = None;
-        }
-        if stop && let Some(r) = &self.cli.running {
-            r.cancel.store(true, Ordering::Relaxed);
+        if stop {
+            self.cli_stop(k);
         }
         if run {
             self.cli_tool_run(ctx, k);
         }
+        open
     }
 
     fn cli_tool_run(&mut self, ctx: &egui::Context, k: usize) {
@@ -498,7 +611,60 @@ impl App {
             let _ = tx.send(Msg::Done(r.map_err(|e| e.to_string())));
             c.request_repaint();
         });
-        self.cli.running = Some(Running { rx, cancel, lines: Vec::new() });
-        self.cli.message = "Ejecutando…".into();
+        self.cli.running.push(Running { tool: k, rx, cancel, lines: Vec::new(), started: std::time::Instant::now() });
+        if self.cli.messages.len() <= k {
+            self.cli.messages.resize(TOOLS.len(), String::new());
+        }
+        self.cli.messages[k] = "Ejecutando…".into();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn running(tool: usize) -> (Running, std::sync::mpsc::Sender<Msg>, Arc<AtomicBool>) {
+        let (tx, rx) = channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        (Running { tool, rx, cancel: cancel.clone(), lines: Vec::new(), started: std::time::Instant::now() }, tx, cancel)
+    }
+
+    #[test]
+    fn several_tool_windows_stay_open_and_several_tools_run_at_once() {
+        let mut app = App::default();
+        let ctx = egui::Context::default();
+        app.open_cli_tool(0);
+        app.open_cli_tool(5);
+        app.open_cli_tool(0);
+        assert_eq!(app.cli.open, vec![0, 5], "abrir otra ventana no cierra las demás ni se repite");
+        assert!(app.cli_tool_open(0) && app.cli_tool_open(5) && !app.cli_tool_open(1));
+        // dos herramientas en marcha a la vez
+        let (r0, tx0, c0) = running(0);
+        let (r5, tx5, c5) = running(5);
+        app.cli.running.push(r0);
+        app.cli.running.push(r5);
+        let list = app.cli_running_list();
+        assert_eq!(list.iter().map(|x| x.0).collect::<Vec<_>>(), vec![0, 5]);
+        // detener una no toca la otra
+        app.cli_stop(0);
+        assert!(c0.load(Ordering::Relaxed) && !c5.load(Ordering::Relaxed));
+        // una línea de una va al registro y no acaba a la otra; al terminar la 5 queda la 0
+        tx0.send(Msg::Line("avanza".into())).unwrap();
+        tx5.send(Msg::Line("hecho".into())).unwrap();
+        tx5.send(Msg::Done(Ok(()))).unwrap();
+        app.cli_tool_poll(&ctx);
+        assert_eq!(app.cli.running.len(), 1);
+        assert_eq!(app.cli.running[0].tool, 0);
+        assert_eq!(app.cli.running[0].lines, vec!["avanza".to_string()]);
+        assert_eq!(app.cli.messages[5], "hecho");
+        assert!(app.log.iter().any(|l| l == "avanza") && app.log.iter().any(|l| l.contains("terminado")));
+        // la que falla deja su mensaje y avisa, sin tocar la otra
+        let (r1, tx1, _) = running(1);
+        app.cli.running.push(r1);
+        tx1.send(Msg::Done(Err("sin memoria".into()))).unwrap();
+        app.cli_tool_poll(&ctx);
+        assert!(app.cli.messages[1].starts_with("Falló"));
+        assert!(app.notice.as_deref().is_some_and(|n| n.contains("sin memoria")));
+        assert_eq!(app.cli.running.len(), 1);
     }
 }

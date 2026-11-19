@@ -441,6 +441,67 @@ pub fn vector_data(d: &mut crate::view::VectorData, from: u16, to: u16) -> Resul
     Ok(())
 }
 
+/// Las extensiones de las capas vectoriales que [`file_with`] reproyecta.
+pub const VECTOR_EXTENSIONS: [&str; 6] = ["shp", "geojson", "json", "gpkg", "kml", "kmz"];
+
+/// Si la extensión es la de una capa vectorial que se sabe reproyectar.
+pub fn is_vector_ext(ext: &str) -> bool {
+    VECTOR_EXTENSIONS.contains(&ext)
+}
+
+/// Lleva los vértices de una capa vectorial al sistema `to` bajo una política de aproximaciones:
+/// un vértice cuya transformación rechaza la política (o que cae fuera del dominio del sistema
+/// nuevo) es un error que lo nombra, y la capa no cambia. Devuelve cuántos vértices se movieron
+/// con alguna aproximación aceptada.
+pub fn vector_data_with(d: &mut crate::view::VectorData, from: u16, to: u16, policy: Policy) -> Result<usize> {
+    let t = transformer(from, to)?;
+    let mut approximated = 0;
+    // se mueve una copia: si un vértice falla, la capa se queda como estaba
+    let mut moved = d.features.clone();
+    let mut b = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+    for (row, f) in moved.iter_mut().enumerate() {
+        for v in f.parts.iter_mut().flatten() {
+            let ((x, y, _), notes) = t.transform_checked(v[0], v[1], 0.0, policy).map_err(|e| {
+                Error::Param(format!("elemento {}: un vértice no pasa al sistema EPSG:{to}: {e}", row + 1))
+            })?;
+            if Approximation::ALL.iter().any(|a| notes.contains(*a)) {
+                approximated += 1;
+            }
+            *v = [x, y];
+            b = [b[0].min(x), b[1].min(y), b[2].max(x), b[3].max(y)];
+        }
+    }
+    d.features = moved;
+    d.bounds = b;
+    Ok(approximated)
+}
+
+/// Escribe una capa vectorial en el sistema `to`. El archivo conserva su formato (un KML solo
+/// admite WGS 84) y sus campos, con sus tipos; el sistema de destino debe poder declararse en él.
+fn vector_file(input: &Path, output: &Path, from: u16, to: u16, policy: Policy) -> Result<String> {
+    let ext = output
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if matches!(ext.as_str(), "kml" | "kmz") && to != 4326 {
+        return Err(Error::Param("un KML solo admite WGS 84 (EPSG:4326)".into()));
+    }
+    let prj = crate::vector::prj_for_epsg(to).ok_or_else(|| {
+        Error::Param(format!(
+            "no se sabe declarar EPSG:{to} en una capa vectorial: admite WGS 84, ETRS89, ED50, Web Mercator y las zonas UTM de ETRS89, WGS 84 y ED50"
+        ))
+    })?;
+    let (mut d, kind, _) = crate::vecops::read_layer(input)?;
+    let approximated = vector_data_with(&mut d, from, to, policy)?;
+    crate::vector::write_layer(output, &d, kind, Some(&prj))?;
+    let tail = if approximated > 0 {
+        format!("; {approximated} vértices con aproximaciones aceptadas")
+    } else {
+        String::new()
+    };
+    Ok(format!("{} elementos{tail}", d.features.len()))
+}
+
 /// Un ráster que solo contiene números enteros (clases, etiquetas) no debe difuminarse con la
 /// interpolación.
 fn categorical(g: &Grid) -> bool {
@@ -651,7 +712,7 @@ fn grid_onto_with(g: &Grid, from: u16, to: u16, mut out: Grid, nearest: bool) ->
     Ok(out)
 }
 
-/// Escribe `input` (una nube o un ráster) en el sistema `to`. `from` dice en qué está el archivo
+/// Escribe `input` (una nube, un ráster o una capa vectorial) en el sistema `to`. `from` dice en qué está el archivo
 /// cuando no lo declara. Devuelve una línea para el informe.
 pub fn file(input: &Path, output: &Path, to: u16, from: Option<u16>) -> Result<String> {
     file_with(input, output, to, from, Vertical::default(), Policy::from_env())
@@ -682,6 +743,15 @@ pub fn file_with(
         .extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
+    if is_vector_ext(&ext) {
+        let what = vector_file(input, output, from, to, policy)?;
+        return Ok(format!(
+            "{name}: {what}, de {} a {} → {}",
+            crate::crs::name(from),
+            crate::crs::name(to),
+            output.display()
+        ));
+    }
     let (what, tail) = if ext == "las" || ext == "laz" {
         let r = cloud_with(input, output, from, to, vertical, policy)?;
         let mut tail = String::new();
@@ -720,7 +790,7 @@ pub fn file_with(
         )
     } else {
         return Err(Error::Unsupported(format!(
-            "«{name}»: solo se reproyectan nubes LAS/LAZ y rásteres"
+            "«{name}»: solo se reproyectan nubes LAS/LAZ, rásteres y capas vectoriales"
         )));
     };
     Ok(format!(
@@ -1284,6 +1354,41 @@ mod tests {
         // diferir
         assert!(compared > 100_000 && worst < 0.2 && differ < 2_000, "{compared} cells, worst {worst}, {differ} differ");
         std::fs::remove_dir_all(&d)?;
+        Ok(())
+    }
+    #[test]
+    fn a_vector_layer_is_reprojected_with_its_fields_and_declares_the_new_system() -> Result<()> {
+        use crate::view::{Feature, GeomKind, VectorData};
+        let dir = std::env::temp_dir().join(format!("hipso_vecrp_{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let mut d = VectorData { points: true, ..VectorData::default() };
+        d.features = vec![Feature { parts: vec![vec![[440000.0, 4470000.0]]] }];
+        d.text = vec![Vec::new()];
+        d.num = vec![Vec::new()];
+        let c = d.add_field("especie", crate::fieldtype::FieldType::Text);
+        d.set_value(0, c, "pino").map_err(Error::Param)?;
+        let input = dir.join("in.shp");
+        crate::vector::write_layer(&input, &d, GeomKind::Point, crate::vector::prj_for_epsg(25830).as_deref())?;
+        // de UTM 30N a longitud y latitud, y de vuelta
+        let geo = dir.join("geo.shp");
+        let line = file(&input, &geo, 4326, None)?;
+        assert!(line.contains("1 elementos"), "{line}");
+        assert_eq!(crate::crs::epsg_of(&geo), Some(4326));
+        let (g, _, _) = crate::vecops::read_layer(&geo)?;
+        let p = g.features[0].parts[0][0];
+        assert!((-3.8..-3.6).contains(&p[0]) && (40.3..40.5).contains(&p[1]), "{p:?}");
+        assert_eq!(g.text[0][0], "pino");
+        let back = dir.join("back.shp");
+        file(&geo, &back, 25830, None)?;
+        let (b, _, _) = crate::vecops::read_layer(&back)?;
+        let q = b.features[0].parts[0][0];
+        assert!((q[0] - 440000.0).abs() < 1e-3 && (q[1] - 4470000.0).abs() < 1e-3, "{q:?}");
+        // un KML solo admite WGS 84
+        assert!(file(&input, &dir.join("x.kml"), 25829, None).is_err());
+        // y un código que no se sabe declarar se rechaza antes de escribir nada
+        assert!(file(&input, &dir.join("y.shp"), 3035, None).is_err());
+        assert!(!dir.join("y.shp").exists());
+        std::fs::remove_dir_all(&dir)?;
         Ok(())
     }
 }

@@ -270,7 +270,21 @@ impl App {
                             });
                             ui.horizontal(|ui| {
                                 ui.label("Campo de la clase");
-                                ui.add(egui::TextEdit::singleline(&mut t.class_field).desired_width(110.0));
+                                // los campos del shapefile de muestras, en una lista; si el que había no está,
+                                // se toma el primero de texto
+                                match t.samples.as_deref().map(crate::fieldpick::fields_of) {
+                                    Some(Ok(fields)) => {
+                                        if !fields.iter().any(|f| f.name.eq_ignore_ascii_case(&t.class_field))
+                                            && let Some(f) = fields.iter().find(|f| !f.numeric).or(fields.first())
+                                        {
+                                            t.class_field = f.name.clone();
+                                        }
+                                        crate::fieldpick::combo(ui, "obia_class_field", &mut t.class_field, &fields, false, false, "");
+                                    }
+                                    _ => {
+                                        ui.add(egui::TextEdit::singleline(&mut t.class_field).desired_width(110.0));
+                                    }
+                                }
                                 ui.label("Individuos");
                                 ui.add(NumField::new(&mut t.trees).range(5.0..=2000.0));
                             });

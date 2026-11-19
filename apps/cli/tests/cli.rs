@@ -387,3 +387,44 @@ fn the_old_name_of_the_volume_command_still_works() -> Result<()> {
     assert_eq!(new.lines().nth(1), old.lines().nth(1));
     Ok(())
 }
+
+#[test]
+fn every_option_that_names_a_field_exists_and_points_at_a_file_option() -> Result<()> {
+    // las ventanas dibujan estas opciones como listas con los campos de la tabla del archivo que
+    // dice la tabla del modelo: si una orden cambia de nombre una opción, esta prueba lo dice
+    let schema = hipso_core::model::Schema::from_json(&run(&["schema"])?)?;
+    let mut seen = 0;
+    for (tool, arg, src) in hipso_core::model::field_args() {
+        let spec = schema.tool(tool).ok_or_else(|| format!("la orden {tool} no existe"))?;
+        let a = spec.arg(arg).ok_or_else(|| format!("{tool} no tiene la opción {arg}"))?;
+        assert!(!a.path && !a.flag, "{tool} {arg}: una opción de campo no es un archivo ni una casilla");
+        let s = spec.arg(src.source).ok_or_else(|| format!("{tool} no tiene la opción de archivo {}", src.source))?;
+        assert!(s.path, "{tool} {}: la fuente de los campos debe ser un archivo", src.source);
+        seen += 1;
+    }
+    assert!(seen >= 20);
+    Ok(())
+}
+
+#[test]
+fn fields_drops_and_renames_by_the_names_the_layer_has_and_refuses_a_contradiction() -> Result<()> {
+    let d = Dir::new("fields")?;
+    std::fs::write(
+        d.join("a.geojson"),
+        r#"{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"id":1,"especie":"pino","altura":12.5},"geometry":{"type":"Point","coordinates":[1,2]}}]}"#,
+    )?;
+    let out = d.s("b.geojson");
+    run(&["fields", &d.s("a.geojson"), "--drop", "especie", "--rename", "id=codigo", "-o", &out])?;
+    let text = std::fs::read_to_string(&out)?;
+    assert!(text.contains("\"codigo\"") && text.contains("\"altura\"") && !text.contains("especie"), "{text}");
+    // quitar y renombrar el mismo campo: se rechaza, con el nombre del campo
+    let bad = bin()
+        .args(["fields", &d.s("a.geojson"), "--drop", "especie", "--rename", "especie=tipo", "-o", &d.s("c.geojson")])
+        .output()?;
+    assert!(!bad.status.success());
+    assert!(String::from_utf8_lossy(&bad.stderr).contains("«especie» se quita y se renombra a la vez"));
+    // un campo que no existe se dice
+    let no = bin().args(["fields", &d.s("a.geojson"), "--drop", "nada", "-o", &d.s("e.geojson")]).output()?;
+    assert!(String::from_utf8_lossy(&no.stderr).contains("no tiene el campo «nada»"));
+    Ok(())
+}

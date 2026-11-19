@@ -873,14 +873,14 @@ Pone rásteres sobre las celdas de un ráster de referencia (mismo origen, celda
 
 ### hipso reproject
 
-Lleva una nube (LAS/LAZ) o un ráster a otro sistema de coordenadas, p. ej. de ED50 a ETRS89 con la rejilla del IGN español. Las alturas se conservan salvo que --vertical-out pida otra referencia vertical (p. ej. de elipsoidal a ortométrica con el modelo de geoide)
+Lleva una nube (LAS/LAZ), un ráster o una capa vectorial (shp, geojson, gpkg, kml) a otro sistema de coordenadas, p. ej. de ED50 a ETRS89 con la rejilla del IGN español. Las alturas se conservan salvo que --vertical-out pida otra referencia vertical (p. ej. de elipsoidal a ortométrica con el modelo de geoide)
 
-**En la interfaz:** Raster → Geoprocesos → Reproyectar. El método se explica en el apartado 8.
+**En la interfaz:** Raster → Geoprocesos → Reproyectar (también capas vectoriales). El método se explica en el apartado 8.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
-| `INPUT` | archivo o carpeta | ninguno | La nube (LAS/LAZ) o el ráster que reproyectar. **Obligatoria.** |
-| `-o`, `--output` | archivo o carpeta | ninguno | Archivo de salida (LAS/LAZ, o GeoTIFF para rásteres) **Obligatoria.** |
+| `INPUT` | archivo o carpeta | ninguno | La nube (LAS/LAZ), el ráster o la capa vectorial que reproyectar. **Obligatoria.** |
+| `-o`, `--output` | archivo o carpeta | ninguno | Archivo de salida (LAS/LAZ, GeoTIFF para rásteres, o el mismo formato para una capa vectorial) **Obligatoria.** |
 | `--to` | texto o número | ninguno | Código EPSG del sistema que se escribe, p. ej. 25830 (no hace falta con --reference) |
 | `--from` | texto o número | ninguno | Código EPSG en el que está la entrada, cuando no lo declara. |
 | `--reference` | archivo o carpeta | ninguno | Rásteres: toma el sistema, la extensión, el origen y la celda de este ráster, de modo que el resultado coincida celda a celda con él. |
@@ -1050,7 +1050,7 @@ Filtro focal de un ráster: media, mediana, mínimo, máximo, suma, rango, desvi
 
 Estadísticas de un ráster (recuento, mínimo, máximo, media, desviación, mediana, percentiles) y su histograma
 
-**En la interfaz:** Raster → Geoprocesos → Estadísticas ráster. El método se explica en el apartado 8.
+**En la interfaz:** Archivo → Análisis → EDA → Estadísticas (con un ráster como fuente). El método se explica en el apartado 5.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1248,6 +1248,58 @@ Repara polígonos inválidos (regla par-impar: un lazo pasa a ser dos partes y l
 | `INPUT` | archivo o carpeta | ninguno | Capa de polígonos (.shp, .geojson, .gpkg) que reparar. **Obligatoria.** |
 | `-o`, `--output` | archivo o carpeta | ninguno | Shapefile; por defecto: <resultados>/<entrada>_valido.shp. |
 
+### hipso topology
+
+Comprueba la topología de una capa: polígonos que se solapan, huecos entre polígonos y contornos que se cruzan consigo mismos; en líneas, cabos sueltos
+
+**En la interfaz:** panel lateral → Edición (capas vectoriales) → Comprobar topología. El método se explica en el apartado 9.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | La capa de polígonos o de líneas. **Obligatoria.** |
+| `--tolerance` | número | `0.000001` | Tolerancia: superficie mínima de un solape o un hueco, o distancia a la que dos extremos de línea se tienen por unidos. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Tabla CSV del informe; por defecto: <resultados>/<capa>_topologia.csv. |
+
+### hipso fix-topology
+
+Repara la topología de una capa: ajusta los vértices cercanos de polígonos vecinos para que sus bordes coincidan, quita los solapes, rellena los huecos pequeños entre polígonos y, en líneas, une los extremos que se quedan cortos. Los atributos se conservan
+
+**En la interfaz:** Vectorial → Geometría → Reparar topología (y panel lateral → Edición → Reparar topología, sobre la capa activa). El método se explica en el apartado 9.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | La capa de polígonos o de líneas. **Obligatoria.** |
+| `--snap` | número | `0` | Distancia de ajuste, en las unidades de la capa: los vértices (en líneas, los extremos) más cercanos se unen y los que quedan cerca del borde de otro elemento se apoyan en él. 0 no ajusta. |
+| `--max-gap` | número | `0` | Superficie máxima de un hueco entre polígonos que se rellena con el vecino con el que comparte más borde. 0 no rellena huecos. |
+| `--overlaps` | una de las opciones | `larger` | A quién se queda la superficie que comparten dos polígonos. Valores: `larger`: La superficie común se queda con el polígono de mayor superficie; `smaller`: La superficie común se queda con el polígono de menor superficie; `first`: La superficie común se queda con el que está antes en la tabla; `none`: No se tocan los solapes. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_reparada.<ext>. |
+
+### hipso simplify
+
+Quita vértices de las líneas y de los contornos de una capa (Douglas y Peucker): el borde que comparten dos polígonos se simplifica una vez para los dos, de modo que no se abren huecos
+
+**En la interfaz:** Vectorial → Geometría → Simplificar. El método se explica en el apartado 9.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | La capa de líneas o de polígonos. **Obligatoria.** |
+| `--tolerance` | texto o número | ninguno | Tolerancia en las unidades de la capa: un vértice se queda si se aleja de la recta entre sus vecinos más de esta distancia. **Obligatoria.** |
+| `--independent` | casilla | desactivada | Simplifica cada contorno por separado, sin cuidar que los bordes comunes sigan coincidiendo. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_simplificada.<ext>. |
+
+### hipso parallel
+
+Traza la paralela de cada línea a una distancia: positiva a su izquierda según se recorre, negativa a su derecha. Las esquinas exteriores llevan inglete y los lazos de las interiores se recortan
+
+**En la interfaz:** Vectorial → Geometría → Paralela. El método se explica en el apartado 9.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | La capa de líneas. **Obligatoria.** |
+| `--distance` | texto o número | ninguno | Distancia en las unidades de la capa (positiva: a la izquierda; negativa: a la derecha) **Obligatoria.** |
+| `--miter` | número | `2` | Límite de la inglete en las esquinas exteriores, en múltiplos de la distancia; más allá se corta con un bisel. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_paralela.<ext>. |
+
 ### hipso buffer
 
 Amplía (o, si es negativa, reduce) cada polígono una distancia en unidades del mapa, con esquinas redondeadas
@@ -1337,7 +1389,7 @@ Densidad de puntos por celdas de Voronoi, para comprobar una nube: n / suma de l
 
 Extrae los valores de uno o varios rásteres a una capa: un campo nuevo por banda con el valor bajo cada elemento (en el punto o en un punto interior de la línea o del polígono)
 
-**En la interfaz:** Vectorial → Capas y tablas → Extraer valores. El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Tabla → Extraer valores. El método se explica en el apartado 9.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1352,7 +1404,7 @@ Extrae los valores de uno o varios rásteres a una capa: un campo nuevo por band
 
 Une a una capa las columnas de una tabla (csv, texto o xlsx) por un campo clave
 
-**En la interfaz:** Vectorial → Capas y tablas → Unir tabla. El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Tabla → Unir tabla. El método se explica en el apartado 9.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1363,11 +1415,24 @@ Une a una capa las columnas de una tabla (csv, texto o xlsx) por un campo clave
 | `--prefix` | texto | ninguno | Prefijo de los campos nuevos. |
 | `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_union.<ext>. |
 
+### hipso fields
+
+Quita y renombra campos de la tabla de una capa, conservando los demás con sus tipos
+
+**En la interfaz:** Vectorial → Tabla → Quitar y renombrar campos (y menú de la cabecera de la tabla de atributos). El método se explica en el apartado 9.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | La capa. **Obligatoria.** |
+| `--drop` | texto o número | ninguno | Campos que quitar (varios, separados por comas) Se puede repetir. |
+| `--rename` | texto o número | ninguno | Campos que renombrar, como `viejo=nuevo` (varios, separados por comas) Se puede repetir. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_campos.<ext>. |
+
 ### hipso merge
 
 Combina capas del mismo tipo de geometría en una (los campos son la unión de los de todas)
 
-**En la interfaz:** Vectorial → Capas y tablas → Combinar capas. El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Geoprocesos → Combinar capas. El método se explica en el apartado 9.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1379,7 +1444,7 @@ Combina capas del mismo tipo de geometría en una (los campos son la unión de l
 
 Divide una capa en una por cada valor distinto de un campo (un archivo por rodal, por especie...)
 
-**En la interfaz:** Vectorial → Capas y tablas → Dividir por campo. El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Tabla → Dividir por campo. El método se explica en el apartado 9.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1391,7 +1456,7 @@ Divide una capa en una por cada valor distinto de un campo (un archivo por rodal
 
 Recorta una capa de puntos, líneas o polígonos con los polígonos de otra (con --erase, borra lo que cubren)
 
-**En la interfaz:** Vectorial → Capas y tablas → Recortar capa. El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Geometría → Recortar capa. El método se explica en el apartado 9.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1404,7 +1469,7 @@ Recorta una capa de puntos, líneas o polígonos con los polígonos de otra (con
 
 Distancia de cada elemento al elemento más cercano de otra capa, con su número de orden y, si se pide, uno de sus campos
 
-**En la interfaz:** Vectorial → Capas y tablas → Cercanía. El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Geoprocesos → Cercanía. El método se explica en el apartado 9.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1418,7 +1483,7 @@ Distancia de cada elemento al elemento más cercano de otra capa, con su número
 
 Estadísticas de resumen de campos numéricos de una capa o tabla, por grupos de un campo (recuento, suma, media, mínimo, máximo, desviación)
 
-**En la interfaz:** Vectorial → Capas y tablas → Resumen estadístico. El método se explica en el apartado 9.
+**En la interfaz:** Archivo → Análisis → EDA → Estadísticas (la misma tabla, agrupada por un campo y con exportación a CSV). El método se explica en el apartado 5.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1426,18 +1491,6 @@ Estadísticas de resumen de campos numéricos de una capa o tabla, por grupos de
 | `--by` | texto o número | ninguno | Campo por el que agrupar (sin él, un solo grupo) |
 | `--fields` | texto o número | ninguno | Campos numéricos que resumir, separados por comas (por defecto, todos los numéricos) Se puede repetir. |
 | `-o`, `--output` | archivo o carpeta | ninguno | Tabla CSV de salida; por defecto: <resultados>/<entrada>_resumen.csv. |
-
-### hipso topology
-
-Comprueba la topología de una capa: polígonos que se solapan, huecos entre polígonos y contornos que se cruzan consigo mismos; en líneas, cabos sueltos
-
-**En la interfaz:** panel lateral → Edición (capas vectoriales) → Comprobar topología. El método se explica en el apartado 9.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUT` | archivo o carpeta | ninguno | La capa de polígonos o de líneas. **Obligatoria.** |
-| `--tolerance` | número | `0.000001` | Tolerancia: superficie mínima de un solape o un hueco, o distancia a la que dos extremos de línea se tienen por unidos. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Tabla CSV del informe; por defecto: <resultados>/<capa>_topologia.csv. |
 
 ### hipso geojson
 

@@ -71,8 +71,22 @@ fn centroid_of(m: &MultiPolygon<f64>) -> [f64; 2] {
     m.interior_point().map_or([0.0, 0.0], |p| [p.x(), p.y()])
 }
 
-/// Pares de polígonos con superficie común mayor que `tol`.
+/// La superficie por debajo de la cual un solape o un hueco entre polígonos es error de redondeo de
+/// las operaciones booleanas y no una incidencia: dos polígonos que comparten un borde salen con un
+/// «solape» de millonésimas de metro cuadrado con coordenadas UTM. Se toma una superficie de
+/// (3·10⁻⁵ de la extensión de la capa)², que vale 0,06 mm² en una capa de 270 m y 8 mm² en una de 3 km.
+fn noise_area(d: &VectorData) -> f64 {
+    let mut b = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+    for f in &d.features {
+        let fb = bbox(f);
+        b = [b[0].min(fb[0]), b[1].min(fb[1]), b[2].max(fb[2]), b[3].max(fb[3])];
+    }
+    if b[0].is_finite() { ((b[2] - b[0]).hypot(b[3] - b[1]) * 3e-5).powi(2) } else { 0.0 }
+}
+
+/// Pares de polígonos con superficie común mayor que `tol` (y que el ruido de redondeo).
 pub fn overlaps(d: &VectorData, tol: f64) -> Vec<Issue> {
+    let tol = tol.max(noise_area(d));
     let boxes: Vec<[f64; 4]> = d.features.iter().map(bbox).collect();
     let polys: Vec<MultiPolygon<f64>> = d.features.iter().map(|f| crate::geomops::multipolygon_of(&f.parts)).collect();
     let mut out = Vec::new();
@@ -92,8 +106,10 @@ pub fn overlaps(d: &VectorData, tol: f64) -> Vec<Issue> {
     out
 }
 
-/// Huecos interiores de la unión de todos los polígonos con superficie mayor que `tol`.
+/// Huecos interiores de la unión de todos los polígonos con superficie mayor que `tol` (y que el
+/// ruido de redondeo).
 pub fn gaps(d: &VectorData, tol: f64) -> Vec<Issue> {
+    let tol = tol.max(noise_area(d));
     let polys: Vec<geo::Polygon<f64>> = d
         .features
         .iter()

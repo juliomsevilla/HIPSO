@@ -374,6 +374,18 @@ enum CalcDtype {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
+enum PolyOverlapArg {
+    /// La superficie común se queda con el polígono de mayor superficie
+    Larger,
+    /// La superficie común se queda con el polígono de menor superficie
+    Smaller,
+    /// La superficie común se queda con el que está antes en la tabla
+    First,
+    /// No se tocan los solapes
+    None,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
 enum AlignResample {
     /// Según los datos: vecino más cercano (o moda al reducir) en rásteres de enteros; media si las celdas de salida son mayores que las de entrada; bilineal en los demás casos
     Auto,
@@ -1961,13 +1973,14 @@ enum Cmd {
         #[arg(long)]
         replace_z: bool,
     },
-    /// Lleva una nube (LAS/LAZ) o un ráster a otro sistema de coordenadas, p. ej. de ED50 a ETRS89
-    /// con la rejilla del IGN español. Las alturas se conservan salvo que --vertical-out pida otra
+    /// Lleva una nube (LAS/LAZ), un ráster o una capa vectorial (shp, geojson, gpkg, kml) a otro
+    /// sistema de coordenadas, p. ej. de ED50 a ETRS89 con la rejilla del IGN español. Las alturas se conservan salvo que --vertical-out pida otra
     /// referencia vertical (p. ej. de elipsoidal a ortométrica con el modelo de geoide)
     Reproject {
-        /// La nube (LAS/LAZ) o el ráster que reproyectar
+        /// La nube (LAS/LAZ), el ráster o la capa vectorial que reproyectar
         input: PathBuf,
-        /// Archivo de salida (LAS/LAZ, o GeoTIFF para rásteres)
+        /// Archivo de salida (LAS/LAZ, GeoTIFF para rásteres, o el mismo formato para una capa
+        /// vectorial)
         #[arg(short, long)]
         output: PathBuf,
         /// Código EPSG del sistema que se escribe, p. ej. 25830 (no hace falta con --reference)
@@ -2988,6 +3001,65 @@ enum Cmd {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Repara la topología de una capa: ajusta los vértices cercanos de polígonos vecinos para que sus bordes coincidan, quita los solapes, rellena los huecos pequeños entre polígonos y, en líneas, une los extremos que se quedan cortos. Los atributos se conservan
+    FixTopology {
+        /// La capa de polígonos o de líneas
+        input: PathBuf,
+        /// Distancia de ajuste, en las unidades de la capa: los vértices (en líneas, los extremos) más cercanos se unen y los que quedan cerca del borde de otro elemento se apoyan en él. 0 no ajusta
+        #[arg(long, default_value_t = 0.0)]
+        snap: f64,
+        /// Superficie máxima de un hueco entre polígonos que se rellena con el vecino con el que comparte más borde. 0 no rellena huecos
+        #[arg(long, default_value_t = 0.0)]
+        max_gap: f64,
+        /// A quién se queda la superficie que comparten dos polígonos
+        #[arg(long, value_enum, default_value_t = PolyOverlapArg::Larger)]
+        overlaps: PolyOverlapArg,
+        /// Capa de salida; por defecto: <resultados>/<capa>_reparada.<ext>
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Quita vértices de las líneas y de los contornos de una capa (Douglas y Peucker): el borde que comparten dos polígonos se simplifica una vez para los dos, de modo que no se abren huecos
+    Simplify {
+        /// La capa de líneas o de polígonos
+        input: PathBuf,
+        /// Tolerancia en las unidades de la capa: un vértice se queda si se aleja de la recta entre sus vecinos más de esta distancia
+        #[arg(long)]
+        tolerance: f64,
+        /// Simplifica cada contorno por separado, sin cuidar que los bordes comunes sigan coincidiendo
+        #[arg(long)]
+        independent: bool,
+        /// Capa de salida; por defecto: <resultados>/<capa>_simplificada.<ext>
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Traza la paralela de cada línea a una distancia: positiva a su izquierda según se recorre, negativa a su derecha. Las esquinas exteriores llevan inglete y los lazos de las interiores se recortan
+    Parallel {
+        /// La capa de líneas
+        input: PathBuf,
+        /// Distancia en las unidades de la capa (positiva: a la izquierda; negativa: a la derecha)
+        #[arg(long, allow_hyphen_values = true)]
+        distance: f64,
+        /// Límite de la inglete en las esquinas exteriores, en múltiplos de la distancia; más allá se corta con un bisel
+        #[arg(long, default_value_t = 2.0)]
+        miter: f64,
+        /// Capa de salida; por defecto: <resultados>/<capa>_paralela.<ext>
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Quita y renombra campos de la tabla de una capa, conservando los demás con sus tipos
+    Fields {
+        /// La capa
+        input: PathBuf,
+        /// Campos que quitar (varios, separados por comas)
+        #[arg(long, value_delimiter = ',')]
+        drop: Vec<String>,
+        /// Campos que renombrar, como `viejo=nuevo` (varios, separados por comas)
+        #[arg(long, value_delimiter = ',')]
+        rename: Vec<String>,
+        /// Capa de salida; por defecto: <resultados>/<capa>_campos.<ext>
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
     /// Rasteriza una capa: cada celda recibe el valor de un campo del último elemento que la cubre (o 1)
     Rasterize {
         /// La capa
@@ -3273,6 +3345,99 @@ fn run(cmd: Cmd) -> Result<()> {
             let out = out_path(output, &input, "topologia", "csv");
             std::fs::write(&out, topology::report_csv(&issues))?;
             format!("{} incumplimientos -> {}", issues.len(), out.display())
+        }
+        Cmd::FixTopology { input, snap, max_gap, overlaps, output } => {
+            use hipso_core::topofix::{self, OverlapRule};
+            let (mut d, kind, prj) = hipso_core::vecops::read_layer(&input)?;
+            if hipso_core::crs::epsg_of(&input).is_some_and(|e| (4000..5000).contains(&e)) && (snap > 0.0 || max_gap > 0.0) {
+                eprintln!("aviso: el sistema es geográfico: el ajuste y la superficie están en grados, no en metros");
+            }
+            let opts = topofix::Options {
+                snap,
+                max_gap,
+                overlaps: match overlaps {
+                    PolyOverlapArg::Larger => Some(OverlapRule::Larger),
+                    PolyOverlapArg::Smaller => Some(OverlapRule::Smaller),
+                    PolyOverlapArg::First => Some(OverlapRule::First),
+                    PolyOverlapArg::None => None,
+                },
+            };
+            let r = topofix::repair(&mut d, kind, &opts)?;
+            let out = out_path(output, &input, "reparada", &layer_ext(&input));
+            hipso_core::vector::write_layer(&out, &d, kind, prj.as_deref())?;
+            format!(
+                "{} vértices movidos, {} insertados; {} elementos reparados, solapes quitados en {} (superficie {:.3}), huecos rellenados {} (superficie {:.3}), {} mayores que --max-gap, {} elementos sin geometría quitados -> {}",
+                r.moved, r.inserted, r.made_valid, r.overlaps_fixed, r.overlap_area, r.gaps_filled, r.gap_area, r.gaps_left, r.dropped, out.display()
+            )
+        }
+        Cmd::Simplify { input, tolerance, independent, output } => {
+            let (mut d, kind, prj) = hipso_core::vecops::read_layer(&input)?;
+            let r = hipso_core::geomedit::simplify(&mut d, kind, tolerance, !independent)?;
+            let out = out_path(output, &input, "simplificada", &layer_ext(&input));
+            hipso_core::vector::write_layer(&out, &d, kind, prj.as_deref())?;
+            format!(
+                "{} vértices de {} ({:.1} %){} -> {}",
+                r.after,
+                r.before,
+                if r.before > 0 { 100.0 * r.after as f64 / r.before as f64 } else { 100.0 },
+                if r.dropped > 0 { format!("; {} elementos sin geometría quitados", r.dropped) } else { String::new() },
+                out.display()
+            )
+        }
+        Cmd::Parallel { input, distance, miter, output } => {
+            let (mut d, kind, prj) = hipso_core::vecops::read_layer(&input)?;
+            if kind != hipso_core::view::GeomKind::Line {
+                return Err(hipso_core::Error::Param("la paralela solo se traza en capas de líneas (para polígonos, usa el búfer)".into()).into());
+            }
+            let r = hipso_core::geomedit::parallel(&mut d, distance, miter)?;
+            let out = out_path(output, &input, "paralela", &layer_ext(&input));
+            hipso_core::vector::write_layer(&out, &d, kind, prj.as_deref())?;
+            format!(
+                "{} partes, {} lazos recortados{} -> {}",
+                r.parts,
+                r.loops_clipped,
+                if r.dropped > 0 { format!(", {} partes sin paralela", r.dropped) } else { String::new() },
+                out.display()
+            )
+        }
+        Cmd::Fields { input, drop, rename, output } => {
+            if drop.is_empty() && rename.is_empty() {
+                return Err(hipso_core::Error::Param("indica qué quitar (--drop) o qué renombrar (--rename)".into()).into());
+            }
+            let (mut d, kind, prj) = hipso_core::vecops::read_layer(&input)?;
+            let find = |d: &hipso_core::view::VectorData, n: &str| -> hipso_core::Result<usize> {
+                d.fields
+                    .iter()
+                    .position(|f| f.trim().eq_ignore_ascii_case(n.trim()))
+                    .ok_or_else(|| hipso_core::Error::Param(format!("«{}» no tiene el campo «{n}»", input.display())))
+            };
+            // se buscan primero todos los campos por su nombre de entrada, de modo que un renombrado no
+            // cambie lo que `--drop` quiere decir; un campo no puede quitarse y renombrarse a la vez
+            let mut renames: Vec<(usize, &str)> = Vec::new();
+            for pair in &rename {
+                let (old, new) = pair
+                    .split_once('=')
+                    .ok_or_else(|| hipso_core::Error::Param(format!("«{pair}»: se espera viejo=nuevo")))?;
+                renames.push((find(&d, old)?, new));
+            }
+            let mut drops: Vec<usize> = Vec::new();
+            for name in &drop {
+                drops.push(find(&d, name)?);
+            }
+            if let Some(c) = drops.iter().find(|c| renames.iter().any(|r| r.0 == **c)) {
+                return Err(hipso_core::Error::Param(format!("el campo «{}» se quita y se renombra a la vez: elige una de las dos cosas", d.fields[*c])).into());
+            }
+            for (c, new) in renames {
+                d.rename_field(c, new).map_err(hipso_core::Error::Param)?;
+            }
+            drops.sort_unstable();
+            drops.dedup();
+            for c in drops.iter().rev() {
+                d.remove_field(*c);
+            }
+            let out = out_path(output, &input, "campos", &layer_ext(&input));
+            hipso_core::vector::write_layer(&out, &d, kind, prj.as_deref())?;
+            format!("{} campos quitados, {} renombrados; quedan {} -> {}", drops.len(), rename.len(), d.fields.len(), out.display())
         }
         Cmd::Rasterize { layer, reference, cell, field, output } => {
             use hipso_core::rasterproc::{self, Frame};

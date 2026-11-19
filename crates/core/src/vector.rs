@@ -1195,8 +1195,32 @@ pub fn epsg_from_prj(text: &str) -> Option<u16> {
 }
 
 /// Un texto `.prj` (WKT de OGC con sus identificadores EPSG, que todo SIG lee igual) para un código
-/// UTM de ETRS89, WGS 84 o ED50.
+/// geográfico (WGS 84, ETRS89, ED50), para Web Mercator (3857) o para uno UTM de ETRS89, WGS 84 o
+/// ED50.
 pub fn prj_for_epsg(code: u16) -> Option<String> {
+    // sistemas geográficos y la proyección de los mapas web: no son UTM
+    const WGS84: &str = r#"GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]"#;
+    match code {
+        4326 => return Some(WGS84.to_string()),
+        4258 => {
+            return Some(
+                r#"GEOGCS["ETRS89",DATUM["European_Terrestrial_Reference_System_1989",SPHEROID["GRS 1980",6378137,298.257222101,AUTHORITY["EPSG","7019"]],AUTHORITY["EPSG","6258"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4258"]]"#
+                    .to_string(),
+            );
+        }
+        4230 => {
+            return Some(
+                r#"GEOGCS["ED50",DATUM["European_Datum_1950",SPHEROID["International 1924",6378388,297,AUTHORITY["EPSG","7022"]],AUTHORITY["EPSG","6230"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4230"]]"#
+                    .to_string(),
+            );
+        }
+        3857 => {
+            return Some(format!(
+                "PROJCS[\"WGS 84 / Pseudo-Mercator\",{WGS84},PROJECTION[\"Mercator_1SP\"],PARAMETER[\"central_meridian\",0],PARAMETER[\"scale_factor\",1],PARAMETER[\"false_easting\",0],PARAMETER[\"false_northing\",0],UNIT[\"metre\",1,AUTHORITY[\"EPSG\",\"9001\"]],AXIS[\"Easting\",EAST],AXIS[\"Northing\",NORTH],AUTHORITY[\"EPSG\",\"3857\"]]"
+            ));
+        }
+        _ => {}
+    }
     let (zone, name, geogcs, south) = match code {
         25828..=25838 => (
             code - 25800,
@@ -1329,7 +1353,7 @@ mod tests {
 
     #[test]
     fn prj_text_names_the_code_and_reads_back() {
-        for code in [25829u16, 25830, 32630, 23030] {
+        for code in [25829u16, 25830, 32630, 23030, 4326, 4258, 4230, 3857] {
             let t = prj_for_epsg(code).unwrap_or_default();
             assert!(
                 t.ends_with(&format!("AUTHORITY[\"EPSG\",\"{code}\"]]")),

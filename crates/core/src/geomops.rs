@@ -64,7 +64,19 @@ pub fn rings_of(region: &Region) -> Vec<Vec<[f64; 2]>> {
 
 /// Lee los polígonos de una capa de shapefile, GeoJSON o GeoPackage con sus atributos.
 pub fn read_polygons(path: &Path) -> Result<PolyLayer> {
-    read_polygons_with(path, &vector::ReadOptions::default())
+    read_polygons_with(path, &vector::ReadOptions::default()).map_err(|e| {
+        // el lector de regiones habla de recortar; aquí lo que pasa es que la herramienta pide polígonos
+        let m = e.to_string();
+        if m.contains("no sirven para recortar puntos") {
+            let kind = m.split("formas de tipo ").nth(1).and_then(|t| t.split(' ').next()).unwrap_or("otro tipo");
+            Error::Param(format!(
+                "{}: esta herramienta solo trabaja con capas de polígonos y la capa tiene formas de tipo {kind}",
+                path.display()
+            ))
+        } else {
+            e
+        }
+    })
 }
 
 /// Como [`read_polygons`], con opciones: una capa de puntos se convierte en círculos de
@@ -654,5 +666,20 @@ mod tests {
         let t = table_of(&l.features);
         assert!(matches!(t.columns[2].1, ColKind::Num(18, 0)));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
+    fn a_layer_of_lines_is_refused_as_polygons_with_a_clear_message() -> Result<()> {
+        let dir = std::env::temp_dir().join(format!("hipso_lines_as_polys_{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let p = dir.join("l.shp");
+        let mut d = crate::view::VectorData { polygons: false, points: false, ..crate::view::VectorData::default() };
+        d.features = vec![crate::view::Feature { parts: vec![vec![[0.0, 0.0], [1.0, 1.0]]] }];
+        d.text = vec![Vec::new()];
+        d.num = vec![Vec::new()];
+        crate::vector::write_layer(&p, &d, crate::view::GeomKind::Line, None)?;
+        let e = read_polygons(&p).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(e.contains("solo trabaja con capas de polígonos") && !e.contains("recortar"), "{e}");
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
     }
 }

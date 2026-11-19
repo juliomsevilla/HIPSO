@@ -353,6 +353,9 @@ impl App {
                 if ribbon::small_button(ui, t, "@topology", "Comprobar topología", self.vm.topo.is_some()).clicked() {
                     self.vm.topo = Some(crate::editmore::TopoDlg::default());
                 }
+                if ribbon::small_button(ui, t, "@fixtopo", "Reparar topología", self.vm.repair.is_some()).clicked() {
+                    self.vm.repair = Some(crate::editmore::RepairDlg::default());
+                }
                 if ribbon::small_button_on(ui, t, "@trash", "Eliminar seleccionados", false, has_sel).clicked() {
                     self.delete_selected();
                 }

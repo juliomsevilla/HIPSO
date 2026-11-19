@@ -334,6 +334,10 @@ pub const CATALOG: &[Entry] = &[
     e("near", "Vectorial", "Cercanía", V, &[V], "shp"),
     e("summary", "Vectorial", "Estadísticas de resumen", A, &[T], "csv"),
     e("topology", "Vectorial", "Comprobar topología", A, &[V], "csv"),
+    e("fix-topology", "Vectorial", "Reparar topología", V, &[V], "shp"),
+    e("simplify", "Vectorial", "Simplificar", V, &[V], "shp"),
+    e("parallel", "Vectorial", "Paralela", V, &[V], "shp"),
+    e("fields", "Vectorial", "Quitar y renombrar campos", V, &[V], "shp"),
     e("rasterize", "Ráster", "Rasterizar una capa", V, &[R], "tif"),
     e("focal", "Ráster", "Filtro focal", R, &[R], "tif"),
     e("rstats", "Ráster", "Estadísticas de un ráster", R, &[T], "csv"),
@@ -398,6 +402,64 @@ pub fn named_args() -> impl Iterator<Item = (&'static str, &'static str)> {
 
 /// Las opciones que llevan una ruta pero la escriben.
 const OUTPUT_ARGS: &[(&str, &str)] = &[("clip", "layout"), ("clip", "metrics")];
+
+/// Las opciones que nombran un campo de una capa (o una columna de una tabla): la herramienta, la
+/// opción, la opción de archivo cuya tabla ofrece los campos y si solo valen los numéricos. Las
+/// ventanas las dibujan como listas desplegables con los campos reales, en lugar de un cuadro de
+/// texto donde escribirlos.
+const FIELD_ARGS: &[(&str, &str, &str, bool)] = &[
+    ("dissolve", "field", "input", false),
+    ("split", "field", "input", false),
+    ("rasterize", "field", "layer", true),
+    ("near", "carry", "to", false),
+    ("summary", "by", "input", false),
+    ("summary", "fields", "input", true),
+    ("join-table", "layer_key", "layer", false),
+    ("join-table", "table_key", "table", false),
+    ("fields", "drop", "input", false),
+    ("fields", "rename", "input", false),
+    ("obia", "class_field", "samples", false),
+    ("change", "stand_field", "stands", false),
+    ("model", "response", "field", true),
+    ("model", "plot_key", "plots", false),
+    ("model", "field_key", "field", false),
+    ("model", "predictors", "plots", true),
+    ("model", "candidates", "plots", true),
+    ("trees", "field_x", "field", true),
+    ("trees", "field_y", "field", true),
+    ("trees", "field_h", "field", true),
+    ("trees", "field_plot", "field", false),
+    ("trees", "plot_x", "field", true),
+    ("trees", "plot_y", "field", true),
+    ("clip", "name_field", "regions", false),
+    ("clip", "side_x_field", "regions", true),
+    ("clip", "side_y_field", "regions", true),
+    ("clip", "radius_field", "regions", true),
+];
+
+/// De dónde salen los valores de una opción que nombra un campo.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FieldSource {
+    /// La opción de archivo cuya tabla tiene los campos.
+    pub source: &'static str,
+    /// Solo valen los campos numéricos.
+    pub numeric: bool,
+}
+
+/// Todas las opciones que nombran un campo: herramienta, opción y de dónde salen.
+pub fn field_args() -> impl Iterator<Item = (&'static str, &'static str, FieldSource)> {
+    FIELD_ARGS
+        .iter()
+        .map(|(t, a, source, numeric)| (*t, *a, FieldSource { source, numeric: *numeric }))
+}
+
+/// Si la opción `arg` de `tool` nombra un campo, de qué opción de archivo salen.
+pub fn field_source(tool: &str, arg: &str) -> Option<FieldSource> {
+    FIELD_ARGS
+        .iter()
+        .find(|(t, a, _, _)| *t == tool && *a == arg)
+        .map(|(_, _, source, numeric)| FieldSource { source, numeric: *numeric })
+}
 
 /// El tipo de archivo que admite la opción `arg` de `tool`.
 pub fn arg_kind(tool: &str, arg: &str) -> Kind {

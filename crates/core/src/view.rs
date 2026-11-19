@@ -2425,6 +2425,44 @@ impl VectorData {
         self.fields.len() - 1
     }
 
+    /// Quita el campo `c` y su columna en todas las filas. Devuelve `false` si no existe.
+    pub fn remove_field(&mut self, c: usize) -> bool {
+        if c >= self.fields.len() {
+            return false;
+        }
+        self.fix_types();
+        self.fields.remove(c);
+        self.types.remove(c);
+        for r in &mut self.text {
+            if c < r.len() {
+                r.remove(c);
+            }
+        }
+        for r in &mut self.num {
+            if c < r.len() {
+                r.remove(c);
+            }
+        }
+        true
+    }
+
+    /// Cambia el nombre del campo `c`. El nombre se recorta de espacios y no puede estar vacío ni
+    /// repetir el de otro campo (sin distinguir mayúsculas); los valores y el tipo no cambian.
+    pub fn rename_field(&mut self, c: usize, name: &str) -> std::result::Result<(), String> {
+        let name = name.trim();
+        if c >= self.fields.len() {
+            return Err("el campo no existe".into());
+        }
+        if name.is_empty() {
+            return Err("el nombre del campo no puede estar vacío".into());
+        }
+        if self.fields.iter().enumerate().any(|(k, f)| k != c && f.trim().eq_ignore_ascii_case(name)) {
+            return Err(format!("ya hay un campo llamado «{name}»"));
+        }
+        self.fields[c] = name.to_string();
+        Ok(())
+    }
+
     /// Fija un valor comprobándolo contra el tipo de su campo: se guardan el texto canónico y el
     /// número. Si hay un error no cambia nada y el mensaje dice qué se esperaba.
     pub fn set_value(&mut self, row: usize, col: usize, raw: &str) -> std::result::Result<(), String> {
@@ -2455,6 +2493,47 @@ impl VectorData {
 pub fn types_sidecar(path: &Path) -> std::path::PathBuf {
     let stem = path.file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
     path.with_file_name(format!("{stem}_tipos.txt"))
+}
+
+/// Lee una tabla sin geometría (CSV, TSV con cualquier separador habitual o la primera hoja de un
+/// `.xlsx`) como una capa de puntos situados en el origen: así la tabla, las consultas, las
+/// selecciones y los gráficos funcionan igual que con cualquier capa. Cada columna tiene el tipo
+/// que dicen sus valores; una columna de números con coma decimal («12,5») es numérica.
+pub fn read_table(path: &Path) -> Result<VectorData> {
+    use crate::fieldtype::FieldType;
+    let t = crate::aba::Table::read(path)?;
+    let n = t.len();
+    let mut d = VectorData {
+        points: true,
+        bounds: [0.0, 0.0, 0.0, 0.0],
+        ..VectorData::default()
+    };
+    d.features = vec![Feature { parts: vec![vec![[0.0, 0.0]]] }; n];
+    d.text = vec![Vec::new(); n];
+    d.num = vec![Vec::new(); n];
+    for (c, name) in t.names.iter().enumerate() {
+        // los números con coma decimal pasan a punto antes de tipificar la columna
+        let comma = (0..n).any(|r| t.text(r, c).contains(','));
+        let values: Vec<String> = (0..n)
+            .map(|r| {
+                let v = t.text(r, c).trim();
+                if comma && v.replace(',', ".").parse::<f64>().is_ok_and(f64::is_finite) {
+                    v.replace(',', ".")
+                } else {
+                    v.to_string()
+                }
+            })
+            .collect();
+        let ty = FieldType::infer(values.iter().map(String::as_str));
+        let col = d.add_field(name, ty);
+        for (r, v) in values.iter().enumerate() {
+            if d.set_value(r, col, v).is_err() {
+                // un valor que no encaja en el tipo de su columna queda vacío
+                let _ = d.set_value(r, col, "");
+            }
+        }
+    }
+    Ok(d)
 }
 
 /// Lee un shapefile con sus atributos.
@@ -3327,5 +3406,76 @@ mod surface_tests {
         // sin extensión conocida no tapa ni se tapa
         s.file_bounds.clear();
         assert!(s.shadows(u64::MAX).iter().all(Vec::is_empty));
+    }
+}
+
+#[cfg(test)]
+mod field_ops_tests {
+    use super::*;
+    use crate::fieldtype::FieldType;
+
+    fn layer() -> VectorData {
+        let mut d = VectorData { points: true, ..VectorData::default() };
+        d.features = vec![Feature { parts: vec![vec![[0.0, 0.0]]] }, Feature { parts: vec![vec![[1.0, 1.0]]] }];
+        d.text = vec![Vec::new(); 2];
+        d.num = vec![Vec::new(); 2];
+        let a = d.add_field("especie", FieldType::Text);
+        let b = d.add_field("altura", FieldType::Real);
+        d.set_value(0, a, "pino").unwrap();
+        d.set_value(1, a, "encina").unwrap();
+        d.set_value(0, b, "12.5").unwrap();
+        d.set_value(1, b, "8").unwrap();
+        d
+    }
+
+    #[test]
+    fn removing_a_field_drops_its_column_and_keeps_the_others_with_their_types() {
+        let mut d = layer();
+        assert!(d.remove_field(0));
+        assert_eq!(d.fields, vec!["altura".to_string()]);
+        assert_eq!(d.text[0], vec!["12.5".to_string()]);
+        assert_eq!(d.num[1], vec![8.0]);
+        assert_eq!(d.field_type(0), FieldType::Real);
+        assert!(!d.remove_field(5));
+    }
+
+    #[test]
+    fn renaming_keeps_values_and_refuses_empty_or_repeated_names() {
+        let mut d = layer();
+        d.rename_field(1, "  alt_m ").unwrap();
+        assert_eq!(d.fields[1], "alt_m");
+        assert_eq!(d.text[0][1], "12.5");
+        assert!(d.rename_field(1, "").is_err());
+        assert!(d.rename_field(1, "ESPECIE").is_err());
+        // el mismo nombre en el mismo campo, con otras mayúsculas, sí vale
+        assert!(d.rename_field(0, "Especie").is_ok());
+        assert!(d.rename_field(9, "x").is_err());
+    }
+}
+
+#[cfg(test)]
+mod table_tests {
+    use super::*;
+    use crate::fieldtype::FieldType;
+
+    #[test]
+    fn a_csv_table_becomes_a_layer_with_typed_columns_and_comma_decimals() -> Result<()> {
+        let dir = std::env::temp_dir().join(format!("hipso_csvtable_{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let p = dir.join("parcelas.csv");
+        std::fs::write(&p, "parcela;especie;altura;n\n1;pino;12,5;40\n2;encina;8,25;\n3;pino;;12\n")?;
+        let d = read_table(&p)?;
+        assert_eq!(d.features.len(), 3);
+        assert_eq!(d.fields, vec!["parcela", "especie", "altura", "n"]);
+        assert_eq!(d.field_type(0), FieldType::Integer);
+        assert_eq!(d.field_type(1), FieldType::Text);
+        assert_eq!(d.field_type(2), FieldType::Real);
+        assert_eq!(d.num[0][2], 12.5);
+        assert_eq!(d.num[1][2], 8.25);
+        assert!(d.num[2][2].is_nan());
+        assert!(d.num[1][3].is_nan());
+        assert_eq!(d.text[1][1], "encina");
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
     }
 }

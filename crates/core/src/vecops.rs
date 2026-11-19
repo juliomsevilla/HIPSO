@@ -24,6 +24,64 @@ pub fn kind_of(d: &VectorData) -> GeomKind {
     }
 }
 
+/// Un campo de la tabla de una capa o de una tabla de texto.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FieldInfo {
+    pub name: String,
+    /// Todos sus valores son números (el campo sirve para estadísticas, gráficos o modelos).
+    pub numeric: bool,
+}
+
+/// Los campos de una capa vectorial (shapefile, GeoJSON, GeoPackage, KML) o las columnas de una tabla
+/// (CSV, TSV, texto o XLSX), en su orden, con lo que hace falta para ofrecerlos en una lista
+/// desplegable en lugar de pedir que se escriban. De un shapefile solo se lee la cabecera de su
+/// tabla; de los demás, el archivo.
+pub fn field_list(path: &Path) -> Result<Vec<FieldInfo>> {
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "shp" | "dbf" => {
+            use shapefile::dbase::FieldType as Dbf;
+            let r = shapefile::dbase::Reader::from_path(path.with_extension("dbf"))
+                .map_err(|e| Error::Format(format!("{}: {e}", path.display())))?;
+            Ok(r.fields()
+                .iter()
+                .map(|f| FieldInfo {
+                    name: f.name().to_string(),
+                    numeric: matches!(f.field_type(), Dbf::Numeric | Dbf::Float | Dbf::Double | Dbf::Currency | Dbf::Integer),
+                })
+                .collect())
+        }
+        "csv" | "tsv" | "txt" | "xlsx" => {
+            let t = crate::aba::Table::read(path)?;
+            Ok(t.names
+                .iter()
+                .enumerate()
+                .map(|(c, name)| {
+                    let mut any = false;
+                    let numeric = (0..t.len()).all(|r| {
+                        let v = t.text(r, c).trim();
+                        if v.is_empty() {
+                            return true;
+                        }
+                        any = true;
+                        v.replace(',', ".").parse::<f64>().is_ok_and(f64::is_finite)
+                    }) && any;
+                    FieldInfo { name: name.clone(), numeric }
+                })
+                .collect())
+        }
+        _ => {
+            let d = crate::view::read_vector(path)?;
+            Ok((0..d.fields.len())
+                .map(|c| FieldInfo { name: d.fields[c].clone(), numeric: d.field_type(c).is_numeric() })
+                .collect())
+        }
+    }
+}
+
 /// Una capa de un archivo tal como la tiene el visor, con su tipo y el texto `.prj` que escribir de
 /// vuelta (el del propio archivo o el de su código EPSG).
 pub fn read_layer(path: &Path) -> Result<(VectorData, GeomKind, Option<String>)> {
@@ -423,5 +481,39 @@ mod tests {
         let two: HashSet<usize> = [0, 1].into_iter().collect();
         assert_eq!(gather(&mut d, &two), Some(0));
         assert_eq!((d.features.len(), d.features[0].parts.len()), (2, 2));
+    }
+}
+
+#[cfg(test)]
+mod field_list_tests {
+    use super::*;
+
+    #[test]
+    fn the_fields_of_a_layer_and_of_a_table_come_with_their_numeric_flag() -> Result<()> {
+        let dir = std::env::temp_dir().join(format!("hipso_fieldlist_{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        // un GeoJSON
+        let g = dir.join("a.geojson");
+        std::fs::write(
+            &g,
+            r#"{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"especie":"pino","altura":12.5},"geometry":{"type":"Point","coordinates":[1,2]}}]}"#,
+        )?;
+        let f = field_list(&g)?;
+        assert_eq!(f.iter().map(|x| (x.name.as_str(), x.numeric)).collect::<Vec<_>>(), vec![("especie", false), ("altura", true)]);
+        // el mismo, escrito como shapefile: solo se lee la cabecera
+        let (d, kind, prj) = read_layer(&g)?;
+        let shp = dir.join("a.shp");
+        crate::vector::write_layer(&shp, &d, kind, prj.as_deref())?;
+        let f = field_list(&shp)?;
+        assert_eq!(f.iter().map(|x| (x.name.as_str(), x.numeric)).collect::<Vec<_>>(), vec![("especie", false), ("altura", true)]);
+        // una tabla con coma decimal y una columna vacía
+        let t = dir.join("t.csv");
+        std::fs::write(&t, "id;peso;nota;vacia\n1;2,5;buena;\n2;3;mala;\n")?;
+        let f = field_list(&t)?;
+        let flags: Vec<(&str, bool)> = f.iter().map(|x| (x.name.as_str(), x.numeric)).collect();
+        assert_eq!(flags, vec![("id", true), ("peso", true), ("nota", false), ("vacia", false)]);
+        assert!(field_list(&dir.join("no_existe.shp")).is_err());
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
     }
 }

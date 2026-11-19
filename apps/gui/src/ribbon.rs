@@ -101,6 +101,28 @@ fn small_button_body(ui: &mut Ui, t: &Tokens, icon: &str, label: &str, selected:
     r
 }
 
+/// Un botón con icono para la barra de estado, que es más baja que la cinta (cabe en 18 px).
+pub fn status_button(ui: &mut Ui, t: &Tokens, icon: &str, label: &str) -> Response {
+    let w = text_width(ui, label, 11.5) + 30.0;
+    let (rect, r) = ui.allocate_exact_size(Vec2::new(w, 18.0), Sense::click());
+    if ui.is_rect_visible(rect) {
+        let p = ui.painter();
+        p.rect_filled(rect, 4.0, fill(t, &r, false));
+        draw_icon(p, Pos2::new(rect.left() + 11.0, rect.center().y), 13.0, icon, t.text);
+        p.text(
+            Pos2::new(rect.left() + 22.0, rect.center().y),
+            Align2::LEFT_CENTER,
+            label,
+            FontId::proportional(11.5),
+            t.weak,
+        );
+    }
+    match crate::tips::tip(label) {
+        Some(tip) => r.on_hover_text(tip),
+        None => r,
+    }
+}
+
 /// Un botón pequeño que abre un menú debajo, dibujado como [`small_button`] con un ▾ tras la
 /// etiqueta, de modo que los menús quedan en la cinta como las demás órdenes.
 pub fn small_menu(
@@ -1163,6 +1185,18 @@ pub fn icon_button(ui: &mut Ui, t: &Tokens, icon: &str, tip: &str) -> Response {
         ui.painter().rect_filled(rect, 4.0, t.hover);
     }
     draw_icon(ui.painter(), rect.center(), 15.0, icon, t.text);
+    r.on_hover_text(tip)
+}
+
+/// Un botón de icono que se queda marcado mientras su herramienta está activa.
+pub fn icon_button_on(ui: &mut Ui, t: &Tokens, icon: &str, tip: &str, on: bool) -> Response {
+    let (rect, r) = ui.allocate_exact_size(Vec2::new(24.0, 24.0), Sense::click());
+    if on {
+        ui.painter().rect_filled(rect, 4.0, t.selection);
+    } else if r.hovered() {
+        ui.painter().rect_filled(rect, 4.0, t.hover);
+    }
+    draw_icon(ui.painter(), rect.center(), 15.0, icon, if on { t.accent } else { t.text });
     r.on_hover_text(tip)
 }
 

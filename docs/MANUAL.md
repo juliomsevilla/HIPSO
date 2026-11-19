@@ -49,6 +49,8 @@ En la cinta hay tres clases de botón. El **botón grande** (un icono sobre la e
 
 Las herramientas de las pestañas *LiDAR*, *Vectorial* y *Raster* abren una ventana flotante con sus opciones y un botón para calcular. Muchas de esas ventanas se generan a partir de la orden equivalente de la línea de comandos (capítulo 14), con idénticas opciones y la misma ayuda, y cada herramienta que tiene orden es también un nodo del constructor de flujos (capítulo 13). Por eso lo que hace el botón lo hace la orden `hipso` correspondiente, con los mismos resultados. Todo trabajo largo se puede detener con *■ Detener*, y lo que se hubiera escrito a medias se borra. Mientras corre, la barra de estado y el Registro dicen cuánto falta.
 
+Las herramientas que usan la ventana común de las pestañas *Vectorial* y *Raster* (las que se generan a partir de la orden de la línea de comandos) pueden estar abiertas a la vez y ejecutarse a la vez, cada una en su proceso: abrir una nueva no cierra las demás ni detiene lo que corre. La ventana de la herramienta en marcha dice «Ejecutando… N s» y la última línea que escribió la orden, y al terminar dice cómo acabó. La barra de estado nombra cada herramienta en marcha con el tiempo que lleva y un botón ■ que detiene solo esa. Las herramientas con ventana propia (clasificar, MDT, terreno y otras) corren de una en una, porque comparten el estado de cancelación y de avance: mientras una corre, el botón de ejecutar de las demás está apagado y la barra de estado dice cuál es. Sí pueden correr a la vez que una de las herramientas de la ventana común. Una herramienta de la ventana común no se lanza dos veces a la vez, y cuando la capa que debe procesar ya está elegida en el mapa, la ventana se abre con ella puesta.
+
 Las herramientas de la pestaña *LiDAR* que trabajan con nubes comparten la forma de toda ventana de proceso, que se describe a continuación: primero qué hace la herramienta, después sus opciones (entre ellas *Entrada*, las nubes cargadas que procesa, una hoja cada una) y, al pie, *Guardar en* y el botón *▶ Ejecutar*, que mientras corre se convierte en *■ Detener y borrar lo parcial*. Si la ruta de salida elegida a mano ya existe, la ventana pregunta antes de sobrescribirla. Esos controles son iguales en todas las ventanas y por eso no se repiten en las tablas siguientes.
 
 **Todas las ventanas de proceso tienen la misma forma**, sea cual sea la pestaña (LiDAR, Vectorial, Raster, terreno): se abren a la derecha, bajo la cinta, con el mismo ancho, y siguen el orden en que se piensa una herramienta: se entiende, se decide, se guarda y se ejecuta. Arriba, la descripción de lo que hace; debajo, en naranja, los avisos (lo que falta, lo que no cuadra), que se quitan solos cuando se arreglan; después las entradas, cada una con *Archivo…* (o *Añadir…*, si admite varias) y *De las capas cargadas*, que ofrece las capas del mapa del tipo que toca, y los ajustes; y al pie, *Guardar en* (la carpeta de resultados; vacía, junto a la entrada) y el botón principal, relleno con el color de acento (*▶ Ejecutar*, *▶ Calcular*, *▶ Reproyectar*…), que mientras hay un proceso en marcha se desactiva y deja ver *■ Detener y borrar lo parcial* y una rueda. Los resultados se abren en el mapa al terminar. Las ventanas pequeñas de edición de una capa (*Calculadora de campos*, *Seleccionar por expresión*, *Transformar selección*, *Comprobar topología*) son cuadros de diálogo y no siguen este orden.
@@ -67,6 +69,10 @@ El segundo icono (una imagen) guarda en PNG lo que se ve en el área de vistas, 
 
 El tercer icono encuadra todo lo cargado, y el cuarto vuelve al encuadre anterior de la planta. Son los mismos botones que *Extensión completa* y *Zoom anterior* de la pestaña *Vista*, repetidos aquí porque se usan constantemente.
 
+#### Capturar coordenadas
+
+El quinto icono (una mira) activa la herramienta *Capturar coordenadas*: queda marcado mientras está activa, y otro clic vuelve al zoom. Con ella, cada clic en la planta anota el punto (lo marca con una cruz roja numerada) y copia sus coordenadas «X Y» al portapapeles, de modo que se pegan donde haga falta. Una ventana lista lo anotado. *Mostrar en EPSG* pasa las coordenadas a otro sistema (por ejemplo, 4326 para ver longitud y latitud; vacío, el de la vista), y lo que se copia sigue ese sistema. *Copiar*, junto a cada fila, copia esa pareja; *Copiar todo* copia una tabla de tres columnas (n, x e y) separada por tabuladores, con su cabecera, lista para pegar en una hoja de cálculo; y *Vaciar* borra las marcas. Las coordenadas llevan siete decimales en un sistema geográfico (grados) y tres en los demás. Para el camino contrario, centrar el mapa en unas coordenadas, véase *Ir a coordenadas* en la barra de estado (apartado 4.9).
+
 #### Buscar comando (Ctrl+K)
 
 El campo de la derecha localiza cualquier herramienta o acción por su nombre, desde *Clasificar puntos* hasta *Curvas de nivel*, y la ejecuta. Es la forma más rápida de llegar a una herramienta cuando no se recuerda su pestaña. Incluye las herramientas de la cinta, los colores de los puntos, el cambio de tema, el constructor de flujos y las páginas de *Inicio*.
@@ -77,7 +83,7 @@ El botón naranja abre una vista a pantalla completa con cinco páginas. La pág
 
 ### 4.3 Pestaña Archivo
 
-La pestaña *Archivo* tiene dos grupos: *Archivo*, que gestiona qué está abierto, e *Interfaz*, que gobierna el aspecto.
+La pestaña *Archivo* tiene tres grupos: *Archivo*, que gestiona qué está abierto, *Análisis*, que abre la exploración de datos, e *Interfaz*, que gobierna el aspecto.
 
 #### Archivo → Archivo
 
@@ -100,6 +106,12 @@ Menú con los diez últimos archivos abiertos. Pulsar uno lo vuelve a abrir, y *
 ##### Cerrar todo
 
 Cierra todas las nubes y capas y deja la ventana vacía.
+
+#### Archivo → Análisis
+
+##### EDA
+
+Muestra u oculta el dock del **EDA** (análisis exploratorio de datos), acoplado bajo las vistas y encima de la tabla de atributos si esta está abierta. Tiene dos pestañas: *Gráficos*, con un histograma, una dispersión y unas cajas de la misma fuente de datos, enlazados a la selección; y *Estadísticas*, con la tabla de recuento, media, desviación, cuartiles y demás de cada columna. La fuente puede ser una capa vectorial, una tabla CSV o XLSX abierta como capa, la nube de puntos o un ráster. Se explica con detalle en el capítulo 5, *EDA*.
 
 #### Archivo → Interfaz
 
@@ -843,7 +855,7 @@ Las opciones que la ventana no muestra (clases de cable y de poste, longitud y n
 
 ### 4.6 Pestaña Vectorial
 
-La pestaña *Vectorial* reúne lo que opera sobre capas de puntos, líneas y polígonos (shapefile, GeoPackage, GeoJSON y KML). La edición de elementos (dibujar, mover vértices, seleccionar, copiar) no está en la cinta, porque depende de la capa elegida: está en el panel lateral *Edición* (apartado 4.9). Todas las herramientas de los grupos *Geometría*, *Geoprocesos* y *Capas y tablas* abren su ventana, trabajan sobre capas ya cargadas o sobre archivos, y escriben una capa nueva sin modificar las originales.
+La pestaña *Vectorial* reúne lo que opera sobre capas de puntos, líneas y polígonos (shapefile, GeoPackage, GeoJSON y KML). La edición de elementos (dibujar, mover vértices, seleccionar, copiar) no está en la cinta, porque depende de la capa elegida: está en el panel lateral *Edición* (apartado 4.9). La cinta tiene cuatro grupos: *Capa* (crear una capa y abrir su tabla), *Geometría* (comprobar y reparar la forma de los elementos, simplificarlos, trazar paralelas y recortar), *Tabla* (lo que añade, une, divide, quita o renombra campos) y *Geoprocesos* (los procesos puros entre capas: zonal, búfer, disolver, unión y demás). Todas las herramientas de los grupos *Geometría*, *Tabla* y *Geoprocesos* abren su ventana, trabajan sobre capas ya cargadas o sobre archivos, y escriben una capa nueva sin modificar las originales. Las estadísticas de una capa o de un ráster (recuento, media, cuartiles, por grupos) ya no tienen botón en la cinta, sino que están en el **EDA** (*Archivo → Análisis → EDA*, capítulo 5); sus órdenes de la línea de comandos, `hipso summary` y `hipso rstats`, siguen igual.
 
 #### Vectorial → Capa
 
@@ -862,7 +874,7 @@ La capa se crea vacía y se rellena con *Digitalizar* en el panel *Edición*. Lo
 
 ##### Tabla de atributos
 
-Abre la tabla de la capa vectorial elegida, **acoplada bajo las vistas** (a la derecha del panel lateral, como en QGIS o ArcGIS); su borde superior se arrastra para cambiar la altura y la × de la derecha la cierra. La barra de iconos tiene, de izquierda a derecha, el nombre de la capa con el contador de elementos seleccionados, *Seleccionar por atributos*, *Seleccionar todo*, *Invertir la selección*, *Limpiar la selección*, *Zoom a la selección*, *Eliminar* los seleccionados, *Deshacer*, *Rehacer*, *Guardar* y *Añadir campo*; a la derecha están la casilla *Solo seleccionados* y el cuadro *Filtrar filas…*, que deja solo las filas que contienen el texto en algún campo (sin distinguir mayúsculas). Las celdas se editan con una comprobación del tipo de cada campo, las columnas se ordenan con un clic en la cabecera y se ensanchan arrastrando su borde, y el menú contextual de la cabecera cambia el tipo del campo. Véase el apartado 9.
+Abre la tabla de la capa vectorial elegida, **acoplada bajo las vistas** (a la derecha del panel lateral, como en QGIS o ArcGIS); su borde superior se arrastra para cambiar la altura y la × de la derecha la cierra. La barra de iconos tiene, de izquierda a derecha, el nombre de la capa con el contador de elementos seleccionados, *Seleccionar por atributos*, *Seleccionar todo*, *Invertir la selección*, *Limpiar la selección*, *Zoom a la selección*, *Eliminar* los seleccionados, *Deshacer*, *Rehacer*, *Guardar* y *Añadir campo*; a la derecha (en una zona reservada, de modo que nada se pisa aunque la tabla sea estrecha o el nombre de la capa largo) están la casilla *Solo seleccionados* y el cuadro *Filtrar filas…*, que deja solo las filas que contienen el texto en algún campo (sin distinguir mayúsculas). Las celdas se editan con una comprobación del tipo de cada campo, las columnas se ordenan con un clic en la cabecera y se ensanchan arrastrando su borde, y el menú contextual de la cabecera cambia el tipo del campo, lo renombra o lo quita. Véase el apartado 9.
 
 
 | Control | Qué hace |
@@ -872,7 +884,7 @@ Abre la tabla de la capa vectorial elegida, **acoplada bajo las vistas** (a la d
 | Eliminar | Elimina los elementos seleccionados. |
 | Deshacer, Rehacer | Recorren las ediciones de la capa. |
 | Guardar | Guarda la capa en su archivo. |
-| Seleccionar por atributo | Selecciona las filas cuyo valor cumple una condición sobre un campo (según su tipo), como *Nueva selección*, ampliando la anterior o *Dentro de la selección*. |
+| Seleccionar por atributos (el icono sin texto) | Selecciona las filas cuyo valor cumple una condición sobre un campo (según su tipo), como *Nueva selección*, ampliando la anterior o *Dentro de la selección*. |
 | Añadir campo | Añade un campo con nombre y tipo. |
 | Solo seleccionados | Muestra solo las filas seleccionadas. |
 | Celdas | Un clic abre el valor (o el hipervínculo); un doble clic lo edita, y la tabla comprueba lo escrito contra el tipo del campo (por ejemplo, las fechas se escriben AAAA-MM-DD). Las columnas se ordenan pulsando su cabecera. |
@@ -893,6 +905,120 @@ Repara los polígonos no válidos y escribe una capa nueva, conservando los atri
 
 Elige la capa de polígonos y repara los no válidos con la regla par-impar: un lazo se convierte en dos partes y los bordes repetidos se cancelan. Los válidos no se tocan y la tabla de atributos se conserva. La orden es `hipso make-valid`.
 
+##### Reparar topología
+
+Arregla directamente los defectos de una capa: ajusta los vértices cercanos de polígonos vecinos para que sus bordes coincidan, quita los solapes, rellena los huecos pequeños entre polígonos y, en líneas, une los extremos que se quedan cortos. Véase el apartado 9, *Reparar la topología*.
+
+
+La ventana es como la de los demás procesos: arriba un párrafo que explica qué hace la herramienta y, en naranja, lo que falte; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco); y al pie *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso fix-topology`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+
+| En la ventana | Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|---|
+| Capa | `INPUT` | archivo o carpeta | ninguno | La capa de polígonos o de líneas. **Obligatoria.** |
+| Distancia de ajuste | `--snap` | número | `0` | Distancia, en las unidades de la capa: los vértices (en líneas, los extremos) más cercanos se unen y los que quedan cerca del borde de otro elemento se apoyan en él. 0 no ajusta. |
+| Rellenar huecos hasta | `--max-gap` | número | `0` | Superficie máxima de un hueco entre polígonos que se rellena con el vecino con el que comparte más borde. 0 no rellena huecos. |
+| Solapes | `--overlaps` | una de las opciones | `larger` | A quién se queda la superficie que comparten dos polígonos: `larger` (el mayor), `smaller` (el menor), `first` (el primero de la tabla) o `none` (no se tocan). |
+
+El resultado es una capa nueva (`…_reparada`) con los atributos de siempre. La misma reparación se hace sobre la capa activa desde el panel lateral *Edición* (apartado 4.9). Para saber antes qué hay que arreglar, *Comprobar topología* del mismo panel lista los incumplimientos sin cambiar nada.
+##### Simplificar
+
+Quita vértices de las líneas y de los contornos de una capa con el método de Douglas y Peucker: el borde que comparten dos polígonos se simplifica una sola vez para los dos, de modo que no se abren huecos entre vecinos. Véase el apartado 9.
+
+
+La ventana es como la de los demás procesos: arriba un párrafo que explica qué hace la herramienta y, en naranja, lo que falte; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco); y al pie *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso simplify`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+
+| En la ventana | Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|---|
+| Capa | `INPUT` | archivo o carpeta | ninguno | La capa de líneas o de polígonos. **Obligatoria.** |
+| Tolerancia | `--tolerance` | número | ninguno | En las unidades de la capa: un vértice se queda si se aleja de la recta entre sus vecinos más de esta distancia. **Obligatoria.** |
+| Cada contorno por separado | `--independent` | casilla | desactivada | Simplifica cada contorno sin cuidar que los bordes comunes sigan coincidiendo. |
+
+El resultado es una capa nueva (`…_simplificada`). Las esquinas donde se juntan tres o más polígonos no se mueven.
+##### Paralela
+
+Traza la paralela de cada línea a una distancia: positiva, a su izquierda según se recorre, y negativa, a su derecha. Véase el apartado 9.
+
+
+La ventana es como la de los demás procesos: arriba un párrafo que explica qué hace la herramienta y, en naranja, lo que falte; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco); y al pie *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso parallel`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+
+| En la ventana | Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|---|
+| Capa | `INPUT` | archivo o carpeta | ninguno | La capa de líneas. **Obligatoria.** |
+| Distancia | `--distance` | número | ninguno | En las unidades de la capa; el signo elige el lado. **Obligatoria.** |
+| Límite de la inglete | `--miter` | número | `2` | Las esquinas exteriores llevan inglete hasta este múltiplo de la distancia; más allá se cortan con un bisel. |
+
+Los lazos que se forman en las esquinas interiores se recortan. El resultado es una capa nueva (`…_paralela`) con los atributos de cada línea.
+##### Recortar capa
+
+Recorta una capa de puntos, líneas o polígonos con los polígonos de otra, o borra de ella lo que cubren. Véase el apartado 9.
+
+
+La ventana es como la de los demás procesos: arriba un párrafo que explica qué hace la herramienta y, en naranja, lo que falte; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco); y al pie *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso clip-vector`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+
+| En la ventana | Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|---|
+| Entrada | `INPUT` | archivo o carpeta | ninguno | La capa que recortar. **Obligatoria.** |
+| Polígonos | `--mask` | archivo o carpeta | ninguno | Los polígonos con los que recortar. **Obligatoria.** |
+| Borrar lo que cubren | `--erase` | casilla | desactivada | Borra lo que cubren los polígonos en lugar de conservarlo. |
+
+#### Vectorial → Tabla
+
+##### Extraer valores
+
+Añade a una capa un campo por banda de uno o varios rásteres, con el valor bajo cada elemento (el CHM en cada parcela o árbol). Véase el apartado 9, *Herramientas de tabla y de capas*.
+
+
+La ventana es como la de los demás procesos: arriba un párrafo que explica qué hace la herramienta y, en naranja, lo que falte; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco); y al pie *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso extract`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+
+| En la ventana | Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|---|
+| Capa | `LAYER` | archivo o carpeta | ninguno | La capa (puntos, líneas o polígonos), en el mismo sistema que los rásteres. **Obligatoria.** |
+| Ráster | `--raster` | archivo o carpeta | ninguno | Un ráster (se repite para varios) **Obligatoria.** Se puede repetir. |
+| Bandas | `--bands` | texto o número | ninguno | Bandas que extraer, contando desde 1 (por defecto, todas) Se puede repetir. |
+| Interpolación bilineal | `--bilinear` | casilla | desactivada | Interpola entre los cuatro centros de celda más cercanos en lugar de tomar la celda que contiene el punto. |
+| Prefijo de los campos | `--prefix` | texto | ninguno | Prefijo de los campos nuevos. |
+
+##### Unir tabla
+
+Une a una capa las columnas de una tabla (csv, texto o Excel) por un campo clave, como el inventario de campo a las parcelas. Véase el apartado 9.
+
+
+La ventana es como la de los demás procesos: arriba un párrafo que explica qué hace la herramienta y, en naranja, lo que falte; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco); y al pie *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso join-table`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+
+| En la ventana | Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|---|
+| Capa | `LAYER` | archivo o carpeta | ninguno | La capa a la que se añaden las columnas (.shp, .gpkg o .geojson) **Obligatoria.** |
+| Tabla | `TABLE` | archivo o carpeta | ninguno | La tabla (.csv, texto o .xlsx) de la que salen las columnas. **Obligatoria.** |
+| Campo clave | `--layer-key` | texto o número | ninguno | Campo clave de la capa. **Obligatoria.** |
+| Columna clave | `--table-key` | texto o número | ninguno | Columna clave de la tabla (por defecto, el mismo nombre) |
+| Prefijo de los campos | `--prefix` | texto | ninguno | Prefijo de los campos nuevos. |
+
+##### Dividir por campo
+
+Escribe una capa por cada valor distinto de un campo (un archivo por rodal, por especie…). Véase el apartado 9.
+
+
+La ventana es como la de los demás procesos: arriba un párrafo que explica qué hace la herramienta y, en naranja, lo que falte; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco); y al pie *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso split`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+
+| En la ventana | Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|---|
+| Entrada | `INPUT` | archivo o carpeta | ninguno | La capa que se divide (.shp, .gpkg o .geojson) **Obligatoria.** |
+| Campo de división | `--field` | texto o número | ninguno | El campo por el que dividir. **Obligatoria.** |
+
+##### Quitar y renombrar campos
+
+Quita y renombra campos de la tabla de una capa y conserva los demás con sus tipos. Véase el apartado 9.
+
+
+La ventana es como la de los demás procesos: arriba un párrafo que explica qué hace la herramienta y, en naranja, lo que falte; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco); y al pie *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso fields`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
+
+| En la ventana | Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|---|
+| Capa | `INPUT` | archivo o carpeta | ninguno | La capa. **Obligatoria.** |
+| Quitar | `--drop` | lista de campos | ninguno | Los campos que se quitan, elegidos en una lista con casillas. |
+| Renombrar | `--rename` | `viejo=nuevo` | ninguno | Por cada renombrado, el campo en una lista y el nombre nuevo escrito. Se puede repetir. |
+
+Un mismo campo no puede quitarse y renombrarse a la vez, y el nombre nuevo no puede repetir el de otro campo. El resultado es una capa nueva (`…_campos`). Sobre la capa abierta, lo mismo se hace desde el menú de la cabecera de cada columna de la tabla de atributos.
 #### Vectorial → Geoprocesos
 
 ##### Estadística zonal
@@ -1022,38 +1148,6 @@ Un polígono de Voronoi por cada punto de una capa (la zona más cercana a él),
 
 Da la celda de Voronoi de cada punto (el área que está más cerca de él que de ningún otro), con los atributos del punto. La orden es `hipso voronoi`.
 
-#### Vectorial → Capas y tablas
-
-##### Extraer valores
-
-Añade a una capa un campo por banda de uno o varios rásteres, con el valor bajo cada elemento (el CHM en cada parcela o árbol). Véase el apartado 9, *Capas y tablas*.
-
-
-La ventana es como la de los demás procesos: arriba un párrafo que explica qué hace la herramienta y, en naranja, lo que falte; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco); y al pie *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso extract`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
-
-| En la ventana | Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|---|
-| Capa | `LAYER` | archivo o carpeta | ninguno | La capa (puntos, líneas o polígonos), en el mismo sistema que los rásteres. **Obligatoria.** |
-| Ráster | `--raster` | archivo o carpeta | ninguno | Un ráster (se repite para varios) **Obligatoria.** Se puede repetir. |
-| Bandas | `--bands` | texto o número | ninguno | Bandas que extraer, contando desde 1 (por defecto, todas) Se puede repetir. |
-| Interpolación bilineal | `--bilinear` | casilla | desactivada | Interpola entre los cuatro centros de celda más cercanos en lugar de tomar la celda que contiene el punto. |
-| Prefijo de los campos | `--prefix` | texto | ninguno | Prefijo de los campos nuevos. |
-
-##### Unir tabla
-
-Une a una capa las columnas de una tabla (csv, texto o Excel) por un campo clave, como el inventario de campo a las parcelas. Véase el apartado 9.
-
-
-La ventana es como la de los demás procesos: arriba un párrafo que explica qué hace la herramienta y, en naranja, lo que falte; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco); y al pie *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso join-table`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
-
-| En la ventana | Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|---|
-| Capa | `LAYER` | archivo o carpeta | ninguno | La capa a la que se añaden las columnas (.shp, .gpkg o .geojson) **Obligatoria.** |
-| Tabla | `TABLE` | archivo o carpeta | ninguno | La tabla (.csv, texto o .xlsx) de la que salen las columnas. **Obligatoria.** |
-| Campo clave | `--layer-key` | texto o número | ninguno | Campo clave de la capa. **Obligatoria.** |
-| Columna clave | `--table-key` | texto o número | ninguno | Columna clave de la tabla (por defecto, el mismo nombre) |
-| Prefijo de los campos | `--prefix` | texto | ninguno | Prefijo de los campos nuevos. |
-
 ##### Combinar capas
 
 Junta varias capas del mismo tipo de geometría en una; los campos son la unión de los de todas. Véase el apartado 9.
@@ -1065,31 +1159,6 @@ La ventana es como la de los demás procesos: arriba un párrafo que explica qu�
 |---|---|---|---|---|
 | Capas | `INPUTS` | archivo o carpeta | ninguno | Las capas que combinar. **Obligatoria.** Se puede repetir. |
 | Campo de origen | `--origin` | texto o número | ninguno | Añade un campo con el nombre del archivo de origen de cada elemento. |
-
-##### Dividir por campo
-
-Escribe una capa por cada valor distinto de un campo (un archivo por rodal, por especie…). Véase el apartado 9.
-
-
-La ventana es como la de los demás procesos: arriba un párrafo que explica qué hace la herramienta y, en naranja, lo que falte; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco); y al pie *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso split`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
-
-| En la ventana | Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|---|
-| Entrada | `INPUT` | archivo o carpeta | ninguno | La capa que se divide (.shp, .gpkg o .geojson) **Obligatoria.** |
-| Campo de división | `--field` | texto o número | ninguno | El campo por el que dividir. **Obligatoria.** |
-
-##### Recortar capa
-
-Recorta una capa de puntos, líneas o polígonos con los polígonos de otra, o borra de ella lo que cubren. Véase el apartado 9.
-
-
-La ventana es como la de los demás procesos: arriba un párrafo que explica qué hace la herramienta y, en naranja, lo que falte; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco); y al pie *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso clip-vector`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
-
-| En la ventana | Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|---|
-| Entrada | `INPUT` | archivo o carpeta | ninguno | La capa que recortar. **Obligatoria.** |
-| Polígonos | `--mask` | archivo o carpeta | ninguno | Los polígonos con los que recortar. **Obligatoria.** |
-| Borrar lo que cubren | `--erase` | casilla | desactivada | Borra lo que cubren los polígonos en lugar de conservarlo. |
 
 ##### Cercanía
 
@@ -1104,19 +1173,6 @@ La ventana es como la de los demás procesos: arriba un párrafo que explica qu�
 | Capa destino | `--to` | archivo o carpeta | ninguno | La capa de la que se busca el elemento más cercano. **Obligatoria.** |
 | Campo a copiar | `--carry` | texto o número | ninguno | Campo de la otra capa que se copia del elemento más cercano. |
 | Distancia máxima | `--max` | texto o número | ninguno | Distancia máxima: los más lejanos quedan sin valor. |
-
-##### Resumen estadístico
-
-Recuento, suma, media, mínimo, máximo y desviación de campos numéricos de una capa o tabla, por grupos de un campo. Véase el apartado 9.
-
-
-La ventana es como la de los demás procesos: arriba un párrafo que explica qué hace la herramienta y, en naranja, lo que falte; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco); y al pie *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso summary`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
-
-| En la ventana | Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|---|
-| Entrada | `INPUT` | archivo o carpeta | ninguno | La capa o la tabla (csv, texto, xlsx) **Obligatoria.** |
-| Agrupar por | `--by` | texto o número | ninguno | Campo por el que agrupar (sin él, un solo grupo) |
-| Campos | `--fields` | texto o número | ninguno | Campos numéricos que resumir, separados por comas (por defecto, todos los numéricos) Se puede repetir. |
 
 ### 4.7 Pestaña Raster
 
@@ -1347,18 +1403,6 @@ La ventana es como la de los demás procesos: arriba un párrafo que explica qu�
 | Ventana circular | `--circle` | casilla | desactivada | Ventana circular en lugar de cuadrada. |
 | Sigma (celdas) | `--sigma` | texto o número | ninguno | Desviación típica del filtro gaussiano, en celdas (por defecto, la mitad del radio) |
 | Mínimo de celdas | `--min-valid` | número | `1` | Menos celdas con valor que esto dejan la celda vacía. |
-
-##### Estadísticas ráster
-
-Recuento, mínimo, máximo, media, desviación, mediana, percentiles e histograma de un ráster. Véase el apartado 8.
-
-
-La ventana es como la de los demás procesos: arriba un párrafo que explica qué hace la herramienta y, en naranja, lo que falte; después sus opciones, cada una con un nombre en español y su ayuda entera debajo (las obligatorias llevan un asterisco); y al pie *Guardar en* (la carpeta de resultados, que es la única salida que se elige: los archivos se nombran solos) y *Ejecutar*, con *Detener* mientras corre. Las opciones que son archivos tienen *Archivo…* (o *Añadir…*, si admiten varios) y *De las capas cargadas*, y los resultados se abren en el mapa al terminar. Se genera a partir de la orden `hipso rstats`. La primera columna de la tabla es el rótulo que se lee en la ventana, y la segunda el nombre de la opción en la línea de comandos, por si se usa desde la terminal o desde un flujo.
-
-| En la ventana | Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|---|
-| Entrada | `INPUT` | archivo o carpeta | ninguno | El ráster (GeoTIFF) **Obligatoria.** |
-| Intervalos | `--bins` | número | `20` | Intervalos del histograma. |
 
 ##### Tabular áreas
 
@@ -1674,7 +1718,7 @@ Con una capa vectorial el panel tiene cuatro grupos.
 
 *Selección* tiene *Seleccionar* (por rectángulo), *Seleccionar todo*, *Invertir selección*, *Limpiar selección*, *Seleccionar por localización* (los elementos que intersectan, están dentro de, contienen, tocan o cruzan a los de otra capa) y *Seleccionar por expresión* (una expresión sobre los campos).
 
-*Geometría y atributos* tiene *Unir seleccionados* (junta los polígonos seleccionados en uno solo, con los atributos del primero), *Separar partes* (convierte cada parte de un elemento de varias partes en un elemento propio), *Agrupar en multiparte* (junta los seleccionados en uno sin unir la geometría), *Transformar selección* (mueve, gira y escala alrededor del centro de la selección), *Copiar*, *Pegar* (en la capa activa, emparejando los campos por nombre) y *Pegar como capa*, *Comprobar topología* (polígonos que se solapan, huecos entre ellos, contornos que se cruzan y, en líneas, cabos sueltos), *Eliminar seleccionados*, *Tabla de atributos* y *Calculadora de campos* (rellena un campo con una expresión). Véase el apartado 9.
+*Geometría y atributos* tiene *Unir seleccionados* (junta los polígonos seleccionados en uno solo, con los atributos del primero), *Separar partes* (convierte cada parte de un elemento de varias partes en un elemento propio), *Agrupar en multiparte* (junta los seleccionados en uno sin unir la geometría), *Transformar selección* (mueve, gira y escala alrededor del centro de la selección), *Copiar*, *Pegar* (en la capa activa, emparejando los campos por nombre) y *Pegar como capa*, *Comprobar topología* (polígonos que se solapan, huecos entre ellos, contornos que se cruzan y, en líneas, cabos sueltos), *Reparar topología* (que los arregla), *Eliminar seleccionados*, *Tabla de atributos* y *Calculadora de campos* (rellena un campo con una expresión). Véase el apartado 9.
 
 ###### Calculadora de campos
 
@@ -1721,6 +1765,17 @@ Se puede deshacer.
 | Comprobar | Lista los incumplimientos (hasta 500) y permite exportarlos; si no hay, dice «Sin incumplimientos». |
 
 En polígonos busca solapes, huecos entre ellos y contornos que se cruzan consigo mismos; en líneas, extremos que no tocan ninguna otra línea (cabos sueltos). La orden es `hipso topology`.
+
+###### Reparar topología
+
+| Control | Qué hace |
+|---|---|
+| Distancia de ajuste | En las unidades de la capa: los vértices (en líneas, los extremos) a menos de esta distancia se unen. 0 no ajusta. |
+| Rellenar huecos hasta | Superficie máxima de un hueco entre polígonos que se rellena. 0 no rellena ninguno. Solo en polígonos. |
+| Solapes | *Se queda el polígono mayor*, *el menor*, *el primero de la tabla* o *Dejarlos como están*. Solo en polígonos. |
+| Reparar | Arregla la capa activa y cuenta lo hecho. Se puede deshacer. |
+
+La orden es `hipso fix-topology`, que escribe una capa nueva en lugar de cambiar la abierta.
 
 #### Panel → Simbología
 
@@ -1781,7 +1836,9 @@ La pestaña tiene cuatro grupos. Los cambios se ven al instante y se guardan en 
 
 #### La barra de estado
 
-Muestra, de izquierda a derecha, las coordenadas del cursor, el sistema de coordenadas de la vista (el de la primera nube, o «sin declarar»), cuántos puntos hay en pantalla de los del archivo (con la decimación en uso), el rango de elevación, la herramienta activa, la escala y, cuando hay un proceso en marcha, su avance y la estimación de tiempo.
+Muestra, de izquierda a derecha, las coordenadas del cursor, el sistema de coordenadas de la vista (el de la primera nube, o «sin declarar»), cuántos puntos hay en pantalla de los del archivo (con la decimación en uso), el rango de elevación, la herramienta activa, la escala con *Ir a coordenadas* a su lado y, cuando hay procesos en marcha, uno por herramienta con su avance, su tiempo y su botón ■.
+
+*Ir a coordenadas* abre un cuadro con *X (o longitud)*, *Y (o latitud)* y *EPSG* (vacío, el sistema de la vista; con 4326 se escriben longitud y latitud). Se admiten la coma y el punto decimales, y en X se pueden pegar las dos coordenadas separadas por un espacio o un punto y coma. *Ir* centra la planta en ese punto sin cambiar la ampliación y lo marca; *Quitar la marca* la borra. Es el camino contrario a *Capturar coordenadas* (apartado 4.2).
 
 ### 4.10 Las vistas
 
@@ -1837,6 +1894,8 @@ Se enciende y se apaga en el panel *Contenido*, con la casilla de la última fil
 4. ESRI
 • ESRI World Street Map: https://arcgisonline.com{z}/{y}/{x}
 • ESRI World Imagery (Satélite): https://arcgisonline.com{z}/{y}/{x}
+
+Hay además dos mapas de **Sentinel-2 reciente**, de uso libre: *color natural* (bandas B04, B03 y B02) e *infrarrojo color* (B08, B04 y B03, donde la vegetación sana se ve roja). Son un mosaico de las escenas de los últimos 60 días con menos del 10 % de nubes, la más reciente encima, servido por el Microsoft Planetary Computer a partir de los datos abiertos de Copernicus Sentinel; no hace falta clave. El primer uso de cada sesión prepara el mosaico (el mapa dice «preparando el mosaico reciente de Sentinel-2…», y si falla lo reintenta a los 60 segundos), y la imagen llega hasta el nivel de zoom 15 (unos 5 m por píxel en el ecuador; los píxeles de Sentinel-2 son de 10 m), de modo que más cerca solo se amplía. La mención de Copernicus Sentinel se dibuja en el mapa.
 
 Las teselas se descargan en segundo plano de los servidores del proveedor (con el mapa apagado no se descarga nada), con el nombre del programa en la petición y como mucho dos descargas a la vez. Se guardan una semana en la carpeta de caché del sistema (en macOS, `~/Library/Caches/HIPSO/tiles`), por lo que se reutilizan sin conexión; *Inicio → Ajustes → Borrar caché* las elimina. El crédito del proveedor se dibuja en la esquina del mapa. Conviene respetar los términos de cada proveedor, y en particular OpenStreetMap no admite descargas masivas.
 
@@ -1920,6 +1979,20 @@ Los ráster visibles (MDT, MDS…) se dibujan como una línea sobre el perfil, m
 El perfil merece una explicación más detenida, porque no se comporta como el resto de la vista. Las flechas lo desplazan a lo largo de la nube y su ancho se ajusta en *Vista → Perfil*. Lo decisivo es que **no usa los puntos decimados de la planta y el 3D**: lee de los archivos, en segundo plano, **todos** los de la franja de su caja (y un margen lateral de tres anchos, para poder moverla sin releer; el margen se encoge en nubes muy densas, hasta cero, antes de renunciar a un solo punto). El tope de memoria es un octavo de la RAM del equipo (unos 89 millones de puntos en uno de 16 GB); solo si la caja por sí sola lo supera se dibuja 1 de cada 2, 4… y el registro lo dice. En el TLS, una caja de 300 × 10 m tiene 9,2 millones de puntos y se lee entera en 0,7 s. Mientras llegan se dibuja con los de pantalla, y arriba a la derecha se indica cuántos puntos hay ('leyendo todos…' mientras tanto). La caja del perfil se marca en rojo sobre la planta, pero solo mientras la ventana del perfil está a la vista (diseños *2D + perfil* y *2D + perfil + 3D*): en cualquier otro diseño la marca desaparece, y reaparece al volver a uno que lo incluya.
 
 El tiempo de esa lectura depende del formato. Con la copia COPC en caché (o en una nube COPC) solo se leen y descomprimen los nodos que tocan la zona, con todos los núcleos; sin ella, en un LAS/LAZ normal hay que recorrer el archivo (unos segundos en nubes grandes), saltando los archivos que no tocan la zona. El tamaño de los puntos del perfil es propio (2 px por defecto, con los botones − y + de *Vista → Perfil*) y no depende del de la planta y el 3D. La casilla *Sin decimar* de *Vista → Perfil* controla esta lectura completa: desmarcada, el perfil usa los puntos de la pantalla.
+
+### Capturar coordenadas
+
+*Capturar coordenadas* (el icono de la mira, en la cabecera, junto a *Zoom anterior*) anota los puntos que se pulsen en la planta. Cada clic pone una cruz roja numerada y copia sus coordenadas al portapapeles; una ventana lista lo anotado, con *Mostrar en EPSG* para verlas en otro sistema (por ejemplo, 4326 da longitud y latitud) y botones para copiar una fila, copiar todo en una tabla de tres columnas separada por tabuladores o vaciar la lista. Las coordenadas llevan tres decimales (siete, si el sistema es geográfico). Otro clic en el icono devuelve la herramienta *Zoom*. El camino contrario, ir a unas coordenadas, es *Ir a coordenadas* en la barra de estado (apartado 4.9).
+
+### EDA
+
+El **EDA** (*Archivo → Análisis → EDA*) es un dock acoplado bajo las vistas, encima de la tabla de atributos, para conocer los datos antes de procesarlos. Se elige la *fuente* en la lista de la barra superior: una capa vectorial, una tabla CSV, TSV o XLSX abierta como capa (apartado 10), un ráster, o la nube de puntos. Tiene dos pestañas.
+
+*Gráficos* dibuja tres a la vez, con la misma fuente: un **histograma** (con recuento logarítmico opcional y el número de barras a elegir), una **dispersión** de dos columnas (con una rejilla de densidad cuando hay muchos datos, para que no se vuelva una mancha, y la recta de ajuste con su r y su R²) y unas **cajas** (mediana, cuartiles, bigotes de Tukey y atípicos), que pueden agruparse por un campo de texto. Las columnas X e Y se eligen en listas. Con una capa vectorial o una tabla, los gráficos **están enlazados a la selección**: se arrastra un rectángulo en el histograma, la dispersión o las cajas para seleccionar esas filas (con Mayús se añaden y con Alt se quitan), y se ve lo seleccionado resaltado en todos los gráficos, en la tabla de atributos y en el mapa; y al revés, lo que se selecciona en el mapa o en la tabla se resalta en los gráficos. *Limpiar selección* la vacía. Con la nube de puntos, el rectángulo se convierte en una regla sobre atributos (por ejemplo, altura entre dos valores e intensidad entre otros dos), que se aplica a todos los puntos del archivo y no solo a los que se ven. Un ráster se mira, no se selecciona.
+
+*Estadísticas* es la tabla de cada columna numérica: el número de valores y cuántos faltan, media, desviación típica, mínimo, cuartiles, máximo y desviación absoluta mediana (MAD), con la opción de agrupar por un campo y de contar solo los seleccionados. Los cuartiles son el método 7 de Hyndman y Fan (1996), el de R y NumPy. *Copiar* pone la tabla en el portapapeles, con tabuladores, y *Exportar CSV…* la guarda (con la suma, además). Esta pestaña sustituye a las ventanas *Resumen estadístico* (vectorial) y *Estadísticas ráster*, que se quitaron de la cinta; las órdenes `hipso summary` y `hipso rstats` siguen para la línea de comandos y los flujos.
+
+Cada gráfico se guarda como imagen PNG con el botón derecho sobre él (*Guardar esta imagen…* o *Guardar los tres gráficos…*) o con el menú *Guardar imagen* de la barra. La imagen es la que se ve en pantalla, sin los bordes del dock.
 
 ## 6. Edición de nubes de puntos
 
@@ -2877,9 +2950,11 @@ Cuando los sistemas son distintos, la transformación se calcula exacta en una m
 
 ### Reproyectar
 
-Funciona tanto en nubes de puntos (LAS y LAZ) como en rásteres y es capaz de pasar a otro sistema de coordenadas y, si se pide, cambia también la referencia vertical de las alturas. Se añaden los archivos (o se toman de las capas cargadas), se escribe el EPSG de destino y, cuando el archivo no declara el suyo, el de origen. Las alturas se tratan aparte porque son una operación distinta de la horizontal: pasar de alturas elipsoidales (las que da el GNSS) a ortométricas (las que miden las cotas) exige un modelo de geoide, y mezclar unas con otras produce errores de decenas de metros (en Madrid, la diferencia es de unos 51 m). Por eso las alturas solo cambian cuando se elige una *altura de salida*, que puede ser elipsoidal o un código EPSG vertical (5782 para las alturas ortométricas de la Península, 9398 para las de Canarias, 3855 para EGM2008). La *altura de entrada* se toma del propio archivo si la declara; si no la declara y se pide un cambio, la herramienta se niega y pide indicarla, porque no puede adivinarse. Las nubes y los rásteres de salida llevan escrita la referencia vertical (clave 4096 de GeoTIFF), de modo que el camino de vuelta no necesita preguntar nada. Las cotas de un ráster se transforman celda a celda.
+Funciona tanto en nubes de puntos (LAS y LAZ) como en rásteres y capas vectoriales, y es capaz de pasar a otro sistema de coordenadas y, si se pide, cambia también la referencia vertical de las alturas. Se añaden los archivos (o se toman de las capas cargadas), se escribe el EPSG de destino y, cuando el archivo no declara el suyo, el de origen. Las alturas se tratan aparte porque son una operación distinta de la horizontal: pasar de alturas elipsoidales (las que da el GNSS) a ortométricas (las que miden las cotas) exige un modelo de geoide, y mezclar unas con otras produce errores de decenas de metros (en Madrid, la diferencia es de unos 51 m). Por eso las alturas solo cambian cuando se elige una *altura de salida*, que puede ser elipsoidal o un código EPSG vertical (5782 para las alturas ortométricas de la Península, 9398 para las de Canarias, 3855 para EGM2008). La *altura de entrada* se toma del propio archivo si la declara; si no la declara y se pide un cambio, la herramienta se niega y pide indicarla, porque no puede adivinarse. Las nubes y los rásteres de salida llevan escrita la referencia vertical (clave 4096 de GeoTIFF), de modo que el camino de vuelta no necesita preguntar nada. Las cotas de un ráster se transforman celda a celda.
 
 El **destino** puede darse de tres maneras: un *código EPSG*; el *sistema de un ráster* de referencia (se toma su EPSG, y los archivos conservan su extensión); o las *celdas de un ráster* de referencia, en cuyo caso los rásteres toman también su extensión, su origen y su celda y coinciden con él celda a celda (las nubes solo toman su sistema). Para los rásteres hay además el mismo *remuestreo* que en *Igualar rásteres*, con su ayuda, y la *celda del resultado*, que por defecto es la del original (o su equivalente en el sistema nuevo si las unidades cambian). La reproyección de rásteres es una sola pasada por franjas, que no depende del tamaño del ráster.
+
+También reproyecta **capas vectoriales** (shapefile, GeoPackage, GeoJSON y KML): se transforman todos los vértices de cada elemento, se conservan los atributos y se escribe la capa en el mismo formato, y su sistema nuevo escrito. El destino puede ser WGS 84, ETRS89, ED50, Web Mercator (3857) o una zona UTM de ETRS89, WGS 84 o ED50; con otro, la herramienta lo dice y no escribe nada. Un KML solo puede estar en 4326. Si la capa no declara su sistema, hay que dar el de origen (`--from`).
 
 La herramienta es estricta por defecto. Una transformación puede no hacerse con la mejor operación por tres motivos: no existe ajuste de datum entre los dos sistemas (solo se mueven las proyecciones), no hay modelo de geoide que cubra el punto (la altura se queda sin corregir) o la mejor operación necesita una rejilla que falta o que no cubre el punto, y se usa una menos precisa. Cada uno puede suponer metros de error, y por eso se rechaza con un error explícito, que dice cuál ha sido, en lugar de entregar un valor que parezca bueno. Las dos casillas finales de la ventana (en la línea de comandos, `--allow-ballpark` y `--allow-fallback`, o las variables `HIPSO_ALLOW_BALLPARK=YES` y `HIPSO_ONLY_BEST=NO`) aceptan las aproximaciones, y entonces el informe cuenta cuántos puntos pasaron por cada una. Las rejillas de España (ED50 a ETRS89 y los geoides EGM08-REDNAP de la Península y Canarias) van dentro del programa; las demás se buscan en la carpeta `HIPSO_GRID_DIR`, en `PROJ_DATA` y en `PROJ_LIB`, y con `HIPSO_NETWORK=ON` se descargan bajo demanda a la caché del usuario.
 
@@ -2923,7 +2998,7 @@ La expresión se compila una vez y se evalúa por franjas de filas en paralelo, 
 
 Cuatro herramientas del grupo *Geoprocesos* de la pestaña *Raster* abren la misma ventana genérica (la que se genera a partir de la orden de la línea de comandos, con las mismas opciones y la ayuda de cada una).
 
-*Rasterizar* convierte una capa vectorial en un GeoTIFF: cada celda recibe el valor del campo elegido del último elemento que la cubre, o 1 si no se indica campo. Las celdas se toman de un ráster de referencia (`--reference`) o de un tamaño de celda (`--cell`). Sirve para llevar rodales o parcelas a la calculadora ráster. *Filtro focal* sustituye cada celda por la media, la mediana, el mínimo, el máximo, la suma, el rango, la desviación típica, la mayoría o un suavizado gaussiano de las celdas de una ventana a su alrededor (cuadrada o circular, de radio `--radius` en celdas); con `--min-valid` se deja vacía la celda que tiene menos vecinas con valor de las indicadas. *Estadísticas ráster* da el recuento, el mínimo, el máximo, la media, la desviación, la mediana y los percentiles de las celdas con valor, y escribe el histograma en un CSV (`--bins` intervalos). *Tabular áreas* mide el área de cada clase de un ráster (`--values`) dentro de cada zona de otro, como tabla CSV. En la línea de comandos son `hipso rasterize`, `focal`, `rstats` y `tabulate`.
+*Rasterizar* convierte una capa vectorial en un GeoTIFF: cada celda recibe el valor del campo elegido del último elemento que la cubre, o 1 si no se indica campo. Las celdas se toman de un ráster de referencia (`--reference`) o de un tamaño de celda (`--cell`). Sirve para llevar rodales o parcelas a la calculadora ráster. *Filtro focal* sustituye cada celda por la media, la mediana, el mínimo, el máximo, la suma, el rango, la desviación típica, la mayoría o un suavizado gaussiano de las celdas de una ventana a su alrededor (cuadrada o circular, de radio `--radius` en celdas); con `--min-valid` se deja vacía la celda que tiene menos vecinas con valor de las indicadas. Las estadísticas de un ráster (recuento, mínimo, máximo, media, desviación, mediana y percentiles de las celdas con valor, y su histograma) están en el EDA (capítulo 5); la orden `hipso rstats` las escribe en un CSV (`--bins` intervalos). *Tabular áreas* mide el área de cada clase de un ráster (`--values`) dentro de cada zona de otro, como tabla CSV. En la línea de comandos son `hipso rasterize`, `focal`, `rstats` y `tabulate`.
 
 ### Vectorizar un ráster
 
@@ -2955,11 +3030,23 @@ Cada una de las demás operaciones tiene su propia ventana (*Comprobar validez* 
 
 En la misma ventana: *Diferencia* quita de la primera capa lo que cubre la segunda (las piezas conservan los campos de la primera), *Diferencia simétrica* deja lo que está solo en una de las dos (lo de la segunda con sus campos precedidos por `b_`), *Centroides* y *Puntos en la superficie* dan una capa de puntos con los atributos de cada elemento (el punto en la superficie cae siempre dentro del polígono, aunque sea cóncavo o tenga huecos, y el centroide no), y *Unir atributos por localización* copia a cada elemento de la primera capa los campos de los elementos de la segunda que intersectan, contiene, tocan o cruzan (el primer coincidente, o la suma y la media de los campos numéricos), con el campo `n_coinc` que cuenta cuántos coinciden. Diferencia y diferencia simétrica exigen polígonos válidos, como las demás operaciones booleanas.
 
-#### Capas y tablas
+#### Reparar la topología
 
-El grupo *Capas y tablas* de la pestaña *Vectorial* reúne siete herramientas que, como las de análisis ráster, abren una ventana generada a partir de la orden de la línea de comandos, y que también son nodos del constructor de flujos. Las capas deben estar en el mismo sistema de coordenadas que los rásteres y capas con que se combinan, y si no, el programa lo avisa en lugar de mezclarlas.
+*Reparar topología* (*Vectorial → Geometría*, el panel *Edición* sobre la capa activa y `hipso fix-topology`) corrige los defectos en lugar de listarlos. En **polígonos** hace, por este orden: reparar los no válidos; unir los vértices de polígonos vecinos que están a menos de la *distancia de ajuste* (se agrupan y todos van a su centro) y apoyar en el borde del vecino los que quedan cerca de él, de modo que los bordes comunes coincidan; quitar los solapes según la regla elegida (se queda el polígono mayor, el menor, el primero de la tabla o no se tocan); y rellenar los huecos de superficie igual o menor que *Rellenar huecos hasta* con el vecino con el que comparten más borde. Tras cada operación los vértices que quedan casi iguales se vuelven a unir, y el relleno de huecos se repite hasta que no quede ninguno que se pueda rellenar, porque un hueco rellenado puede dejar otro pequeño a su lado. Al final se vuelve a quitar los solapes que hayan salido. Lo que no se toca queda dicho: los huecos mayores que el máximo (pueden ser un claro real) se cuentan y se dejan, y las superficies diminutas de ruido numérico no se cuentan como defecto. En **líneas**, cada extremo que queda a menos de la distancia de ajuste de otra línea se lleva a su vértice más cercano, o a un vértice nuevo sobre el segmento si está más cerca. Los atributos se conservan, y los elementos que se queden sin geometría se descartan y se cuentan. Conviene empezar con distancias pequeñas, comprobar con *Comprobar topología* qué queda y subirlas si hace falta: una distancia grande mueve vértices que no debían moverse.
 
-*Extraer valores* añade a una capa un campo por banda de uno o varios rásteres, con el valor bajo cada elemento (en el punto, o en un punto interior de la línea o del polígono; con `--bilinear` se interpola entre las cuatro celdas más cercanas). *Unir tabla* añade a una capa las columnas de una tabla CSV, de texto o de Excel por un campo clave (`--layer-key` y `--table-key`), y reconoce la coma decimal. *Combinar capas* junta capas del mismo tipo de geometría en una, con la unión de sus campos y, si se pide, un campo con el archivo de origen de cada elemento. *Dividir por campo* escribe una capa por cada valor distinto de un campo, por ejemplo un archivo por rodal. *Recortar capa* conserva de una capa de puntos, líneas o polígonos lo que cae dentro de los polígonos de otra, o con `--erase` lo que cae fuera; cada pieza conserva los atributos de su elemento y el que no deja nada se descarta. *Cercanía* añade la distancia al elemento más cercano de otra capa, su número de orden y, si se pide, uno de sus campos. *Resumen estadístico* calcula el recuento, la suma, la media, el mínimo, el máximo y la desviación de campos numéricos de una capa o tabla, por grupos de un campo. En la línea de comandos son `hipso extract`, `join-table`, `merge`, `split`, `clip-vector`, `near` y `summary`.
+#### Simplificar y paralela
+
+*Simplificar* (`hipso simplify`) quita vértices con el método de Douglas y Peucker (1973): un vértice se queda solo si se aleja de la recta entre sus vecinos más de la tolerancia, que se da en las unidades de la capa. En polígonos, el borde que comparten dos vecinos se simplifica **una sola vez** y los dos lo usan, y los vértices donde se juntan tres o más polígonos no se mueven; así no se abren huecos ni solapes que antes no había. La casilla *Cada contorno por separado* (`--independent`) lo simplifica sin esa precaución, más deprisa pero con la posibilidad de huecos. *Paralela* (`hipso parallel`) traza la línea paralela de cada línea a la distancia dada, a su izquierda según se recorre si es positiva y a su derecha si es negativa. Las esquinas exteriores se resuelven con una inglete, que se corta con un bisel si pasa de `--miter` veces la distancia, y los lazos que quedan en las interiores se recortan. Las dos escriben una capa nueva con los atributos de la original.
+
+#### Quitar y renombrar campos
+
+*Quitar y renombrar campos* (`hipso fields`, y el menú de la cabecera de cada columna en la tabla de atributos) elimina los campos elegidos y cambia el nombre de otros, y conserva los demás con sus tipos y sus valores. Los campos se eligen en listas con los que tiene la capa, no se escriben. El programa se niega a quitar y renombrar el mismo campo, a dar un nombre vacío y a dar uno que ya existe (sin distinguir mayúsculas). En la tabla de atributos, la simbología y las etiquetas que usaban un campo renombrado siguen usándolo con su nombre nuevo, y las que usaban uno quitado se quedan sin campo.
+
+#### Herramientas de tabla y de capas
+
+Los grupos *Tabla* (*Extraer valores*, *Unir tabla*, *Dividir por campo* y *Quitar y renombrar campos*), *Geometría* (*Recortar capa*) y *Geoprocesos* (*Combinar capas* y *Cercanía*) de la pestaña *Vectorial* reúnen herramientas que, como las de análisis ráster, abren una ventana generada a partir de la orden de la línea de comandos, y que también son nodos del constructor de flujos. Las capas deben estar en el mismo sistema de coordenadas que los rásteres y capas con que se combinan, y si no, el programa lo avisa en lugar de mezclarlas.
+
+*Extraer valores* añade a una capa un campo por banda de uno o varios rásteres, con el valor bajo cada elemento (en el punto, o en un punto interior de la línea o del polígono; con `--bilinear` se interpola entre las cuatro celdas más cercanas). *Unir tabla* añade a una capa las columnas de una tabla CSV, de texto o de Excel por un campo clave (`--layer-key` y `--table-key`), y reconoce la coma decimal. *Combinar capas* junta capas del mismo tipo de geometría en una, con la unión de sus campos y, si se pide, un campo con el archivo de origen de cada elemento. *Dividir por campo* escribe una capa por cada valor distinto de un campo, por ejemplo un archivo por rodal. *Recortar capa* conserva de una capa de puntos, líneas o polígonos lo que cae dentro de los polígonos de otra, o con `--erase` lo que cae fuera; cada pieza conserva los atributos de su elemento y el que no deja nada se descarta. *Cercanía* añade la distancia al elemento más cercano de otra capa, su número de orden y, si se pide, uno de sus campos. *Quitar y renombrar campos* se explica más abajo. El resumen estadístico (recuento, suma, media, mínimo, máximo y desviación de campos numéricos, por grupos de un campo) ya no tiene botón: está en la pestaña *Estadísticas* del EDA (capítulo 5), que escribe el mismo CSV. En la línea de comandos son `hipso extract`, `join-table`, `merge`, `split`, `clip-vector`, `near`, `fields` y `summary`.
 
 #### Voronoi
 
@@ -2988,6 +3075,8 @@ Con una capa vectorial en edición, el panel *Edición* ofrece además las herra
 *Reformar* vale para capas de polígonos y actúa con *Digitalizar*. Un trazo que cruza el contorno de un polígono al menos dos veces sustituye el tramo de borde más corto entre el primer y el último cruce por el trazo: si pasa por dentro, corta una esquina, y si sale y vuelve a entrar, añade un saliente. Se reforman los polígonos seleccionados o, si no hay selección, los que toca el trazo. Mientras el botón está activo, el trazo nunca crea un polígono nuevo.
 
 *Copiar* guarda los elementos seleccionados con sus atributos, *Pegar* los añade a la capa activa y *Pegar como capa* crea con ellos una capa nueva. Solo se pega en una capa del mismo tipo de geometría, y los campos se emparejan por nombre sin distinguir mayúsculas: los que la capa de destino no tiene se descartan y los que la copia no trae quedan vacíos.
+
+*Reparar topología* arregla la capa activa en lugar de listar los defectos (véase *Reparar la topología* más arriba): abre una ventana con la distancia de ajuste, el tamaño máximo de los huecos que se rellenan y la regla de los solapes, y al terminar dice cuántos vértices movió o insertó, cuántos polígonos reparó, en cuántos quitó solapes y cuántos huecos rellenó. Se puede deshacer de una vez.
 
 *Comprobar topología* abre una ventana que revisa la capa activa. En polígonos busca los **solapes** (superficie común a dos polígonos), los **huecos** (zonas rodeadas de polígonos que ninguno cubre) y las **autointersecciones** (contornos que se cruzan consigo mismos); en líneas, los **cabos sueltos**, es decir, extremos que no tocan ningún otro extremo ni línea. La tolerancia fija la superficie mínima que cuenta como solape o hueco y, en líneas, la distancia a la que dos extremos se tienen por unidos. Pulsar un incumplimiento de la lista selecciona los elementos implicados y acerca el mapa. En la línea de comandos, `hipso topology capa.shp` escribe el informe en un CSV (regla, elementos, coordenadas y superficie).
 
@@ -3045,6 +3134,10 @@ Entre los rásteres, el GeoTIFF se lee también en sus variantes Cloud Optimized
 El PNG y el JPEG se leen con su archivo de coordenadas (`.pgw`/`.pngw`/`.wld` y `.jgw`/`.jpgw`/`.wld`; el `.prj` da el sistema). ENVI admite `.bil`, `.bsq`, `.bip`, `.img` y `.dat` con su `.hdr`, y los `.flt` de Esri, y las teselas SRTM `.hgt` se reconocen por su nombre (tipo `N37W006`). Estos formatos se leen enteros en la memoria, por lo que son para imágenes de tamaño normal, y una ortofoto enorme conviene en GeoTIFF o JPEG 2000.
 
 No se leen ECW (formato propietario: solo se lee con un SDK que no es de código abierto, y un programa en Rust puro no puede llevarlo; se convierte con QGIS, GeoLibre o RustGis, por ejemplo en QGIS con *Ráster → Conversión → Traducir*), MrSID, Imagine `.img`, NetCDF, HDF o GRIB. Un JPEG 2000 con cambios de progresión (POC) o cabeceras de paquetes empaquetadas tampoco se lee (no los usa Sentinel-2), y una imagen girada o con píxeles no cuadrados exige remuestrearla antes.
+
+### Tablas
+
+Los archivos CSV, TSV y XLSX (la primera hoja) se abren con *Abrir* como una capa **sin geometría**: no se dibuja en el mapa, pero está en el panel *Contenido*, se ve y se edita en la tabla de atributos, se grafica en el EDA y puede usarse en las herramientas que piden una tabla. El separador se detecta solo, y se aceptan la coma decimal y el punto decimal. Cada columna toma el tipo que dicen sus valores (número, fecha, texto…), y un valor que no encaja en él queda vacío.
 
 ### GeoPackage
 
@@ -3150,7 +3243,7 @@ Cada nodo ejecuta el programa `hipso` con las opciones del nodo, de modo que un 
 
 ## 14. Línea de comandos
 
-`hipso` hace lo mismo que la interfaz, por lotes, y con `--help` se ve la lista completa de comandos y de opciones. Todas las órdenes, con cada una de sus opciones, sus valores por defecto y el botón de la cinta donde viven, están en la *Referencia de herramientas* de la web (`docs/CLI.md`).
+`hipso` hace lo mismo que la interfaz, por lotes, y con `--help` se ve la lista completa de comandos y de opciones. Son 82 órdenes, y todas, con cada una de sus opciones, sus valores por defecto y el botón de la cinta donde viven, están en la *Referencia de herramientas* de la web (`docs/CLI.md`).
 
 ```
 hipso info nube.laz
@@ -3174,6 +3267,11 @@ hipso metrics nube.laz --cell 20 --structure
 hipso change chm_2019.tif chm_2024.tif --years 5 --stands unidades.shp --trees
 hipso corridor nube_clasificada.laz --dtm mdt.tif --min-distance 4
 hipso reproject nube.laz --to 25830 --vertical-in ellipsoidal --vertical-out 5782 -o nube_orto.laz
+hipso reproject rodales.shp --to 4326
+hipso fix-topology rodales.shp --snap 0.05 --max-gap 25 --overlaps larger
+hipso simplify rodales.shp --tolerance 2
+hipso parallel eje.shp --distance 5
+hipso fields rodales.shp --drop OBJECTID --rename ESP=especie
 hipso zonal chm.tif --regions rodales.shp --prefix chm_
 hipso buffer rodales.shp --distance 25
 hipso dissolve rodales.shp --field especie
@@ -3328,6 +3426,7 @@ Referencias de los métodos descritos en este manual.
 
 ### Estadística de valores raros
 
+- Hyndman, R. J. y Fan, Y. (1996). Sample quantiles in statistical packages. *The American Statistician*, 50(4), 361–365.
 - Leys, C., Ley, C., Klein, O., Bernard, P. y Licata, L. (2013). Detecting outliers: do not use standard deviation around the mean, use absolute deviation around the median. *Journal of Experimental Social Psychology*, 49(4), 764–766.
 - Rousseeuw, P. J. y Croux, C. (1993). Alternatives to the median absolute deviation. *Journal of the American Statistical Association*, 88(424), 1273–1283.
 - Tukey, J. W. (1977). *Exploratory Data Analysis*. Addison-Wesley.

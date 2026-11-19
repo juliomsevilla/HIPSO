@@ -11,6 +11,11 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Combinar capas" => "Junta varias capas del mismo tipo de geometría en una; los campos son la unión de los de todas.",
         "Dividir por campo" => "Escribe una capa por cada valor distinto de un campo (un archivo por rodal, por especie…).",
         "Recortar capa" => "Recorta una capa de puntos, líneas o polígonos con los polígonos de otra, o borra de ella lo que cubren.",
+        "Reparar topología" => "Ajusta vértices cercanos, quita los solapes y rellena los huecos pequeños entre polígonos; en líneas, une los extremos que se quedan cortos.",
+        "Simplificar" => "Quita vértices de líneas y contornos con una tolerancia; el borde común de dos polígonos se simplifica una sola vez.",
+        "Paralela" => "Traza la paralela de cada línea a una distancia, a su izquierda (positiva) o a su derecha (negativa).",
+        "Quitar y renombrar campos" => "Quita campos de la tabla de una capa y renombra otros, conservando los demás con su tipo.",
+        "EDA" => "Análisis exploratorio de datos: abre un dock con histograma, dispersión y cajas de una capa, una tabla, una nube o un ráster, enlazados a la selección, y una pestaña de estadísticas. Los gráficos se guardan como imagen.",
         "Cercanía" => "Añade a cada elemento la distancia al elemento más cercano de otra capa, su número de orden y, si se pide, uno de sus campos.",
         "Resumen estadístico" => "Recuento, suma, media, mínimo, máximo y desviación de campos numéricos de una capa o tabla, por grupos de un campo.",
         "Rasterizar" => "Convierte una capa vectorial en ráster: cada celda recibe el valor de un campo del último elemento que la cubre.",
@@ -127,7 +132,7 @@ pub fn tip(label: &str) -> Option<&'static str> {
             "Rellena las celdas vacías de un ráster con las celdas con valor de alrededor."
         }
         "Reproyectar" => {
-            "Pasa nubes y rásteres a otro sistema de coordenadas y cambia la referencia vertical de las alturas."
+            "Pasa nubes, rásteres y capas vectoriales a otro sistema de coordenadas y cambia la referencia vertical de las alturas."
         }
         "Tema claro" | "Tema oscuro" => "Cambia entre el tema claro y el oscuro.",
         "Registro" => "Muestra lo que se ha hecho, los errores y el avance de los procesos largos.",
@@ -141,6 +146,8 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Desplazar" => "Mueve la vista arrastrando (X).",
         "Extensión completa" => "Encuadra todo lo cargado.",
         "Zoom anterior" => "Vuelve al encuadre anterior.",
+        "Capturar coordenadas" => "Cada clic en el mapa anota el punto y copia sus coordenadas al portapapeles; la ventana las lista, las pasa a otro sistema (EPSG) y las copia todas juntas.",
+        "Ir a coordenadas" => "Centra el mapa en unas coordenadas escritas, en el sistema de la vista o en otro por su código EPSG, y marca el punto.",
         "Zoom a la selección" => {
             "Encuadra los puntos seleccionados o los elementos seleccionados de la capa vectorial activa."
         }

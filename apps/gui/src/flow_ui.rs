@@ -922,6 +922,18 @@ impl App {
             return;
         };
         let edges: Vec<Edge> = self.flow.model.edges.iter().filter(|e| e.to == id).cloned().collect();
+        // por cada opción conectada, el archivo de entrada que la alimenta si es un nodo de entrada con
+        // un archivo (de él se ven los campos); si viene de otra herramienta, aún no existe
+        let inputs: std::collections::HashMap<String, Option<String>> = edges
+            .iter()
+            .map(|e| {
+                let path = self.flow.model.nodes.iter().find(|n| n.id == e.from).and_then(|n| match &n.kind {
+                    NodeKind::Input { path } if std::path::Path::new(path).is_file() => Some(path.clone()),
+                    _ => None,
+                });
+                (e.port.clone(), path)
+            })
+            .collect();
         let node = &mut self.flow.model.nodes[idx];
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.label(egui::RichText::new("Nodo").size(15.0).strong().color(t.text));
@@ -978,14 +990,14 @@ impl App {
                         .filter(|a| !(a.required || wired(&a.id)))
                         .collect();
                     for a in main {
-                        arg_widget(ui, &t, tool, a, args, wired(&a.id));
+                        arg_widget(ui, &t, tool, a, args, wired(&a.id), &inputs);
                     }
                     if !more.is_empty() {
                         egui::CollapsingHeader::new(format!("Más opciones ({})", more.len()))
                             .id_salt(("flow_more", &id))
                             .show(ui, |ui| {
                                 for a in more {
-                                    arg_widget(ui, &t, tool, a, args, false);
+                                    arg_widget(ui, &t, tool, a, args, false, &inputs);
                                 }
                             });
                     }
@@ -1259,6 +1271,7 @@ pub(crate) fn arg_widget(
     a: &model::ArgSpec,
     args: &mut std::collections::BTreeMap<String, Vec<String>>,
     wired: bool,
+    inputs: &std::collections::HashMap<String, Option<String>>,
 ) {
     let name = label_es(tool, &a.id)
         .map(str::to_string)
@@ -1276,6 +1289,24 @@ pub(crate) fn arg_widget(
             }
         }
         return;
+    }
+    // una opción que nombra un campo: la lista de los campos del archivo de entrada de la herramienta,
+    // escrito en ella o recibido de un nodo de entrada; si el archivo aún no existe (lo hace otro
+    // nodo), el cuadro de texto
+    if !wired
+        && let Some(fs) = model::field_source(tool, &a.id)
+    {
+        let source = match inputs.get(fs.source) {
+            Some(path) => path.clone(),
+            None => args.get(fs.source).and_then(|v| v.first()).cloned(),
+        };
+        let upstream_pending = inputs.get(fs.source).is_some_and(Option::is_none);
+        if !upstream_pending {
+            let source_label = label_es(tool, fs.source).unwrap_or(fs.source).to_lowercase();
+            if crate::fieldpick::row(ui, t, tool, a, &title, fs, &source_label, source.as_deref(), args) {
+                return;
+            }
+        }
     }
     ui.label(title).on_hover_text(&a.help);
     if wired {

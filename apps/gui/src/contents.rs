@@ -320,7 +320,18 @@ impl App {
                     self.basemap_row(ui, ctx, &t);
                     return;
                 }
-                if n_layers == 0 && n_clouds == 0 {
+                if n_layers == 0 && n_clouds == 0 && !self.img_jobs.is_empty() {
+                    // las imágenes se abren en segundo plano: se dice cuáles y desde cuándo
+                    ui.add_space(6.0);
+                    for j in &self.img_jobs {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            let name = j.path.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
+                            ui.label(egui::RichText::new(format!("abriendo {name}… {:.0} s", j.started.elapsed().as_secs_f64())).color(t.weak).size(12.0));
+                        });
+                    }
+                    ctx.request_repaint_after(std::time::Duration::from_millis(500));
+                } else if n_layers == 0 && n_clouds == 0 {
                     ui.add_space(6.0);
                     ui.label(
                         egui::RichText::new(

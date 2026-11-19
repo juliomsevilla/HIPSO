@@ -362,6 +362,26 @@ impl VecLayer {
         }
     }
 
+    /// Pone al día la simbología y las etiquetas, que guardan su campo como índice, tras quitar el
+    /// campo `removed` (los siguientes se corren una posición y el que lo usaba se queda sin
+    /// campo) o, con `None`, tras deshacer o rehacer, que pueden dejar un índice fuera de la tabla.
+    pub fn fix_field_refs(&mut self, removed: Option<usize>) {
+        let n = self.data.fields.len();
+        let shift = |f: &mut Option<usize>| match (*f, removed) {
+            (Some(c), Some(r)) if c == r => *f = None,
+            (Some(c), Some(r)) if c > r => *f = Some(c - 1),
+            (Some(c), _) if c >= n => *f = None,
+            _ => {}
+        };
+        shift(&mut self.sym.field);
+        shift(&mut self.labels.field);
+        if self.sym.field.is_none() {
+            self.sym.breaks.clear();
+            self.sym.colors.clear();
+            self.sym.categories.clear();
+        }
+    }
+
     /// Vuelve a clasificar después de que cambie la simbología o los datos.
     pub fn reclassify(&mut self) {
         self.sym.classify(&self.data);
@@ -388,6 +408,7 @@ impl VecLayer {
         };
         self.redo.push(std::mem::replace(&mut self.data, prev));
         self.dirty = true;
+        self.fix_field_refs(None);
         self.rebuild();
         self.reclassify();
         true
@@ -399,6 +420,7 @@ impl VecLayer {
         };
         self.undo.push(std::mem::replace(&mut self.data, next));
         self.dirty = true;
+        self.fix_field_refs(None);
         self.rebuild();
         self.reclassify();
         true
@@ -765,6 +787,33 @@ impl App {
                 if self.store.is_none() {
                     self.plan_fit = true;
                 }
+            }
+            Err(e) => self.log(format!("No se pudo abrir {}: {e}", p.display())),
+        }
+    }
+
+    /// Abre una tabla sin geometría (CSV, TSV o XLSX) como una capa que no se dibuja: se ve en la
+    /// tabla de atributos, se consulta y se grafica como cualquier capa.
+    pub fn add_table(&mut self, p: &Path) {
+        match view::read_table(p) {
+            Ok(data) => {
+                let n = data.features.len();
+                let fields = data.fields.len();
+                self.add_ref(
+                    RefLayer {
+                        name: p.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned()),
+                        path: p.to_path_buf(),
+                        kind: RefKind::Vector(Box::new(VecLayer::new(data, view::GeomKind::Point))),
+                        visible: false,
+                        opacity: 1.0,
+                    },
+                    false,
+                );
+                let k = self.refs.len() - 1;
+                self.sel_layer = Some(k);
+                self.active = Some(k);
+                self.table_layer = Some(k);
+                self.log(format!("Tabla cargada: {} ({n} filas, {fields} columnas). Tiene la tabla de atributos y los gráficos, pero no se dibuja en el mapa.", p.display()));
             }
             Err(e) => self.log(format!("No se pudo abrir {}: {e}", p.display())),
         }

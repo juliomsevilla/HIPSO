@@ -275,7 +275,15 @@ impl App {
                     Op::Dissolve => {
                         ui.horizontal(|ui| {
                             ui.label("Campo (vacío: todos en uno)");
-                            ui.add(egui::TextEdit::singleline(&mut t.field).desired_width(120.0));
+                            // los campos de la capa elegida, en una lista; sin capa, un cuadro de texto
+                            match t.layer.as_deref().map(crate::fieldpick::fields_of) {
+                                Some(Ok(fields)) => {
+                                    crate::fieldpick::combo(ui, "dissolve_field", &mut t.field, &fields, false, true, "");
+                                }
+                                _ => {
+                                    ui.add(egui::TextEdit::singleline(&mut t.field).desired_width(120.0));
+                                }
+                            }
                         });
                     }
                     Op::Voronoi => {
