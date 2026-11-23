@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/juliomsevilla/HIPSO/releases/latest"><img alt="Descargar" src="https://img.shields.io/badge/descargar-v0.8.1-ff8a1f?style=for-the-badge"></a>
+  <a href="https://github.com/juliomsevilla/HIPSO/releases/latest"><img alt="Descargar" src="https://img.shields.io/badge/descargar-v0.8.5-ff8a1f?style=for-the-badge"></a>
   <img alt="Plataformas" src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-555?style=for-the-badge">
   <img alt="Gratuito" src="https://img.shields.io/badge/uso-gratuito-2e7d32?style=for-the-badge">
 </p>
@@ -27,6 +27,18 @@ En la página de **[Releases](https://github.com/juliomsevilla/HIPSO/releases/la
 - **Windows:** si aparece el aviso azul de SmartScreen, se elige *Más información → Ejecutar de todas formas*.
 - **macOS:** `HIPSO.app` se abre sin ventana de Terminal. El programa no está firmado por un desarrollador que Apple conozca, de modo que la primera vez macOS lo bloquea: se abre una vez, se va a *Ajustes del Sistema → Privacidad y seguridad* y se pulsa *Abrir igualmente*. Si el paquete se descarga con el navegador, macOS marca también `hipso` y `hipso-gui` y los cierra al ejecutarlos desde la consola; se desbloquean con `xattr -dr com.apple.quarantine HIPSO-macos-arm64` (o `-x64`) sobre la carpeta descomprimida, y si aun así no arrancan, con `chmod +x hipso-gui hipso`.
 - **Linux:** si el archivo perdió el permiso, se recupera con `chmod +x hipso-gui hipso`. Hacen falta GTK 3 para los diálogos de archivo y OpenGL 2 o superior (Mesa sirve).
+
+---
+
+## Novedades
+
+- **Asistente de IA** (*Archivo → Asistente*): un panel de conversación que conoce HIPSO. Explica cada herramienta consultando el manual y la referencia, describe y explora los datos abiertos (nubes, rásteres, capas y tablas), recomienda cómo hacer un trabajo y **crea flujos** validados contra las herramientas reales, que se abren en la pestaña *Flujos* para ejecutarlos. Funciona con DeepSeek, OpenRouter, Claude, ChatGPT o cualquier servicio compatible con OpenAI, con tu propia clave: HIPSO no pone intermediarios ni cobra. Trae ocho perfiles (GIS Analyst, GIS Editor, LiDAR Analyst, LiDAR Editor, Remote Sensing Analyst, Spatial Data Analyst, Data Analyst y Data Scientist) y uno propio, y guarda las conversaciones como archivos `.jsonl` en la carpeta que elijas. El asistente nunca ejecuta herramientas por su cuenta: arma el flujo y lo ejecutas tú.
+- **Servidor MCP** (`hipso mcp`): cualquier cliente del Protocolo de Contexto de Modelo (un asistente de código, un chat de escritorio…) descubre las órdenes de `hipso` como herramientas, con sus opciones, valores admitidos y valores por defecto tomados del propio programa, y las llama: clasificar una nube, hacer un MDT o medir los árboles de una hoja sin escribir la orden. No tiene credenciales ni abre ningún puerto. Se configura como una orden más: `{ "mcpServers": { "hipso": { "command": "hipso", "args": ["mcp"] } } }`.
+- **Herramientas nuevas:** *Validar MDT* (error del modelo del terreno frente a puntos de control), *Huecos del dosel*, *Métricas de vóxeles*, *Segmentar con puntos* (árboles 3D sin CHM) y *Métricas por árbol*, todas con su orden en la línea de comandos y su nodo en el constructor de flujos.
+
+<p align="center">
+  <img src="assets/social/12-asistente-ia.jpg" alt="El panel del asistente de IA junto a una nube clasificada" width="85%">
+</p>
 
 ---
 

@@ -115,6 +115,7 @@ IMAGENES = {
     "raster": ("05-terreno-opengf.jpg", "Un modelo del terreno coloreado por elevación, con su vista 3D."),
     "aba": ("11-modelos-lineales.jpg", "Modelo lineal de una variable de inventario con sus residuos."),
     "flujos": ("09-constructor-de-flujos.jpg", "El constructor de flujos con un inventario por área dibujado como grafo de nodos."),
+    "asistente": ("12-asistente-ia.jpg", "El panel del asistente de IA junto a una nube clasificada: explica las herramientas y crea flujos."),
     "tls": ("07-tls-troncos-y-ramas.jpg", "Troncos y ramas clasificados en una nube de escáner terrestre."),
 }
 

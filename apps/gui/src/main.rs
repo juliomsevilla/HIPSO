@@ -141,6 +141,9 @@ fn compass_centre(rect: Rect) -> Pos2 {
 
 /// Con `--expand`, todas las secciones plegables de las ventanas arrancan abiertas (para capturas y
 /// para contrastar las ventanas con el manual).
+/// Modo y rampa con que se abren los ráster al arrancar (`--raster-style relieve,1`); solo para las capturas.
+pub static RASTER_STYLE: std::sync::Mutex<Option<(rs::GridMode, usize)>> = std::sync::Mutex::new(None);
+
 pub static EXPAND_ALL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Una sección plegable, abierta desde el principio si se pidió `--expand`.
@@ -558,6 +561,7 @@ struct App {
     ai: ai::Assistant,
     /// Cuántas de las capas se dibujan bajo las nubes de puntos (las primeras de `refs`).
     cloud_slot: usize,
+    rasters_over: bool,
     show_points: bool,
     tin_on: bool,
     tin_classes: ClassSet,
@@ -743,6 +747,7 @@ impl Default for App {
             refs: Vec::new(),
             ai: ai::Assistant::new(),
             cloud_slot: 0,
+            rasters_over: false,
             show_points: true,
             tin_on: false,
             tin_classes: ClassSet::from_bits(1 << 2),
@@ -1065,6 +1070,8 @@ impl App {
                     }
                 }
                 "--hide-points" => self.show_points = false,
+                // la vista 3D sigue a la planta (la casilla «Enlazar con la planta»)
+                "--follow-plan" => self.follow_plan = true,
                 "--exag" => {
                     if let Some(v) = it.next().and_then(|v| v.parse().ok()) {
                         self.orbit.exaggeration = v;
@@ -1273,6 +1280,22 @@ impl App {
                 }
                 "--side-info" => self.side = Side::Info,
                 "--side-edit" => self.side = Side::Edit,
+                "--side-sym" => self.side = Side::Symbology,
+                // los ráster se dibujan sobre las nubes de puntos en la planta
+                "--rasters-over" => self.rasters_over = true,
+                "--raster-style" => {
+                    let v = it.next().unwrap_or_default();
+                    let mut p = v.split(',');
+                    let mode = match p.next() {
+                        Some("relieve") => rs::GridMode::Hillshade,
+                        Some("clasificar") => rs::GridMode::Classified,
+                        _ => rs::GridMode::Stretch,
+                    };
+                    let ramp = p.next().and_then(|r| r.parse().ok()).unwrap_or(5);
+                    if let Ok(mut g) = RASTER_STYLE.lock() {
+                        *g = Some((mode, ramp));
+                    }
+                }
                 _ => files.push(PathBuf::from(a)),
             }
         }
@@ -1951,7 +1974,13 @@ impl App {
         } else {
             g
         };
-        let style = rs::GridStyle::new(&shown);
+        let mut style = rs::GridStyle::new(&shown);
+        if let Ok(g) = RASTER_STYLE.lock()
+            && let Some((mode, ramp)) = *g
+        {
+            style.mode = mode;
+            style.ramp = ramp;
+        }
         let tex = to_texture(
             ctx,
             &format!("ref-{}", path.display()),
@@ -4335,6 +4364,9 @@ ui.menu_button("⚙", |ui| {
         let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
         self.update_images(ctx, w, h);
         // las capas bajo las nubes de puntos, luego las nubes y luego las capas encima
+        if self.rasters_over && self.loading.is_none() && !self.refs.is_empty() {
+            self.cloud_slot = 0;
+        }
         let slot = self.cloud_slot.min(self.refs.len());
         // el mapa base va bajo todo
         let project = if self.basemap.as_ref().is_some_and(|b| b.on) {
@@ -4860,28 +4892,36 @@ ui.menu_button("⚙", |ui| {
                     Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
                     Color32::WHITE,
                 );
-                painter.text(
-                    rect.right_top() + Vec2::new(-8.0, 6.0),
-                    Align2::RIGHT_TOP,
-                    format!(
-                        "Z {lo:.1} – {hi:.1} m · longitud {:.1} m · ancho {:.1} m · {} puntos{}{} · Mayús+clic: corte perpendicular (Mayús+clic derecho: volver)",
-                        bx.length(),
-                        bx.width,
-                        store.len(),
-                        if store.stride > 1 {
-                            format!(" (1 de cada {})", store.stride)
-                        } else {
-                            String::new()
-                        },
-                        if self.profile_loading() {
-                            " · leyendo todos…"
-                        } else {
-                            ""
-                        }
-                    ),
-                    FontId::proportional(11.5),
-                    t.weak,
+                let datos = format!(
+                    "Z {lo:.1} – {hi:.1} m · longitud {:.1} m · ancho {:.1} m · {} puntos{}{}",
+                    bx.length(),
+                    bx.width,
+                    store.len(),
+                    if store.stride > 1 {
+                        format!(" (1 de cada {})", store.stride)
+                    } else {
+                        String::new()
+                    },
+                    if self.profile_loading() {
+                        " · leyendo todos…"
+                    } else {
+                        ""
+                    }
                 );
+                // la ayuda del corte perpendicular solo se añade si cabe sin pisar el título «Perfil»
+                let font = FontId::proportional(11.5);
+                let completo = format!("{datos} · Mayús+clic: corte perpendicular (Mayús+clic derecho: volver)");
+                let ancho = |texto: &str| {
+                    painter
+                        .layout_no_wrap(texto.to_owned(), font.clone(), t.weak)
+                        .size()
+                        .x
+                };
+                let hueco = rect.width() - 70.0;
+                let texto = if ancho(&completo) <= hueco { completo } else { datos };
+                if ancho(&texto) <= hueco {
+                    painter.text(rect.right_top() + Vec2::new(-8.0, 6.0), Align2::RIGHT_TOP, texto, font, t.weak);
+                }
             }
             if let Some((_, _, lo, hi)) = &self.tex_prof {
                 // la misma transformación que `render_profile`, de píxeles de la imagen al
