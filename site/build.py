@@ -73,7 +73,7 @@ def capitulos_del_manual():
 
 
 def partir_capitulo_4(lineas):
-    """Capítulo 4: la introducción y sus once apartados (4.1 a 4.11)."""
+    """Capítulo 4: la introducción y sus doce apartados (4.1 a 4.12)."""
     idx = [i for i, l in enumerate(lineas) if re.match(r"^### 4\.\d+ ", l)]
     return lineas[: idx[0]], [lineas[idx[k]: idx[k + 1] if k + 1 < len(idx) else len(lineas)] for k in range(len(idx))]
 
@@ -145,6 +145,7 @@ def construir_paginas():
         ("panel-lateral", "El panel lateral", bloques4[8]),
         ("vistas", "Las vistas", bloques4[9]),
         ("ajustes", "Ajustes", bloques4[10]),
+        ("asistente", "El asistente de IA", bloques4[11]),
     ]
     for k, (slug, nombre, b) in enumerate(paginas4):
         # el capítulo entero va delante de la primera página como introducción
@@ -246,7 +247,7 @@ def pagina_recetas():
 DESTINO_APARTADO = {
     "4.1": "interfaz", "4.2": "interfaz", "4.3": "cinta-archivo", "4.4": "cinta-vista", "4.5": "cinta-lidar",
     "4.6": "cinta-vectorial", "4.7": "cinta-raster", "4.8": "cinta-flujos", "4.9": "panel-lateral",
-    "4.10": "vistas", "4.11": "ajustes",
+    "4.10": "vistas", "4.11": "ajustes", "4.12": "asistente",
     "6.1": "edicion", "6.2": "edicion", "6.3": "edicion", "6.4": "edicion",
     "7.1": "preparar", "7.2": "superficies", "7.3": "inventario",
 }
