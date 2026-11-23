@@ -1253,6 +1253,33 @@ impl App {
         }
     }
 
+    /// Abre en la vista de flujos un flujo guardado en un archivo (el que crea el asistente) y
+    /// lleva a esa vista.
+    pub fn flow_load_path(&mut self, path: &std::path::Path) {
+        self.flow_start();
+        if self.flow.running.is_some() {
+            self.notice = Some("Hay un flujo en ejecución: espera a que termine.".into());
+            return;
+        }
+        match std::fs::read_to_string(path)
+            .map_err(|e| e.to_string())
+            .and_then(|t| Model::from_json(&t).map_err(|e| e.to_string()))
+        {
+            Ok(m) => {
+                self.flow.push_undo();
+                self.flow.model = m;
+                self.flow.path = Some(path.to_path_buf());
+                self.flow.selected.clear();
+                self.flow.states.clear();
+                self.flow.fit_next = true;
+                self.flow_place();
+                self.backstage = false;
+                self.tab = FLOWS_TAB;
+            }
+            Err(e) => self.notice = Some(format!("No se pudo abrir el flujo: {e}")),
+        }
+    }
+
     /// Si hay un flujo en ejecución (la cinta muestra entonces Cancelar).
     pub fn flow_running(&self) -> bool {
         self.flow.running.is_some()

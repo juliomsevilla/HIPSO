@@ -11,7 +11,7 @@ use hipso_core::model::{ArgSpec, Model, Run, Schema, State, ToolSpec};
 use hipso_core::{Error, Result};
 
 /// Órdenes que tratan de los propios flujos, no herramientas que meter en uno.
-const SKIP: [&str; 4] = ["schema", "run", "model-validate", "help"];
+const SKIP: [&str; 5] = ["schema", "mcp", "run", "model-validate", "help"];
 
 /// Las opciones de cada orden, leídas de la definición que usa el analizador.
 pub fn schema() -> Schema {

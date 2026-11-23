@@ -209,9 +209,10 @@ pub fn tip(label: &str) -> Option<&'static str> {
         "Análisis de terreno" => {
             "Pendiente, orientación, curvatura, sombreado e hidrología a partir de un MDT."
         }
+        "Asistente IA" | "Asistente\nIA" => "Conversa con un asistente que conoce HIPSO: explica herramientas, explora tus datos y crea flujos.",
         "Volumen sobre MDT" => "Volumen entre una superficie y el terreno, celda a celda.",
         "Métricas por celda" => "Métricas de altura y densidad de la vegetación por celda.",
-        "Segmentar individuos" => "Detecta los individuos y sus copas en un modelo de alturas.",
+        "Segmentar con CHM" => "Detecta los individuos y sus copas en un modelo de alturas.",
         "OBIA" => "Agrupa el modelo de alturas en objetos y los clasifica.",
         "Modelos lineales" => {
             "Relaciona una variable de campo con las métricas LiDAR de las unidades de muestreo y la valida."

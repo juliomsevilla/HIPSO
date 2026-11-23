@@ -12,7 +12,7 @@ use hipso_core::model::{self, Kind};
 use super::*;
 
 /// Las herramientas de esta ventana: orden, icono, rótulo de botón grande y de botón pequeño.
-pub const TOOLS: [(&str, &str, &str, &str); 15] = [
+pub const TOOLS: [(&str, &str, &str, &str); 20] = [
     ("extract", "@extract", "Extraer\nvalores", "Extraer valores"),
     ("join-table", "@jointable", "Unir\ntabla", "Unir tabla"),
     ("merge", "@merge", "Combinar\ncapas", "Combinar capas"),
@@ -28,6 +28,11 @@ pub const TOOLS: [(&str, &str, &str, &str); 15] = [
     ("simplify", "@simplify", "Simplificar", "Simplificar"),
     ("parallel", "@parallel", "Paralela", "Paralela"),
     ("fields", "@fields", "Quitar y renombrar\ncampos", "Quitar y renombrar campos"),
+    ("dtm-validate", "@dtmcheck", "Validar\nMDT", "Validar MDT"),
+    ("canopy-gaps", "@gaps", "Huecos\ndel dosel", "Huecos del dosel"),
+    ("voxel-metrics", "@voxels", "Métricas de\nvóxeles", "Métricas de vóxeles"),
+    ("trees3d", "@trees3d", "Segmentar\ncon puntos", "Segmentar con puntos"),
+    ("tree-metrics", "@treemetrics", "Métricas\npor árbol", "Métricas por árbol"),
 ];
 
 /// El párrafo de ayuda de la ventana de cada herramienta: qué hace, qué espera y qué escribe.
@@ -48,6 +53,11 @@ fn help_for(name: &str) -> &'static str {
         "simplify" => "Quita vértices de las líneas y de los contornos de una capa: se conserva el que se aleja de la recta entre sus vecinos más que la tolerancia (Douglas y Peucker). En polígonos que comparten bordes, el borde común se simplifica una sola vez para los dos, de modo que no se abren huecos ni solapes; las esquinas donde se juntan tres vecinos y los extremos de las líneas no se mueven. Escribe una capa nueva con los atributos de la original.",
         "parallel" => "Traza la paralela de cada línea a una distancia: positiva a su izquierda según se recorre, negativa a su derecha. Las esquinas exteriores se resuelven con una inglete, que se corta con un bisel cuando se alarga más que el límite, y los lazos que se forman en las esquinas interiores se recortan. Sirve para cunetas, zonas de servidumbre a un lado de una vía o márgenes de un cauce. Para ampliar un polígono, usa el búfer. Escribe una capa nueva con los atributos de la original.",
         "fields" => "Quita campos de la tabla de una capa y renombra otros; los demás conservan sus valores y su tipo. Los nombres se escriben como «viejo=nuevo». Un shapefile corta los nombres a 10 caracteres al guardarse. Escribe una capa nueva; la original no se toca.",
+        "dtm-validate" => "Mide la exactitud vertical de un MDT con puntos de control del suelo: los de suelo de una nube (clase 2), una capa de puntos con un campo de cota o una tabla con X, Y y Z. El error de cada punto es MDT − referencia; se dan el sesgo, el error absoluto medio (MAE), el error cuadrático medio (RMSE) y la desviación, y los estadísticos robustos NMAD y LE95 (el percentil 95 del error absoluto), que no se dejan arrastrar por unos pocos puntos malos. Escribe la tabla de errores punto a punto, un resumen y, si se pide, los errores como capa de puntos.",
+        "canopy-gaps" => "Encuentra los huecos del dosel: las manchas conectadas de un modelo de altura de copas (CHM) por debajo de una altura. De cada hueco da la superficie, el perímetro, un índice de forma (1 para un círculo), las alturas del CHM dentro y el centro, y resume qué fracción del dosel es hueco. Un hueco cortado por el borde del ráster o por celdas sin dato no se conoce entero y se deja fuera, salvo que se marque. Escribe los polígonos, una tabla y, si se pide, el ráster de huecos.",
+        "voxel-metrics" => "Describe la estructura vertical del dosel: la nube se reparte en columnas de celdas y en capas de altura sobre el suelo, y de los puntos de cada vóxel salen un ráster por métrica (puntos, vóxeles ocupados, volumen, relleno, altura máxima y media, entropía de las alturas, fracción de huecos y LAI de MacArthur y Horn). Con un MDT se normalizan las alturas; sin él, la nube ya debe traerlas sobre el suelo.",
+        "trees3d" => "Segmenta los árboles directamente sobre los puntos, sin ráster, de arriba abajo en la línea de Li et al. (2012): los puntos más altos son cimas y cada punto más bajo se une al árbol que tiene cerca. Sirve donde el CHM esconde árboles bajo otros. Escribe la nube con el atributo treeID, las cimas y una tabla. Con una nube densa, adelgázala antes.",
+        "tree-metrics" => "Mide cada árbol de una nube con el atributo treeID (la que escriben «Segmentar con CHM» o «Segmentar con puntos»): altura, base de la copa, longitud y proporción de copa, superficie y radio de la copa, y el volumen de la copa como envolvente convexa y como forma alfa tridimensional, que sigue el contorno real de la copa. Escribe una tabla y la capa de cimas con las métricas.",
         _ => "",
     }
 }
@@ -55,6 +65,57 @@ fn help_for(name: &str) -> &'static str {
 /// Los nombres cortos de las opciones en la ventana: la etiqueta va junto al control, como en las
 /// demás ventanas, así que no caben frases; lo que explica una opción está en su ayuda de debajo.
 fn short_label(tool: &str, id: &str) -> Option<String> {
+    // las opciones de las herramientas nuevas
+    let own = match (tool, id) {
+        ("dtm-validate", "dtm") => Some("MDT"),
+        ("dtm-validate", "reference") => Some("Puntos de control"),
+        ("dtm-validate", "sampling") => Some("Lectura del MDT"),
+        ("dtm-validate", "class") => Some("Clase de suelo"),
+        ("dtm-validate", "z_field") => Some("Campo de la cota"),
+        ("dtm-validate", "x_field") => Some("Columna X"),
+        ("dtm-validate", "y_field") => Some("Columna Y"),
+        ("dtm-validate", "max_error") => Some("Error máximo (m)"),
+        ("dtm-validate", "no_csv") => Some("Sin tabla de errores"),
+        ("dtm-validate", "shp") => Some("Errores como capa de puntos"),
+        ("canopy-gaps", "input") => Some("CHM"),
+        ("canopy-gaps", "height") => Some("Altura del hueco (m)"),
+        ("canopy-gaps", "min_area") => Some("Área mínima (m²)"),
+        ("canopy-gaps", "max_area") => Some("Área máxima (m²)"),
+        ("canopy-gaps", "include_edge") => Some("Conservar los cortados por el borde"),
+        ("canopy-gaps", "raster") => Some("Escribir el ráster de huecos"),
+        ("canopy-gaps", "gpkg") => Some("Escribir también GeoPackage"),
+        ("voxel-metrics", "inputs") | ("trees3d", "inputs") => Some("Nubes"),
+        ("voxel-metrics", "dtm") | ("trees3d", "dtm") | ("tree-metrics", "dtm") => Some("MDT"),
+        ("voxel-metrics", "cell") => Some("Lado de la columna (m)"),
+        ("voxel-metrics", "dz") => Some("Grosor de capa (m)"),
+        ("voxel-metrics", "max_height") => Some("Altura máxima (m)"),
+        ("voxel-metrics", "min_points") => Some("Puntos por vóxel ocupado"),
+        ("voxel-metrics", "ground_height") => Some("Altura de suelo (m)"),
+        ("voxel-metrics", "k") => Some("Coeficiente de extinción"),
+        ("voxel-metrics", "metrics") => Some("Métricas"),
+        ("voxel-metrics", "returns") => Some("Retornos"),
+        ("voxel-metrics", "class") | ("trees3d", "class") | ("tree-metrics", "class") => Some("Clases"),
+        ("voxel-metrics", "tile") | ("trees3d", "tile") => Some("Lado de las teselas (m)"),
+        ("trees3d", "hmin") => Some("Altura mínima (m)"),
+        ("trees3d", "dt1") => Some("Separación bajo la altura Zu (m)"),
+        ("trees3d", "dt2") => Some("Separación sobre la altura Zu (m)"),
+        ("trees3d", "zu") => Some("Altura Zu (m)"),
+        ("trees3d", "radius") => Some("Radio de unión (m)"),
+        ("trees3d", "min_points") | ("tree-metrics", "min_points") => Some("Puntos mínimos por árbol"),
+        ("trees3d", "buffer") => Some("Margen de las teselas (m)"),
+        ("trees3d", "no_cloud") => Some("Sin nube con treeID"),
+        ("trees3d", "no_csv") => Some("Sin tabla de cimas"),
+        ("trees3d", "no_shp") | ("tree-metrics", "no_shp") => Some("Sin capa de cimas"),
+        ("tree-metrics", "input") => Some("Nube con treeID"),
+        ("tree-metrics", "normalized") => Some("Las alturas ya son sobre el suelo"),
+        ("tree-metrics", "gap") => Some("Salto que cierra la copa (m)"),
+        ("tree-metrics", "crown_min") => Some("Altura mínima de copa (m)"),
+        ("tree-metrics", "alpha") => Some("Radio alfa (m)"),
+        _ => None,
+    };
+    if let Some(o) = own {
+        return Some(o.to_string());
+    }
     let t = match id {
         "layer" | "input" => {
             if matches!(tool, "rasterize" | "extract" | "join-table") { "Capa" } else { "Entrada" }

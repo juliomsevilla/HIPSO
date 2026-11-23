@@ -20,8 +20,8 @@ HIPSO = RAIZ / "target" / "release" / ("hipso.exe" if sys.platform == "win32" el
 # (título del área, órdenes)
 GRUPOS = [
     ("Revisar y preparar nubes", "info catalog crs import dedup merge-clouds tile clip filter thin edit apply-edits propagate-class colorize intensity swath flightlines compare fit hag"),
-    ("Clasificar y modelar superficies", "classify dtm dsm chm hillshade contour raster metrics"),
-    ("Vegetación e inventario", "trees obia stem-volume model change corridor"),
+    ("Clasificar y modelar superficies", "classify dtm dsm chm dtm-validate hillshade contour raster metrics"),
+    ("Vegetación e inventario", "trees trees3d tree-metrics canopy-gaps voxel-metrics obia stem-volume model change corridor"),
     ("Ráster", "stack mosaic align reproject cog reclass clip-raster sieve proximity fill-nodata calc vectorize rasterize focal rstats tabulate zonal"),
     ("Terreno e hidrología", "terrain ponds flood ridges leastcost piles cutfill"),
     ("Vectorial", "is-valid make-valid topology fix-topology simplify parallel buffer dissolve union intersect voronoi voronoi-density extract join-table fields merge split clip-vector near summary geojson"),
@@ -56,7 +56,7 @@ DONDE = {
     "contour": ("Vista → Herramientas → Curvas de nivel (en pantalla)", "5"),
     "raster": ("LiDAR → Preparar → Imagen de intensidad (la rejilla de intensidad media)", "7.1"),
     "metrics": ("LiDAR → ALS → Métricas por celda", "7.3"),
-    "trees": ("LiDAR → ALS → Segmentar individuos", "7.3"),
+    "trees": ("LiDAR → ALS → Segmentar con CHM", "7.3"),
     "obia": ("LiDAR → ALS → Análisis por objetos", "7.3"),
     "stem-volume": ("LiDAR → TLS → Medición de troncos", "7.3"),
     "model": ("LiDAR → ALS → Modelos lineales", "7.3"),
@@ -98,6 +98,11 @@ DONDE = {
     "intersect": ("Vectorial → Geoprocesos → Intersección", "9"),
     "voronoi": ("Vectorial → Geoprocesos → Voronoi", "9"),
     "voronoi-density": ("LiDAR → Calidad → Densidad de Voronoi", "7.1"),
+    "dtm-validate": ("LiDAR → Calidad → Validar MDT", "7.1"),
+    "canopy-gaps": ("LiDAR → ALS → Huecos del dosel", "7.3"),
+    "voxel-metrics": ("LiDAR → ALS → Métricas de vóxeles", "7.3"),
+    "trees3d": ("LiDAR → ALS → Segmentar con puntos", "7.3"),
+    "tree-metrics": ("LiDAR → ALS → Métricas por árbol", "7.3"),
     "extract": ("Vectorial → Tabla → Extraer valores", "9"),
     "join-table": ("Vectorial → Tabla → Unir tabla", "9"),
     "merge": ("Vectorial → Geoprocesos → Combinar capas", "9"),
@@ -234,7 +239,7 @@ def main():
             out += [f"### hipso {n}", "", descripcion_larga(n), ""] + tabla(t, valores_con_ayuda(n)) + [""]
     out += [
         "## Flujos de trabajo", "",
-        "Tres órdenes más no procesan datos, sino flujos del constructor (capítulo 13). `hipso schema` imprime en JSON la definición de todas las órdenes y opciones de esta página, que es lo que lee el constructor para ofrecer cada herramienta. `hipso run flujo.model.json` ejecuta un flujo guardado sin interfaz (con `--input nombre=ruta` para cambiar una entrada y `--results-dir` para la carpeta de resultados), y `hipso model-validate flujo.model.json` lista lo que impide ejecutarlo.", "",
+        "Cuatro órdenes más no procesan datos: tres tratan de los flujos del constructor (capítulo 13) y una abre el servidor MCP. `hipso schema` imprime en JSON la definición de todas las órdenes y opciones de esta página, que es lo que lee el constructor para ofrecer cada herramienta. `hipso run flujo.model.json` ejecuta un flujo guardado sin interfaz (con `--input nombre=ruta` para cambiar una entrada y `--results-dir` para la carpeta de resultados), y `hipso model-validate flujo.model.json` lista lo que impide ejecutarlo. `hipso mcp` arranca un servidor MCP (Protocolo de Contexto de Modelo) por la entrada y la salida estándar: un asistente o cualquier cliente MCP descubre todas las órdenes de esta página como herramientas, con sus opciones tomadas del mismo esquema, y las llama (capítulo 14).", "",
     ]
     (RAIZ / "docs" / "CLI.md").write_text("\n".join(out), encoding="utf-8")
     print(f"{len(esquema)} órdenes, {len(resto)} sin grupo: {resto}")

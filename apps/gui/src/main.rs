@@ -4,6 +4,7 @@
 //! cinta.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ai;
 mod aba_plots;
 mod aba_ui;
 mod align_ui;
@@ -391,6 +392,8 @@ struct Running {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Action {
+    /// Muestra u oculta el panel del asistente de IA.
+    ToggleAssistant,
     Open,
     CloseAll,
     SaveShot,
@@ -551,6 +554,8 @@ struct App {
     surf3: Option<Surf3>,
     moving_until: Instant,
     refs: Vec<RefLayer>,
+    /// El asistente de IA.
+    ai: ai::Assistant,
     /// Cuántas de las capas se dibujan bajo las nubes de puntos (las primeras de `refs`).
     cloud_slot: usize,
     show_points: bool,
@@ -736,6 +741,7 @@ impl Default for App {
             surf3: None,
             moving_until: Instant::now(),
             refs: Vec::new(),
+            ai: ai::Assistant::new(),
             cloud_slot: 0,
             show_points: true,
             tin_on: false,
@@ -998,6 +1004,9 @@ impl App {
         while let Some(a) = it.next() {
             match a.as_str() {
                 "--tab" => self.tab = it.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+                // abre el panel del asistente, o la página de ajustes (para capturas y pruebas)
+                "--assistant" => self.ai.open = true,
+                "--settings" => self.show_backstage(backstage::Page::Settings),
                 "--layout" => {
                     self.layout = match it.next().as_deref() {
                         Some("plan-profile") => Layout::PlanProfile,
@@ -1032,7 +1041,14 @@ impl App {
                         Some("intensityimage") => Some(ToolId::IntensityImage),
                         Some("flightlines") => Some(ToolId::FlightLines),
                         Some("swath") => Some(ToolId::Swath),
-                        _ => None,
+                        // las herramientas de la ventana genérica se piden por el nombre de la orden
+                        Some(other) => {
+                            if let Some(k) = cli_tool_ui::TOOLS.iter().position(|t| t.0 == other) {
+                                self.open_cli_tool(k);
+                            }
+                            None
+                        }
+                        None => None,
                     }
                 }
                 "--orbit" => {
@@ -1431,6 +1447,12 @@ impl App {
                         tool("@vdensity", "Densidad de Voronoi", ToolId::VDensity),
                         tool("@merge", "Unir nubes", ToolId::Merge),
                     ],
+                    vec![other(
+                        cli_tool_ui::TOOLS[15].1,
+                        cli_tool_ui::TOOLS[15].3,
+                        self.cli_tool_open(15),
+                        Action::CliTool(15),
+                    )],
                 ],
             },
             Group {
@@ -1463,10 +1485,38 @@ impl App {
                     ),
                 ],
                 menus: vec![],
-                columns: vec![vec![
-                    tool("@segment", "Segmentar individuos", ToolId::Trees),
-                    other("@obia", "Análisis por objetos", self.ot.open, Action::Obia),
-                ]],
+                columns: vec![
+                    vec![
+                        tool("@segment", "Segmentar con CHM", ToolId::Trees),
+                        other(
+                            cli_tool_ui::TOOLS[18].1,
+                            cli_tool_ui::TOOLS[18].3,
+                            self.cli_tool_open(18),
+                            Action::CliTool(18),
+                        ),
+                        other(
+                            cli_tool_ui::TOOLS[19].1,
+                            cli_tool_ui::TOOLS[19].3,
+                            self.cli_tool_open(19),
+                            Action::CliTool(19),
+                        ),
+                    ],
+                    vec![
+                        other("@obia", "Análisis por objetos", self.ot.open, Action::Obia),
+                        other(
+                            cli_tool_ui::TOOLS[16].1,
+                            cli_tool_ui::TOOLS[16].3,
+                            self.cli_tool_open(16),
+                            Action::CliTool(16),
+                        ),
+                        other(
+                            cli_tool_ui::TOOLS[17].1,
+                            cli_tool_ui::TOOLS[17].3,
+                            self.cli_tool_open(17),
+                            Action::CliTool(17),
+                        ),
+                    ],
+                ],
             },
             Group {
                 caption: "TLS",
@@ -2652,6 +2702,10 @@ impl App {
             Action::ToggleContours => self.contours_on = !self.contours_on,
             Action::ToggleLog => self.show_log = !self.show_log,
             Action::ToggleCharts => self.ch.open = !self.ch.open,
+            Action::ToggleAssistant => {
+                self.ai.open = !self.ai.open;
+                self.ai.want_focus();
+            }
             Action::ToggleBasemap => {
                 let bm = self
                     .basemap
@@ -2930,7 +2984,7 @@ impl App {
             ("Calcular MDT", Action::Tool(ToolId::Dtm)),
             ("Calcular MDS / CHM", Action::Tool(ToolId::Chm)),
             ("Métricas por celda", Action::Tool(ToolId::Metrics)),
-            ("Segmentar individuos", Action::Tool(ToolId::Trees)),
+            ("Segmentar con CHM", Action::Tool(ToolId::Trees)),
             (
                 "Extraer muestras con polígonos o puntos",
                 Action::Tool(ToolId::Clip),
@@ -2973,6 +3027,7 @@ impl App {
             ("Clases visibles y colores", Action::Classes),
             ("Mostrar u ocultar el registro", Action::ToggleLog),
             ("EDA: análisis exploratorio de datos (histograma, dispersión, cajas y estadísticas)", Action::ToggleCharts),
+            ("Asistente de IA: explica el programa, explora los datos y crea flujos", Action::ToggleAssistant),
             ("Ajustes (caché)", Action::Settings),
             ("Constructor de flujos", Action::Flows),
             ("Atajos de teclado", Action::Shortcuts),
@@ -3134,6 +3189,11 @@ impl App {
                                 ribbon::fold_group(ui, &t, "Análisis", "@charts", 2, |ui| {
                                     if ribbon::big_button(ui, &t, "@charts", "EDA", self.ch.open).clicked() {
                                         self.act(ctx, Action::ToggleCharts);
+                                    }
+                                });
+                                ribbon::fold_group(ui, &t, "Asistente", "@assistant", 3, |ui| {
+                                    if ribbon::big_button(ui, &t, "@assistant", "Asistente\nIA", self.ai.open).clicked() {
+                                        self.act(ctx, Action::ToggleAssistant);
                                     }
                                 });
                                 ribbon::fold_group(ui, &t, "Interfaz", "@sun", 0, |ui| {
@@ -5742,8 +5802,10 @@ impl eframe::App for App {
             }
             self.backstage_view(ui, &ctx);
         } else if self.tab == FLOWS_TAB {
+            self.ai_panel(ui, &ctx);
             self.flow_view(ui, &ctx);
         } else {
+            self.ai_panel(ui, &ctx);
             self.side_panel(ui, &ctx);
             self.views(ui, &ctx);
         }

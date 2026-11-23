@@ -527,6 +527,7 @@ impl App {
             ui.add_space(6.0);
             ui.label(egui::RichText::new(&self.settings.result).color(theme::brand_text(&t)));
         }
+        self.ai_settings(ui);
         self.advanced_settings(ui);
         if self.settings.confirm {
             let mut answer = None;

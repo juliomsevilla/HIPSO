@@ -113,6 +113,12 @@ Cierra todas las nubes y capas y deja la ventana vacía.
 
 Muestra u oculta el dock del **EDA** (análisis exploratorio de datos), acoplado bajo las vistas y encima de la tabla de atributos si esta está abierta. Tiene dos pestañas: *Gráficos*, con un histograma, una dispersión y unas cajas de la misma fuente de datos, enlazados a la selección; y *Estadísticas*, con la tabla de recuento, media, desviación, cuartiles y demás de cada columna. La fuente puede ser una capa vectorial, una tabla CSV o XLSX abierta como capa, la nube de puntos o un ráster. Se explica con detalle en el capítulo 5, *EDA*.
 
+#### Archivo → Asistente
+
+##### Asistente IA
+
+Muestra u oculta el panel del asistente de IA, acoplado a la derecha de la ventana, que conoce HIPSO, explica sus herramientas, explora los datos abiertos y crea flujos. Se explica en el apartado 4.12.
+
 #### Archivo → Interfaz
 
 ##### Registro
@@ -146,7 +152,7 @@ Botón grande, a la derecha de *Ventanas*, con un menú que elige el atributo co
 - *Retorno*: único, primero, intermedio o último.
 - *Ángulo de barrido*, con signo: azul a un lado de la pasada, gris en el nadir y rojo al otro lado, hasta 30°. Muestra los bordes de pasada y los puntos oblicuos. Necesita archivos con ángulo de barrido; sin él, todo sale del color del nadir.
 - *ID de fuente* (un color por pasada), *Archivo* (un color por archivo) y *RGB* (el color que trae el punto).
-- *ID de árbol (treeID)*: cada copa de un color a partir del atributo `treeID` que escribe *Segmentar individuos*. Solo está disponible si la nube lo trae; los puntos sin árbol quedan en gris.
+- *ID de árbol (treeID)*: cada copa de un color a partir del atributo `treeID` que escribe *Segmentar con CHM*. Solo está disponible si la nube lo trae; los puntos sin árbol quedan en gris.
 
 Al cargar una nube con color, el programa la muestra en RGB. Si dos nubes se solapan, prevalece la que está más arriba en la lista de nubes: sus puntos tapan a los de las de abajo dentro de su extensión, en la planta, el perfil y el 3D. Una nube que se abre queda arriba de la lista. La leyenda sale en la planta; si solo se ve el 3D, sale en el 3D. Con *Altura sobre el suelo* y *Ángulo de barrido* la leyenda es la rampa con sus valores. El perfil también se colorea por altura: calcula la altura con los puntos de suelo de su propia franja, a toda su densidad.
 
@@ -602,6 +608,22 @@ Une dos o más nubes en una nueva (`…_unida`) y decide qué hacer con los punt
 
 La orden es `hipso merge-clouds`.
 
+##### Validar MDT
+
+Mide la exactitud vertical de un MDT con puntos de control del suelo. Véase el apartado 7.1.
+
+| Control | Qué hace |
+|---|---|
+| MDT | El modelo que se valida, de un archivo o de las capas cargadas. |
+| Puntos de control | Una nube (se usan sus puntos de la clase de suelo), una capa de puntos con un campo de cota o una tabla con las columnas X, Y y Z. |
+| Clase de suelo | La clase de la nube que hace de referencia (2 por defecto). |
+| Campo de la cota, Columna X, Columna Y | Los campos de una capa o de una tabla; si no se eligen, se buscan los llamados z, cota o elev, y x, y. |
+| Lectura del MDT | *bilinear* (por defecto, interpola entre las cuatro celdas más cercanas) o *nearest* (la celda que contiene el punto). |
+| Error máximo (m) | Descarta los puntos con un error absoluto mayor, que suelen ser puntos de control mal puestos. |
+| Errores como capa de puntos | Escribe también una capa con el error de cada punto, para verlo en el mapa. |
+
+La orden es `hipso dtm-validate`.
+
 #### LiDAR → Superficies
 
 ##### MDT
@@ -742,7 +764,7 @@ Relaciona una variable medida en campo (volumen, biomasa, área basimétrica…)
 
 La orden es `hipso model`.
 
-##### Segmentar individuos
+##### Segmentar con CHM
 
 Detecta los individuos y sus copas en un modelo de alturas. Véase el apartado 7.3.
 
@@ -795,6 +817,74 @@ Agrupa el modelo de alturas en objetos y los clasifica (OBIA). Véase el apartad
 | Salida | Polígonos (shp), tabla (csv) o GeoPackage (gpkg), con *Simplificar* y la base del nombre. |
 
 La orden es `hipso obia`.
+
+##### Segmentar con puntos
+
+Segmenta los árboles directamente sobre los puntos, de arriba abajo, sin pasar por el CHM. Véase el apartado 7.3.
+
+| Control | Qué hace |
+|---|---|
+| Nubes | Las nubes de las que se sacan los árboles. |
+| MDT | Con el que se normalizan las alturas; sin él se usa un TIN de los puntos de suelo de la propia nube y, si no los hay, la elevación se toma como altura. |
+| Altura mínima (m) | Los puntos más bajos no entran (2 por defecto). |
+| Separación bajo la altura Zu, sobre la altura Zu (m) | Cuánto puede distar un punto de un árbol para unirse a él: 1,5 m por debajo de la altura Zu y 2 m por encima. |
+| Altura Zu (m) | A partir de qué altura se usa la segunda separación (15 por defecto). |
+| Radio de unión (m) | Un punto que no está a la separación de ningún árbol, pero sí a este radio, se une al más cercano en lugar de ser una cima nueva (3 por defecto; 0 lo desactiva). |
+| Puntos mínimos por árbol | Los árboles con menos puntos se disuelven (10 por defecto). |
+| Clases | Las clases que entran; por defecto todas menos el ruido. El suelo nunca forma parte de un árbol. |
+| Lado de las teselas, Margen de las teselas (m) | Las teselas en que se corta la nube (250 y 25 m por defecto). |
+| Sin nube con treeID, Sin tabla de cimas, Sin capa de cimas | Dejan de escribir esa salida. |
+
+La orden es `hipso trees3d`.
+
+##### Métricas por árbol
+
+Mide cada árbol de una nube que ya lleva el atributo treeID. Véase el apartado 7.3.
+
+| Control | Qué hace |
+|---|---|
+| Nube con treeID | La que escriben *Segmentar con CHM* (con la nube de salida) o *Segmentar con puntos*. |
+| MDT | Para las alturas; por defecto, el más reciente hecho con la nube. |
+| Las alturas ya son sobre el suelo | Para una nube normalizada, que no necesita MDT. |
+| Salto que cierra la copa (m) | El salto vertical entre dos puntos del árbol, al bajar desde la cima, que se toma como el final de la copa (2 por defecto). |
+| Altura mínima de copa (m) | Los puntos por debajo no cuentan para la base de la copa (1,3 por defecto). |
+| Radio alfa (m) | El radio de la forma alfa: menor sigue más el contorno de la copa, y uno muy grande da la envolvente convexa (2 por defecto). |
+| Puntos mínimos por árbol | Los árboles con menos puntos no se miden (20 por defecto). |
+| Sin capa de cimas | Escribe solo la tabla. |
+
+La orden es `hipso tree-metrics`.
+
+##### Huecos del dosel
+
+Encuentra y mide los huecos de un CHM. Véase el apartado 7.3.
+
+| Control | Qué hace |
+|---|---|
+| CHM | El modelo de alturas, de un archivo o de las capas cargadas. |
+| Altura del hueco (m) | Una celda por debajo de esta altura está en un hueco (5 por defecto). |
+| Área mínima, Área máxima (m²) | Los huecos fuera de este intervalo se descartan (1 y 10 000 por defecto). |
+| Conservar los cortados por el borde | Conserva los huecos que tocan el borde del ráster o una celda sin dato. |
+| Escribir el ráster de huecos | Escribe también el número de hueco de cada celda. |
+| Escribir también GeoPackage | Además del shapefile. |
+
+La orden es `hipso canopy-gaps`.
+
+##### Métricas de vóxeles
+
+Describe la estructura vertical del dosel con un ráster por métrica. Véase el apartado 7.3.
+
+| Control | Qué hace |
+|---|---|
+| Nubes | Las nubes que se miden. |
+| MDT | Con el que se normalizan las alturas; sin él, la nube debe traer alturas sobre el suelo. |
+| Lado de la columna (m), Grosor de capa (m) | El tamaño del vóxel (2 m y 1 m por defecto). |
+| Altura máxima (m) | Los puntos más altos no cuentan (60 por defecto). |
+| Puntos por vóxel ocupado | Cuántos puntos hacen falta para que un vóxel cuente como ocupado (1). |
+| Altura de suelo (m), Coeficiente de extinción | Para la fracción de huecos y el LAI (1 m y 0,5, como en las métricas de estructura de *Métricas por celda*). |
+| Métricas | Cuáles se escriben; por defecto, todas. |
+| Retornos, Clases | Qué puntos entran (por defecto todos los retornos y todas las clases menos el ruido). |
+
+La orden es `hipso voxel-metrics`.
 
 #### LiDAR → TLS
 
@@ -1924,11 +2014,96 @@ El acercamiento llega hasta 2 cm del centro de giro, lo suficiente para ver un t
 
 ### 4.11 Ajustes
 
-*Inicio → Ajustes* reúne lo que el programa guarda en el disco para ir más deprisa. *Caché*: las copias COPC con el detalle de las nubes grandes (la primera apertura las crea en segundo plano y las siguientes las encuentran) y las teselas descargadas del mapa base. La página muestra la *carpeta de la caché* (que se escribe, se elige con *Elegir carpeta…* o se devuelve a la de siempre con *Por defecto*), el *tamaño máximo de las copias* en gigabytes (20 GB por defecto; al superarlo se borran las copias que más tiempo llevan sin usarse, y las de las nubes abiertas se respetan) y lo que ocupan ahora las copias y las teselas.
+*Inicio → Ajustes* reúne lo que el programa guarda en el disco para ir más deprisa y, aparte, la configuración del asistente de IA (apartado 4.12). *Caché*: las copias COPC con el detalle de las nubes grandes (la primera apertura las crea en segundo plano y las siguientes las encuentran) y las teselas descargadas del mapa base. La página muestra la *carpeta de la caché* (que se escribe, se elige con *Elegir carpeta…* o se devuelve a la de siempre con *Por defecto*), el *tamaño máximo de las copias* en gigabytes (20 GB por defecto; al superarlo se borran las copias que más tiempo llevan sin usarse, y las de las nubes abiertas se respetan) y lo que ocupan ahora las copias y las teselas.
 
 La misma página reúne lo que sin la aplicación se daría con variables de entorno, y cada ajuste puede quedarse en *Automático*, que deja actuar a la variable. *Rejillas de transformación*: las *carpetas con rejillas* de otros países (se buscan antes que las habituales), si se *descargan de la CDN de PROJ* las que falten, si se descargan *enteras*, la *dirección de la CDN*, la *carpeta de las rejillas descargadas* y la política de aproximaciones (*Transformaciones aproximadas si falta la rejilla* y *Solo la mejor operación disponible*, que equivalen a `HIPSO_ALLOW_BALLPARK` y `HIPSO_ONLY_BEST`). *Rendimiento*: si los rásteres grandes se procesan *por franjas* (`HIPSO_STREAM`) y el *dibujo de la interfaz* (`wgpu` u OpenGL, `HIPSO_RENDERER`), que se aplica al volver a abrir HIPSO.
 
 *Borrar caché…* abre un aviso que explica lo que implica antes de borrar nada: los archivos originales, los proyectos y los resultados no se tocan, y lo único que cambia es que la copia de una nube grande tarda de nuevo en prepararse la próxima vez que se abra, y que el mapa base vuelve a descargarse. Las copias de las nubes abiertas en ese momento se conservan, y no se puede deshacer. Cambiar de carpeta no mueve las copias que ya existen (se rehacen en la nueva al abrir las nubes), y en una carpeta elegida por el usuario el programa solo borra sus propios archivos (`*.copc.laz` y las copias a medio escribir), nunca otros que haya en ella. Los ajustes se guardan en el archivo de preferencias; la variable `HIPSO_CACHE_DIR` sigue fijando la carpeta por defecto, y lo elegido en la página tiene preferencia sobre ella.
+
+### 4.12 El asistente de IA
+
+El asistente es un panel de conversación (*Archivo → Asistente → Asistente IA*, o *Ctrl+K* y «Asistente») que trabaja dentro de HIPSO. Está pensado para cuatro cosas: **explicar** qué hace el programa y cada una de sus herramientas, **recomendar** cómo hacer un trabajo, **explorar** los datos que hay abiertos y **crear flujos** a partir de lo que se le cuenta. Para hablar con un modelo de lenguaje usa la clave de API de la persona; HIPSO no pone ningún intermediario ni cobra nada, y las consultas las factura el proveedor.
+
+##### Prepararlo
+
+Se hace una vez, en *Inicio → Ajustes → Asistente de IA* (o con el engranaje del panel):
+
+| Servicio | Dirección | Modelo por defecto |
+|---|---|---|
+| DeepSeek | `https://api.deepseek.com` | `deepseek-chat` |
+| OpenRouter | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` |
+| Claude (Anthropic) | `https://api.anthropic.com/v1`, con su capa de compatibilidad con la API de OpenAI | `claude-haiku-5-5` |
+| ChatGPT (OpenAI) | `https://api.openai.com/v1` | `gpt-4o-mini` |
+| Otro servicio compatible con OpenAI | la que se escriba (`…/v1`) | el que se escriba |
+
+Se elige el servicio, se pega la clave (los espacios, las comillas y un «Bearer» pegado por error se quitan solos) y se pulsa *Probar conexión*. *Cargar modelos* pide al servicio su lista y deja elegir uno; también se puede escribir el nombre a mano. Cada servicio conserva su propia clave y su propio modelo, de modo que se puede cambiar de servicio sin volver a pegar nada. Las claves se guardan en un archivo de la carpeta de configuración de HIPSO (`asistente.json`), solo legible por el usuario, y nunca salen del equipo salvo hacia el servicio elegido.
+
+##### Usarlo
+
+Se escribe en la caja de abajo (*Intro* envía, *Mayús+Intro* salta de línea). La respuesta aparece mientras se escribe, con listas, tablas y código, y *Detener* la corta. Bajo cada respuesta están *Copiar* y, si creó un flujo, *Abrir en Flujos*, y se anota qué consultó. Con *＋* se empieza una conversación, con el reloj se abren las anteriores y el menú de perfil de arriba cambia de rol al momento.
+
+Ejemplos de lo que se le puede pedir:
+
+- «Explícame en profundidad cómo clasifica HIPSO una nube de puntos». Busca en el manual y lee los apartados que hacen falta.
+- «¿Qué hace `tree-metrics` y con qué parámetros?». Lee la referencia exacta de la herramienta.
+- «Describe la nube que tengo abierta y dime qué MDT me recomiendas». Describe el archivo (puntos, densidad, clases, retornos) y justifica el tamaño de celda y el método.
+- «Explora esta tabla de parcelas». Da, por campo, el recuento, los vacíos, la media, la desviación, los cuartiles y la asimetría (o los valores más frecuentes), y las correlaciones fuertes.
+- «Crea un flujo que haga el MDT y el CHM de mi nube y segmente los árboles». Construye el flujo y lo valida.
+
+##### Qué sabe y qué hace
+
+No lleva el manual en la cabeza: cada pregunta se contesta con unas pocas herramientas de consulta, todas de solo lectura:
+
+| Herramienta | Para qué |
+|---|---|
+| `que_es_hipso` | Un resumen de qué es HIPSO: premisas, interfaz, grupos de herramientas y formatos. |
+| `listar_herramientas` | Las órdenes por grupo, con su título y, si se pide un grupo, una línea de lo que hacen. |
+| `ayuda_herramienta` | La referencia exacta de una orden: opciones con su valor por defecto, puertos de archivo y los apartados del manual que la explican. |
+| `buscar_manual` y `leer_seccion` | Busca en el manual por palabras y lee el apartado elegido, por partes si es largo. |
+| `capas_abiertas` | Las nubes, rásteres y capas que hay abiertas. |
+| `describir_archivo` y `analisis_exploratorio` | Describe una nube, un ráster, una capa o una tabla, y la explora con estadísticos. |
+| `crear_flujo` | Construye un flujo y lo valida contra las herramientas reales. |
+
+El asistente **no ejecuta** herramientas de HIPSO: arma el flujo y la persona lo ejecuta. `crear_flujo` comprueba que las herramientas, las opciones y los puertos existen y, si algo falla, devuelve el motivo para que el asistente lo corrija solo. El flujo se guarda en la carpeta `flujos_asistente` de la configuración y se abre en la pestaña *Flujos* con *Abrir en Flujos*, donde lo normal es que solo falten las rutas de los archivos de entrada.
+
+##### Perfiles (roles)
+
+Por defecto el asistente no tiene rol: es el asistente de HIPSO tal cual. En *Ajustes → Asistente de IA → Perfil (rol)* se puede elegir uno, que da al asistente el enfoque y el estilo de un especialista sin quitarle las reglas de fondo (no inventar, consultar la documentación y gastar pocos tokens):
+
+| Perfil | Enfoque |
+|---|---|
+| GIS Analyst | Análisis territorial: sistemas de referencia, modelo de datos y topología, flujos de geoprocesamiento reproducibles y diseño cartográfico. |
+| GIS Editor | Captura y depuración de datos: reglas de digitalización, topología, integridad de atributos y control de calidad, con listas de verificación. |
+| LiDAR Analyst | Nubes de puntos: características del levantamiento, clasificación, MDT, MDS y CHM, métricas y exactitud, justificando umbrales y tamaños de celda. |
+| LiDAR Editor | Depuración de nubes: ruido, refinamiento de la clasificación por perfiles, líneas de rotura y consistencia entre pasadas. |
+| Remote Sensing Analyst | Teledetección: preprocesamiento, física espectral, índices, clasificación, series temporales y validación con matrices de confusión. |
+| Spatial Data Analyst | Estadística espacial: autocorrelación, vecindad, patrones de puntos, redes e integración de datos. |
+| Data Analyst | Análisis de datos: definición de métricas, calidad de los datos, análisis diagnóstico y visualización. |
+| Data Scientist | Ciencia de datos: formulación, líneas base, prevención de fugas, validación, calibración y robustez. |
+| Personalizado | El que escribe la persona: un nombre y un texto con quién es el asistente, qué prioriza, cómo responde y qué evita. |
+
+##### Gastar pocos tokens
+
+El coste de una consulta son los tokens que se envían y se reciben, y el asistente está diseñado para reducirlos:
+
+- Las instrucciones son cortas (unos 400 tokens), y siempre iguales para una misma configuración, de modo que los servicios que guardan el inicio del mensaje en caché lo cobran mucho más barato.
+- La documentación no viaja nunca entera: se busca y se lee solo el apartado necesario, cada resultado se recorta (a unos 4 500 caracteres) y los largos se leen por partes.
+- Los resultados de las herramientas no se reenvían en las preguntas siguientes, y de la conversación solo se envían los últimos mensajes (8 por defecto), con las respuestas más antiguas recortadas.
+- La *extensión* de las respuestas (breve, normal o en profundidad) y el tope de tokens de cada una se ajustan en *Ajustes*. Bajo cada respuesta se ven los tokens enviados y recibidos.
+
+##### Conversaciones
+
+Cada conversación es un archivo `.jsonl` (un mensaje por línea). Añadir un mensaje es añadir una línea, sin reescribir lo anterior, y listar las conversaciones lee solo la primera línea de cada archivo, de modo que sigue siendo instantáneo con miles de ellas. De los resultados de las herramientas solo se guarda su nombre. *Ajustes* permite elegir dónde:
+
+- En la carpeta de configuración de HIPSO (por defecto).
+- En una carpeta elegida (un disco externo, una carpeta sincronizada…). Al cambiar de carpeta, HIPSO ofrece mover las conversaciones que había en la anterior.
+- En ninguna parte: solo duran mientras el programa está abierto.
+
+Desde el menú del reloj se abre una conversación, se borra, se le cambia el título y se **exporta a Markdown**. *Abrir la carpeta* la muestra en el explorador de archivos, y *Borrar todas las conversaciones…* las elimina tras pedir confirmación.
+
+##### Privacidad y límites
+
+A los servicios solo llegan textos y cifras: las preguntas, lo que devuelven las herramientas del asistente (fragmentos del manual, descripciones y estadísticos de los archivos consultados) y los flujos. Nunca los archivos ni las imágenes. Los modelos pueden equivocarse o malinterpretar: lo que dicen de una herramienta sale de la referencia que consultan, pero conviene contrastar las decisiones importantes, y los parámetros que recomiendan son un punto de partida que hay que comprobar con los datos. Sin Internet no responde; el resto de HIPSO sigue funcionando.
 
 ## 5. Herramientas de consulta
 
@@ -2072,7 +2247,7 @@ La edición, en resumen, nunca toca el original y siempre es reversible hasta el
 
 ## 7. LiDAR
 
-La pestaña *LiDAR* reúne las herramientas que parten de una nube de puntos, en seis grupos ordenados como suelen usarse en un trabajo real: *Preparar* (*Clasificar*, *Asignar proyección*, *Exportar puntos*, *Recortar con polígonos*, *Adelgazar nube*, *Alturas sobre suelo*, *Quitar duplicados*, *Colorear con imagen*, *Normalizar intensidad* e *Imagen de intensidad*), *Calidad* (*Comparar nubes*, *Ajustar nubes*, *Entre pasadas*, *Líneas de vuelo*, *Densidad de Voronoi* y *Unir nubes*), *Superficies* (*MDT*, *MDS / CHM* y *Cambio de la cubierta vegetal*), *ALS* (nubes aéreas: *Extraer muestras*, *Métricas por celda*, *Modelos lineales*, *Segmentar individuos* y *Análisis por objetos*), *TLS* (escáner terrestre: *Medición de troncos*) e *Infraestructuras* (*Corredores eléctricos*). La información de las nubes y de las demás capas está en la pestaña *Información* del panel lateral. El relieve, la hidrología, las rutas y los volúmenes están en la pestaña *Raster*, grupo *Análisis del terreno*, porque trabajan sobre cualquier MDT y no solo sobre una nube, y se describen en el apartado 7.2. El apartado 4.5 explica cada botón de la pestaña, y este capítulo, el método que hay detrás.
+La pestaña *LiDAR* reúne las herramientas que parten de una nube de puntos, en seis grupos ordenados como suelen usarse en un trabajo real: *Preparar* (*Clasificar*, *Asignar proyección*, *Exportar puntos*, *Recortar con polígonos*, *Adelgazar nube*, *Alturas sobre suelo*, *Quitar duplicados*, *Colorear con imagen*, *Normalizar intensidad* e *Imagen de intensidad*), *Calidad* (*Comparar nubes*, *Ajustar nubes*, *Entre pasadas*, *Líneas de vuelo*, *Densidad de Voronoi*, *Unir nubes* y *Validar MDT*), *Superficies* (*MDT*, *MDS / CHM* y *Cambio de la cubierta vegetal*), *ALS* (nubes aéreas: *Extraer muestras*, *Métricas por celda*, *Modelos lineales*, *Segmentar con CHM*, *Segmentar con puntos*, *Métricas por árbol*, *Análisis por objetos*, *Huecos del dosel* y *Métricas de vóxeles*), *TLS* (escáner terrestre: *Medición de troncos*) e *Infraestructuras* (*Corredores eléctricos*). La información de las nubes y de las demás capas está en la pestaña *Información* del panel lateral. El relieve, la hidrología, las rutas y los volúmenes están en la pestaña *Raster*, grupo *Análisis del terreno*, porque trabajan sobre cualquier MDT y no solo sobre una nube, y se describen en el apartado 7.2. El apartado 4.5 explica cada botón de la pestaña, y este capítulo, el método que hay detrás.
 
 La cinta se adapta al ancho de la ventana. Si no caben todos los grupos, los de la derecha se pliegan en un botón grande con su nombre y una flecha (▾) que despliega sus herramientas, así que todas quedan siempre a un clic.
 
@@ -2468,6 +2643,18 @@ La nube se corta en teselas de 250 m con un margen de 20 m, para que las celdas 
 
 El porcentaje de celdas que cumple dice, con un solo número, qué parte de la nube alcanza la densidad exigida, y el ráster de cumple / no cumple enseña dónde falla.
 
+#### Validar un MDT
+
+Comprueba qué tan bien reproduce un MDT la altura del suelo, con puntos de control que no se han usado para hacerlo: los puntos de suelo de otra nube, un levantamiento con GNSS o una tabla de cotas. El error de cada punto es `MDT − referencia`, y el MDT se lee bajo cada punto con interpolación bilineal (o la celda que lo contiene).
+
+Se dan el sesgo (el error medio, que dice si el modelo queda por encima o por debajo), el error absoluto medio (MAE), el error cuadrático medio (RMSE) y la desviación típica. Los errores de un modelo de elevaciones rara vez son normales, porque unos pocos puntos (vegetación en la clase del suelo, un punto de control mal puesto) arrastran la media y el RMSE. Por eso se dan también la mediana, la desviación absoluta mediana normalizada, NMAD = 1,4826 · mediana(|e − mediana(e)|), y el percentil 95 del error absoluto, LE95, que son los estadísticos robustos que proponen Höhle y Höhle (2009). El R² es el cuadrado de la correlación entre la referencia y el MDT, y con un terreno casi plano no dice nada: lo que informa es el error.
+
+Si el RMSE es mucho mayor que el NMAD, hay puntos que no siguen la distribución del resto, y la tabla de errores punto a punto (o la capa de puntos) dice dónde están. Con *Error máximo* se descartan los mayores de un valor. Si ningún punto cae sobre el MDT, la herramienta se detiene y recuerda que ambos deben compartir sistema de coordenadas.
+
+Se guardan `…_validacion.csv` (X, Y, cota de referencia, cota del MDT y error), `…_validacion_resumen.csv` y, si se pide, la capa de puntos. En la línea de comandos: `hipso dtm-validate mdt.tif suelo.laz`.
+
+Validar el MDT con los propios puntos de suelo con los que se hizo mide solo cuánto se aparta el modelo de esos puntos (el error de interpolación en la celda), no su exactitud: para eso hacen falta puntos independientes.
+
 #### Colorear con imagen (RGB)
 
 A cada punto el color del píxel de una imagen del mismo sitio, normalmente una ortofoto (PNOA, por ejemplo), y el infrarrojo cercano si la nube es de formato 8 y la imagen tiene esa banda. Se eligen las bandas de rojo, verde y azul (1, 2 y 3 por defecto). Las nubes sin color (formatos 0, 1 y 6) se guardan en formato 7 (LAS 1.4: se conserva todo y la clase pasa a ocupar un byte entero), y las de forma de onda (4 y 9) no se convierten.
@@ -2620,7 +2807,7 @@ Calcula el volumen entre una superficie y el terreno, celda a celda: V = Σ (alt
 
 La altura mínima que cuenta descarta las celdas más cerca del terreno que ese valor, y quita así el ruido de la superficie. Las zonas son todo el ráster, las AOI dibujadas (un volumen por AOI) o los polígonos de un archivo vectorial; si se solapan, se miden una a una.
 
-Para el volumen de copas segmentadas se eligen como zonas el shapefile de copas que da *Segmentar individuos* (`…_individuos.shp`) y como superficie el CHM (no el ráster de copas, que guarda los números de árbol y no alturas). La columna `Region` de la tabla lleva el `TREEID` de cada copa, el mismo número que la columna `id` de la tabla de árboles y que el campo `TREEID` del shapefile de copas, y por él se une el volumen de cada árbol a su altura, su área de copa y su posición.
+Para el volumen de copas segmentadas se eligen como zonas el shapefile de copas que da *Segmentar con CHM* (`…_individuos.shp`) y como superficie el CHM (no el ráster de copas, que guarda los números de árbol y no alturas). La columna `Region` de la tabla lleva el `TREEID` de cada copa, el mismo número que la columna `id` de la tabla de árboles y que el campo `TREEID` del shapefile de copas, y por él se une el volumen de cada árbol a su altura, su área de copa y su posición.
 
 El resultado es un único `…_volumen.csv` (con una columna `Hoja` si hay varias nubes) con, por zona, `Area_m2`, `Vol_sobre_m3`, `Vol_bajo_m3`, `Vol_neto_m3`, `H_media_m` y `H_max_m` (de las celdas sobre el terreno) y `Celdas_sin_MDT`. La precisión es la del ráster, y cuando es posible conviene usar la misma celda para el MDS y el MDT. El volumen de una copa por este método es el volumen envolvente bajo la superficie del CHM, no el de madera.
 
@@ -2651,7 +2838,7 @@ El volumen neto indica si la obra necesita aportar tierra (positivo) o retirarla
 
 ### 7.3 Inventario de la vegetación
 
-El inventario de la vegetación se divide según el tipo de nube, porque lo que se puede medir depende de cómo se haya captado. Con una nube aérea (ALS) se trabaja a escala de unidad de gestión y de individuo; con una nube de escáner terrestre (TLS), tronco a tronco. De ahí que la pestaña *LiDAR* tenga dos grupos separados: ALS, con los botones *Extraer muestras*, *Métricas por celda* y *Modelos lineales* (los tres de escala de unidad de gestión) y *Segmentar individuos* y *Análisis por objetos* (de escala de individuo), y *Cambio de la cubierta vegetal* en el grupo *Superficies*; y TLS, con el botón *Medición de troncos*. Las herramientas ALS convierten la nube en variables que un gestor del territorio reconoce (alturas, coberturas, volúmenes, árboles) y se ordenan de lo más agregado a lo más detallado: primero las métricas por celda, que sirven para modelar a escala de unidad de gestión, y después las que detectan y siguen árboles individuales.
+El inventario de la vegetación se divide según el tipo de nube, porque lo que se puede medir depende de cómo se haya captado. Con una nube aérea (ALS) se trabaja a escala de unidad de gestión y de individuo; con una nube de escáner terrestre (TLS), tronco a tronco. De ahí que la pestaña *LiDAR* tenga dos grupos separados: ALS, con los botones *Extraer muestras*, *Métricas por celda* y *Modelos lineales* (los tres de escala de unidad de gestión) y *Segmentar con CHM* y *Análisis por objetos* (de escala de individuo), y *Cambio de la cubierta vegetal* en el grupo *Superficies*; y TLS, con el botón *Medición de troncos*. Las herramientas ALS convierten la nube en variables que un gestor del territorio reconoce (alturas, coberturas, volúmenes, árboles) y se ordenan de lo más agregado a lo más detallado: primero las métricas por celda, que sirven para modelar a escala de unidad de gestión, y después las que detectan y siguen árboles individuales.
 
 #### Métricas por celda
 
@@ -2784,7 +2971,7 @@ Con la casilla *Métricas de estructura* (o `--structure`) se escribe, junto a l
 
 Se calculan con las mismas alturas que ya se guardan para las demás métricas, de manera que no hay pasada extra y, sin la casilla, no cuestan nada. Los límites son claros. El LAI sale de la proporción de retornos y no de una medida directa de hojas, así que es un índice relativo, útil para comparar pero no un valor absoluto. Con pocos retornos por celda las métricas de perfil son ruidosas, y conviene usar celdas de 15 a 20 m o más. La CBH depende del suelo de 2 m elegido y del 10 % (ambos cambian en la ventana) y no sustituye una medida de campo. La densidad aparente de copa (CBD) y la rugosidad de superficie (*rumple*) no están, porque necesitan coeficientes del usuario o un modelo de superficie aparte. Las filas de las métricas se calculan en paralelo por filas de celdas, con resultado idéntico al anterior (comprobado byte a byte) y menos tiempo con varios núcleos.
 
-#### Segmentar individuos
+#### Segmentar con CHM
 
 Detecta árboles individuales sobre el CHM: sus cimas, su copa y su altura. Con varias nubes cargadas segmenta el CHM de cada una y da un resultado por hoja (si se elige un CHM a mano, solo ese). Un árbol en el borde entre dos hojas sale en las dos, cada vez cortado, y la hoja que solo tiene su flanco inventa una cima en el borde; con *Cada árbol una sola vez* (`--around` en la línea de comandos) cada hoja busca los árboles sobre su CHM ampliado con lo que tienen las vecinas en un margen (30 m por defecto) y se queda solo con los árboles cuya cima cae en su extensión (el borde oeste y el sur le pertenecen, el este y el norte son de la hoja siguiente), de modo que ninguno se cuenta dos veces ni se corta. Los números `id` son de cada hoja, y un punto de la nube que cae en una copa que es de la vecina queda con `treeID` 0. Las hojas deben tener la misma celda. El proceso tiene cinco pasos. El primero es un suavizado opcional del CHM (media, mediana o gauss). El segundo localiza las cimas, que son máximos locales en una ventana (fija, o variable según la altura, `a + b · h + c · h²`; circular o cuadrada) por encima de una altura mínima (Popescu y Wynne, 2004). El tercero delimita las copas con uno de tres métodos. El cuarto escribe las salidas: tabla de árboles (`id`, posición, altura, área y diámetro de copa), puntos de las cimas, polígonos de copa, ráster de identificadores y, si se pide, el `treeID` de cada punto de la nube. También se puede pedir un GeoPackage con los ápices y las copas en un solo archivo (tablas `apices` y `copas`) y las métricas de la nube dentro de cada copa. Estas son las de *Extraer muestras*, calculadas con los puntos que caen dentro de cada polígono de copa (con alturas normalizadas, lo que hace el proceso más lento), y se añaden como campos de los polígonos de copa. El quinto, opcional, es la evaluación con inventario de campo: empareja cada árbol medido con la cima más cercana (dentro de una distancia dada) y da aciertos, omisiones, comisiones, exhaustividad, precisión, la medida F y el error de altura (Eysn et al., 2015, plantean este tipo de contraste).
 
@@ -2825,6 +3012,56 @@ Las salidas son el ráster de números de objeto (`…_objetos.tif`, entero de 3
 Todas las fases son lineales en el número de celdas. En un equipo de pruebas, una hoja PNOA de 1 km² (CHM de 1 m, 11 millones de puntos, cuatro capas, clasificada por reglas) se procesó en menos de un segundo, y la segmentación de 20 millones de celdas sintéticas con ruido, en unos 2 s. La memoria crece con las celdas y con el número de manchas iniciales (un CHM ruidoso da más), y en rejillas de cientos de millones de celdas conviene empezar con una zona.
 
 Los límites que conviene conocer son seis. La escala no se puede dar 'a ojo', porque depende del tamaño de celda y de la variabilidad de las capas; se prueba en una zona pequeña y se comprueba que el límite de los objetos sigue lo que se ve. Un CHM ruidoso (máximo por celda con pocos puntos) da muchas manchas pequeñas y objetos con bordes irregulares, y se corrige suavizando o usando el CHM *pit-free*. El coeficiente de variación no sirve con medias cercanas a cero (un estrato sin vegetación arbórea sale con un valor enorme), y en esos estratos hay que mirar la desviación; además, la asignación de Neyman usa la variabilidad del CHM, y si la variable que se va a estimar es otra (volumen, área basimétrica), conviene repartir con la variabilidad de esa variable en una prueba piloto (Cochran, 1977). La segmentación se hace con toda la rejilla en memoria, y todavía no hay proceso por teselas. Las muestras desbalanceadas (pocos objetos de una clase) bajan la exactitud de esa clase, y se recomienda dibujar un número similar de muestras por clase y de sitios distintos. Por último, las unidades: el área va en unidades de mapa al cuadrado y la escala en celdas por desviaciones típicas, no en metros.
+
+#### Huecos del dosel
+
+Un hueco es una mancha conectada (por las aristas de las celdas) en la que el CHM queda por debajo de una altura, que por defecto son 5 m. De cada hueco se guardan la superficie, el perímetro, un índice de forma (el perímetro entre el de un círculo de la misma superficie: 1 para un círculo, más cuanto más alargado o recortado), el diámetro del círculo equivalente, las alturas media, mínima y máxima del CHM dentro y el centro. Se descartan los menores que el área mínima y los mayores que la máxima, que son claros y no huecos.
+
+Un hueco que toca el borde del ráster o una celda sin dato está cortado, y su tamaño real no se conoce. Se deja fuera salvo que se marque *Conservar los cortados por el borde*. Las celdas sin dato nunca cuentan como hueco. El resumen da la fracción del terreno con dato que son huecos y, aparte, la que son celdas bajas de cualquier tamaño (que incluye los claros grandes y las manchas menores que el área mínima), y los huecos por hectárea.
+
+La altura que define el hueco depende del bosque: 2 m para ver los claros de un monte alto, 5 o 10 m en una masa joven o en una selva. Se guardan los polígonos (`…_huecos.shp`, y un GeoPackage si se pide), la tabla y, si se pide, el ráster con el número de cada hueco. En la línea de comandos: `hipso canopy-gaps chm.tif --height 5 --min-area 10`.
+
+#### Métricas de vóxeles
+
+La nube se reparte en columnas de celdas (2 m por defecto) y, en cada una, en capas de altura sobre el suelo (1 m). De los puntos de cada vóxel salen, para cada columna, nueve métricas que se guardan como un ráster cada una (`…_voxeles_<métrica>.tif`):
+
+| Métrica | Qué es |
+|---|---|
+| `puntos` | Los puntos de la columna. |
+| `voxeles` | Los vóxeles con al menos tantos puntos como se pida (1 por defecto). |
+| `volumen` | El volumen de esos vóxeles, en m³. |
+| `relleno` | La proporción de las capas, hasta la más alta ocupada, que están ocupadas. |
+| `hmax` | La altura del borde superior del vóxel ocupado más alto. |
+| `hmedia` | La altura media de los vóxeles ocupados, en su centro. |
+| `entropia` | La entropía de Shannon, −Σ p ln p, de la proporción de puntos de cada capa: la diversidad de alturas del follaje de MacArthur y MacArthur (1961). Vale 0 si todo está en una capa y crece con el número de capas y con lo repartidos que están los puntos. |
+| `hueco` | La proporción de los puntos a menos de la altura de suelo (1 m), contados con su altura exacta: la fracción de huecos del dosel. |
+| `lai` | El índice de área foliar efectivo, −ln(`hueco`) / k, con k el coeficiente de extinción (0,5 por defecto): la ley de extinción de la luz con retornos discretos, en la línea de MacArthur y Horn (1969) y de los modelos de LAI efectivo que comparan Richardson et al. (2009). |
+
+Las tres últimas (entropía, fracción de huecos y LAI) son las mismas que las de estructura de *Métricas por celda* (apartado 7.3), con la misma altura de suelo por defecto; aquí salen además por vóxeles (capas de otro grosor, volumen, relleno y alturas). El LAI de retornos discretos supone que la proporción de pulsos que llega al suelo mide la luz que atraviesa el dosel, y depende del escáner, de la densidad y del ángulo de barrido. Sirve para comparar masas en un mismo vuelo, y no para dar un LAI absoluto sin calibrarlo con medidas de campo. Una columna sin ningún punto de suelo no tiene LAI (queda vacía). Un valor más alto de *Puntos por vóxel ocupado* limpia el ruido, a costa de dejar fuera el follaje escaso.
+
+Los puntos se cuentan por teselas de 250 m, y la memoria es la de una tesela (columnas por capas), no la de la nube. Sin MDT, la nube debe traer alturas sobre el suelo (véase el apartado 6.3). En la línea de comandos: `hipso voxel-metrics nube.laz --dtm mdt.tif --cell 2 --dz 1`.
+
+#### Segmentar con puntos
+
+La segmentación sobre el CHM no ve los árboles que quedan bajo otros, porque el CHM solo guarda la altura máxima de cada celda. Esta herramienta trabaja directamente con los puntos, de arriba abajo, en la línea de la de Li, Guo, Jakubowski y Kelly (2012): los puntos de más de la altura mínima se recorren del más alto al más bajo. Un punto que tiene cerca, a menos de la separación, puntos que ya son de un árbol se une al del más cercano (la separación es 1,5 m por debajo de la altura Zu, 15 m por defecto, y 2 m por encima, porque las copas altas son más anchas y están más separadas). Si no tiene ninguno, pero sí alguno a menos del radio de unión, se une al más cercano igualmente, para que una rama que sobresale no sea un árbol más. Si no, es la cima de un árbol nuevo. Los árboles de menos puntos de los pedidos se disuelven.
+
+Es una reconstrucción a partir de la descripción general del método, no una transcripción, y no incluye las reglas de borde más finas del original. Por eso se contrastó con la implementación de lidR 4.2.3 (`li2012`), usada como caja negra y con los mismos parámetros, en la misma nube y con las mismas alturas (apartado de validación de la referencia de herramientas): con los parámetros por defecto, las 22 579 cimas que encuentra coinciden exactamente con cimas de lidR, que encuentra 296 más (el 1,3 %), casi todas de árboles pequeños de unas decenas de puntos, y el 99,5 % de los puntos va con el mismo árbol. Para comparar hay que desactivar el radio de unión (`--radius 0`) y los puntos mínimos (`--min-points 1`), que lidR no tiene, y lidR asigna también a un árbol los puntos por debajo de la altura mínima, que aquí quedan sin árbol.
+
+La nube se corta en teselas con margen (250 y 25 m). Cada árbol se numera por la posición de su cima en una retícula de 1 m, de modo que dos teselas que ven el mismo árbol lo numeran igual y no queda un árbol partido por el borde de una tesela. Se escribe la nube con el atributo `treeID` (el mismo que escribe *Segmentar con CHM*, de modo que se puede ver en el visor, colorear por árbol y editar), la capa de cimas y una tabla con la elevación y la altura de cada cima. En una nube densa (cientos de puntos por metro cuadrado) conviene adelgazarla antes, porque el recorrido mira los vecinos de cada punto. En la línea de comandos: `hipso trees3d nube.laz --dtm mdt.tif --class '~2'`.
+
+Sobre una nube aérea de unos 4 puntos/m² de un bosque de coníferas (CapitolForest, 120 ha), con los parámetros por defecto y el radio de unión, encuentra 11 106 árboles frente a 9 975 del CHM suavizado con la misma extensión, en menos de dos segundos. Esa es una comprobación de orden de magnitud: sin un inventario de campo no se sabe cuál de los dos se acerca más a la realidad.
+
+#### Métricas por árbol
+
+Con los puntos de cada árbol (el atributo `treeID`), se miden por árbol:
+
+- La **altura**: la del punto más alto sobre el suelo.
+- La **base de la copa**: al bajar desde la cima, la copa acaba donde el salto vertical entre dos puntos consecutivos del árbol supera el salto que se pida (2 m por defecto). Los puntos por debajo de la altura mínima de copa (1,3 m) no cuentan. Es una definición sencilla y propia: con nubes dispersas conviene un salto mayor, para no cortar la copa en un hueco entre ramas, y con nubes muy densas uno menor. Si no hay salto, la base es el punto más bajo por encima de esa altura.
+- La **longitud de la copa** (altura menos base) y la **proporción de copa** (longitud entre altura).
+- La **superficie y el radio de la copa**: el área de la envolvente convexa en planta de los puntos de la copa, y el radio del círculo de esa área.
+- El **volumen de la copa** de dos maneras: el de la envolvente convexa, y el de la forma alfa tridimensional (Edelsbrunner y Mücke, 1994), que sigue el contorno real de la copa y deja fuera los huecos entre ramas. También se da la superficie de la forma alfa. La forma alfa suma los tetraedros de la triangulación de Delaunay en 3D (Bowyer, 1981; Watson, 1981) cuya esfera circunscrita tiene un radio menor que el radio alfa (2 m por defecto): un radio pequeño sigue de cerca el contorno y uno muy grande es la envolvente convexa. El radio adecuado depende de la densidad: debe ser mayor que la separación entre puntos, o la copa se rompe en islas.
+
+Para que el cálculo sea rápido, una copa de más de 2 500 puntos se reduce a un punto por vóxel antes de triangularla, lo que acorta algo la envolvente. Los árboles con menos de 20 puntos no se miden. Los puntos de todos los árboles se guardan en memoria mientras se leen (24 bytes por punto de árbol), así que una zona muy grande se divide en hojas. Se escriben una tabla (`…_metricas_arboles.csv`) y la capa de cimas con las mismas columnas. En la línea de comandos: `hipso tree-metrics nube_con_treeid.laz --dtm mdt.tif --alpha 2`.
 
 #### Cambio de la cubierta vegetal
 
@@ -3243,7 +3480,7 @@ Cada nodo ejecuta el programa `hipso` con las opciones del nodo, de modo que un 
 
 ## 14. Línea de comandos
 
-`hipso` hace lo mismo que la interfaz, por lotes, y con `--help` se ve la lista completa de comandos y de opciones. Son 82 órdenes, y todas, con cada una de sus opciones, sus valores por defecto y el botón de la cinta donde viven, están en la *Referencia de herramientas* de la web (`docs/CLI.md`).
+`hipso` hace lo mismo que la interfaz, por lotes, y con `--help` se ve la lista completa de comandos y de opciones. Son 87 órdenes, y todas, con cada una de sus opciones, sus valores por defecto y el botón de la cinta donde viven, están en la *Referencia de herramientas* de la web (`docs/CLI.md`).
 
 ```
 hipso info nube.laz
@@ -3314,7 +3551,26 @@ hipso align chm.tif mdt.tif ortofoto.tif
 hipso render nube.laz --view 3d -o vista.png --color class
 hipso export nube.laz -o puntos.csv --items x,y,z,class --header
 hipso export nube.laz --normalize --dtm mdt.tif -o altura.laz
+hipso dtm-validate mdt.tif control_gnss.csv --z-field cota --x-field X --y-field Y
+hipso canopy-gaps chm.tif --height 5 --min-area 10
+hipso voxel-metrics nube.laz --dtm mdt.tif --cell 2 --dz 1
+hipso trees3d nube.laz --dtm mdt.tif --class '~2'
+hipso tree-metrics nube_arboles3d.laz --dtm mdt.tif --alpha 2
 ```
+
+### Servidor MCP
+
+`hipso mcp` arranca un servidor del Protocolo de Contexto de Modelo (MCP) por la entrada y la salida estándar. Con él, un asistente de inteligencia artificial, o cualquier otro cliente MCP, descubre las herramientas de `hipso` y las llama: ejecutar una clasificación, hacer un MDT o medir los árboles de una hoja sin escribir la orden a mano.
+
+Cada orden de `hipso` es una herramienta del servidor, con el mismo nombre que en la línea de comandos. Sus opciones salen del mismo esquema que dibuja las ventanas y el constructor de flujos (`hipso schema`), así que una herramienta nueva aparece sola, con su descripción, el tipo de cada opción, los valores que admite y su valor por defecto. Una llamada lanza este mismo ejecutable con la orden y devuelve lo que escribe, y cada llamada va en su propio hilo, de modo que una orden larga no impide contestar a las demás peticiones.
+
+Se configura en el cliente como una orden más. Por ejemplo, en un archivo de configuración de servidores MCP:
+
+```
+{ "mcpServers": { "hipso": { "command": "hipso", "args": ["mcp"] } } }
+```
+
+El servidor no tiene credenciales ni abre ningún puerto, y trabaja con las rutas del equipo en el que corre. Hace lo que haría la persona que lo configura: puede leer los archivos que esa persona lee y escribir donde ella escribe, así que conviene que el cliente pida confirmación antes de las llamadas que escriben. Cada herramienta escribe en la carpeta de resultados de su entrada, o en la que se dé con `results_dir` o `output`.
 
 ## 15. Atajos
 
@@ -3398,7 +3654,9 @@ Referencias de los métodos descritos en este manual.
 
 ### Estructura del dosel
 
+- MacArthur, R. H. y Horn, H. S. (1969). Foliage profile by vertical measurements. *Ecology*, 50(5), 802–804.
 - MacArthur, R. H. y MacArthur, J. W. (1961). On bird species diversity. *Ecology*, 42(3), 594–598.
+- Richardson, J. J., Moskal, L. M. y Kim, S.-H. (2009). Modeling approaches to estimate effective leaf area index from aerial discrete-return LIDAR. *Agricultural and Forest Meteorology*, 149(6–7), 1152–1160.
 - Monsi, M. y Saeki, T. (1953). Über den Lichtfaktor in den Pflanzengesellschaften und seine Bedeutung für die Stoffproduktion. *Japanese Journal of Botany*, 14, 22–52.
 - Van Ewijk, K. Y., Treitz, P. M. y Scott, N. A. (2011). Characterizing forest succession in central Ontario using lidar-derived indices. *Photogrammetric Engineering & Remote Sensing*, 77(3), 261–269.
 
@@ -3408,6 +3666,7 @@ Referencias de los métodos descritos en este manual.
 - Dalponte, M. y Coomes, D. A. (2016). Tree-centric mapping of forest carbon density from airborne laser scanning and hyperspectral data. *Methods in Ecology and Evolution*, 7(10), 1236–1245.
 - Eysn, L. et al. (2015). A benchmark of lidar-based single tree detection methods using heterogeneous forest data from the Alpine Space. *Forests*, 6(5), 1721–1747.
 - Khosravipour, A., Skidmore, A. K., Isenburg, M., Wang, T. y Hussin, Y. A. (2014). Generating pit-free canopy height models from airborne lidar. *Photogrammetric Engineering & Remote Sensing*, 80(9), 863–872.
+- Li, W., Guo, Q., Jakubowski, M. K. y Kelly, M. (2012). A new method for segmenting individual trees from the lidar point cloud. *Photogrammetric Engineering & Remote Sensing*, 78(1), 75–84.
 - Popescu, S. C. y Wynne, R. H. (2004). Seeing the trees in the forest: using lidar and multispectral data fusion with local filtering and variable window size for estimating tree height. *Photogrammetric Engineering & Remote Sensing*, 70(5), 589–604.
 - Silva, C. A., Hudak, A. T., Vierling, L. A., Loudermilk, E. L., O'Brien, J. J., Hiers, J. K., et al. (2016). Imputation of individual longleaf pine (*Pinus palustris* Mill.) tree attributes from field and LiDAR data. *Canadian Journal of Remote Sensing*, 42(5), 554–573.
 - Vincent, L. y Soille, P. (1991). Watersheds in digital spaces: an efficient algorithm based on immersion simulations. *IEEE Transactions on Pattern Analysis and Machine Intelligence*, 13(6), 583–598.
@@ -3440,6 +3699,16 @@ Referencias de los métodos descritos en este manual.
 - Weiss, A. D. (2001). Topographic position and landforms analysis. Póster, *ESRI International User Conference*, San Diego.
 - Wilson, M. F. J., O'Connell, B., Brown, C., Guinan, J. C. y Grehan, A. J. (2007). Multiscale terrain analysis of multibeam bathymetry data for habitat mapping on the continental slope. *Marine Geodesy*, 30(1–2), 3–35.
 - Zevenbergen, L. W. y Thorne, C. R. (1987). Quantitative analysis of land surface topography. *Earth Surface Processes and Landforms*, 12(1), 47–56.
+
+### Exactitud del MDT
+
+- Höhle, J. y Höhle, M. (2009). Accuracy assessment of digital elevation models by means of robust statistical methods. *ISPRS Journal of Photogrammetry and Remote Sensing*, 64(4), 398–406.
+
+### Geometría computacional
+
+- Bowyer, A. (1981). Computing Dirichlet tessellations. *The Computer Journal*, 24(2), 162–166.
+- Edelsbrunner, H. y Mücke, E. P. (1994). Three-dimensional alpha shapes. *ACM Transactions on Graphics*, 13(1), 43–72.
+- Watson, D. F. (1981). Computing the n-dimensional Delaunay tessellation with application to Voronoi polytopes. *The Computer Journal*, 24(2), 167–172.
 
 ### Ráster y vectores
 

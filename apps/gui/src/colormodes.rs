@@ -93,7 +93,7 @@ pub const MODES: [Mode; 13] = [
         by: ColorBy::Tree,
         icon: "@c_tree",
         name: "ID de árbol (treeID)",
-        help: "Un color por individuo, a partir del atributo treeID que escribe «Segmentar individuos».",
+        help: "Un color por individuo, a partir del atributo treeID que escribe «Segmentar con CHM».",
     },
 ];
 

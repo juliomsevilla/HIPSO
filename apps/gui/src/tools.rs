@@ -88,7 +88,7 @@ impl ToolId {
             ToolId::Dtm => "Modelo digital del terreno (MDT)",
             ToolId::Chm => "Modelo de superficie (MDS) y modelo de alturas de la vegetación (CHM)",
             ToolId::Metrics => "Métricas por celda",
-            ToolId::Trees => "Segmentación de individuos",
+            ToolId::Trees => "Segmentar con CHM",
             ToolId::Clip => "Muestras: extracción y métricas",
             ToolId::Export => "Exportar puntos (LAZ / COPC / ASCII / shapefile)",
             ToolId::Crs => "Asignar sistema de coordenadas",

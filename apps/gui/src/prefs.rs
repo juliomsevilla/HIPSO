@@ -56,6 +56,12 @@ fn file() -> Option<PathBuf> {
     Some(base.join("HIPSO").join("preferencias.txt"))
 }
 
+/// La carpeta de configuración de HIPSO del usuario (donde están las preferencias, el borrador del
+/// flujo y los ajustes y conversaciones del asistente).
+pub fn config_dir() -> Option<PathBuf> {
+    file()?.parent().map(Path::to_path_buf)
+}
+
 /// El archivo donde se conserva entre sesiones el flujo que se está construyendo.
 pub fn draft() -> Option<PathBuf> {
     let f = file()?;

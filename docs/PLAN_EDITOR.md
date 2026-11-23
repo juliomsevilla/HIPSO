@@ -394,7 +394,7 @@ Descartes razonados en la sección 6.
 
 **Qué.** (*Inspect Groups*, 4.3.6.9) Lista de grupos; al elegir uno, las vistas se centran en él; botones para reclasificarlo o quitarlo de la lista.
 
-**Diseño.** Sobre el atributo `tree` (`treeID`) que ya escribe *Segmentar individuos*. Lista ordenada (por número, alturas, número de puntos); al elegir uno se activa un **foco** (E01) con una `SelOp` por `treeID`. Botones configurables hasta cuatro clases, como TerraScan.
+**Diseño.** Sobre el atributo `tree` (`treeID`) que ya escribe *Segmentar con CHM*. Lista ordenada (por número, alturas, número de puntos); al elegir uno se activa un **foco** (E01) con una `SelOp` por `treeID`. Botones configurables hasta cuatro clases, como TerraScan.
 
 **Depende de E01.** Requiere que `SelOp`/`Attr` pueda filtrar por `treeID` (comprobar `AttrKind` en `edit.rs:184`).
 

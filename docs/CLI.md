@@ -555,6 +555,26 @@ Modelo de altura de copas como GeoTIFF, uno por hoja
 | `--mosaic` | casilla | desactivada | Une además los CHM de las hojas en un mosaico (por defecto cada hoja conserva el suyo) |
 | `--neighbors` | número | `0` | Lee las hojas que estén a menos de tantos metros de cada hoja como contexto, de modo que sus bordes salgan como saldrían de todo el bloque, y escribe solo los puntos de la propia hoja (0: desactivado) |
 
+### hipso dtm-validate
+
+Exactitud de un MDT frente a puntos de control del suelo (los de suelo de una nube, una capa de puntos con un campo de cota o una tabla con X, Y y Z): sesgo, MAE, RMSE, desviación y los estadísticos robustos NMAD y LE95, más la tabla de errores punto a punto
+
+**En la interfaz:** LiDAR → Calidad → Validar MDT. El método se explica en el apartado 7.1.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `DTM` | archivo o carpeta | ninguno | El MDT (GeoTIFF) **Obligatoria.** |
+| `REFERENCE` | archivo o carpeta | ninguno | Puntos de control: nube LAS/LAZ (su clase suelo), capa de puntos (.shp, .gpkg, .geojson) o tabla (.csv, .xlsx) **Obligatoria.** |
+| `--sampling` | texto | `bilinear` | Cómo se lee el MDT bajo cada punto: bilinear o nearest. |
+| `--class` | número | `2` | Clase de la nube que sirve de referencia. |
+| `--z-field` | texto o número | ninguno | Campo con la cota (capas y tablas); por defecto z, cota o elev si existen. |
+| `--x-field` | texto o número | ninguno | Columna X de una tabla. |
+| `--y-field` | texto o número | ninguno | Columna Y de una tabla. |
+| `--max-error` | texto o número | ninguno | Descarta los puntos con un error absoluto mayor que esto (m) |
+| `--no-csv` | casilla | desactivada | No escribe la tabla de errores. |
+| `--shp` | casilla | desactivada | Escribe también los errores como capa de puntos. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<MDT>_validacion. |
+
 ### hipso hillshade
 
 PNG de sombreado de un MDT o un CHM
@@ -633,7 +653,7 @@ Métricas por celda de la rejilla: elevación y, opcionalmente, intensidad y est
 
 Árboles individuales a partir de un modelo de altura de copas: cimas (máximos locales), copas (Dalponte, Silva o cuenca), polígonos, treeID por punto y comprobación con datos de campo
 
-**En la interfaz:** LiDAR → ALS → Segmentar individuos. El método se explica en el apartado 7.3.
+**En la interfaz:** LiDAR → ALS → Segmentar con CHM. El método se explica en el apartado 7.3.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -671,6 +691,88 @@ Métricas por celda de la rejilla: elevación y, opcionalmente, intensidad y est
 | `--plot-radius` | número | `10` | Radio de la parcela para la comprobación. |
 | `--format` | una de las opciones | ninguno | Formato de salida: shapefile de cimas, tabla de texto o ambos. Valores: `vector`: Solo shapefile; `csv`: Solo tabla de texto (lo mejor para ejecuciones muy grandes); `both`: Both. |
 | `--match-dist` | número | `3` | Una detección coincide con un árbol de campo a esta distancia como máximo. |
+
+### hipso trees3d
+
+Árboles individuales sobre los puntos, de arriba abajo, sin pasar por un ráster: crecimiento de regiones desde las cimas en la línea de Li et al. (2012). Escribe la nube con treeID, las cimas y una tabla
+
+**En la interfaz:** LiDAR → ALS → Segmentar con puntos. El método se explica en el apartado 7.3.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ. **Obligatoria.** Se puede repetir. |
+| `--dtm` | archivo o carpeta | ninguno | MDT con el que se normalizan las alturas; sin él se usa un TIN de los puntos de suelo de la propia nube y, si no hay, la elevación se toma como altura. |
+| `--hmin` | número | `2` | Altura mínima (m) de un punto para entrar. |
+| `--dt1` | número | `1.5` | Separación (m) para unir un punto a un árbol por debajo de --zu. |
+| `--dt2` | número | `2` | Separación (m) por encima de --zu. |
+| `--zu` | número | `15` | Altura (m) a partir de la cual vale --dt2. |
+| `--radius` | número | `3` | Radio (m) en el que un punto sin vecinos a --dt se une al árbol más cercano en lugar de ser una cima nueva (0: no hay) |
+| `--min-points` | número | `10` | Los árboles con menos puntos se disuelven. |
+| `--class` | texto o número | ninguno | Clases que se usan: 2,5 o ~7,18. |
+| `--tile` | número | `250` | Lado de las teselas (m) |
+| `--buffer` | número | `25` | Margen (m) que cada tesela toma de sus vecinas. |
+| `--no-cloud` | casilla | desactivada | No escribe la nube con treeID. |
+| `--no-csv` | casilla | desactivada | No escribe la tabla de cimas. |
+| `--no-shp` | casilla | desactivada | No escribe las cimas como capa de puntos. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<primera nube>_arboles3d. |
+
+### hipso tree-metrics
+
+Métricas de cada árbol de una nube con treeID: altura, base y longitud de la copa, proporción de copa, superficie y radio, y el volumen de la copa como envolvente convexa y como forma alfa 3D
+
+**En la interfaz:** LiDAR → ALS → Métricas por árbol. El método se explica en el apartado 7.3.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | Nube con el atributo treeID (la de `trees --cloud` o `trees3d`) **Obligatoria.** |
+| `--dtm` | archivo o carpeta | ninguno | MDT para las alturas; por defecto, el más reciente hecho con la nube. |
+| `--normalized` | casilla | desactivada | Las alturas de la nube ya son sobre el suelo. |
+| `--gap` | número | `2` | Salto vertical (m) entre puntos que cierra la copa por abajo. |
+| `--crown-min` | número | `1.3` | Los puntos por debajo de esta altura (m) no cuentan para la copa. |
+| `--alpha` | número | `2` | Radio alfa (m) de la forma alfa: menor sigue más el contorno de la copa. |
+| `--min-points` | número | `20` | Los árboles con menos puntos no se miden. |
+| `--class` | texto o número | ninguno | Clases que se usan: 2,5 o ~7,18. |
+| `--no-shp` | casilla | desactivada | No escribe las cimas como capa de puntos. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<nube>_metricas_arboles. |
+
+### hipso canopy-gaps
+
+Huecos del dosel: las manchas conectadas de un CHM por debajo de una altura, cada una con su superficie, perímetro, forma y alturas, y la fracción de dosel que son hueco
+
+**En la interfaz:** LiDAR → ALS → Huecos del dosel. El método se explica en el apartado 7.3.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | El CHM (GeoTIFF en un sistema proyectado, celda en metros) **Obligatoria.** |
+| `--height` | número | `5` | Una celda por debajo de esta altura (m) está en un hueco. |
+| `--min-area` | número | `1` | Descarta los huecos menores que esto (m²) |
+| `--max-area` | número | `10000` | Descarta los huecos mayores que esto (m²): no son huecos del dosel sino claros. |
+| `--include-edge` | casilla | desactivada | Conserva los huecos cortados por el borde del ráster o por celdas sin dato. |
+| `--raster` | casilla | desactivada | Escribe también el ráster de huecos (identificadores) |
+| `--gpkg` | casilla | desactivada | Escribe además un GeoPackage. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<CHM>_huecos.shp. |
+
+### hipso voxel-metrics
+
+Métricas de vóxeles: la estructura vertical del dosel en columnas de celdas y capas de altura, con un ráster por métrica (puntos, vóxeles ocupados, volumen, relleno, altura máxima y media, entropía de alturas, fracción de huecos y LAI de MacArthur y Horn)
+
+**En la interfaz:** LiDAR → ALS → Métricas de vóxeles. El método se explica en el apartado 7.3.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ. **Obligatoria.** Se puede repetir. |
+| `--dtm` | archivo o carpeta | ninguno | MDT con el que se normalizan las alturas; sin él, la nube ya trae alturas sobre el suelo. |
+| `--cell` | número | `2` | Lado de la columna (m) |
+| `--dz` | número | `1` | Grosor de la capa (m) |
+| `--max-height` | número | `60` | Altura (m) por encima de la cual los puntos no cuentan. |
+| `--min-points` | número | `1` | Puntos que ocupan un vóxel. |
+| `--ground-height` | número | `1` | Los puntos por debajo de esta altura (m) son suelo para la fracción de huecos y el LAI. |
+| `--k` | número | `0.5` | Coeficiente de extinción de la luz para el LAI. |
+| `--metrics` | texto o número | ninguno | Métricas que escribir (puntos, voxeles, volumen, relleno, hmax, hmedia, entropia, hueco, lai); por defecto, todas. Se puede repetir. |
+| `--returns` | texto | `A` | Retornos que se usan: A, F, L o números. |
+| `--class` | texto o número | ninguno | Clases que se usan: 2,5 o ~7,18. |
+| `--tile` | número | `250` | Lado de las teselas (m) |
+| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base: cada métrica es <ruta>_<métrica>.tif; por defecto: <resultados>/<primera nube>_voxeles. |
 
 ### hipso obia
 
@@ -1562,4 +1664,4 @@ Dibuja una nube (planta, 3D o perfil) en un PNG, como hace el visor
 
 ## Flujos de trabajo
 
-Tres órdenes más no procesan datos, sino flujos del constructor (capítulo 13). `hipso schema` imprime en JSON la definición de todas las órdenes y opciones de esta página, que es lo que lee el constructor para ofrecer cada herramienta. `hipso run flujo.model.json` ejecuta un flujo guardado sin interfaz (con `--input nombre=ruta` para cambiar una entrada y `--results-dir` para la carpeta de resultados), y `hipso model-validate flujo.model.json` lista lo que impide ejecutarlo.
+Cuatro órdenes más no procesan datos: tres tratan de los flujos del constructor (capítulo 13) y una abre el servidor MCP. `hipso schema` imprime en JSON la definición de todas las órdenes y opciones de esta página, que es lo que lee el constructor para ofrecer cada herramienta. `hipso run flujo.model.json` ejecuta un flujo guardado sin interfaz (con `--input nombre=ruta` para cambiar una entrada y `--results-dir` para la carpeta de resultados), y `hipso model-validate flujo.model.json` lista lo que impide ejecutarlo. `hipso mcp` arranca un servidor MCP (Protocolo de Contexto de Modelo) por la entrada y la salida estándar: un asistente o cualquier cliente MCP descubre todas las órdenes de esta página como herramientas, con sus opciones tomadas del mismo esquema, y las llama (capítulo 14).

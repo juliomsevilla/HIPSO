@@ -4,7 +4,7 @@
 
 use eframe::egui::{self, Align, Color32, FontId, RichText, text::LayoutJob};
 
-const TEXT: &str = include_str!("../../../docs/MANUAL.md");
+pub(crate) const TEXT: &str = include_str!("../../../docs/MANUAL.md");
 
 #[derive(Default)]
 pub struct Manual {
@@ -186,131 +186,144 @@ impl Manual {
             let needle = self.filter.trim().to_lowercase();
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    let mut k = 0;
-                    let mut head_no = 0;
-                    let mut in_code = false;
-                    while k < lines.len() {
-                        let l = lines[k];
-                        if l.trim_start().starts_with("```") {
-                            in_code = !in_code;
-                            k += 1;
-                            continue;
-                        }
-                        if in_code {
-                            // una orden larga se ajusta en el borde de la ventana en lugar de
-                            // salirse
-                            ui.add(egui::Label::new(RichText::new(l).monospace().size(12.0)).wrap());
-                            k += 1;
-                            continue;
-                        }
-                        if l.starts_with('|') {
-                            let start = k;
-                            while k < lines.len() && lines[k].starts_with('|') {
-                                k += 1;
-                            }
-                            let rows: Vec<Vec<&str>> = lines[start..k]
-                                .iter()
-                                .filter(|r| !r.contains("---"))
-                                .map(|r| cells(r))
-                                .collect();
-                            // las columnas comparten el ancho de la ventana: una celda se ajusta en
-                            // su columna y una tabla nunca se sale del borde
-                            let gap = 14.0;
-                            let widths = column_widths(ui, &rows, 13.0, gap);
-                            egui::Grid::new(("manual_table", start))
-                                .striped(true)
-                                .spacing([gap, 4.0])
-                                .show(ui, |ui| {
-                                    for (ri, row) in rows.iter().enumerate() {
-                                        for (ci, c) in row.iter().enumerate() {
-                                            let mut job = inline(ui, c, 13.0);
-                                            if ri == 0 {
-                                                for s in &mut job.sections {
-                                                    s.format.color =
-                                                        ui.visuals().strong_text_color();
-                                                }
-                                            }
-                                            let w = widths.get(ci).copied().unwrap_or(120.0);
-                                            ui.scope(|ui| {
-                                                ui.set_max_width(w);
-                                                ui.add(egui::Label::new(job).wrap());
-                                            });
-                                        }
-                                        ui.end_row();
-                                    }
-                                });
-                            ui.add_space(4.0);
-                            continue;
-                        }
-                        let mut shown = true;
-                        if !needle.is_empty() && !l.to_lowercase().contains(&needle) {
-                            shown = l.starts_with('#');
-                        }
-                        if let Some(t) = l.strip_prefix("# ") {
-                            ui.add_space(4.0);
-                            ui.label(RichText::new(t).heading().strong());
-                        } else if let Some(t) = l.strip_prefix("## ") {
-                            ui.add_space(12.0);
-                            let r = ui.label(
-                                RichText::new(t)
-                                    .size(19.0)
-                                    .strong()
-                                    .color(Color32::from_rgb(0xFF, 0x8A, 0x1F)),
-                            );
-                            if self.goto == Some(head_no) {
-                                r.scroll_to_me(Some(Align::TOP));
-                                self.goto = None;
-                            }
-                            head_no += 1;
-                        } else if let Some(t) = l.strip_prefix("#### ") {
-                            ui.add_space(4.0);
-                            ui.label(
-                                RichText::new(t)
-                                    .size(14.0)
-                                    .strong()
-                                    .color(Color32::from_rgb(0xFF, 0x8A, 0x1F)),
-                            );
-                        } else if let Some(t) = l.strip_prefix("### ") {
-                            ui.add_space(6.0);
-                            ui.label(RichText::new(t).size(15.5).strong());
-                        } else if l.trim() == "---" {
-                            ui.separator();
-                        } else if l.trim().is_empty() {
-                            ui.add_space(3.0);
-                        } else if shown {
-                            let indent = l.len() - l.trim_start().len();
-                            let t = l.trim_start();
-                            let item =
-                                t.strip_prefix("- ")
-                                    .map(|r| ("•".to_string(), r))
-                                    .or_else(|| {
-                                        let n = t.find(". ")?;
-                                        t[..n]
-                                            .chars()
-                                            .all(|c| c.is_ascii_digit())
-                                            .then(|| (format!("{}.", &t[..n]), &t[n + 2..]))
-                                    });
-                            match item {
-                                Some((mark, text)) => {
-                                    ui.horizontal_top(|ui| {
-                                        ui.add_space(8.0 + indent as f32 * 6.0);
-                                        ui.label(mark);
-                                        let job = inline(ui, text, 13.5);
-                                        ui.add(egui::Label::new(job).wrap());
-                                    });
-                                }
-                                None => {
-                                    let job = inline(ui, t, 13.5);
-                                    ui.add(egui::Label::new(job).wrap());
-                                }
-                            }
-                        }
-                        k += 1;
-                    }
-                });
+                .show(ui, |ui| render(ui, &lines, &mut self.goto, &needle, "manual_table"));
         }
     }
+}
+
+/// Dibuja un texto en Markdown (el del manual o la respuesta de un asistente): encabezados,
+/// listas, tablas, bloques de código, negrita y código en línea. `goto` es el capítulo al que
+/// desplazarse (solo el manual lo usa) y `needle` el texto que filtra las líneas; `salt`
+/// distingue las tablas de un texto de las de otro.
+pub fn render(ui: &mut egui::Ui, lines: &[&str], goto: &mut Option<usize>, needle: &str, salt: &'static str) {
+        let mut k = 0;
+        let mut head_no = 0;
+        let mut in_code = false;
+        while k < lines.len() {
+            let l = lines[k];
+            if l.trim_start().starts_with("```") {
+                in_code = !in_code;
+                k += 1;
+                continue;
+            }
+            if in_code {
+                // una orden larga se ajusta en el borde de la ventana en lugar de
+                // salirse
+                ui.add(egui::Label::new(RichText::new(l).monospace().size(12.0)).wrap());
+                k += 1;
+                continue;
+            }
+            if l.starts_with('|') {
+                let start = k;
+                while k < lines.len() && lines[k].starts_with('|') {
+                    k += 1;
+                }
+                let rows: Vec<Vec<&str>> = lines[start..k]
+                    .iter()
+                    .filter(|r| !r.contains("---"))
+                    .map(|r| cells(r))
+                    .collect();
+                // las columnas comparten el ancho de la ventana: una celda se ajusta en
+                // su columna y una tabla nunca se sale del borde
+                let gap = 14.0;
+                let widths = column_widths(ui, &rows, 13.0, gap);
+                egui::Grid::new((salt, start))
+                    .striped(true)
+                    .spacing([gap, 4.0])
+                    .show(ui, |ui| {
+                        for (ri, row) in rows.iter().enumerate() {
+                            for (ci, c) in row.iter().enumerate() {
+                                let mut job = inline(ui, c, 13.0);
+                                if ri == 0 {
+                                    for s in &mut job.sections {
+                                        s.format.color =
+                                            ui.visuals().strong_text_color();
+                                    }
+                                }
+                                let w = widths.get(ci).copied().unwrap_or(120.0);
+                                ui.scope(|ui| {
+                                    ui.set_max_width(w);
+                                    ui.add(egui::Label::new(job).wrap());
+                                });
+                            }
+                            ui.end_row();
+                        }
+                    });
+                ui.add_space(4.0);
+                continue;
+            }
+            let mut shown = true;
+            if !needle.is_empty() && !l.to_lowercase().contains(&needle) {
+                shown = l.starts_with('#');
+            }
+            if let Some(t) = l.strip_prefix("# ") {
+                ui.add_space(4.0);
+                ui.label(RichText::new(t).heading().strong());
+            } else if let Some(t) = l.strip_prefix("## ") {
+                ui.add_space(12.0);
+                let r = ui.label(
+                    RichText::new(t)
+                        .size(19.0)
+                        .strong()
+                        .color(Color32::from_rgb(0xFF, 0x8A, 0x1F)),
+                );
+                if *goto == Some(head_no) {
+                    r.scroll_to_me(Some(Align::TOP));
+                    *goto = None;
+                }
+                head_no += 1;
+            } else if let Some(t) = l.strip_prefix("#### ") {
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(t)
+                        .size(14.0)
+                        .strong()
+                        .color(Color32::from_rgb(0xFF, 0x8A, 0x1F)),
+                );
+            } else if let Some(t) = l.strip_prefix("### ") {
+                ui.add_space(6.0);
+                ui.label(RichText::new(t).size(15.5).strong());
+            } else if l.trim() == "---" {
+                ui.separator();
+            } else if l.trim().is_empty() {
+                ui.add_space(3.0);
+            } else if shown {
+                let indent = l.len() - l.trim_start().len();
+                let t = l.trim_start();
+                let item =
+                    t.strip_prefix("- ")
+                        .map(|r| ("•".to_string(), r))
+                        .or_else(|| {
+                            let n = t.find(". ")?;
+                            t[..n]
+                                .chars()
+                                .all(|c| c.is_ascii_digit())
+                                .then(|| (format!("{}.", &t[..n]), &t[n + 2..]))
+                        });
+                match item {
+                    Some((mark, text)) => {
+                        ui.horizontal_top(|ui| {
+                            ui.add_space(8.0 + indent as f32 * 6.0);
+                            ui.label(mark);
+                            let job = inline(ui, text, 13.5);
+                            ui.add(egui::Label::new(job).wrap());
+                        });
+                    }
+                    None => {
+                        let job = inline(ui, t, 13.5);
+                        ui.add(egui::Label::new(job).wrap());
+                    }
+                }
+            }
+            k += 1;
+        }
+
+}
+
+/// Dibuja un texto en Markdown en el ancho disponible.
+pub fn markdown(ui: &mut egui::Ui, text: &str, salt: &'static str) {
+    let lines: Vec<&str> = text.lines().collect();
+    render(ui, &lines, &mut None, "", salt);
 }
 
 #[cfg(test)]

@@ -2,9 +2,11 @@
 //! para que la memoria dependa del área y del tamaño de celda, nunca del número de puntos.
 
 pub mod aba;
+pub mod alpha3d;
 pub mod axelsson;
 pub mod breaklines;
 pub mod buildings;
+pub mod canopygaps;
 pub mod catalog;
 pub mod change;
 pub mod chm;
@@ -31,6 +33,7 @@ pub mod corridor;
 pub mod crs;
 pub mod csf;
 pub mod cutfill;
+pub mod dtmcheck;
 pub mod e57;
 pub mod edit;
 pub mod export;
@@ -104,6 +107,8 @@ pub mod tilemap;
 pub mod tin;
 pub mod tls;
 pub mod trees;
+pub mod trees3d;
+pub mod treemetrics;
 pub mod vdensity;
 pub mod vecops;
 pub mod vector;
@@ -111,6 +116,7 @@ pub mod view;
 pub mod viewshed;
 pub mod volume;
 pub mod voronoi;
+pub mod voxelmetrics;
 pub mod wand;
 pub mod xlsx;
 pub mod zonal;

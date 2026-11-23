@@ -6,6 +6,7 @@ use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 mod flow;
+mod mcp;
 use hipso_core::axelsson::AxelssonParams;
 use hipso_core::buildings::BuildingParams;
 use hipso_core::csf::CsfParams;
@@ -2385,6 +2386,202 @@ enum Cmd {
         #[arg(long)]
         gpkg: bool,
     },
+    /// Exactitud de un MDT frente a puntos de control del suelo (los de suelo de una nube, una capa
+    /// de puntos con un campo de cota o una tabla con X, Y y Z): sesgo, MAE, RMSE, desviación y los
+    /// estadísticos robustos NMAD y LE95, más la tabla de errores punto a punto
+    DtmValidate {
+        /// El MDT (GeoTIFF)
+        dtm: PathBuf,
+        /// Puntos de control: nube LAS/LAZ (su clase suelo), capa de puntos (.shp, .gpkg,
+        /// .geojson) o tabla (.csv, .xlsx)
+        reference: PathBuf,
+        /// Cómo se lee el MDT bajo cada punto: bilinear o nearest
+        #[arg(long, default_value = "bilinear")]
+        sampling: String,
+        /// Clase de la nube que sirve de referencia
+        #[arg(long, default_value_t = 2)]
+        class: u8,
+        /// Campo con la cota (capas y tablas); por defecto z, cota o elev si existen
+        #[arg(long)]
+        z_field: Option<String>,
+        /// Columna X de una tabla
+        #[arg(long)]
+        x_field: Option<String>,
+        /// Columna Y de una tabla
+        #[arg(long)]
+        y_field: Option<String>,
+        /// Descarta los puntos con un error absoluto mayor que esto (m)
+        #[arg(long)]
+        max_error: Option<f64>,
+        /// No escribe la tabla de errores
+        #[arg(long)]
+        no_csv: bool,
+        /// Escribe también los errores como capa de puntos
+        #[arg(long)]
+        shp: bool,
+        /// Ruta base de los resultados; por defecto: <resultados>/<MDT>_validacion
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Huecos del dosel: las manchas conectadas de un CHM por debajo de una altura, cada una con su
+    /// superficie, perímetro, forma y alturas, y la fracción de dosel que son hueco
+    CanopyGaps {
+        /// El CHM (GeoTIFF en un sistema proyectado, celda en metros)
+        input: PathBuf,
+        /// Una celda por debajo de esta altura (m) está en un hueco
+        #[arg(long, default_value_t = 5.0)]
+        height: f64,
+        /// Descarta los huecos menores que esto (m²)
+        #[arg(long, default_value_t = 1.0)]
+        min_area: f64,
+        /// Descarta los huecos mayores que esto (m²): no son huecos del dosel sino claros
+        #[arg(long, default_value_t = 10000.0)]
+        max_area: f64,
+        /// Conserva los huecos cortados por el borde del ráster o por celdas sin dato
+        #[arg(long)]
+        include_edge: bool,
+        /// Escribe también el ráster de huecos (identificadores)
+        #[arg(long)]
+        raster: bool,
+        /// Escribe además un GeoPackage
+        #[arg(long)]
+        gpkg: bool,
+        /// Ruta base de los resultados; por defecto: <resultados>/<CHM>_huecos.shp
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Métricas de vóxeles: la estructura vertical del dosel en columnas de celdas y capas de
+    /// altura, con un ráster por métrica (puntos, vóxeles ocupados, volumen, relleno, altura
+    /// máxima y media, entropía de alturas, fracción de huecos y LAI de MacArthur y Horn)
+    VoxelMetrics {
+        /// Nubes LAS o LAZ
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// MDT con el que se normalizan las alturas; sin él, la nube ya trae alturas sobre el suelo
+        #[arg(long)]
+        dtm: Option<PathBuf>,
+        /// Lado de la columna (m)
+        #[arg(long, default_value_t = 2.0)]
+        cell: f64,
+        /// Grosor de la capa (m)
+        #[arg(long, default_value_t = 1.0)]
+        dz: f64,
+        /// Altura (m) por encima de la cual los puntos no cuentan
+        #[arg(long, default_value_t = 60.0)]
+        max_height: f64,
+        /// Puntos que ocupan un vóxel
+        #[arg(long, default_value_t = 1)]
+        min_points: u32,
+        /// Los puntos por debajo de esta altura (m) son suelo para la fracción de huecos y el LAI
+        #[arg(long, default_value_t = 1.0)]
+        ground_height: f64,
+        /// Coeficiente de extinción de la luz para el LAI
+        #[arg(long, default_value_t = 0.5)]
+        k: f64,
+        /// Métricas que escribir (puntos, voxeles, volumen, relleno, hmax, hmedia, entropia, hueco,
+        /// lai); por defecto, todas
+        #[arg(long, value_delimiter = ',')]
+        metrics: Vec<String>,
+        /// Retornos que se usan: A, F, L o números
+        #[arg(long, default_value = "A")]
+        returns: String,
+        /// Clases que se usan: 2,5 o ~7,18
+        #[arg(long)]
+        class: Option<String>,
+        /// Lado de las teselas (m)
+        #[arg(long, default_value_t = 250.0)]
+        tile: f64,
+        /// Ruta base: cada métrica es <ruta>_<métrica>.tif; por defecto:
+        /// <resultados>/<primera nube>_voxeles
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Árboles individuales sobre los puntos, de arriba abajo, sin pasar por un ráster: crecimiento
+    /// de regiones desde las cimas en la línea de Li et al. (2012). Escribe la nube con treeID, las
+    /// cimas y una tabla
+    Trees3d {
+        /// Nubes LAS o LAZ
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// MDT con el que se normalizan las alturas; sin él se usa un TIN de los puntos de suelo de
+        /// la propia nube y, si no hay, la elevación se toma como altura
+        #[arg(long)]
+        dtm: Option<PathBuf>,
+        /// Altura mínima (m) de un punto para entrar
+        #[arg(long, default_value_t = 2.0)]
+        hmin: f64,
+        /// Separación (m) para unir un punto a un árbol por debajo de --zu
+        #[arg(long, default_value_t = 1.5)]
+        dt1: f64,
+        /// Separación (m) por encima de --zu
+        #[arg(long, default_value_t = 2.0)]
+        dt2: f64,
+        /// Altura (m) a partir de la cual vale --dt2
+        #[arg(long, default_value_t = 15.0)]
+        zu: f64,
+        /// Radio (m) en el que un punto sin vecinos a --dt se une al árbol más cercano en lugar de
+        /// ser una cima nueva (0: no hay)
+        #[arg(long, default_value_t = 3.0)]
+        radius: f64,
+        /// Los árboles con menos puntos se disuelven
+        #[arg(long, default_value_t = 10)]
+        min_points: usize,
+        /// Clases que se usan: 2,5 o ~7,18
+        #[arg(long)]
+        class: Option<String>,
+        /// Lado de las teselas (m)
+        #[arg(long, default_value_t = 250.0)]
+        tile: f64,
+        /// Margen (m) que cada tesela toma de sus vecinas
+        #[arg(long, default_value_t = 25.0)]
+        buffer: f64,
+        /// No escribe la nube con treeID
+        #[arg(long)]
+        no_cloud: bool,
+        /// No escribe la tabla de cimas
+        #[arg(long)]
+        no_csv: bool,
+        /// No escribe las cimas como capa de puntos
+        #[arg(long)]
+        no_shp: bool,
+        /// Ruta base de los resultados; por defecto: <resultados>/<primera nube>_arboles3d
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Métricas de cada árbol de una nube con treeID: altura, base y longitud de la copa, proporción
+    /// de copa, superficie y radio, y el volumen de la copa como envolvente convexa y como forma
+    /// alfa 3D
+    TreeMetrics {
+        /// Nube con el atributo treeID (la de `trees --cloud` o `trees3d`)
+        input: PathBuf,
+        /// MDT para las alturas; por defecto, el más reciente hecho con la nube
+        #[arg(long)]
+        dtm: Option<PathBuf>,
+        /// Las alturas de la nube ya son sobre el suelo
+        #[arg(long)]
+        normalized: bool,
+        /// Salto vertical (m) entre puntos que cierra la copa por abajo
+        #[arg(long, default_value_t = 2.0)]
+        gap: f64,
+        /// Los puntos por debajo de esta altura (m) no cuentan para la copa
+        #[arg(long, default_value_t = 1.3)]
+        crown_min: f64,
+        /// Radio alfa (m) de la forma alfa: menor sigue más el contorno de la copa
+        #[arg(long, default_value_t = 2.0)]
+        alpha: f64,
+        /// Los árboles con menos puntos no se miden
+        #[arg(long, default_value_t = 20)]
+        min_points: usize,
+        /// Clases que se usan: 2,5 o ~7,18
+        #[arg(long)]
+        class: Option<String>,
+        /// No escribe las cimas como capa de puntos
+        #[arg(long)]
+        no_shp: bool,
+        /// Ruta base de los resultados; por defecto: <resultados>/<nube>_metricas_arboles
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
     /// Estadísticas de un ráster (un CHM, un índice, un MDT) dentro de cada polígono. El resultado
     /// es una capa de polígonos (shapefile) con los atributos propios de los polígonos más un campo
     /// nuevo por estadístico: count, min, max, mean, sum, stddev, median. Una celda cuenta cuando
@@ -2868,6 +3065,10 @@ enum Cmd {
     /// Lo que admite cada orden, como JSON: las opciones que dibuja un constructor de flujos para
     /// cada herramienta
     Schema,
+    /// Servidor MCP (Protocolo de Contexto de Modelo) por la entrada y la salida estándar: cada
+    /// orden de hipso es una herramienta que un asistente o cualquier cliente MCP puede descubrir y
+    /// llamar. Se configura en el cliente como la orden `hipso mcp`
+    Mcp,
     /// Ejecuta un flujo guardado por el constructor de flujos (un `.model.json`): cada nodo es una
     /// orden de este programa, ejecutada en orden; los productos conservados van a la carpeta de
     /// resultados
@@ -3485,6 +3686,7 @@ fn run(cmd: Cmd) -> Result<()> {
             println!("{}", flow::schema().to_json());
             return Ok(());
         }
+        Cmd::Mcp => return mcp::serve(flow::schema()).map_err(Into::into),
         Cmd::Run { model, inputs } => return flow::run(&model, &inputs, paths::output_dir()),
         Cmd::ModelValidate { model } => return flow::validate(&model),
         Cmd::Catalog { inputs, tolerance } => {
@@ -5364,6 +5566,132 @@ fn run(cmd: Cmd) -> Result<()> {
             job.depth_raster = depth_raster;
             job.gpkg = gpkg;
             hipso_core::ponds::run(&job)?
+        }
+        Cmd::DtmValidate {
+            dtm,
+            reference,
+            sampling,
+            class,
+            z_field,
+            x_field,
+            y_field,
+            max_error,
+            no_csv,
+            shp,
+            output,
+        } => {
+            let out = output.unwrap_or_else(|| paths::unique(&paths::product(&dtm, "validacion", "csv")));
+            let mut job = hipso_core::dtmcheck::DtmCheckJob::new(dtm, reference, out);
+            job.sampling = match sampling.as_str() {
+                "bilinear" => hipso_core::dtmcheck::Sampling::Bilinear,
+                "nearest" => hipso_core::dtmcheck::Sampling::Nearest,
+                o => return Err(hipso_core::Error::Param(format!("--sampling: «{o}» no válido (bilinear, nearest)")).into()),
+            };
+            job.class = class;
+            job.z_field = z_field;
+            job.x_field = x_field;
+            job.y_field = y_field;
+            job.max_error = max_error;
+            job.csv = !no_csv;
+            job.shp = shp;
+            hipso_core::dtmcheck::run(&job)?
+        }
+        Cmd::CanopyGaps { input, height, min_area, max_area, include_edge, raster, gpkg, output } => {
+            let out = out_path(output, &input, "huecos", "shp");
+            let mut job = hipso_core::canopygaps::GapJob::new(input, out);
+            job.height = height;
+            job.min_area = min_area;
+            job.max_area = max_area;
+            job.include_edge = include_edge;
+            job.raster = raster;
+            job.gpkg = gpkg;
+            hipso_core::canopygaps::run(&job)?
+        }
+        Cmd::VoxelMetrics {
+            inputs,
+            dtm,
+            cell,
+            dz,
+            max_height,
+            min_points,
+            ground_height,
+            k,
+            metrics,
+            returns,
+            class,
+            tile,
+            output,
+        } => {
+            use hipso_core::filter::{ClassSel, Filter, ReturnSel};
+            let first = inputs.first().cloned().unwrap_or_default();
+            let out = output.unwrap_or_else(|| paths::product(&first, "voxeles", "tif"));
+            let mut job = hipso_core::voxelmetrics::VoxelJob::new(inputs, out);
+            job.dtm = dtm;
+            job.cell = cell;
+            job.dz = dz;
+            job.max_height = max_height;
+            job.min_points = min_points;
+            job.ground_h = ground_height;
+            job.k = k;
+            job.metrics = metrics;
+            job.filter = Filter {
+                classes: class.as_deref().map_or(Ok(ClassSel::all()), ClassSel::parse)?,
+                returns: ReturnSel::parse(&returns)?,
+                skip_noise: true,
+                ..Filter::default()
+            };
+            job.tiling.size = tile;
+            hipso_core::voxelmetrics::run(&job)?
+        }
+        Cmd::Trees3d {
+            inputs,
+            dtm,
+            hmin,
+            dt1,
+            dt2,
+            zu,
+            radius,
+            min_points,
+            class,
+            tile,
+            buffer,
+            no_cloud,
+            no_csv,
+            no_shp,
+            output,
+        } => {
+            use hipso_core::filter::{ClassSel, Filter};
+            let first = inputs.first().cloned().unwrap_or_default();
+            let out = output.unwrap_or_else(|| paths::unique(&paths::product(&first, "arboles3d", "laz")));
+            let mut job = hipso_core::trees3d::Trees3dJob::new(inputs, out);
+            job.dtm = dtm;
+            job.params = hipso_core::trees3d::Params { hmin, dt1, dt2, zu, radius, min_points };
+            job.filter = Filter {
+                classes: class.as_deref().map_or(Ok(ClassSel::all()), ClassSel::parse)?,
+                skip_noise: true,
+                ..Filter::default()
+            };
+            job.tiling.size = tile;
+            job.tiling.buffer = buffer;
+            job.cloud = !no_cloud;
+            job.csv = !no_csv;
+            job.shp = !no_shp;
+            hipso_core::trees3d::run(&job)?
+        }
+        Cmd::TreeMetrics { input, dtm, normalized, gap, crown_min, alpha, min_points, class, no_shp, output } => {
+            use hipso_core::filter::{ClassSel, Filter};
+            let out = output.unwrap_or_else(|| paths::unique(&paths::product(&input, "metricas_arboles", "csv")));
+            let mut job = hipso_core::treemetrics::TreeMetricsJob::new(input, out);
+            job.dtm = dtm;
+            job.normalized = normalized;
+            job.params = hipso_core::treemetrics::Params { gap, crown_min, alpha, min_points, ..Default::default() };
+            job.filter = Filter {
+                classes: class.as_deref().map_or(Ok(ClassSel::all()), ClassSel::parse)?,
+                skip_noise: true,
+                ..Filter::default()
+            };
+            job.shp = !no_shp;
+            hipso_core::treemetrics::run(&job)?
         }
         Cmd::Terrain {
             input,
