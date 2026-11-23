@@ -268,17 +268,12 @@ def enlazar_apartados(texto, ruta):
         dest = DESTINO_APARTADO.get(n) or DESTINO_CAPITULO.get(n.split(".")[0])
         return f"[{m.group(1)} {n}]({base}{dest}.html)" if dest else m.group(0)
 
-    def capitulo(m):
-        dest = DESTINO_CAPITULO.get(m.group(2))
-        return f"[{m.group(1)} {m.group(2)}]({base}{dest}.html)" if dest else m.group(0)
-
     partes, codigo = [], False
     for linea in texto.split("\n"):
         if linea.startswith("```"):
             codigo = not codigo
         if not codigo and not linea.startswith("#"):
-            linea = re.sub(r"\b([Aa]partados?) (\d+\.\d+)\b(?!\.\d)", apartado, linea)
-            linea = re.sub(r"\b([Cc]apítulos?) (\d+)\b(?![.\d])", capitulo, linea)
+            linea = re.sub(r"\b([Aa]partados?|[Cc]apítulos?) (\d+(?:\.\d+)?)\b(?!\.\d)", apartado, linea)
         partes.append(linea)
     return "\n".join(partes)
 
@@ -289,6 +284,15 @@ def a_html(p):
         extension_configs={"toc": {"slugify": lambda v, s: identificador(v), "permalink": "#", "toc_depth": "2-3"}},
     )
     texto = enlazar_apartados(p.md, p.ruta)
+    # enlaces relativos a archivos del repositorio (en docs/ o en la raíz): a su página en GitHub
+    def a_repo(m):
+        u = m.group(2)
+        if u.startswith("../"):
+            u = u[3:]
+        elif u.endswith(".md") and "/" not in u:
+            u = "docs/" + u
+        return f"{m.group(1)}({REPO}/blob/main/{u})"
+    texto = re.sub(r"(\[[^\]]+\])\(((?:\.\./)?[A-Za-z0-9_./-]+\.md)\)", a_repo, texto)
     # el manual no deja siempre una línea en blanco antes de una lista
     texto = re.sub(r"([^\n])\n(- |\d+\. )", r"\1\n\n\2", texto)
     cuerpo = md.convert(texto)

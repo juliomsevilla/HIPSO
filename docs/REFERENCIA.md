@@ -208,7 +208,7 @@ Métodos disponibles:
 
 ## Distribuir
 
-Ver [docs/DISTRIBUCION.md](docs/DISTRIBUCION.md): ZIP portable, compilación para Windows, Linux y macOS con GitHub Actions, instaladores y firma.
+Ver [DISTRIBUCION.md](DISTRIBUCION.md): ZIP portable, compilación para Windows, Linux y macOS con GitHub Actions, instaladores y firma.
 
 ## Compilar
 
@@ -270,7 +270,7 @@ Cada herramienta es un *job* del motor; la CLI y la interfaz solo rellenan sus p
 - **terrio** (MIT, Qiusheng Wu) y **PROJ** (MIT): el motor de coordenadas de `crates/crs` (proyecciones, tablas EPSG, transformaciones de datum) se adapta del módulo `crs` de terrio, que a su vez lo porta de PROJ. Datos: EPSG (IOGP), proyecciones de Esri (Apache-2.0) y las mallas del IGN y del ICGC (CC-BY 4.0) para pasar de ED50 a ETRS89 y del geoide EGM08-REDNAP.
 - **Análisis de terreno:** métodos de Horn (1981), Zevenbergen y Thorne (1987), Wilson et al. (2007), Weiss (2001), O'Callaghan y Mark (1984), Beven y Kirkby (1979) y Barnes, Lehman y Mulla (2014), implementados desde esas publicaciones.
 
-Ver [docs/LICENCIAS.md](docs/LICENCIAS.md), `NOTICE` y `THIRD_PARTY_LICENSES.md`.
+Ver [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md) y `NOTICE`.
 
 
 ## Manual y licencia
