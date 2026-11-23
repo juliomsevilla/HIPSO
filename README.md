@@ -30,18 +30,6 @@ En la página de **[Releases](https://github.com/juliomsevilla/HIPSO/releases/la
 
 ---
 
-## Novedades
-
-- **Asistente de IA** (*Archivo → Asistente*): un panel de conversación que conoce HIPSO. Explica cada herramienta consultando el manual y la referencia, describe y explora los datos abiertos (nubes, rásteres, capas y tablas), recomienda cómo hacer un trabajo y **crea flujos** validados contra las herramientas reales, que se abren en la pestaña *Flujos* para ejecutarlos. Funciona con DeepSeek, OpenRouter, Claude, ChatGPT o cualquier servicio compatible con OpenAI, con tu propia clave: HIPSO no pone intermediarios ni cobra. Trae ocho perfiles (GIS Analyst, GIS Editor, LiDAR Analyst, LiDAR Editor, Remote Sensing Analyst, Spatial Data Analyst, Data Analyst y Data Scientist) y uno propio, y guarda las conversaciones como archivos `.jsonl` en la carpeta que elijas. El asistente nunca ejecuta herramientas por su cuenta: arma el flujo y lo ejecutas tú.
-- **Servidor MCP** (`hipso mcp`): cualquier cliente del Protocolo de Contexto de Modelo (un asistente de código, un chat de escritorio…) descubre las órdenes de `hipso` como herramientas, con sus opciones, valores admitidos y valores por defecto tomados del propio programa, y las llama: clasificar una nube, hacer un MDT o medir los árboles de una hoja sin escribir la orden. No tiene credenciales ni abre ningún puerto. Se configura como una orden más: `{ "mcpServers": { "hipso": { "command": "hipso", "args": ["mcp"] } } }`.
-- **Herramientas nuevas:** *Validar MDT* (error del modelo del terreno frente a puntos de control), *Huecos del dosel*, *Métricas de vóxeles*, *Segmentar con puntos* (árboles 3D sin CHM) y *Métricas por árbol*, todas con su orden en la línea de comandos y su nodo en el constructor de flujos.
-
-<p align="center">
-  <img src="assets/social/12-asistente-ia.jpg" alt="El panel del asistente de IA junto a una nube clasificada" width="85%">
-</p>
-
----
-
 ## Qué hace
 
 ### Premisas
@@ -64,7 +52,7 @@ Y, además... creemos que un software que aúne estas tres premisas debe estar d
 - Colorear por elevación, clase, intensidad, retorno, pasada, archivo, RGB o ID de árbol.
 - **Edición por selecciones** (rectángulo, círculo, polígono, lazo, en planta, en perfil o **en la vista 3D**, con rebanada de profundidad y *Aislar selección* para editar un árbol a toda su densidad, sin crear archivos y dentro de la misma sesión), **varita mágica** en planta (un clic selecciona los puntos conectados y parecidos al pulsado, siguiendo una superficie o un volumen, con todos los puntos del archivo), con filtros por clase, altura, intensidad y retorno; eliminar o reclasificar; deshacer, rehacer e historial. Las ediciones se guardan en un archivo, se recuperan si el programa se cierra y se aplican a otras hojas, también con `hipso apply-edits`. El original nunca se modifica.
 - **EDA** (*Archivo → Análisis → EDA*): un panel de análisis exploratorio acoplado bajo las vistas, con histograma, dispersión (con rejilla de densidad y recta de ajuste) y cajas de una capa vectorial, una tabla CSV o XLSX, un ráster o la nube de puntos, y una pestaña de estadísticas (cuartiles, desviación, MAD, por grupos). Los gráficos están **enlazados a la selección**: lo que se arrastra en un gráfico se selecciona en el mapa, en la tabla y, en una nube, entre todos los puntos del archivo, y al revés. Cada gráfico se guarda como imagen PNG.
-- **Asistente de IA** (*Archivo → Asistente*): un panel de conversación que conoce HIPSO. Explica el programa y sus herramientas consultando el manual y la referencia (sin cargarlos enteros, para gastar pocos tokens), describe y explora los datos abiertos (nubes, rásteres, capas y tablas), recomienda cómo hacer un trabajo y **crea flujos** validados contra las herramientas reales. Funciona con DeepSeek, OpenRouter, Claude y ChatGPT con tu propia clave, con ocho perfiles predefinidos (GIS Analyst, GIS Editor, LiDAR Analyst, LiDAR Editor, Remote Sensing Analyst, Spatial Data Analyst, Data Analyst y Data Scientist) y uno propio. Las conversaciones se guardan como archivos `.jsonl` en la carpeta que elijas.
+- **Asistente de IA** (*Archivo → Asistente*): un panel de conversación que conoce HIPSO. Explica el programa y sus herramientas consultando el manual y la referencia (sin cargarlos enteros, para gastar pocos tokens), describe y explora los datos abiertos (nubes, rásteres, capas y tablas), recomienda cómo hacer un trabajo y **crea flujos** validados contra las herramientas reales. Funciona con DeepSeek, OpenRouter, Claude y ChatGPT con tu propia clave, con ocho perfiles predefinidos (GIS Analyst, GIS Editor, LiDAR Analyst, LiDAR Editor, Remote Sensing Analyst, Spatial Data Analyst, Data Analyst y Data Scientist) y uno propio. Las conversaciones se guardan como archivos `.jsonl` en la carpeta que elijas. El asistente nunca ejecuta herramientas por su cuenta: arma el flujo y lo ejecutas tú.
 - **Capturar coordenadas** con el ratón (icono de la cabecera, con copia al portapapeles y paso a otro EPSG) e **Ir a coordenadas** (barra de estado).
 - **Varios procesos a la vez:** las herramientas de la ventana común (vectorial y ráster) se ejecutan en paralelo, cada una con su ventana, su avance y su botón de detener.
 - **Histogramas de atributos** (elevación, intensidad, retornos, clase, pasada, ángulo de barrido): se marcan barras para seleccionar los puntos, o se detectan los valores raros con un estadístico (Tukey, MAD, desviaciones típicas, percentiles).
@@ -145,7 +133,7 @@ LAS y LAZ (también **COPC**, leído solo en la parte que hace falta y escrito c
   </tr>
   <tr>
     <td width="50%"><img src="assets/social/02-estadio-3d.jpg" alt="Un estadio y su entorno en 3D"></td>
-    <td width="50%"><img src="assets/social/05-terreno-opengf.jpg" alt="Terreno por elevación, con su vista 3D"></td>
+    <td width="50%"><img src="assets/social/12-asistente-ia.jpg" alt="Asistente de IA junto a una nube clasificada"></td>
   </tr>
 </table>
 
@@ -186,7 +174,7 @@ hipso compare nube2.laz --reference nube1.laz --distance 0.5
 
 `hipso <comando> --help` lista todos los parámetros.
 
-`hipso mcp` es un servidor MCP (Protocolo de Contexto de Modelo): un asistente o cualquier cliente MCP descubre todas estas órdenes como herramientas y las llama, con sus opciones tomadas del propio programa.
+`hipso mcp` es un servidor MCP (Protocolo de Contexto de Modelo): un asistente o cualquier cliente MCP descubre todas estas órdenes como herramientas y las llama, con sus opciones tomadas del propio programa. Sus opciones, valores admitidos y valores por defecto salen del propio programa, no tiene credenciales ni abre ningún puerto, y se configura como una orden más en el cliente: `{ "mcpServers": { "hipso": { "command": "hipso", "args": ["mcp"] } } }`.
 
 ## Limitaciones conocidas
 
