@@ -31,7 +31,7 @@ use rayon::prelude::*;
 
 use crate::csf::{self, CsfParams};
 use crate::grid::Grid;
-use crate::las::{Point, Reader, Writer, WriterOptions};
+use crate::las::{ExtraAttr, ExtraKind, Point, Reader, Writer, WriterOptions};
 use crate::vector::{ColKind, Table, Val};
 use crate::{Error, Result};
 
@@ -85,6 +85,13 @@ pub struct TlsParams {
     /// Mayor tramo (m) de un tronco que puede quedar sin medir (una oclusión, follaje, una parte
     /// poco densa) antes de darlo por perdido. La búsqueda se ensancha con el tramo.
     pub max_gap: f64,
+    /// Asigna los puntos de la copa por el camino más corto desde el tronco, por una retícula de
+    /// vóxeles ocupados, en vez de por la distancia al eje (véase [`CrownMap`]).
+    pub crowns: bool,
+    /// Vóxel (m) de esa retícula.
+    pub crown_voxel: f64,
+    /// Mayor longitud (m) del camino desde el tronco hasta un punto de su copa.
+    pub crown_reach: f64,
     /// Proporción (0–1) de la altura del árbol que se espera que sea su altura comercial, que se
     /// usa para estimarla en un tronco que se perdió cuando aún era grueso y muy por debajo de la
     /// cima del árbol. 0: sin estimación (el tronco queda truncado).
@@ -117,6 +124,9 @@ impl Default for TlsParams {
             stool_dist: 0.6,
             fork_height: 1.3,
             max_gap: 2.0,
+            crowns: false,
+            crown_voxel: 0.10,
+            crown_reach: 30.0,
             lost_top_share: 0.0,
         }
     }
@@ -1985,6 +1995,330 @@ pub fn write_results(
     Ok(files)
 }
 
+/// Los vóxeles ocupados de la nube con el árbol al que llega antes el camino más corto desde su
+/// tronco. Cada tronco siembra los vóxeles de su eje medido; el camino avanza por los vóxeles
+/// ocupados vecinos (26 vecinos) con un coste igual a su longitud y cada vóxel se queda con la
+/// semilla de menor coste, hasta `reach` metros. Así una rama pertenece al tronco al que está unida
+/// por follaje y madera, y no al que queda más cerca en planta. Es una variante del camino más
+/// corto entre troncos que usan Tao et al. (2015) para separar copas en nubes terrestres, con el
+/// algoritmo de Dijkstra (1959) sobre una retícula de vóxeles propia.
+struct CrownMap {
+    voxel: f64,
+    labels: FxMap<u64, u32>,
+}
+
+impl CrownMap {
+    fn key(&self, x: f64, y: f64, z: f64) -> u64 {
+        pack(
+            (x / self.voxel).floor() as i64,
+            (y / self.voxel).floor() as i64,
+            (z / self.voxel).floor() as i64,
+        )
+    }
+
+    /// El árbol (índice en `r.trees`) del vóxel de un punto, si el camino lo alcanzó.
+    fn tree_at(&self, x: f64, y: f64, z: f64) -> Option<usize> {
+        self.labels.get(&self.key(x, y, z)).map(|k| *k as usize)
+    }
+
+    fn build(input: &Path, r: &TlsResult, p: &TlsParams) -> Result<Self> {
+        use std::cmp::Reverse;
+        use std::collections::BinaryHeap;
+        let v = p.crown_voxel.max(0.02);
+        let o = r.origin;
+        let reader = Reader::open(input)?;
+        let rec_len = usize::from(reader.header.record_len);
+        // el suelo de cada tronco, para no llevar el camino por el suelo (que une a todos)
+        let cell = p.assign_dist.max(1.0);
+        let mut ground: FxMap<u64, Vec<usize>> = FxMap::default();
+        for (k, t) in r.trees.iter().enumerate() {
+            ground
+                .entry(pack((t.x / cell).floor() as i64, (t.y / cell).floor() as i64, 0))
+                .or_default()
+                .push(k);
+        }
+        let mut index: FxMap<u64, u32> = FxMap::default();
+        let mut cells: Vec<[i32; 3]> = Vec::new();
+        reader.scan_raw(|bytes| {
+            for rec in bytes.chunks_exact(rec_len) {
+                let Some(pt) = reader.decode(rec) else {
+                    continue;
+                };
+                if pt.is_noise() || pt.class == 2 {
+                    continue;
+                }
+                let (x, y, z) = (pt.x - o[0], pt.y - o[1], pt.z);
+                // por debajo de 20 cm sobre el suelo del tronco más cercano no hay camino
+                let (cx, cy) = ((x / cell).floor() as i64, (y / cell).floor() as i64);
+                let mut low = false;
+                'ground: for dx in -1..=1 {
+                    for dy in -1..=1 {
+                        if let Some(list) = ground.get(&pack(cx + dx, cy + dy, 0)) {
+                            for &k in list {
+                                let t = &r.trees[k];
+                                if (x - t.x).hypot(y - t.y) <= p.assign_dist
+                                    && z - (t.ground_z + o[2]) < 0.2
+                                {
+                                    low = true;
+                                    break 'ground;
+                                }
+                            }
+                        }
+                    }
+                }
+                if low {
+                    continue;
+                }
+                let c = [
+                    (x / v).floor() as i32,
+                    (y / v).floor() as i32,
+                    (z / v).floor() as i32,
+                ];
+                let key = pack(i64::from(c[0]), i64::from(c[1]), i64::from(c[2]));
+                if let std::collections::hash_map::Entry::Vacant(e) = index.entry(key) {
+                    e.insert(cells.len() as u32);
+                    cells.push(c);
+                }
+            }
+            Ok(())
+        })?;
+        let n = cells.len();
+        let mut dist = vec![f32::INFINITY; n];
+        let mut label = vec![u32::MAX; n];
+        // coste de cada vecino: la longitud del salto
+        let mut offs: Vec<([i32; 3], f32)> = Vec::with_capacity(26);
+        for dx in -1i32..=1 {
+            for dy in -1i32..=1 {
+                for dz in -1i32..=1 {
+                    if (dx, dy, dz) != (0, 0, 0) {
+                        let l = f64::from(dx * dx + dy * dy + dz * dz).sqrt() * v;
+                        offs.push(([dx, dy, dz], l as f32));
+                    }
+                }
+            }
+        }
+        // las semillas: los vóxeles ocupados en el eje medido de cada tronco
+        let mut heap: BinaryHeap<Reverse<(u32, u32)>> = BinaryHeap::new();
+        for (k, t) in r.trees.iter().enumerate() {
+            let top = t
+                .sections
+                .iter()
+                .filter(|s| s.ok)
+                .map(|s| s.h)
+                .fold(0.0f64, f64::max);
+            let mut h = 0.3f64;
+            while h <= top.max(1.5) {
+                let (ax, ay) = (
+                    t.x + t.slope[0] * (h - p.base_height),
+                    t.y + t.slope[1] * (h - p.base_height),
+                );
+                let z = t.ground_z + o[2] + h;
+                let c = [
+                    (ax / v).floor() as i32,
+                    (ay / v).floor() as i32,
+                    (z / v).floor() as i32,
+                ];
+                // el vóxel del eje o uno de los 26 vecinos, que cubren el grosor del tronco
+                for dx in -1i32..=1 {
+                    for dy in -1i32..=1 {
+                        for dz in -1i32..=1 {
+                            let key = pack(
+                                i64::from(c[0] + dx),
+                                i64::from(c[1] + dy),
+                                i64::from(c[2] + dz),
+                            );
+                            if let Some(&i) = index.get(&key)
+                                && label[i as usize] == u32::MAX
+                            {
+                                label[i as usize] = k as u32;
+                                dist[i as usize] = 0.0;
+                                heap.push(Reverse((0, i)));
+                            }
+                        }
+                    }
+                }
+                h += v;
+            }
+        }
+        let reach = p.crown_reach as f32;
+        while let Some(Reverse((d, i))) = heap.pop() {
+            let d = f32::from_bits(d);
+            let i = i as usize;
+            if d > dist[i] {
+                continue;
+            }
+            let c = cells[i];
+            for (off, l) in &offs {
+                let nd = d + l;
+                if nd > reach {
+                    continue;
+                }
+                let key = pack(
+                    i64::from(c[0] + off[0]),
+                    i64::from(c[1] + off[1]),
+                    i64::from(c[2] + off[2]),
+                );
+                if let Some(&j) = index.get(&key)
+                    && nd < dist[j as usize]
+                {
+                    dist[j as usize] = nd;
+                    label[j as usize] = label[i];
+                    heap.push(Reverse((nd.to_bits(), j)));
+                }
+            }
+        }
+        let mut labels: FxMap<u64, u32> = FxMap::default();
+        for (key, &i) in &index {
+            if label[i as usize] != u32::MAX {
+                labels.insert(*key, label[i as usize]);
+            }
+        }
+        Ok(Self { voxel: v, labels })
+    }
+}
+
+/// Asigna cada punto a un árbol: por defecto, al eje de tronco más cercano (a menos de
+/// `assign_dist`, por encima del suelo); con `crowns`, por el camino más corto desde el tronco por
+/// los vóxeles ocupados ([`CrownMap`]), y lo que ese camino no alcanza vuelve a la regla del eje.
+/// La misma regla para las nubes por árbol y para el atributo `treeID`.
+struct Assigner<'a> {
+    r: &'a TlsResult,
+    p: &'a TlsParams,
+    cell: f64,
+    grid: FxMap<u64, Vec<usize>>,
+    crowns: Option<CrownMap>,
+}
+
+impl<'a> Assigner<'a> {
+    fn new(input: &Path, r: &'a TlsResult, p: &'a TlsParams) -> Result<Self> {
+        let cell = p.assign_dist.max(1.0);
+        let mut grid: FxMap<u64, Vec<usize>> = FxMap::default();
+        for (k, t) in r.trees.iter().enumerate() {
+            grid.entry(pack(
+                (t.x / cell).floor() as i64,
+                (t.y / cell).floor() as i64,
+                0,
+            ))
+            .or_default()
+            .push(k);
+        }
+        let crowns = if p.crowns {
+            Some(CrownMap::build(input, r, p)?)
+        } else {
+            None
+        };
+        Ok(Self {
+            r,
+            p,
+            cell,
+            grid,
+            crowns,
+        })
+    }
+
+    /// El índice del árbol de un punto (`x`, `y` respecto del origen del análisis, `z` absoluta) de
+    /// la clase `class`: con el camino por vóxeles el suelo clasificado no es de ningún árbol.
+    fn of(&self, x: f64, y: f64, z: f64, class: u8) -> Option<usize> {
+        if let Some(c) = &self.crowns {
+            if class == 2 {
+                return None;
+            }
+            if let Some(k) = c.tree_at(x, y, z) {
+                return Some(k);
+            }
+        }
+        self.nearest_axis(x, y, z)
+    }
+
+    fn nearest_axis(&self, x: f64, y: f64, z: f64) -> Option<usize> {
+        let o = self.r.origin;
+        let (cx, cy) = ((x / self.cell).floor() as i64, (y / self.cell).floor() as i64);
+        let mut best: Option<(f64, usize)> = None;
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                let Some(list) = self.grid.get(&pack(cx + dx, cy + dy, 0)) else {
+                    continue;
+                };
+                for &k in list {
+                    let t = &self.r.trees[k];
+                    let h = z - (t.ground_z + o[2]);
+                    if h < 0.2 {
+                        continue;
+                    }
+                    // distancia al eje a esta altura
+                    let (ax, ay) = (
+                        t.x + t.slope[0] * (h - self.p.base_height),
+                        t.y + t.slope[1] * (h - self.p.base_height),
+                    );
+                    let d = (x - ax).hypot(y - ay);
+                    if d <= self.p.assign_dist && best.is_none_or(|b| d < b.0) {
+                        best = Some((d, k));
+                    }
+                }
+            }
+        }
+        best.map(|b| b.1)
+    }
+}
+
+/// Escribe una sola nube con el atributo adicional `treeID` en cada punto: el número del árbol al
+/// que lo asigna la misma regla que las nubes por árbol, o 0 si no es de ninguno. Devuelve cuántos
+/// puntos tienen árbol y cuántos se escribieron.
+pub fn write_tree_ids(
+    input: &Path,
+    r: &TlsResult,
+    p: &TlsParams,
+    output: &Path,
+) -> Result<(u64, u64)> {
+    use rayon::prelude::*;
+    if input == output {
+        return Err(Error::Param(
+            "la nube con treeID debe ir a un archivo nuevo, no sobre el original".into(),
+        ));
+    }
+    crate::paths::ensure_parent(output)?;
+    let reader = Reader::open(input)?;
+    let rec_len = usize::from(reader.header.record_len);
+    let opts = WriterOptions {
+        extra: vec![ExtraAttr {
+            name: "treeID".into(),
+            description: "tree id".into(),
+            kind: ExtraKind::U32,
+        }],
+        ..WriterOptions::default()
+    };
+    let mut w = Writer::create_with(output, &reader, &opts)?;
+    let asg = Assigner::new(input, r, p)?;
+    let o = r.origin;
+    let (mut with_tree, mut total) = (0u64, 0u64);
+    reader.scan_raw(|bytes| {
+        let recs: Vec<&[u8]> = bytes.chunks_exact(rec_len).collect();
+        let ids: Vec<u32> = recs
+            .par_iter()
+            .map(|rec| {
+                let Some(pt) = reader.decode(rec) else {
+                    return 0;
+                };
+                if pt.is_noise() {
+                    return 0;
+                }
+                asg.of(pt.x - o[0], pt.y - o[1], pt.z, pt.class)
+                    .map_or(0, |k| r.trees[k].id)
+            })
+            .collect();
+        for (rec, id) in recs.iter().zip(ids) {
+            w.write_with_extra(rec, &id.to_le_bytes())?;
+            total += 1;
+            if id != 0 {
+                with_tree += 1;
+            }
+        }
+        Ok(())
+    })?;
+    w.finish()?;
+    Ok((with_tree, total))
+}
+
 /// Nubes por árbol escritas en una sola lectura de la entrada.
 const OPEN_CLOUDS: usize = 150;
 
@@ -2005,17 +2339,7 @@ pub fn write_tree_clouds(
         .extension()
         .map_or("las".to_string(), |e| e.to_string_lossy().into_owned());
     let o = r.origin;
-    let cell = p.assign_dist.max(1.0);
-    let mut grid: FxMap<u64, Vec<usize>> = FxMap::default();
-    for (k, t) in r.trees.iter().enumerate() {
-        grid.entry(pack(
-            (t.x / cell).floor() as i64,
-            (t.y / cell).floor() as i64,
-            0,
-        ))
-        .or_default()
-        .push(k);
-    }
+    let asg = Assigner::new(input, r, p)?;
     let rec_len = usize::from(template.header.record_len);
     let mut total = 0u64;
     let mut n = 0;
@@ -2034,33 +2358,8 @@ pub fn write_tree_clouds(
                     continue;
                 }
                 let (x, y, z) = (pt.x - o[0], pt.y - o[1], pt.z);
-                let (cx, cy) = ((x / cell).floor() as i64, (y / cell).floor() as i64);
-                let mut best: Option<(f64, usize)> = None;
-                for dx in -1..=1 {
-                    for dy in -1..=1 {
-                        let Some(list) = grid.get(&pack(cx + dx, cy + dy, 0)) else {
-                            continue;
-                        };
-                        for &k in list {
-                            let t = &r.trees[k];
-                            let gz = t.ground_z + o[2];
-                            let h = z - gz;
-                            if h < 0.2 {
-                                continue;
-                            }
-                            // distancia al eje a esta altura
-                            let (ax, ay) = (
-                                t.x + t.slope[0] * (h - p.base_height),
-                                t.y + t.slope[1] * (h - p.base_height),
-                            );
-                            let d = (x - ax).hypot(y - ay);
-                            if d <= p.assign_dist && best.is_none_or(|b| d < b.0) {
-                                best = Some((d, k));
-                            }
-                        }
-                    }
-                }
-                if let Some((_, k)) = best
+                let best = asg.of(x, y, z, pt.class);
+                if let Some(k) = best
                     && (lo..hi).contains(&k)
                 {
                     if let std::collections::hash_map::Entry::Vacant(v) = writers.entry(k) {
@@ -2183,6 +2482,7 @@ pub fn classify_stems(
     r: &TlsResult,
     p: &TlsParams,
     output: &Path,
+    with_ids: bool,
 ) -> Result<StemReport> {
     use rayon::prelude::*;
     if input == output {
@@ -2209,7 +2509,20 @@ pub fn classify_stems(
         None => Reader::open(input)?,
     };
     let format = template.header.format;
-    let mut w = Writer::create(output, &template)?;
+    let mut w = if with_ids {
+        let opts = WriterOptions {
+            extra: vec![ExtraAttr {
+                name: "treeID".into(),
+                description: "tree id".into(),
+                kind: ExtraKind::U32,
+            }],
+            ..WriterOptions::default()
+        };
+        Writer::create_with(output, &template, &opts)?
+    } else {
+        Writer::create(output, &template)?
+    };
+    let asg = Assigner::new(input, r, p)?;
     let o = r.origin;
     let cell = p.assign_dist.max(1.0);
     let margin = p.voxel.max(0.02);
@@ -2225,14 +2538,19 @@ pub fn classify_stems(
         .push(k);
     }
     // 0: no tocado, 1: tronco, 2: rama
-    let kind = |rec: &[u8]| -> u8 {
+    let kind = |rec: &[u8]| -> (u8, u32) {
         let Some(pt) = reader.decode(rec) else {
-            return 0;
+            return (0, 0);
         };
         if pt.is_noise() {
-            return 0;
+            return (0, 0);
         }
         let (x, y, z) = (pt.x - o[0], pt.y - o[1], pt.z);
+        let id = if with_ids {
+            asg.of(x, y, z, pt.class).map_or(0, |k| r.trees[k].id)
+        } else {
+            0
+        };
         let (cx, cy) = ((x / cell).floor() as i64, (y / cell).floor() as i64);
         let mut near = false;
         for dx in -1..=1 {
@@ -2258,19 +2576,20 @@ pub fn classify_stems(
                         && let Some((c, rad)) = prof.at(h)
                         && (x - c[0]).hypot(y - c[1]) <= rad + margin
                     {
-                        return 1;
+                        return (1, id);
                     }
                 }
             }
         }
-        if near { 2 } else { 0 }
+        // el suelo clasificado sigue siendo suelo: solo cuenta como rama lo que no lo es
+        (if near && pt.class != 2 { 2 } else { 0 }, id)
     };
     let mut rep = StemReport::default();
     let mut conv = Vec::new();
     reader.scan_raw(|bytes| {
         let recs: Vec<&[u8]> = bytes.chunks_exact(rec_len).collect();
-        let kinds: Vec<u8> = recs.par_iter().map(|rec| kind(rec)).collect();
-        for (rec, k) in recs.iter().zip(kinds) {
+        let kinds: Vec<(u8, u32)> = recs.par_iter().map(|rec| kind(rec)).collect();
+        for (rec, (k, id)) in recs.iter().zip(kinds) {
             let class = match k {
                 1 => {
                     rep.stem += 1;
@@ -2285,19 +2604,26 @@ pub fn classify_stems(
                     None
                 }
             };
+            let put = |w: &mut Writer, bytes: &[u8]| -> Result<()> {
+                if with_ids {
+                    w.write_with_extra(bytes, &id.to_le_bytes())
+                } else {
+                    w.write(bytes)
+                }
+            };
             if let Some(new) = upgrade {
                 crate::las::upgrade_record(old_format, new, rec, &mut conv);
                 if let Some(c) = class {
                     crate::las::set_class(format, &mut conv, c);
                 }
-                w.write(&conv)?;
+                put(&mut w, &conv)?;
             } else if let Some(c) = class {
                 conv.clear();
                 conv.extend_from_slice(rec);
                 crate::las::set_class(format, &mut conv, c);
-                w.write(&conv)?;
+                put(&mut w, &conv)?;
             } else {
-                w.write(rec)?;
+                put(&mut w, rec)?;
             }
         }
         Ok(())
@@ -2318,6 +2644,8 @@ pub struct TlsJob {
     pub tree_clouds: bool,
     /// Escribe también la nube con los puntos de los troncos y de las ramas clasificados.
     pub stem_classes: bool,
+    /// Escribe también una sola nube con el atributo `treeID` de cada punto (0 si no es de árbol).
+    pub tree_ids: bool,
 }
 
 impl TlsJob {
@@ -2343,6 +2671,21 @@ impl TlsJob {
     }
 }
 
+impl TlsJob {
+    /// La nube con el `treeID` de cada punto: `<nombre de salida>_treeid` con el formato de la
+    /// entrada.
+    pub fn tree_ids_path(&self) -> PathBuf {
+        let ext = self
+            .input
+            .extension()
+            .map_or("las".to_string(), |e| e.to_string_lossy().into_owned());
+        self.output.with_file_name(format!(
+            "{}_treeid.{ext}",
+            crate::paths::stem(&self.output)
+        ))
+    }
+}
+
 pub fn run(job: &TlsJob) -> Result<String> {
     let r = analyse(&job.input, &job.params)?;
     let files = write_results(&r, &job.params, &job.output, job.formats)?;
@@ -2360,16 +2703,32 @@ pub fn run(job: &TlsJob) -> Result<String> {
             job.clouds_dir().display()
         ));
     }
-    if job.stem_classes && !r.trees.is_empty() {
-        let rep = classify_stems(&job.input, &r, &job.params, &job.stems_path())?;
+    // con las dos opciones, una sola nube lleva las clases 64 y 65 y el treeID de cada punto
+    let merged = job.tree_ids && job.stem_classes;
+    if job.tree_ids && !merged && !r.trees.is_empty() {
+        let (con, total) = write_tree_ids(&job.input, &r, &job.params, &job.tree_ids_path())?;
         text.push_str(&format!(
             "
-Troncos (clase {}): {} puntos; ramas (clase {}): {} puntos: {}",
+Nube con treeID: {con} de {total} puntos con árbol (el resto, 0): {}",
+            job.tree_ids_path().display()
+        ));
+    }
+    if job.stem_classes && !r.trees.is_empty() {
+        let path = if merged {
+            job.tree_ids_path()
+        } else {
+            job.stems_path()
+        };
+        let rep = classify_stems(&job.input, &r, &job.params, &path, merged)?;
+        text.push_str(&format!(
+            "
+Troncos (clase {}): {} puntos; ramas (clase {}): {} puntos{}: {}",
             crate::classes::STEM,
             rep.stem,
             crate::classes::BRANCH,
             rep.branch,
-            job.stems_path().display()
+            if merged { "; con el treeID de cada punto" } else { "" },
+            path.display()
         ));
     }
     let _ = files;

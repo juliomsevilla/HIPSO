@@ -407,6 +407,64 @@ fn every_option_that_names_a_field_exists_and_points_at_a_file_option() -> Resul
 }
 
 #[test]
+fn an_option_of_a_method_shows_only_when_its_method_is_chosen() -> Result<()> {
+    use std::collections::BTreeMap;
+    let schema = hipso_core::model::Schema::from_json(&run(&["schema"])?)?;
+    // toda opción con condición existe, y su condición nombra una opción que existe: si una orden
+    // cambia el nombre de una, esta prueba lo dice
+    let mut gated = 0;
+    for spec in &schema.tools {
+        for a in &spec.args {
+            if let Some(g) = hipso_core::model::gate(&spec.name, &a.id) {
+                let sel = match g {
+                    hipso_core::model::Gate::Flag(i)
+                    | hipso_core::model::Gate::Is(i, _, _)
+                    | hipso_core::model::Gate::Nonzero(i)
+                    | hipso_core::model::Gate::Set(i) => i,
+                };
+                assert!(spec.arg(sel).is_some(), "{} {}: no existe la opción {sel}", spec.name, a.id);
+                gated += 1;
+            }
+        }
+    }
+    assert!(gated >= 60, "{gated}");
+    // el programa decide lo que enseña: sin elegir método, la clasificación enseña los parámetros de
+    // Kraus-Pfeifer (el método por defecto) y ninguno de los demás
+    let classify = schema.tool("classify").ok_or("sin classify")?;
+    let shown = |args: &BTreeMap<String, Vec<String>>| -> Vec<String> {
+        classify.args.iter().filter(|a| classify.shown(a, args)).map(|a| a.id.clone()).collect()
+    };
+    let none = shown(&BTreeMap::new());
+    assert!(none.contains(&"filter_cell".to_string()) && none.contains(&"iterations".to_string()));
+    for hidden in ["mcc_spacing", "csf_rigidness", "pmf_window", "smrf_cell", "axelsson_angle", "sor_k", "wire_min_height", "pole_radius", "building_offset", "overlap_cell", "elm_cell"] {
+        assert!(!none.contains(&hidden.to_string()), "{hidden} sale sin pedirlo");
+    }
+    // con MCC: sus parámetros, y ya no los de Kraus-Pfeifer
+    let mut mcc = BTreeMap::new();
+    mcc.insert("ground".to_string(), vec!["mcc".to_string()]);
+    let s = shown(&mcc);
+    assert!(s.contains(&"mcc_spacing".to_string()) && s.contains(&"mcc_threshold".to_string()));
+    assert!(!s.contains(&"filter_cell".to_string()) && !s.contains(&"csf_rigidness".to_string()));
+    // las casillas abren sus opciones y el método de ruido, las suyas
+    let mut more = BTreeMap::new();
+    more.insert("wires".to_string(), vec!["true".to_string()]);
+    more.insert("noise".to_string(), vec!["sor".to_string()]);
+    let s = shown(&more);
+    assert!(s.contains(&"wire_min_height".to_string()) && s.contains(&"sor_k".to_string()));
+    assert!(!s.contains(&"elm_cell".to_string()) && !s.contains(&"pole_radius".to_string()));
+    // el CHM: las opciones de la pila sin picos solo con ese método, y el suavizado solo con ventana
+    let chm = schema.tool("chm").ok_or("sin chm")?;
+    let mut a = BTreeMap::new();
+    assert!(!chm.shown(chm.arg("max_edge").ok_or("sin max_edge")?, &a));
+    a.insert("method".to_string(), vec!["pitfree".to_string()]);
+    assert!(chm.shown(chm.arg("max_edge").ok_or("sin max_edge")?, &a));
+    assert!(!chm.shown(chm.arg("smoothing").ok_or("sin smoothing")?, &a));
+    a.insert("smooth".to_string(), vec!["3".to_string()]);
+    assert!(chm.shown(chm.arg("smoothing").ok_or("sin smoothing")?, &a));
+    Ok(())
+}
+
+#[test]
 fn fields_drops_and_renames_by_the_names_the_layer_has_and_refuses_a_contradiction() -> Result<()> {
     let d = Dir::new("fields")?;
     std::fs::write(

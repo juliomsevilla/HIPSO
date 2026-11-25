@@ -196,3 +196,153 @@ fn a_stem_with_an_unmeasured_stretch_is_followed_through_it() -> Result<()> {
     assert!(top(&lost) < 4.5, "{}", top(&lost));
     Ok(())
 }
+
+#[test]
+fn the_treeid_cloud_numbers_each_point_with_its_tree_and_leaves_the_rest_at_zero() -> Result<()> {
+    use hipso_core::las::Reader;
+    use hipso_core::tls::write_tree_ids;
+    let mut pts = Vec::new();
+    cylinder(&mut pts, (0.0, 0.0), 0.12, 0.0, 6.0, (0.0, 0.0));
+    cylinder(&mut pts, (6.0, 0.0), 0.15, 0.0, 6.0, (0.0, 0.0));
+    // un punto lejos de los dos troncos (a más de la distancia de asignación) y otro a ras de suelo
+    let n_trunks = pts.len();
+    pts.push([20.0, 20.0, 3.0]);
+    pts.push([0.05, 0.0, 0.05]);
+    let input = write_las("ids", &pts)?;
+    let p = params();
+    let r = analyse(&input, &p)?;
+    assert_eq!(r.trees.len(), 2);
+    let out = std::env::temp_dir().join(format!("hipso_ids_{}.laz", std::process::id()));
+    let (con, total) = write_tree_ids(&input, &r, &p, &out)?;
+    let rd = Reader::open(&out)?;
+    let field = rd.extra_field("treeID").ok_or(hipso_core::Error::Param("sin treeID".into()))?;
+    let rec_len = usize::from(rd.header.record_len);
+    let mut ids = Vec::new();
+    rd.scan_raw(|bytes| {
+        for rec in bytes.chunks_exact(rec_len) {
+            let q = rd.decode(rec);
+            ids.push((q.map_or(0.0, |q| q.x), q.map_or(0.0, |q| q.z), field.id(rec)));
+        }
+        Ok(())
+    })?;
+    let _ = std::fs::remove_file(&input);
+    let _ = std::fs::remove_file(&out);
+    assert_eq!(total as usize, pts.len());
+    assert_eq!(ids.len(), pts.len());
+    let id_of = |x: f64| ids.iter().find(|i| (i.0 - x).abs() < 0.2 && i.1 > 1.0 && i.2 != 0).map(|i| i.2);
+    let (a, b) = (id_of(0.12), id_of(6.15));
+    assert!(a.is_some() && b.is_some() && a != b, "{a:?} {b:?}");
+    // los puntos del tronco llevan su número, el lejano y el de suelo, 0
+    let far = ids.iter().find(|i| i.0 > 19.0).map(|i| i.2);
+    assert_eq!(far, Some(0));
+    assert_eq!(ids.iter().filter(|i| i.2 == 0).count(), pts.len() - con as usize);
+    // todo el tronco por encima de 0,2 m (la regla de las nubes por árbol) lleva número
+    let sin: usize = ids.iter().filter(|i| i.0 < 10.0 && i.1 > 0.25 && i.2 == 0).count();
+    assert_eq!(sin, 0, "{con} de {n_trunks}");
+    Ok(())
+}
+
+#[test]
+fn classes_and_treeid_go_in_one_cloud_and_the_ground_stays_ground() -> Result<()> {
+    use hipso_core::las::Reader;
+    use hipso_core::tls::classify_stems;
+    let mut pts = Vec::new();
+    cylinder(&mut pts, (0.0, 0.0), 0.12, 0.0, 6.0, (0.0, 0.0));
+    // suelo junto al tronco a 1 m de altura (una ladera): clase 2 en el archivo
+    let ground_at = pts.len();
+    pts.push([1.0, 0.0, 1.0]);
+    let input = write_las("cls", &pts)?;
+    // la clase 2 de ese punto: el byte de clase del formato 1 está en 15
+    let mut raw = std::fs::read(&input)?;
+    let off = 227 + ground_at * 28 + 15;
+    raw[off] = 2;
+    std::fs::write(&input, raw)?;
+    let p = params();
+    let r = analyse(&input, &p)?;
+    let out = std::env::temp_dir().join(format!("hipso_cls_{}.laz", std::process::id()));
+    let rep = classify_stems(&input, &r, &p, &out, true)?;
+    let rd = Reader::open(&out)?;
+    let field = rd.extra_field("treeID").ok_or(hipso_core::Error::Param("sin treeID".into()))?;
+    let rec_len = usize::from(rd.header.record_len);
+    let mut rows = Vec::new();
+    rd.scan_raw(|bytes| {
+        for rec in bytes.chunks_exact(rec_len) {
+            if let Some(q) = rd.decode(rec) {
+                rows.push((q.x, q.z, q.class, field.id(rec)));
+            }
+        }
+        Ok(())
+    })?;
+    let _ = std::fs::remove_file(&input);
+    let _ = std::fs::remove_file(&out);
+    assert!(rep.stem > 0);
+    assert!(rows.iter().any(|r| r.2 == 64 && r.3 != 0));
+    let g = rows.iter().find(|r| (r.0 - 1.0).abs() < 0.01 && (r.1 - 1.0).abs() < 0.01);
+    assert_eq!(g.map(|g| g.2), Some(2));
+    assert!(g.is_some_and(|g| g.3 != 0));
+    Ok(())
+}
+
+#[test]
+fn a_long_branch_goes_to_its_own_tree_by_the_shortest_path_not_to_the_nearest_trunk() -> Result<()> {
+    use hipso_core::las::Reader;
+    use hipso_core::tls::write_tree_ids;
+    let mut pts = Vec::new();
+    cylinder(&mut pts, (0.0, 0.0), 0.15, 0.0, 8.0, (0.0, 0.0));
+    cylinder(&mut pts, (6.0, 0.0), 0.15, 0.0, 8.0, (0.0, 0.0));
+    // una rama horizontal del árbol de la izquierda a 6 m de altura que llega a 1 m del otro tronco
+    let mut x = 0.15;
+    while x < 5.0 {
+        pts.push([x, 0.0, 6.0]);
+        pts.push([x, 0.05, 6.0]);
+        x += 0.02;
+    }
+    let input = write_las("branch", &pts)?;
+    let read_ids = |crowns: bool| -> Result<(u32, u32, u32)> {
+        let p = TlsParams {
+            crowns,
+            ..params()
+        };
+        let r = analyse(&input, &p)?;
+        assert_eq!(r.trees.len(), 2);
+        let out = std::env::temp_dir().join(format!(
+            "hipso_branch_{}_{crowns}.laz",
+            std::process::id()
+        ));
+        write_tree_ids(&input, &r, &p, &out)?;
+        let rd = Reader::open(&out)?;
+        let field = rd
+            .extra_field("treeID")
+            .ok_or(hipso_core::Error::Param("sin treeID".into()))?;
+        let rec_len = usize::from(rd.header.record_len);
+        let (mut left, mut right, mut tip) = (0, 0, 0);
+        rd.scan_raw(|bytes| {
+            for rec in bytes.chunks_exact(rec_len) {
+                if let Some(q) = rd.decode(rec) {
+                    let id = field.id(rec);
+                    if (q.z - 2.0).abs() < 0.1 && (q.x - 0.15).abs() < 0.02 {
+                        left = id;
+                    }
+                    if (q.z - 2.0).abs() < 0.1 && (q.x - 6.15).abs() < 0.02 {
+                        right = id;
+                    }
+                    if (q.z - 6.0).abs() < 0.01 && (q.x - 4.6).abs() < 0.015 && q.y.abs() < 0.01 {
+                        tip = id;
+                    }
+                }
+            }
+            Ok(())
+        })?;
+        let _ = std::fs::remove_file(&out);
+        Ok((left, right, tip))
+    };
+    let axis = read_ids(false);
+    let path = read_ids(true);
+    let _ = std::fs::remove_file(&input);
+    let ((l0, r0, t0), (l1, r1, t1)) = (axis?, path?);
+    assert!(l0 != 0 && r0 != 0 && l0 != r0 && l1 == l0 && r1 == r0, "{l0} {r0} {l1} {r1}");
+    // por distancia al eje, el extremo de la rama es del tronco más cercano; por el camino, de su árbol
+    assert_eq!(t0, r0, "eje: {t0}");
+    assert_eq!(t1, l1, "camino: {t1}");
+    Ok(())
+}

@@ -16,7 +16,7 @@ pub struct Mode {
 }
 
 /// Todos los modos, en el orden en que salen en el menú.
-pub const MODES: [Mode; 13] = [
+pub const MODES: [Mode; 14] = [
     Mode {
         by: ColorBy::Elevation,
         icon: "@c_elev",
@@ -28,6 +28,12 @@ pub const MODES: [Mode; 13] = [
         icon: "@c_earth",
         name: "Elevación (tierra)",
         help: "La misma idea con una rampa de verdes, ocres y marrones, que se parece más al terreno.",
+    },
+    Mode {
+        by: ColorBy::ElevationViridis,
+        icon: "@c_viridis",
+        name: "Elevación (viridis)",
+        help: "La rampa viridis, del morado (abajo) al amarillo (arriba): se lee bien en nubes terrestres y en daltonismo.",
     },
     Mode {
         by: ColorBy::HeightAboveGround,
@@ -105,7 +111,7 @@ pub fn mode(by: ColorBy) -> &'static Mode {
 /// El nombre corto del modo para el título de la vista.
 pub fn title(by: ColorBy) -> &'static str {
     match by {
-        ColorBy::Elevation | ColorBy::ElevationEarth => "elevación",
+        ColorBy::Elevation | ColorBy::ElevationEarth | ColorBy::ElevationViridis => "elevación",
         ColorBy::Class => "clasificación",
         ColorBy::Intensity => "intensidad",
         ColorBy::Return => "retorno",
@@ -164,6 +170,7 @@ pub fn button(ui: &mut Ui, ctx: &egui::Context, t: &Tokens, current: ColorBy) ->
 fn short(name: &str) -> &str {
     match name {
         "Elevación (tierra)" => "Tierra",
+        "Elevación (viridis)" => "Viridis",
         "Altura sobre el suelo" => "Alt. suelo",
         "Clase + intensidad" => "Clase+int.",
         "Elevación + intensidad" => "Elev.+int.",

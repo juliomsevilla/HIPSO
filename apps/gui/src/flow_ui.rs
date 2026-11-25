@@ -977,6 +977,8 @@ impl App {
                     ui.add_space(8.0);
                     let wired = |a: &str| edges.iter().any(|e| e.port == a);
                     // primero lo necesario y lo conectado; el resto, plegado
+                    // una opción de un método o de una casilla solo sale cuando se usa, como en las
+                    // ventanas de cada herramienta del programa
                     let main: Vec<&model::ArgSpec> = spec
                         .args
                         .iter()
@@ -988,6 +990,7 @@ impl App {
                         .iter()
                         .filter(|a| a.id != "output" && a.id != "results_dir")
                         .filter(|a| !(a.required || wired(&a.id)))
+                        .filter(|a| spec.shown(a, args))
                         .collect();
                     for a in main {
                         arg_widget(ui, &t, tool, a, args, wired(&a.id), &inputs);

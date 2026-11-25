@@ -143,7 +143,7 @@ Botón grande con menú que reparte la pantalla entre la planta, el perfil y la 
 
 Botón grande, a la derecha de *Ventanas*, con un menú que elige el atributo con el que se colorean los puntos. Cada modo tiene su icono, que dibuja lo que enseña, y el botón muestra el del modo activo. Los modos son:
 
-- *Elevación* (de azul abajo a rojo arriba) y *Elevación (tierra)*, con una rampa de verdes y ocres.
+- *Elevación* (de azul abajo a rojo arriba), *Elevación (tierra)*, con una rampa de verdes y ocres, y *Elevación (viridis)*, del morado al amarillo.
 - *Altura sobre el suelo*: lo que se separa cada punto del suelo clasificado (clase 2). La copa de un árbol sale a su altura real aunque esté en una ladera, que es lo que no da la elevación. Se calcula con los puntos de suelo de lo que hay en pantalla: el mínimo de cada celda de un metro, los huecos rellenos con la media de los vecinos y una interpolación entre celdas. Es una aproximación para mirar y editar, no se guarda en ningún archivo, y se recalcula cuando una edición cambia las clases. El extremo de la rampa deja fuera el 1 % de puntos más altos, para que un pájaro o un cable no la estire. Sin puntos de suelo clasificados no hay referencia: el programa lo dice en el registro y los puntos quedan en gris.
 - *Clasificación*, con los colores de *Clases y colores…*.
 - *Clase + intensidad*: el color de la clase, más claro o más oscuro según la intensidad. Deja ver la clase sin perder el relieve que da la intensidad.
@@ -165,7 +165,7 @@ Botón grande, junto a *Color*, con el menú de qué puntos se dibujan. Brilla y
 - *Clases y colores…*, que abre la tabla de clases ASPRS: qué clases se ven y de qué color (apartado 6.2).
 - *Quitar todos los filtros*, que aparece cuando hay alguno puesto.
 
-Al colorear por clasificación o por retorno, la planta y la vista 3D muestran una leyenda con los colores.
+Al colorear por clasificación o por retorno, la planta y la vista 3D muestran una leyenda con los colores. El texto de la leyenda, el de la escala, los títulos de las vistas y los demás textos que se pintan sobre los puntos llevan un halo blanco, y los cuadrados de color de la leyenda, un borde blanco, para que se lean con puntos de cualquier color detrás.
 
 ##### Puntos (− y +)
 
@@ -244,6 +244,22 @@ Multiplica la escala vertical de la vista 3D, de × 0,1 a × 100, tanto para nub
 ##### Enlazar con la planta
 
 Con *2D + perfil + 3D* activo, hace que la vista 3D siga lo que se ve en la planta. Apagada, la vista 3D se mueve por su cuenta.
+
+##### Relieve de la nube
+
+Casilla de la vista 3D que oscurece lo que queda detrás de sus vecinos y da profundidad y bordes a las nubes densas (iluminación por la profundidad de la pantalla, en la línea del *eye-dome lighting* de los visores de nubes). Para cada píxel mide el escalón de profundidad con sus cuatro vecinos contiguos, en logaritmo de la profundidad, de modo que la intensidad no depende de lo grande que sea la escena, y no oscurece más de un tercio del color para no tapar la clase ni el color de un árbol. Al lado, un campo da la intensidad, de 0,05 a 2; 0,4 es la habitual. Es solo de la vista 3D, suelta o en combinación con la planta y el perfil: la planta y el perfil se dibujan siempre sin relieve y con puntos redondos.
+
+##### Detalle por vista
+
+Casilla que, en el 3D, lee de la copia COPC de la caché los puntos que ve la cámara: los nodos cercanos con todo su detalle y los lejanos más ralos, hasta un presupuesto de puntos que se da en millones en el campo de al lado (de 2 a 40; por defecto 12). Está pensada para nubes terrestres densas, en las que al entrar en el bosque la muestra uniforme de la nube se queda corta, y se activa cuando la copia COPC está lista. La lectura se hace cuando la cámara se detiene. Con un presupuesto bajo, al entrar en una nube muy densa se ven huecos entre puntos; subirlo los rellena a costa de memoria (con 12 millones, del orden de 1 GB). Las ediciones y las selecciones no se ven en este modo.
+
+##### Cuadrados
+
+Dibuja los puntos de la vista 3D como cuadrados en vez de círculos: se solapan mejor y dan un aspecto más compacto en nubes densas. La planta y el perfil dibujan siempre círculos.
+
+##### Punto máx.
+
+Tamaño máximo de un punto en la vista 3D, en píxeles (de 1 a 24; por defecto 4). Al acercarse, los puntos crecerían con la perspectiva hasta hacerse bloques; este tope los mantiene pequeños y la masa se ve compacta. En la vista 3D el tamaño de cada punto sigue además el nivel de detalle del que viene, de modo que los puntos de niveles gruesos, más separados, son algo mayores.
 
 #### Vista → Perfil
 
@@ -3061,7 +3077,7 @@ Con los puntos de cada árbol (el atributo `treeID`), se miden por árbol:
 - La **superficie y el radio de la copa**: el área de la envolvente convexa en planta de los puntos de la copa, y el radio del círculo de esa área.
 - El **volumen de la copa** de dos maneras: el de la envolvente convexa, y el de la forma alfa tridimensional (Edelsbrunner y Mücke, 1994), que sigue el contorno real de la copa y deja fuera los huecos entre ramas. También se da la superficie de la forma alfa. La forma alfa suma los tetraedros de la triangulación de Delaunay en 3D (Bowyer, 1981; Watson, 1981) cuya esfera circunscrita tiene un radio menor que el radio alfa (2 m por defecto): un radio pequeño sigue de cerca el contorno y uno muy grande es la envolvente convexa. El radio adecuado depende de la densidad: debe ser mayor que la separación entre puntos, o la copa se rompe en islas.
 
-Para que el cálculo sea rápido, una copa de más de 2 500 puntos se reduce a un punto por vóxel antes de triangularla, lo que acorta algo la envolvente. Los árboles con menos de 20 puntos no se miden. Los puntos de todos los árboles se guardan en memoria mientras se leen (24 bytes por punto de árbol), así que una zona muy grande se divide en hojas. Se escriben una tabla (`…_metricas_arboles.csv`) y la capa de cimas con las mismas columnas. En la línea de comandos: `hipso tree-metrics nube_con_treeid.laz --dtm mdt.tif --alpha 2`.
+Para que el cálculo sea rápido, una copa de más de 2 500 puntos se reduce a un punto por vóxel antes de triangularla, lo que acorta algo la envolvente. Los árboles con menos de 20 puntos no se miden. Los puntos de todos los árboles se guardan en memoria mientras se leen (24 bytes por punto de árbol), así que una zona muy grande se divide en hojas. Se escriben una tabla (`…_metricas_arboles.csv`) y la capa de cimas con las mismas columnas. En la línea de comandos: `hipso tree-metrics nube_con_treeid.laz --dtm mdt.tif --alpha 2`. La tabla incluye el DAP (diámetro a 1,3 m): se ajusta un círculo por mínimos cuadrados a los puntos del árbol entre 1,2 y 1,4 m de altura, quitando los que se alejan de él, y solo se da si hay al menos 12 puntos, el radio queda entre 2 y 60 cm y los puntos rodean el tronco (ningún hueco de más de 200°); si no, la casilla queda vacía (en el shapefile, 0). En una nube aérea casi nunca hay DAP. Con `--dim` se indica otro atributo adicional que numere los individuos, por ejemplo el de un segmentador externo; por defecto es `treeID`.
 
 #### Cambio de la cubierta vegetal
 
@@ -3151,12 +3167,20 @@ Hay dos remedios, y se pueden combinar. El primero es subir el hueco máximo (4 
 
 Editar a mano las ramas de un árbol exige distinguirlas del tronco, y el análisis ya conoce el tronco (su eje y su círculo a cada altura). Con la casilla *Guardar la nube con troncos (clase 64) y ramas (clase 65)* (o `--stem-classes` en la consola) se aprovecha para escribir `…_troncos.laz`: la nube completa, con los puntos del tronco en la clase 64 (naranja) y los demás puntos junto a un tronco, hasta la distancia máxima al eje, en la 65 (verde). El resto conserva su clase. Un punto es de tronco cuando queda dentro del círculo medido a su altura, más un margen de un vóxel; entre secciones el círculo se interpola, y por encima de la última se prolonga siguiendo la inclinación del tronco hasta la altura del árbol, con un adelgazamiento de entre 0,5 y 2 cm de radio por metro.
 
+Para tener los árboles marcados en una sola nube está la casilla *Guardar una nube con el treeID de cada punto* (o `--tree-ids` en la consola). Escribe `…_treeid.laz`: la nube completa con el atributo adicional `treeID`, que lleva el número del árbol al que asigna cada punto la misma regla de las nubes por árbol (el tronco más cercano, a menos de la distancia máxima al eje y por encima de 0,2 m del suelo). Los puntos que no son de ningún árbol llevan 0. Sirve para colorear por árbol y como entrada de *Métricas por árbol*. Si se marcan a la vez esta casilla y la de troncos y ramas, no se escriben dos nubes: `…_treeid.laz` lleva las clases 64 y 65 y el `treeID` de cada punto, y es la que se carga al terminar. El suelo ya clasificado (clase 2) no pasa nunca a rama.
+
+Por defecto cada punto va al tronco cuyo eje queda más cerca. Con `--crowns` (casilla *Asignar la copa por el camino más corto desde el tronco*) se hace de otra manera, pensada para copas que se tocan: la nube se pasa a una retícula de vóxeles ocupados (10 cm por defecto, `--crown-voxel`), cada tronco siembra los vóxeles de su eje medido y el camino avanza por los vóxeles vecinos con un coste igual a su longitud (algoritmo de Dijkstra, 1959). Cada vóxel se queda con el tronco al que llega antes, hasta 30 m de camino (`--crown-reach`). Así una rama larga pertenece al árbol al que está unida por follaje y madera, aunque pase junto a otro tronco; es una variante propia del camino más corto entre troncos que usan Tao et al. (2015). El suelo clasificado (clase 2) y lo que queda a menos de 20 cm del suelo de un tronco no entran en la retícula, porque unirían todos los árboles. Lo que el camino no alcanza, por estar aislado, vuelve a la regla del eje más cercano. La retícula guarda un vóxel por cada 10 cm de nube ocupada: en una zona grande, divídela.
+
 En un árbol bien medido de la nube de prueba el resultado es limpio, con el tronco entero en la clase 64 y la copa en la 65. Pero la clasificación es tan buena como la medición: donde el tronco no se midió (los pinos más altos de esa misma nube, por ejemplo) el tronco sale como rama, y un tronco que el análisis no detectó, si está cerca de otro árbol, también. El análisis completo de esa nube, con la clasificación, tarda unos 30 s. Por su tamaño, `…_troncos.laz` no se abre solo al terminar (se abre con *Abrir*). Una vez abierto, editar un árbol es ocultar la clase 64, rodear las ramas con el lazo en 3D y eliminarlas.
 
 El resultado consta de tres archivos. Un shapefile (y/o CSV) con un punto en la base de cada árbol lleva `DIAM_130_CM`, `ALT_TOT`, `ALT_LIBRE_RAMAS` (altura hasta la punta delgada), `VOL_M3`, `NTROZAS`, `D_BASE_CM`, `D_TOP_CM`, `AB_M2` (área basimétrica), `INCLIN`, `PUNTOS`, `CALIDAD`, `AVISOS`, `Date`, `CEPA` (número de cepa), `BROTES` (número de árboles de esa cepa; 1 si va solo) y `H_BIF` (altura de la bifurcación, solo en árboles bifurcados). El archivo `…_trozas.csv` recoge cada troza de cada árbol, con alturas, diámetros, longitud y volumen, donde `RAMA` es 0 para el tronco y 1, 2… para cada rama de un árbol bifurcado. Si se marca *Guardar también la nube de cada árbol*, se crea una carpeta `…_arboles` con un archivo por árbol, y cada punto va al eje de tronco más cercano dentro de la distancia indicada. Los árboles se escriben por tandas de 150, con una lectura de la nube por tanda, porque el sistema limita los archivos abiertos a la vez (256 por defecto en macOS) y los 471 de la nube de prueba lo superaban.
 
 Con esto se cierra el capítulo de procesos. El hilo común de todas las herramientas es el mismo: leer la nube como un flujo, producir un archivo nuevo junto al original y dejar en el informe la cifra que permite juzgar si el resultado es fiable.
 
+
+#### Visor de nubes densas
+
+Además de la vista 3D del programa hay un visor aparte, `hipso-tls`, para nubes terrestres de cientos de millones de puntos. Dibuja con la tarjeta gráfica (con el visor de código abierto Potree dentro de una ventana propia, sin abrir navegador ni servidor) y lee de disco, por trozos, un octree que prepara PotreeConverter la primera vez; la conversión queda en la caché. Tiene relieve, colores por elevación (con la rampa viridis), por clase y por cualquier atributo de la nube, filtros de puntos, tamaño y tope de tamaño del punto, y *Abrir nube…* para elegir otra. No está en la cinta: se abre con la orden *Ver nubes TLS* del buscador de comandos (Ctrl+K), que convierte la primera nube cargada si hace falta, o con `hipso-tls nube.laz` en la consola. Necesita `hipso-tls` y PotreeConverter junto al programa, que esta versión no reparte: se compilan aparte con las instrucciones de `apps/tlsviewer/`, donde también está cómo publicar una nube convertida en una web estática (no probado todavía de punta a punta). El visor no edita ni clasifica; para eso está el programa.
 
 ## 8. Ráster
 
@@ -3472,7 +3496,7 @@ Los comandos que reciben varias hojas dan un resultado por hoja. Para paraleliza
 
 Encadenar los pasos de un trabajo (clasificar, MDT, CHM, árboles, métricas) obliga a repetirlos con cada zona. La pestaña *Flujos* los dibuja como un grafo: cada herramienta es un **nodo**, cada archivo que una produce y otra consume es un **hilo**, y el flujo entero se guarda en un archivo `.model.json` que se vuelve a ejecutar sobre otros datos.
 
-A la izquierda está la paleta, con las herramientas agrupadas como en la cinta y un buscador, y las entradas (*Archivo…*, *Carpeta de hojas…* y *Del mapa…*, que toma una capa o nube ya cargada). Un clic añade un nodo en el centro del lienzo. Cada herramienta muestra como **puertos** sus opciones que reciben archivos (la nube, el MDT, el polígono…), con un asterisco los obligatorios; se arrastra desde el puerto de salida de un nodo hasta uno de entrada para conectarlos, y solo se iluminan los puertos que admiten lo que el nodo produce (una herramienta ráster no recibe lo que produce una vectorial). Una entrada que recibe varios archivos, como una carpeta de hojas, ejecuta la herramienta una vez por archivo cuando la opción solo admite uno. A la derecha, el nodo seleccionado muestra sus opciones (las mismas de la línea de comandos, con su ayuda, y las poco usadas plegadas en *Más opciones*) y, sin ningún nodo seleccionado, la carpeta de resultados y si se abren en el mapa al terminar. En el lienzo se desplaza arrastrando el fondo, se acerca con Ctrl y la rueda o con el gesto de pellizco, y *Ordenar* coloca los nodos en columnas según su distancia a las entradas y *Encuadrar* los pone todos a la vista. Supr quita lo seleccionado, Ctrl+D lo duplica y Ctrl+Z y Ctrl+Y deshacen y rehacen.
+A la izquierda está la paleta, con las herramientas agrupadas como en la cinta y un buscador, y las entradas (*Archivo…*, *Carpeta de hojas…* y *Del mapa…*, que toma una capa o nube ya cargada). Un clic añade un nodo en el centro del lienzo. Cada herramienta muestra como **puertos** sus opciones que reciben archivos (la nube, el MDT, el polígono…), con un asterisco los obligatorios; se arrastra desde el puerto de salida de un nodo hasta uno de entrada para conectarlos, y solo se iluminan los puertos que admiten lo que el nodo produce (una herramienta ráster no recibe lo que produce una vectorial). Una entrada que recibe varios archivos, como una carpeta de hojas, ejecuta la herramienta una vez por archivo cuando la opción solo admite uno. A la derecha, el nodo seleccionado muestra sus opciones (las mismas de la línea de comandos, con su ayuda, y las poco usadas plegadas en *Más opciones*). Como en las ventanas de cada herramienta, las opciones de un método o de una casilla solo salen cuando se usan: en *Clasificar*, el método de suelo mostrado es el que se elige (con Kraus-Pfeifer, el de por defecto, solo sus parámetros; con MCC, solo los de MCC), los parámetros de los cables, los postes, los edificios o el solape salen al marcar su casilla y los de ruido, al elegir su método; igual pasa con el MDS, el CHM, el MDT, las sombras y la cuenca visual del terreno, el método de segmentación de árboles y las copas de la medición de troncos y, sin ningún nodo seleccionado, la carpeta de resultados y si se abren en el mapa al terminar. En el lienzo se desplaza arrastrando el fondo, se acerca con Ctrl y la rueda o con el gesto de pellizco, y *Ordenar* coloca los nodos en columnas según su distancia a las entradas y *Encuadrar* los pone todos a la vista. Supr quita lo seleccionado, Ctrl+D lo duplica y Ctrl+Z y Ctrl+Y deshacen y rehacen.
 
 La **estrella** de la cabecera de cada nodo marca los resultados que se conservan; los de los demás nodos son intermedios y se borran en cuanto nadie los necesita. Bajo el lienzo se listan los **problemas** a medida que se construye (un bucle, una entrada sin archivo, una opción obligatoria vacía, un hilo entre tipos que no encajan), y *Ejecutar* no empieza hasta que no queda ninguno. La ejecución es en segundo plano: cada nodo muestra su estado (naranja en curso, verde hecho, rojo con error), *Cancelar* detiene el proceso en marcha y, si un paso falla o se cancela, se borra todo lo que esa ejecución había escrito, sin dejar medio resultado. Los resultados conservados van a la carpeta elegida, cada nodo en una carpeta con su nombre y sin sobrescribir nunca una existente (si el nombre ya está, se usa `_2`), y se abren en el mapa si así se pidió. El flujo en que se trabaja se guarda solo y se recupera al volver a abrir el programa.
 
@@ -3539,6 +3563,7 @@ hipso cog chm.tif
 hipso --results-dir D:/resultados chm nube.laz --dtm mdt.tif
 hipso stem-volume muestra_tls.laz --csv --tree-clouds --log-length 0.5 --top-diameter 0.07
 hipso stem-volume muestra_tls.laz --csv --stem-classes --max-gap 4 --lost-top-share 0.65
+hipso stem-volume muestra_tls.laz --csv --tree-ids
 hipso dedup nube.laz --also class,gps
 hipso compare nube2.laz --reference nube1.laz --distance 0.5
 hipso fit nube2.laz --reference nube1.laz
@@ -3619,8 +3644,8 @@ Referencias de los métodos descritos en este manual.
 - Pingel, T. J., Clarke, K. C. y McBride, W. A. (2013). An improved simple morphological filter for the terrain classification of airborne LIDAR data. *ISPRS Journal of Photogrammetry and Remote Sensing*, 77, 21–30.
 - Qin, N., Tan, W., Ma, L., Zhang, D., Guan, H. y Li, J. (2023). Deep learning for filtering the ground from ALS point clouds: A dataset, evaluations and issues. *ISPRS Journal of Photogrammetry and Remote Sensing*, 202, 246–261.
 - Sithole, G. y Vosselman, G. (2004). Experimental comparison of filter algorithms for bare-Earth extraction from airborne laser scanning point clouds. *ISPRS Journal of Photogrammetry and Remote Sensing*, 59(1–2), 85–101.
-- Demantké, J., Mallet, C., David, N. y Vallet, B. (2011). Dimensionality based scale selection in 3D lidar point clouds. *The International Archives of the Photogrammetry, Remote Sensing and Spatial Information Sciences*, XXXVIII-5/W12, 97–102.
 - Varney, N., Asari, V. K. y Graehling, Q. (2020). DALES: A large-scale aerial LiDAR data set for semantic segmentation. *2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW)*, 717–726.
+- Demantké, J., Mallet, C., David, N. y Vallet, B. (2011). Dimensionality based scale selection in 3D lidar point clouds. *The International Archives of the Photogrammetry, Remote Sensing and Spatial Information Sciences*, XXXVIII-5/W12, 97–102.
 - Weinmann, M., Jutzi, B., Hinz, S. y Mallet, C. (2015). Semantic point cloud interpretation based on optimal neighborhoods, relevant features and efficient classifiers. *ISPRS Journal of Photogrammetry and Remote Sensing*, 105, 286–304.
 - Zhang, K., Chen, S.-C., Whitman, D., Shyu, M.-L., Yan, J. y Zhang, C. (2003). A progressive morphological filter for removing nonground measurements from airborne LIDAR data. *IEEE Transactions on Geoscience and Remote Sensing*, 41(4), 872–882.
 - Zhang, W., Qi, J., Wan, P., Wang, H., Xie, D., Wang, X. y Yan, G. (2016). An easy-to-use airborne LiDAR data filtering method based on cloth simulation. *Remote Sensing*, 8(6), 501.
@@ -3707,8 +3732,13 @@ Referencias de los métodos descritos en este manual.
 ### Geometría computacional
 
 - Bowyer, A. (1981). Computing Dirichlet tessellations. *The Computer Journal*, 24(2), 162–166.
+- Dijkstra, E. W. (1959). A note on two problems in connexion with graphs. *Numerische Mathematik*, 1, 269–271.
 - Edelsbrunner, H. y Mücke, E. P. (1994). Three-dimensional alpha shapes. *ACM Transactions on Graphics*, 13(1), 43–72.
 - Watson, D. F. (1981). Computing the n-dimensional Delaunay tessellation with application to Voronoi polytopes. *The Computer Journal*, 24(2), 167–172.
+
+### Segmentación de copas en nubes terrestres
+
+- Tao, S., Wu, F., Guo, Q., Wang, Y., Li, W., Xue, B., Hu, X., Li, P., Tian, D., Li, C., Yao, H., Li, Y., Xu, G. y Fang, J. (2015). Segmenting tree crowns from terrestrial and mobile LiDAR data by exploring ecological theories. *ISPRS Journal of Photogrammetry and Remote Sensing*, 110, 66–76.
 
 ### Ráster y vectores
 

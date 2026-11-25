@@ -111,6 +111,8 @@ enum ColorArg {
     Elevation,
     /// Elevación, con la rampa de tierra
     Earth,
+    /// Elevación, con la rampa viridis
+    Viridis,
     /// Clase de cada punto
     Class,
     /// Intensidad
@@ -1843,6 +1845,20 @@ enum Cmd {
         /// Escribe además una nube por árbol
         #[arg(long)]
         tree_clouds: bool,
+        /// Asigna los puntos de la copa a cada árbol por el camino más corto desde su tronco, por los
+        /// vóxeles ocupados, en vez de por la distancia al eje (afecta a --tree-ids, --tree-clouds y
+        /// --stem-classes)
+        #[arg(long)]
+        crowns: bool,
+        /// Vóxel (m) de la retícula del camino de --crowns
+        #[arg(long, default_value_t = 0.10)]
+        crown_voxel: f64,
+        /// Mayor longitud (m) del camino desde el tronco hasta un punto de su copa
+        #[arg(long, default_value_t = 30.0)]
+        crown_reach: f64,
+        /// Escribe además una sola nube con el atributo treeID de cada punto (0 si no es de ningún árbol)
+        #[arg(long)]
+        tree_ids: bool,
         /// Escribe además la nube con los troncos en la clase 64 y las ramas en la clase 65
         #[arg(long)]
         stem_classes: bool,
@@ -2578,6 +2594,10 @@ enum Cmd {
         /// No escribe las cimas como capa de puntos
         #[arg(long)]
         no_shp: bool,
+        /// Atributo adicional que numera los individuos (por defecto treeID; vale cualquier
+        /// dimensión entera, como la de un segmentador externo)
+        #[arg(long, default_value = "treeID")]
+        dim: String,
         /// Ruta base de los resultados; por defecto: <resultados>/<nube>_metricas_arboles
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -5678,7 +5698,7 @@ fn run(cmd: Cmd) -> Result<()> {
             job.shp = !no_shp;
             hipso_core::trees3d::run(&job)?
         }
-        Cmd::TreeMetrics { input, dtm, normalized, gap, crown_min, alpha, min_points, class, no_shp, output } => {
+        Cmd::TreeMetrics { input, dtm, normalized, gap, crown_min, alpha, min_points, class, no_shp, dim, output } => {
             use hipso_core::filter::{ClassSel, Filter};
             let out = output.unwrap_or_else(|| paths::unique(&paths::product(&input, "metricas_arboles", "csv")));
             let mut job = hipso_core::treemetrics::TreeMetricsJob::new(input, out);
@@ -5691,6 +5711,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 ..Filter::default()
             };
             job.shp = !no_shp;
+            job.dim = dim;
             hipso_core::treemetrics::run(&job)?
         }
         Cmd::Terrain {
@@ -6208,6 +6229,10 @@ fn run(cmd: Cmd) -> Result<()> {
             stripe_high,
             max_diameter,
             tree_clouds,
+            tree_ids,
+            crowns,
+            crown_voxel,
+            crown_reach,
             stem_classes,
             assign_dist,
             stool_dist,
@@ -6235,11 +6260,15 @@ fn run(cmd: Cmd) -> Result<()> {
                         fork_height,
                         max_gap,
                         lost_top_share,
+                        crowns,
+                        crown_voxel,
+                        crown_reach,
                         ..TlsParams::default()
                     },
                     formats: paths::Formats { vector: true, csv },
                     tree_clouds,
                     stem_classes,
+                    tree_ids,
                 };
                 lines.push(run(&job)?);
             }
@@ -6277,6 +6306,7 @@ fn run(cmd: Cmd) -> Result<()> {
             st.color_by = match color {
                 ColorArg::Elevation => ColorBy::Elevation,
                 ColorArg::Earth => ColorBy::ElevationEarth,
+                ColorArg::Viridis => ColorBy::ElevationViridis,
                 ColorArg::Class => ColorBy::Class,
                 ColorArg::Intensity => ColorBy::Intensity,
                 ColorArg::Return => ColorBy::Return,

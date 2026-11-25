@@ -733,6 +733,7 @@ Métricas de cada árbol de una nube con treeID: altura, base y longitud de la c
 | `--min-points` | número | `20` | Los árboles con menos puntos no se miden. |
 | `--class` | texto o número | ninguno | Clases que se usan: 2,5 o ~7,18. |
 | `--no-shp` | casilla | desactivada | No escribe las cimas como capa de puntos. |
+| `--dim` | texto | `treeID` | Atributo adicional que numera los individuos (por defecto treeID; vale cualquier dimensión entera, como la de un segmentador externo) |
 | `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<nube>_metricas_arboles. |
 
 ### hipso canopy-gaps
@@ -834,6 +835,10 @@ Mide los troncos de una nube terrestre o móvil a lo largo del tronco y estima e
 | `--stripe-high` | número | `3.5` | Límite superior (m sobre el suelo) de la franja donde se buscan los troncos. |
 | `--max-diameter` | número | `1` | Mayor diámetro de tronco esperado (m) |
 | `--tree-clouds` | casilla | desactivada | Escribe además una nube por árbol. |
+| `--crowns` | casilla | desactivada | Asigna los puntos de la copa a cada árbol por el camino más corto desde su tronco, por los vóxeles ocupados, en vez de por la distancia al eje (afecta a --tree-ids, --tree-clouds y --stem-classes) |
+| `--crown-voxel` | número | `0.1` | Vóxel (m) de la retícula del camino de --crowns. |
+| `--crown-reach` | número | `30` | Mayor longitud (m) del camino desde el tronco hasta un punto de su copa. |
+| `--tree-ids` | casilla | desactivada | Escribe además una sola nube con el atributo treeID de cada punto (0 si no es de ningún árbol) |
 | `--stem-classes` | casilla | desactivada | Escribe además la nube con los troncos en la clase 64 y las ramas en la clase 65. |
 | `--assign-dist` | número | `8` | Distancia (m) hasta la que un punto va al árbol más cercano en las nubes por árbol. |
 | `--stool-dist` | número | `0.6` | Distancia (m) entre las bases de los troncos de una cepa (brotes de monte bajo) |
@@ -1651,7 +1656,7 @@ Dibuja una nube (planta, 3D o perfil) en un PNG, como hace el visor
 | `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ que dibujar. **Obligatoria.** Se puede repetir. |
 | `-o`, `--output` | archivo o carpeta | ninguno | PNG que escribir; por defecto: junto a la primera entrada. |
 | `--view` | una de las opciones | `plan` | Vista: planta, 3D o perfil. Valores: `plan`: Planta, vista desde arriba; `3d`: Vista 3D, orientada con --yaw y --pitch; `profile`: Perfil de una caja (--profile). |
-| `--color` | una de las opciones | `elevation` | Atributo con el que se colorean los puntos. Valores: `elevation`: Elevación, con la rampa azul-rojo; `earth`: Elevación, con la rampa de tierra; `class`: Clase de cada punto; `intensity`: Intensidad; `return`: Número de retorno; `source`: ID de fuente (la pasada); `file`: Archivo de origen; `rgb`: Color RGB del punto; `tree`: Crown number (treeID extra attribute); `hag`: Altura sobre el suelo clasificado (clase 2) de la propia nube; `scan-angle`: Ángulo de barrido, con signo; `class-intensity`: Color de la clase, más claro o más oscuro según la intensidad; `elevation-intensity`: Rampa de elevación, más clara o más oscura según la intensidad. |
+| `--color` | una de las opciones | `elevation` | Atributo con el que se colorean los puntos. Valores: `elevation`: Elevación, con la rampa azul-rojo; `earth`: Elevación, con la rampa de tierra; `viridis`: Elevación, con la rampa viridis; `class`: Clase de cada punto; `intensity`: Intensidad; `return`: Número de retorno; `source`: ID de fuente (la pasada); `file`: Archivo de origen; `rgb`: Color RGB del punto; `tree`: Crown number (treeID extra attribute); `hag`: Altura sobre el suelo clasificado (clase 2) de la propia nube; `scan-angle`: Ángulo de barrido, con signo; `class-intensity`: Color de la clase, más claro o más oscuro según la intensidad; `elevation-intensity`: Rampa de elevación, más clara o más oscura según la intensidad. |
 | `--size` | texto | `1600x1000` | Tamaño de la imagen: ANCHOxALTO. |
 | `--max-points` | número | `8000000` | Puntos que se guardan en memoria (se carga uno de cada N) |
 | `--point-size` | número | `1` | Tamaño del punto, en píxeles. |

@@ -9,6 +9,11 @@
 //! evita cortar la copa en un hueco entre ramas. La copa son los puntos desde esa base hasta la
 //! cima.
 //!
+//! El DAP (diámetro a 1,3 m) sale de los puntos del árbol entre 1,2 y 1,4 m de altura: un círculo
+//! ajustado por mínimos cuadrados (ajuste algebraico), repetido sin los puntos que se alejan de él
+//! (follaje y ramas ajenas). Solo se da si hay puntos suficientes repartidos por buena parte de la
+//! circunferencia; en nubes aéreas, donde el tronco no se ve, queda vacío.
+//!
 //! Los puntos de todos los árboles se guardan en memoria mientras se leen (24 bytes por punto de
 //! árbol): para una zona grande, divídela en hojas.
 
@@ -74,6 +79,91 @@ pub struct TreeMetrics {
     pub volume_hull: f64,
     pub volume_alpha: f64,
     pub area_alpha: f64,
+    /// Diámetro a 1,3 m (m); NaN si el tronco no se ve a esa altura.
+    pub dbh: f64,
+}
+
+/// Altura (m) del diámetro normal y semiancho de la franja de puntos que se usa.
+const DBH_HEIGHT: f64 = 1.3;
+const DBH_BAND: f64 = 0.1;
+
+/// Ajusta un círculo a los puntos `[x, y]` por mínimos cuadrados algebraicos: devuelve centro y
+/// radio.
+fn fit_circle(p: &[[f64; 2]]) -> Option<([f64; 2], f64)> {
+    let n = p.len() as f64;
+    let (mx, my) = (
+        p.iter().map(|q| q[0]).sum::<f64>() / n,
+        p.iter().map(|q| q[1]).sum::<f64>() / n,
+    );
+    let (mut suu, mut suv, mut svv, mut suuu, mut svvv, mut suvv, mut svuu) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    for q in p {
+        let (u, v) = (q[0] - mx, q[1] - my);
+        suu += u * u;
+        suv += u * v;
+        svv += v * v;
+        suuu += u * u * u;
+        svvv += v * v * v;
+        suvv += u * v * v;
+        svuu += v * u * u;
+    }
+    let det = suu * svv - suv * suv;
+    if det.abs() < 1e-12 {
+        return None;
+    }
+    let (b1, b2) = (0.5 * (suuu + suvv), 0.5 * (svvv + svuu));
+    let (uc, vc) = ((b1 * svv - b2 * suv) / det, (b2 * suu - b1 * suv) / det);
+    let r2 = uc * uc + vc * vc + (suu + svv) / n;
+    (r2 > 0.0).then(|| ([uc + mx, vc + my], r2.sqrt()))
+}
+
+/// El diámetro a 1,3 m de un árbol (puntos `[x, y, z, altura]`), o NaN.
+fn dbh(pts: &[[f64; 4]]) -> f64 {
+    let mut band: Vec<[f64; 2]> = pts
+        .iter()
+        .filter(|q| (q[3] - DBH_HEIGHT).abs() <= DBH_BAND)
+        .map(|q| [q[0], q[1]])
+        .collect();
+    let mut fit = None;
+    for _ in 0..3 {
+        if band.len() < 12 {
+            return f64::NAN;
+        }
+        let Some((c, r)) = fit_circle(&band) else {
+            return f64::NAN;
+        };
+        let d: Vec<f64> = band.iter().map(|q| (q[0] - c[0]).hypot(q[1] - c[1]) - r).collect();
+        let rms = (d.iter().map(|e| e * e).sum::<f64>() / d.len() as f64).sqrt();
+        fit = Some((c, r, rms));
+        // fuera los puntos a más de tres veces el residuo (o 1 cm) del círculo
+        let lim = (3.0 * rms).max(0.01);
+        let keep: Vec<[f64; 2]> = band
+            .iter()
+            .zip(&d)
+            .filter(|(_, e)| e.abs() <= lim)
+            .map(|(q, _)| *q)
+            .collect();
+        if keep.len() == band.len() {
+            break;
+        }
+        band = keep;
+    }
+    let Some((c, r, rms)) = fit else {
+        return f64::NAN;
+    };
+    if band.len() < 12 || !(0.02..=0.6).contains(&r) || rms > 0.2 * r {
+        return f64::NAN;
+    }
+    // los puntos han de rodear el tronco: ningún hueco de más de 200° entre ellos
+    let mut ang: Vec<f64> = band.iter().map(|q| (q[1] - c[1]).atan2(q[0] - c[0])).collect();
+    ang.sort_by(f64::total_cmp);
+    let mut gap = ang[0] + std::f64::consts::TAU - ang[ang.len() - 1];
+    for w in ang.windows(2) {
+        gap = gap.max(w[1] - w[0]);
+    }
+    if gap > 200f64.to_radians() {
+        return f64::NAN;
+    }
+    2.0 * r
 }
 
 /// Mide un árbol: cada punto es `[x, y, z, altura sobre el suelo]`.
@@ -126,6 +216,7 @@ pub fn measure(id: u32, pts: &[[f64; 4]], p: &Params) -> Option<TreeMetrics> {
         volume_hull: s.hull_volume,
         volume_alpha: s.alpha_volume,
         area_alpha: s.alpha_area,
+        dbh: dbh(pts),
     })
 }
 
@@ -141,6 +232,8 @@ pub struct TreeMetricsJob {
     pub filter: Filter,
     pub output: PathBuf,
     pub shp: bool,
+    /// El atributo adicional que lleva el número de individuo (`treeID` por defecto).
+    pub dim: String,
 }
 
 impl TreeMetricsJob {
@@ -156,6 +249,7 @@ impl TreeMetricsJob {
             },
             output,
             shp: true,
+            dim: "treeID".to_string(),
         }
     }
 }
@@ -169,8 +263,11 @@ pub fn measure_cloud(job: &TreeMetricsJob) -> Result<Vec<TreeMetrics>> {
         ));
     }
     let r = Reader::open(&job.input)?;
-    let field = r.extra_field("treeID").ok_or_else(|| {
-        Error::Param("la nube no tiene el atributo treeID: segméntala antes con `trees --cloud` o con `trees3d`".into())
+    let field = r.extra_field(&job.dim).ok_or_else(|| {
+        Error::Param(format!(
+            "la nube no tiene el atributo {}: segméntala antes con `trees --cloud`, `trees3d` o `stem-volume --tree-ids`, o indica con --dim el atributo que numera los individuos",
+            job.dim
+        ))
     })?;
     let dtm = if job.normalized {
         None
@@ -228,11 +325,11 @@ pub fn run(job: &TreeMetricsJob) -> Result<String> {
     paths::ensure_parent(&job.output)?;
     let csv = paths::swap_ext(&job.output, "csv");
     let mut text = String::from(
-        "treeID,X,Y,Z,H,Puntos,Puntos_copa,CBH,Long_copa,Prop_copa,Area_copa,Radio_copa,Vol_convexo,Vol_alfa,Sup_alfa\n",
+        "treeID,X,Y,Z,H,Puntos,Puntos_copa,CBH,Long_copa,Prop_copa,Area_copa,Radio_copa,Vol_convexo,Vol_alfa,Sup_alfa,DAP\n",
     );
     for t in &trees {
         text.push_str(&format!(
-            "{},{:.3},{:.3},{:.3},{:.3},{},{},{:.3},{:.3},{:.4},{:.3},{:.3},{:.3},{:.3},{:.3}\n",
+            "{},{:.3},{:.3},{:.3},{:.3},{},{},{:.3},{:.3},{:.4},{:.3},{:.3},{:.3},{:.3},{:.3},{}\n",
             t.id,
             t.x,
             t.y,
@@ -247,7 +344,8 @@ pub fn run(job: &TreeMetricsJob) -> Result<String> {
             t.crown_radius,
             t.volume_hull,
             t.volume_alpha,
-            t.area_alpha
+            t.area_alpha,
+            if t.dbh.is_finite() { format!("{:.3}", t.dbh) } else { String::new() }
         ));
     }
     std::fs::write(&csv, text)?;
@@ -279,6 +377,7 @@ pub fn run(job: &TreeMetricsJob) -> Result<String> {
             "vol_conv",
             "vol_alfa",
             "sup_alfa",
+            "dap",
         ];
         let mut d = VectorData {
             points: true,
@@ -311,6 +410,7 @@ pub fn run(job: &TreeMetricsJob) -> Result<String> {
                 t.volume_hull,
                 t.volume_alpha,
                 t.area_alpha,
+                if t.dbh.is_finite() { t.dbh } else { 0.0 },
             ];
             d.text.push(v.iter().map(|x| format!("{x:.3}")).collect());
             d.num.push(v.to_vec());
@@ -399,5 +499,51 @@ mod tests {
     #[test]
     fn no_height_no_tree() {
         assert!(measure(1, &[[0.0, 0.0, 5.0, 0.0]], &Params::default()).is_none());
+    }
+
+    /// Un tronco cilíndrico de radio `r` visto en anillos cada 10 cm, más follaje suelto cerca.
+    fn trunk(r: f64) -> Vec<[f64; 4]> {
+        let mut v = Vec::new();
+        let mut h = 0.5;
+        while h < 8.0 {
+            for k in 0..60 {
+                let a = f64::from(k) * std::f64::consts::TAU / 60.0;
+                v.push([r * a.cos() + 3.0, r * a.sin() - 2.0, 100.0 + h, h]);
+            }
+            h += 0.02;
+        }
+        v
+    }
+
+    #[test]
+    fn the_dbh_is_the_diameter_of_the_circle_at_one_point_three_metres() {
+        let mut pts = trunk(0.17);
+        // ramitas y follaje a 1,3 m que no son el tronco
+        for k in 0..6 {
+            let a = f64::from(k);
+            pts.push([3.0 + 0.9 * a.cos(), -2.0 + 0.9 * a.sin(), 101.3, 1.3]);
+        }
+        let d = dbh(&pts);
+        assert!((d - 0.34).abs() < 0.01, "{d}");
+    }
+
+    #[test]
+    fn without_trunk_points_at_breast_height_there_is_no_dbh() {
+        // solo copa: nada entre 1,2 y 1,4 m
+        let pts: Vec<[f64; 4]> = (0..80)
+            .map(|k| {
+                let a = f64::from(k);
+                [2.0 * a.cos(), 2.0 * a.sin(), 110.0, 10.0]
+            })
+            .collect();
+        assert!(dbh(&pts).is_nan());
+        // un arco de menos de 200° de tronco tampoco vale
+        let arc: Vec<[f64; 4]> = (0..40)
+            .map(|k| {
+                let a = f64::from(k) * 0.05;
+                [0.2 * a.cos(), 0.2 * a.sin(), 101.3, 1.3]
+            })
+            .collect();
+        assert!(dbh(&arc).is_nan());
     }
 }

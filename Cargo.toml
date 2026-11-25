@@ -1,9 +1,11 @@
 ﻿[workspace]
 resolver = "3"
 members = ["crates/*", "apps/*"]
+# `hipso-tls` (la ventana de nubes densas) no se compila por defecto: en Linux necesita WebKitGTK
+default-members = ["crates/core", "crates/crs", "apps/cli", "apps/gui"]
 
 [workspace.package]
-version = "0.8.5"
+version = "0.8.6"
 edition = "2024"
 license = "LicenseRef-HIPSO-Freeware"
 rust-version = "1.90"

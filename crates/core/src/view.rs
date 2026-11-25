@@ -31,6 +31,12 @@ pub struct PointStore {
     pub rgb: Vec<[u8; 3]>,
     /// El número de copa (`treeID`) de cada punto; vacío cuando ningún archivo trae uno.
     pub tree: Vec<u32>,
+    /// Nivel del octree del que viene cada punto (vacío cuando el almacén no se leyó por niveles).
+    /// Con él la vista 3D da a cada punto el tamaño de su nivel: los puntos de niveles gruesos
+    /// (lejanos) más grandes y los de niveles finos (cercanos) más pequeños.
+    pub lvl: Vec<u8>,
+    /// Espaciado entre puntos del nivel 0 (se divide entre dos en cada nivel); solo vale con `lvl`.
+    pub lvl_spacing0: f64,
     pub files: Vec<String>,
     /// Puntos seleccionados (vacío: ninguno seleccionado) y puntos eliminados por ediciones (vacío:
     /// ninguno).
@@ -282,6 +288,12 @@ impl PointStore {
             } else {
                 keep.iter().map(|&i| self.tree[i]).collect()
             },
+            lvl: if self.lvl.is_empty() {
+                Vec::new()
+            } else {
+                keep.iter().map(|&i| self.lvl[i]).collect()
+            },
+            lvl_spacing0: self.lvl_spacing0,
             files: self.files.clone(),
             selected: Vec::new(),
             deleted: Vec::new(),
@@ -750,6 +762,8 @@ pub fn load_slab(
 pub enum ColorBy {
     Elevation,
     ElevationEarth,
+    /// La rampa viridis (del morado al amarillo), muy usada en nubes terrestres.
+    ElevationViridis,
     Class,
     Intensity,
     Return,
@@ -792,6 +806,30 @@ pub fn return_bit(ret: u8) -> u8 {
 /// El color de la rampa de elevación en `t` (0 abajo, 1 arriba), con la rampa de tierra si `earth`.
 pub fn ramp_color(t: f32, earth: bool) -> [u8; 3] {
     ramp(t, earth)
+}
+
+/// La rampa de elevación que corresponde al modo de color `by`.
+fn ramp_for(t: f32, by: ColorBy) -> [u8; 3] {
+    if by == ColorBy::ElevationViridis {
+        // viridis en nueve paradas
+        const VIRIDIS: [[f32; 3]; 9] = [
+            [68.0, 1.0, 84.0],
+            [71.0, 44.0, 122.0],
+            [59.0, 81.0, 139.0],
+            [44.0, 113.0, 142.0],
+            [33.0, 144.0, 141.0],
+            [39.0, 173.0, 129.0],
+            [92.0, 200.0, 99.0],
+            [170.0, 220.0, 50.0],
+            [253.0, 231.0, 37.0],
+        ];
+        let t = t.clamp(0.0, 1.0) * 8.0;
+        let i = (t.floor() as usize).min(7);
+        let f = t - i as f32;
+        let c = |k: usize| (VIRIDIS[i][k] + (VIRIDIS[i + 1][k] - VIRIDIS[i][k]) * f) as u8;
+        return [c(0), c(1), c(2)];
+    }
+    ramp(t, by == ColorBy::ElevationEarth)
 }
 
 fn ramp(t: f32, earth: bool) -> [u8; 3] {
@@ -865,10 +903,17 @@ pub struct Style {
     /// como diga el espaciado de los puntos) con el punto más cercano, para que las líneas de
     /// barrido y el suelo disperso se lean como una superficie.
     pub fill: bool,
-    /// Iluminación de cúpula de ojo (eye-dome lighting): oscurece los píxeles que quedan detrás de
-    /// sus vecinos, lo que da profundidad y bordes a un coloreado plano. 0 es apagado; 1 es una
+    /// Solo de la vista 3D (la planta y el perfil no la usan). Iluminación de cúpula de ojo (eye-dome lighting): oscurece los píxeles que quedan detrás de
+    /// sus vecinos, lo que da profundidad y bordes a un coloreado plano. 0 es apagado; 0,4 es la
     /// intensidad habitual.
     pub edl: f32,
+    /// Tamaño máximo en píxeles de un punto en la vista 3D. Al acercarse los puntos crecen con la
+    /// perspectiva (con la nube densa llega a hacerlos bloques); este tope los mantiene unidos y
+    /// pequeños. Nunca baja de `point_size`.
+    pub max_dot3: usize,
+    /// Forma de los puntos de 3 píxeles o más en la vista 3D: redondos (por defecto) o cuadrados.
+    /// La planta y el perfil siempre los dibujan redondos.
+    pub round_dots: bool,
     /// Dibuja solo los puntos dentro de este rectángulo `[xmin, ymin, xmax, ymax]` (vista 3D).
     pub window: Option<[f64; 4]>,
     /// Omite los puntos dentro de este rectángulo `[xmin, ymin, xmax, ymax]` (vista 3D: lo que
@@ -900,6 +945,8 @@ impl Default for Style {
             spacing: 0.0,
             fill: true,
             edl: 0.0,
+            max_dot3: 4,
+            round_dots: true,
         }
     }
 }
@@ -966,11 +1013,11 @@ impl Style {
             return HIGHLIGHT;
         }
         match self.color_by {
-            ColorBy::Elevation | ColorBy::ElevationEarth => {
+            ColorBy::Elevation | ColorBy::ElevationEarth | ColorBy::ElevationViridis => {
                 let z = s.origin[2] + f64::from(s.z[i]);
-                ramp(
+                ramp_for(
                     ((z - self.zmin) / (self.zmax - self.zmin).max(1e-9)) as f32,
-                    self.color_by == ColorBy::ElevationEarth,
+                    self.color_by,
                 )
             }
             ColorBy::Class => self.class_colors[usize::from(s.class[i])],
@@ -1248,18 +1295,18 @@ impl Layer {
         }
     }
 
-    fn splat(&self, x: i64, y: i64, d: f32, size: i64, c: [u8; 3]) {
+    fn splat(&self, x: i64, y: i64, d: f32, size: i64, c: [u8; 3], round: bool) {
         use std::sync::atomic::Ordering::Relaxed;
         let packed = Self::depth_key(d) << 24
             | u64::from(c[0]) << 16
             | u64::from(c[1]) << 8
             | u64::from(c[2]);
         let r0 = (size - 1) / 2;
-        // los puntos a partir de 3 píxeles son redondos, no cuadrados
+        // los puntos a partir de 3 píxeles son redondos (o cuadrados, si el estilo lo pide)
         let (mid, rad2) = ((size as f64 - 1.0) / 2.0, (size as f64 / 2.0).powi(2));
         for yy in (y - r0).max(0)..(y - r0 + size).min(self.h as i64) {
             for xx in (x - r0).max(0)..(x - r0 + size).min(self.w as i64) {
-                if size >= 3 {
+                if size >= 3 && round {
                     let (dx, dy) = ((xx - (x - r0)) as f64 - mid, (yy - (y - r0)) as f64 - mid);
                     if dx * dx + dy * dy > rad2 {
                         continue;
@@ -1349,7 +1396,12 @@ impl Layer {
     }
 
     /// Iluminación de cúpula de ojo: cada píxel se oscurece según cuánto quedan delante de él sus
-    /// vecinos (a uno y dos píxeles), como proporción del rango de profundidad de la imagen.
+    /// vecinos. Con profundidades positivas (la vista 3D, donde es la distancia al plano de la
+    /// cámara) la diferencia se mide en logaritmo de la profundidad con los cuatro vecinos
+    /// contiguos, de modo que un mismo escalón oscurece igual cerca que lejos y la intensidad no
+    /// depende del rango de la imagen: `strength` 0,4 es el valor habitual. Con profundidades que
+    /// pueden ser negativas (la planta) se mide, a uno y dos píxeles, como proporción del rango de
+    /// profundidad de la imagen.
     fn shade_edl(&mut self, strength: f32) {
         use rayon::prelude::*;
         use std::sync::atomic::Ordering::Relaxed;
@@ -1373,6 +1425,7 @@ impl Layer {
             return;
         }
         let range = hi - lo;
+        let logarithmic = lo > 1e-6;
         let out: Vec<u64> = (0..w * h)
             .into_par_iter()
             .map(|i| {
@@ -1383,16 +1436,12 @@ impl Layer {
                 let (x, y) = ((i % w) as i64, (i / w) as i64);
                 let d = depth(v);
                 let mut obscure = 0.0f32;
-                for (dx, dy) in [
-                    (-1i64, 0i64),
-                    (1, 0),
-                    (0, -1),
-                    (0, 1),
-                    (-2, 0),
-                    (2, 0),
-                    (0, -2),
-                    (0, 2),
-                ] {
+                let near: &[(i64, i64)] = if logarithmic {
+                    &[(-1, 0), (1, 0), (0, -1), (0, 1)]
+                } else {
+                    &[(-1, 0), (1, 0), (0, -1), (0, 1), (-2, 0), (2, 0), (0, -2), (0, 2)]
+                };
+                for &(dx, dy) in near {
                     let (nx, ny) = (x + dx, y + dy);
                     if nx < 0 || ny < 0 || nx >= w as i64 || ny >= h as i64 {
                         continue;
@@ -1400,10 +1449,20 @@ impl Layer {
                     let n = src[ny as usize * w + nx as usize];
                     if n != EMPTY {
                         // un vecino más cercano (menor profundidad) sombrea a este
-                        obscure += ((d - depth(n)) / range).max(0.0);
+                        obscure += if logarithmic {
+                            (d.log2() - depth(n).log2()).max(0.0)
+                        } else {
+                            ((d - depth(n)) / range).max(0.0)
+                        };
                     }
                 }
-                let f = (-strength * obscure * 60.0).exp();
+                let f = if logarithmic {
+                    // nunca más oscuro que un tercio del color: un escalón grande de profundidad
+                    // (otra capa del dosel) no debe dejar píxeles negros
+                    (-strength * obscure * 0.25 * 300.0).exp().max(0.33)
+                } else {
+                    (-strength * obscure * 60.0).exp()
+                };
                 let c = |sh: u32| (((v >> sh) & 0xff) as f32 * f) as u64;
                 (v & !0xff_ffff) | c(16) << 16 | c(8) << 8 | c(0)
             })
@@ -1508,7 +1567,8 @@ pub fn render_plan(s: &PointStore, v: &Plan, w: usize, h: usize, st: &Style) -> 
         st.thin.max(1),
         fill,
         gap_px >= SPARSE_PX,
-        edl_of(st),
+        // la planta no lleva relieve: es solo de la vista 3D
+        0.0,
         |l, i| {
             let px = ((f64::from(s.x[i]) + s.origin[0] - v.cx) * v.scale + w as f64 / 2.0).floor();
             let py =
@@ -1521,7 +1581,8 @@ pub fn render_plan(s: &PointStore, v: &Plan, w: usize, h: usize, st: &Style) -> 
             {
                 return;
             }
-            l.splat(px as i64, py as i64, -s.z[i], size, st.color(s, i));
+            // la planta siempre dibuja los puntos redondos: la forma elegible es solo del 3D
+            l.splat(px as i64, py as i64, -s.z[i], size, st.color(s, i), true);
         },
     );
     img
@@ -1906,12 +1967,20 @@ pub fn render_3d_surface(
                     return;
                 }
                 // los puntos más cercanos parecen mayores: el tamaño sigue la perspectiva
+                let natural = if s.lvl.is_empty() {
+                    dot(st, f / depth_axis)
+                } else {
+                    // el tamaño del nivel del punto, no uno común a toda la nube
+                    let sp = s.lvl_spacing0 / f64::from(1u32 << u32::from(s.lvl[i]).min(30));
+                    ((sp * f / depth_axis * 0.9).ceil() as i64).clamp(st.point_size.max(1) as i64, 24)
+                };
                 layer.splat(
                     px as i64,
                     py as i64,
                     depth_axis as f32,
-                    dot(st, f / depth_axis),
+                    natural.min(st.max_dot3.max(st.point_size).max(1) as i64),
                     st.color(s, i),
+                    st.round_dots,
                 );
             });
     }
@@ -2073,7 +2142,8 @@ pub fn render_profile(
     inside.into_par_iter().for_each(|(i, u, z, t)| {
         let px = (ox + u * k).floor() as i64;
         let py = (h as f64 - oy - (z - zlo) * k).floor() as i64;
-        layer.splat(px, py, t as f32, size, st.color(s, i));
+        // el perfil siempre dibuja los puntos redondos: la forma elegible es solo del 3D
+        layer.splat(px, py, t as f32, size, st.color(s, i), true);
     });
     layer.paint_into(&mut img);
     (img, zlo, zhi)
@@ -2248,9 +2318,9 @@ pub fn shade(g: &Grid, st: &Style, azimuth_deg: f64, altitude_deg: f64, tint: bo
             };
             let lam = (n[0] * l[0] + n[1] * l[1] + n[2] * l[2]).clamp(0.0, 1.0);
             let base = if tint {
-                ramp(
+                ramp_for(
                     ((f64::from(z) - st.zmin) / (st.zmax - st.zmin).max(1e-9)) as f32,
-                    st.color_by == ColorBy::ElevationEarth,
+                    st.color_by,
                 )
             } else {
                 [255, 255, 255]
@@ -2354,7 +2424,7 @@ pub fn raster_image(g: &Grid, st: &Style) -> Image {
                 let g = (t.clamp(0.0, 1.0) * 255.0) as u8;
                 [g, g, g]
             } else {
-                ramp(t, st.color_by == ColorBy::ElevationEarth)
+                ramp_for(t, st.color_by)
             };
             img.rgba[i * 4..i * 4 + 3].copy_from_slice(&c);
             img.rgba[i * 4 + 3] = 255;
@@ -3219,6 +3289,37 @@ mod scattered_tests {
         // 2 km² sobre 200 000 puntos: unos pocos metros entre puntos, no cientos
         assert!(st.spacing < 5.0, "{}", st.spacing);
         assert!(dot(&st, 0.5) <= 3, "{}", dot(&st, 0.5));
+    }
+
+    #[test]
+    fn the_plan_ignores_the_options_that_belong_to_the_3d_view() {
+        let n = 4000usize;
+        let mut s = PointStore {
+            stride: 1,
+            bounds: [0.0, 0.0, 0.0, 100.0, 100.0, 30.0],
+            ..PointStore::default()
+        };
+        for i in 0..n {
+            s.x.push((i % 63) as f32 * 1.6);
+            s.y.push((i / 63) as f32 * 1.6);
+            s.z.push((i % 29) as f32);
+            s.class.push(1);
+            s.intensity.push(100);
+            s.ret.push(0x11);
+            s.src.push(0);
+            s.scan.push(0);
+            s.file.push(0);
+        }
+        s.total = n as u64;
+        let v = Plan::fit(s.bounds, 200, 150);
+        let base = Style::fit(&s);
+        let mut only3d = base.clone();
+        only3d.edl = 0.4;
+        only3d.round_dots = false;
+        only3d.max_dot3 = 2;
+        let a = render_plan(&s, &v, 200, 150, &base);
+        let b = render_plan(&s, &v, 200, 150, &only3d);
+        assert_eq!(a.rgba, b.rgba, "la planta no debe cambiar con el relieve, la forma ni el tope del 3D");
     }
 
     #[test]

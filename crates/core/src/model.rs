@@ -121,6 +121,176 @@ impl ToolSpec {
     }
 }
 
+/// De qué depende que una opción se muestre: una opción de método solo importa con ese método.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Gate {
+    /// La casilla `id` está marcada.
+    Flag(&'static str),
+    /// La opción `id` vale uno de estos nombres; si no se ha dado ni tiene valor por defecto, vale
+    /// `implicit`.
+    Is(&'static str, &'static [&'static str], Option<&'static str>),
+    /// La opción numérica `id` no es cero.
+    Nonzero(&'static str),
+    /// La opción `id` tiene valor (por ejemplo, un archivo).
+    Set(&'static str),
+}
+
+/// La condición para mostrar la opción `id` de la orden `tool`, o `None` si se muestra siempre. Es lo
+/// que hace que, como en las ventanas del programa, al elegir un método solo salgan sus parámetros.
+pub fn gate(tool: &str, id: &str) -> Option<Gate> {
+    let has = |p: &str| id.starts_with(p);
+    // el filtro de suelo: la clasificación usa Kraus-Pfeifer si no se elige otro; el MDT usa la
+    // clase 2 que ya trae la nube
+    if matches!(tool, "classify" | "dtm") {
+        let implicit = if tool == "classify" { Some("kraus") } else { None };
+        if matches!(id, "filter_cell" | "iterations" | "g" | "w" | "a" | "b" | "tolerance") {
+            return Some(Gate::Is("ground", &["kraus"], implicit));
+        }
+        if has("mcc_") {
+            return Some(Gate::Is("ground", &["mcc"], implicit));
+        }
+        if has("csf_") {
+            return Some(Gate::Is("ground", &["csf"], implicit));
+        }
+        if has("pmf_") {
+            return Some(Gate::Is("ground", &["pmf"], implicit));
+        }
+        if has("smrf_") {
+            return Some(Gate::Is("ground", &["smrf"], implicit));
+        }
+        if has("axelsson_") {
+            return Some(Gate::Is("ground", &["axelsson"], implicit));
+        }
+    }
+    match tool {
+        "classify" => {
+            if id == "overlap_cell" {
+                return Some(Gate::Flag("overlap"));
+            }
+            if matches!(id, "sor_k" | "sor_m") {
+                return Some(Gate::Is("noise", &["sor"], None));
+            }
+            if matches!(id, "noise_step" | "noise_step_z" | "isolated") {
+                return Some(Gate::Is("noise", &["isolated"], None));
+            }
+            if has("elm_") {
+                return Some(Gate::Is("noise", &["elm"], None));
+            }
+            if has("wire_") {
+                return Some(Gate::Flag("wires"));
+            }
+            if has("pole_") {
+                return Some(Gate::Flag("poles"));
+            }
+            if has("building_") {
+                return Some(Gate::Flag("buildings"));
+            }
+        }
+        "chm" => {
+            if matches!(id, "max_edge" | "tile" | "threads") {
+                return Some(Gate::Is("method", &["pitfree"], None));
+            }
+            if id == "no_fill" {
+                return Some(Gate::Is("method", &["max"], None));
+            }
+            if id == "smoothing" {
+                return Some(Gate::Nonzero("smooth"));
+            }
+        }
+        "dsm" => {
+            if id == "no_fill" {
+                return Some(Gate::Is("method", &["max"], None));
+            }
+            if matches!(id, "tile" | "threads") {
+                return Some(Gate::Is("method", &["tin", "idw"], None));
+            }
+            if id == "smoothing" {
+                return Some(Gate::Nonzero("smooth"));
+            }
+        }
+        "dtm" => {
+            if id == "smoothing" {
+                return Some(Gate::Nonzero("smooth"));
+            }
+        }
+        "trees" => {
+            if matches!(id, "th_seed" | "th_cr" | "max_cr") {
+                return Some(Gate::Is("method", &["dalponte"], None));
+            }
+            if matches!(id, "max_cr_factor" | "exclusion") {
+                return Some(Gate::Is("method", &["silva"], None));
+            }
+            if matches!(id, "tolerance" | "ext") {
+                return Some(Gate::Is("method", &["watershed"], None));
+            }
+            if id == "smoothing" {
+                return Some(Gate::Nonzero("smooth"));
+            }
+            if matches!(
+                id,
+                "field_x" | "field_y" | "field_h" | "field_plot" | "plot_x" | "plot_y" | "plot_radius" | "match_dist"
+            ) {
+                return Some(Gate::Set("field"));
+            }
+        }
+        "terrain" => {
+            if matches!(id, "azimuth" | "altitude") {
+                return Some(Gate::Is("product", &["hillshade"], None));
+            }
+            if id == "radius" {
+                return Some(Gate::Is("product", &["tpi"], None));
+            }
+            if id == "percent" {
+                return Some(Gate::Is("product", &["slope"], None));
+            }
+            if matches!(id, "observer" | "eye" | "target" | "max_distance") {
+                return Some(Gate::Is("product", &["viewshed"], None));
+            }
+        }
+        "render" => {
+            if matches!(id, "yaw" | "pitch") {
+                return Some(Gate::Is("view", &["3d"], None));
+            }
+            if matches!(id, "shade" | "contours") {
+                return Some(Gate::Is("view", &["plan"], None));
+            }
+        }
+        "stem-volume" => {
+            if matches!(id, "crown_voxel" | "crown_reach") {
+                return Some(Gate::Flag("crowns"));
+            }
+        }
+        _ => {}
+    }
+    None
+}
+
+impl ToolSpec {
+    /// Si hay que mostrar la opción `a` con los valores `args` ya puestos (los que no están, valen su
+    /// valor por defecto): una opción de método o de casilla sale solo cuando se usa.
+    pub fn shown(&self, a: &ArgSpec, args: &std::collections::BTreeMap<String, Vec<String>>) -> bool {
+        let Some(g) = gate(&self.name, &a.id) else {
+            return true;
+        };
+        let value = |id: &str| -> Option<String> {
+            args.get(id)
+                .and_then(|v| v.first().cloned())
+                .or_else(|| self.arg(id).and_then(|s| s.default.clone()))
+                .filter(|v| !v.is_empty())
+        };
+        match g {
+            Gate::Flag(id) => value(id).is_some_and(|v| v == "true"),
+            Gate::Is(id, names, implicit) => value(id)
+                .or_else(|| implicit.map(str::to_string))
+                .is_some_and(|v| names.iter().any(|n| v.eq_ignore_ascii_case(n))),
+            Gate::Nonzero(id) => value(id)
+                .and_then(|v| v.replace(',', ".").parse::<f64>().ok())
+                .is_some_and(|v| v != 0.0),
+            Gate::Set(id) => value(id).is_some(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Schema {
     pub tools: Vec<ToolSpec>,

@@ -25,6 +25,7 @@ pub struct State {
     pub thin_seed: f64,
     pub tls: TlsParams,
     pub tls_clouds: bool,
+    pub tls_ids: bool,
     pub tls_stems: bool,
     pub dup: DupFields,
     pub dup_all: bool,
@@ -131,6 +132,7 @@ impl Default for State {
             thin_seed: 1.0,
             tls: TlsParams::default(),
             tls_clouds: false,
+            tls_ids: false,
             tls_stems: false,
             dup: DupFields::default(),
             dup_all: false,
@@ -484,7 +486,17 @@ impl Tools {
             &mut self.lx.tls_clouds,
             "Guardar también la nube de puntos de cada individuo",
         );
-        if self.lx.tls_clouds || self.lx.tls_stems {
+        ui.checkbox(
+            &mut self.lx.tls_ids,
+            "Guardar una nube con el treeID de cada punto",
+        )
+        .on_hover_text("Una sola nube con todos los puntos y el atributo treeID: el número del árbol al que pertenece cada uno (0 si no es de ninguno). Usa la distancia máxima al eje de abajo y sirve para colorear por árbol y para «Métricas por árbol».");
+        if self.lx.tls_clouds || self.lx.tls_stems || self.lx.tls_ids {
+            ui.checkbox(
+                &mut self.lx.tls.crowns,
+                "Asignar la copa por el camino más corto desde el tronco",
+            )
+            .on_hover_text("Cada punto va al árbol al que lo une, por los vóxeles ocupados (follaje y ramas), el camino más corto desde el tronco, en vez de al eje más cercano en planta. Separa mejor las copas que se tocan; tarda algo más y gasta memoria (un vóxel ocupado por cada 10 cm de la nube).");
             num(
                 ui,
                 "Distancia máxima al eje (m)",
@@ -1824,6 +1836,7 @@ impl Tools {
                 let params = self.lx.tls.clone();
                 let clouds = self.lx.tls_clouds;
                 let stems = self.lx.tls_stems;
+                let ids = self.lx.tls_ids;
                 let outs = names_ext("volumen", "shp");
                 let mut outputs: Vec<PathBuf> = Vec::new();
                 let mut show = Vec::new();
@@ -1832,6 +1845,24 @@ impl Tools {
                     outputs.push(o.with_file_name(format!("{}_trozas.csv", paths::stem(o))));
                     if clouds {
                         outputs.push(o.with_file_name(format!("{}_arboles", paths::stem(o))));
+                    }
+                    if ids {
+                        for i in &inputs_v {
+                            if outs.get(i) == Some(o) {
+                                outputs.push(
+                                    TlsJob {
+                                        input: i.clone(),
+                                        output: o.clone(),
+                                        params: params.clone(),
+                                        formats,
+                                        tree_clouds: false,
+                                        stem_classes: false,
+                                        tree_ids: true,
+                                    }
+                                    .tree_ids_path(),
+                                );
+                            }
+                        }
                     }
                     if stems {
                         for i in &inputs_v {
@@ -1844,6 +1875,7 @@ impl Tools {
                                         formats,
                                         tree_clouds: false,
                                         stem_classes: true,
+                                        tree_ids: false,
                                     }
                                     .stems_path(),
                                 );
@@ -1865,6 +1897,7 @@ impl Tools {
                             formats,
                             tree_clouds: clouds,
                             stem_classes: stems,
+                            tree_ids: ids,
                         };
                         lines.push(tls::run(&job)?);
                     }

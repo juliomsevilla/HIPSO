@@ -54,6 +54,9 @@ mod piles_ui;
 mod ponds_ui;
 mod theme;
 mod tips;
+mod halo;
+mod tlsview;
+mod viewdetail;
 mod tools;
 mod vecedit;
 mod vecmore;
@@ -65,6 +68,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 
@@ -415,6 +419,8 @@ enum Action {
     Shortcuts,
     Settings,
     Flows,
+    /// Abre la ventana «Ver nubes TLS» con la primera nube cargada.
+    TlsView,
     /// Una herramienta de la ventana genérica (índice de `cli_tool_ui::TOOLS`).
     CliTool(u8),
     FlowNew,
@@ -520,6 +526,8 @@ struct App {
     next_plans: Vec<Plan>,
     orbit: Orbit,
     follow_plan: bool,
+    /// Distancia de la cámara 3D tras cargar (solo pruebas).
+    dist3d: Option<f64>,
     profile: Option<ProfileBox>,
     profile_clicks: Vec<[f64; 2]>,
     /// El eje curvo que recorre el perfil (una línea de una capa) y la estación actual, en metros
@@ -654,12 +662,15 @@ struct App {
     detail_src: Vec<PathBuf>,
     /// La creación de las copias COPC en segundo plano.
     cache_job: Option<Receiver<Result<Vec<PathBuf>, String>>>,
+    /// La preparación y apertura de «Ver nubes TLS» en segundo plano.
+    tls_job: Option<(Receiver<Result<String, String>>, Instant, Arc<AtomicBool>, Arc<AtomicU32>)>,
     /// Los puntos de la ventana que se mira, leídos de los archivos COPC.
     detail: Option<Detail>,
     detail_job: Option<DetailJob>,
     /// Lo mismo para la vista 3D.
     detail3: Option<Detail>,
     detail3_job: Option<DetailJob>,
+    vdet: viewdetail::ViewDetail,
     detail_id: u64,
     /// La vista «Archivo» está abierta sobre el área de trabajo.
     backstage: bool,
@@ -721,6 +732,7 @@ impl Default for App {
                 exaggeration: 1.0,
             },
             follow_plan: false,
+            dist3d: None,
             profile: None,
             profile_clicks: Vec::new(),
             profile_axis: None,
@@ -818,10 +830,12 @@ impl Default for App {
             work_crs: None,
             detail_src: Vec::new(),
             cache_job: None,
+            tls_job: None,
             detail: None,
             detail_job: None,
             detail3: None,
             detail3_job: None,
+            vdet: viewdetail::ViewDetail::default(),
             detail_id: 0,
             backstage: false,
             backstage_page: backstage::Page::Home,
@@ -1025,6 +1039,8 @@ impl App {
                         Some("class") => ColorBy::Class,
                         Some("intensity") => ColorBy::Intensity,
                         Some("earth") => ColorBy::ElevationEarth,
+                        Some("viridis") => ColorBy::ElevationViridis,
+                        Some("tree") => ColorBy::Tree,
                         Some("return") => ColorBy::Return,
                         Some("hag") => ColorBy::HeightAboveGround,
                         Some("scan-angle") => ColorBy::ScanAngle,
@@ -1069,6 +1085,21 @@ impl App {
                         self.orbit.pitch = pitch.to_radians();
                     }
                 }
+                // pruebas de la vista 3D: relieve, tope de tamaño del punto y distancia de la cámara
+                "--edl" => self.style.edl = 0.4,
+                "--max-dot" => {
+                    if let Some(v) = it.next().and_then(|v| v.parse().ok()) {
+                        self.style.max_dot3 = v;
+                    }
+                }
+                "--edl-fuerza" => {
+                    if let Some(v) = it.next().and_then(|v| v.parse().ok()) {
+                        self.style.edl = v;
+                    }
+                }
+                "--vista-detalle" => self.vdet.on = true,
+                "--cuadrados" => self.style.round_dots = false,
+                "--dist3d" => self.dist3d = it.next().and_then(|v| v.parse().ok()),
                 "--hide-points" => self.show_points = false,
                 // la vista 3D sigue a la planta (la casilla «Enlazar con la planta»)
                 "--follow-plan" => self.follow_plan = true,
@@ -1197,6 +1228,7 @@ impl App {
                     Some("shortcuts") => Action::Shortcuts,
                     Some("settings") => Action::Settings,
                     Some("flows") => Action::Flows,
+                    Some("tls") => Action::TlsView,
                     Some("flowrun") => Action::FlowRun,
                     // abre la pestaña de flujos con uno de los ejemplos, por su posición
                     Some(n) if n.starts_with("flow-example-") => {
@@ -2103,6 +2135,9 @@ impl App {
                     st.returns = self.style.returns;
                     st.class_colors = self.style.class_colors;
                     st.background = self.style.background;
+                    st.edl = self.style.edl;
+                    st.max_dot3 = self.style.max_dot3;
+                    st.round_dots = self.style.round_dots;
                     self.style = st;
                     self.plan_fit = true;
                     self.orbit = Orbit {
@@ -2111,6 +2146,9 @@ impl App {
                         exaggeration: self.orbit.exaggeration,
                         ..Orbit::fit_scene(&s)
                     };
+                    if let Some(d) = self.dist3d {
+                        self.orbit.dist = d;
+                    }
                     self.tin = None;
                     self.query = None;
                     let old = std::mem::take(&mut self.ed);
@@ -2256,6 +2294,16 @@ impl App {
             return false;
         };
         self.drop_cloud(k);
+        // el detalle (copias COPC, lectura por vista, ventanas) era de las nubes de antes: con la
+        // quitada seguiría dibujándose, sin su atributo treeID y con los números de archivo
+        // desplazados
+        self.detail_src.clear();
+        self.cache_job = None;
+        self.detail = None;
+        self.detail_job = None;
+        self.detail3 = None;
+        self.detail3_job = None;
+        self.start_cache(ctx, s.stride > 1);
         self.class_counts = [0; 256];
         for c in &s.class {
             self.class_counts[usize::from(*c)] += 1;
@@ -2578,7 +2626,7 @@ impl App {
                     s.hag_max.to_bits(),
                     s.shadows.iter().map(Vec::len).collect::<Vec<_>>(),
                 ),
-                (s.thin, s.transparent, s.fill, s.edl.to_bits()),
+                (s.thin, s.transparent, s.fill, s.edl.to_bits(), s.max_dot3, s.round_dots),
                 self.colors_rev,
                 self.rev,
                 self.ed.sel_rev,
@@ -2863,6 +2911,7 @@ impl App {
             Action::Shortcuts => self.show_backstage(backstage::Page::Shortcuts),
             Action::Settings => self.show_backstage(backstage::Page::Settings),
             Action::CliTool(k) => self.open_cli_tool(usize::from(k)),
+            Action::TlsView => self.ver_nubes_tls(ctx),
             Action::Flows => {
                 self.backstage = false;
                 self.tab = FLOWS_TAB;
@@ -3024,6 +3073,10 @@ impl App {
                 "Colorear por elevación (tierra)",
                 Action::Color(ColorBy::ElevationEarth),
             ),
+            (
+                "Colorear por elevación (viridis)",
+                Action::Color(ColorBy::ElevationViridis),
+            ),
             ("Colorear por clase", Action::Color(ColorBy::Class)),
             ("Colorear por intensidad", Action::Color(ColorBy::Intensity)),
             ("Colorear por retorno", Action::Color(ColorBy::Return)),
@@ -3047,6 +3100,7 @@ impl App {
                 "Colorear por elevación + intensidad",
                 Action::Color(ColorBy::ElevationIntensity),
             ),
+            ("Ver nubes TLS", Action::TlsView),
             ("TIN sombreado", Action::ToggleTin),
             ("Curvas de nivel", Action::ToggleContours),
             ("Cargar ráster de fondo", Action::LoadRaster),
@@ -3527,9 +3581,72 @@ ui.menu_button("⚙", |ui| {
                                                     .max_decimals(1),
                                             )
                                             .on_hover_text("Exageración vertical de la vista 3D (nubes y superficies ráster). Arrastra o escribe el valor.");
+                                            ui.checkbox(&mut self.follow_plan, "Enlazar con la planta")
+                                                .on_hover_text("En «2D + perfil + 3D», la vista 3D sigue lo que se ve en la planta.");
                                         });
-                                        ui.checkbox(&mut self.follow_plan, "Enlazar con la planta")
-                                            .on_hover_text("En «2D + perfil + 3D», la vista 3D sigue lo que se ve en la planta.");
+                                        ui.horizontal(|ui| {
+                                            let mut relieve = self.style.edl > 0.0;
+                                            if ui
+                                                .checkbox(&mut relieve, "Relieve")
+                                                .on_hover_text("Oscurece lo que queda detrás de sus vecinos: da profundidad y bordes a la nube en el 3D. Al activarlo, intensidad 0,4.")
+                                                .changed()
+                                            {
+                                                self.style.edl = if relieve { 0.4 } else { 0.0 };
+                                            }
+                                            if self.style.edl > 0.0 {
+                                                ui.add(
+                                                    egui::DragValue::new(&mut self.style.edl)
+                                                        .range(0.05..=2.0)
+                                                        .speed(0.01)
+                                                        .max_decimals(2),
+                                                )
+                                                .on_hover_text("Intensidad del relieve. 0,4 es el valor habitual: más alto marca más los bordes.");
+                                            }
+                                            let hay_copc = !self.detail_src.is_empty();
+                                            if ui
+                                                .add_enabled(hay_copc || self.vdet.on, egui::Checkbox::new(&mut self.vdet.on, "Detalle por vista"))
+                                                .on_hover_text("En el 3D lee de la copia COPC los puntos que ve la cámara: los cercanos con todo su detalle y los lejanos más ralos, como los visores de nubes terrestres. Pensado para nubes TLS densas; se activa cuando la copia COPC está lista. Las ediciones no se ven en este modo.")
+                                                .changed()
+                                            {
+                                                self.touch();
+                                            }
+                                            if self.vdet.on {
+                                                if self.vdet.budget_m == 0 {
+                                                    self.vdet.budget_m = viewdetail::VIEW_BUDGET_M;
+                                                }
+                                                let mut m = self.vdet.budget_m as f64;
+                                                if ui
+                                                    .add(
+                                                        egui::DragValue::new(&mut m)
+                                                            .range(2.0..=40.0)
+                                                            .speed(0.2)
+                                                            .max_decimals(0)
+                                                            .suffix(" M"),
+                                                    )
+                                                    .on_hover_text("Puntos que lee el detalle por vista, en millones. Más puntos rellenan los huecos al entrar en una nube terrestre densa, a costa de memoria y de tiempo de lectura (por defecto 12).")
+                                                    .changed()
+                                                {
+                                                    self.vdet.budget_m = m as u64;
+                                                }
+                                            }
+                                        });
+                                        ui.horizontal(|ui| {
+                                            let mut cuadrados = !self.style.round_dots;
+                                            if ui
+                                                .checkbox(&mut cuadrados, "Cuadrados")
+                                                .on_hover_text("Dibuja los puntos como cuadrados en vez de círculos (los cuadrados se solapan mejor y dan un aspecto más compacto en nubes densas).")
+                                                .changed()
+                                            {
+                                                self.style.round_dots = !cuadrados;
+                                            }
+                                            ui.label("Punto máx.");
+                                            ui.add(
+                                                egui::DragValue::new(&mut self.style.max_dot3)
+                                                    .range(1..=24)
+                                                    .speed(0.1),
+                                            )
+                                            .on_hover_text("Tamaño máximo de un punto en el 3D, en píxeles. Al acercarte los puntos cercanos no pasan de aquí y la masa se ve compacta (24: casi sin tope; por defecto 4).");
+                                        });
                                     });
                                 });
                                 ribbon::fold_group(ui, &t, "Perfil", "@profilegear", 0, |ui| {
@@ -3788,6 +3905,19 @@ ui.menu_button("⚙", |ui| {
                             r.started.elapsed().as_secs_f64(),
                             progress_text(r.started).map_or(String::new(), |p| format!(" · {p}"))
                         )));
+                    } else if let Some((_, ini, abierta, avance)) = &self.tls_job {
+                        ui.separator();
+                        ui.spinner();
+                        let s = ini.elapsed().as_secs_f64();
+                        let p = avance.load(Ordering::Relaxed) as f64 / 100.0;
+                        ui.label(small(if abierta.load(Ordering::Relaxed) {
+                            "«Ver nubes TLS» abierto".to_string()
+                        } else if p >= 2.0 {
+                            let falta = (s / p * (100.0 - p)) as u64;
+                            format!("preparando la nube para «Ver nubes TLS»… {p:.0} % · quedan {}:{:02} aprox.", falta / 60, falta % 60)
+                        } else {
+                            format!("preparando la nube para «Ver nubes TLS»… {p:.0} % · calculando el tiempo ({}:{:02}; la primera vez tarda unos minutos)", s as u64 / 60, s as u64 % 60)
+                        }));
                     } else if let Some(j) = self.img_jobs.first() {
                         ui.separator();
                         ui.spinner();
@@ -4018,7 +4148,7 @@ ui.menu_button("⚙", |ui| {
             Stroke::new(1.0, t.border),
             egui::StrokeKind::Inside,
         );
-        p.text(
+        halo::text(&p, 
             rect.left_top() + Vec2::new(8.0, 6.0),
             Align2::LEFT_TOP,
             title,
@@ -4049,7 +4179,7 @@ ui.menu_button("⚙", |ui| {
             } else {
                 "Abre una nube LAS/LAZ con «Abrir», o arrástrala a esta ventana".to_string()
             };
-            painter.text(
+            halo::text(&painter, 
                 rect.center(),
                 Align2::CENTER_CENTER,
                 msg,
@@ -4563,7 +4693,7 @@ ui.menu_button("⚙", |ui| {
         }
         let hint = self.vec_tool_hint();
         if let Some(hint) = hint {
-            painter.text(
+            halo::text(&painter, 
                 rect.center_top() + Vec2::new(0.0, 8.0),
                 Align2::CENTER_TOP,
                 hint,
@@ -4591,7 +4721,7 @@ ui.menu_button("⚙", |ui| {
             [Pos2::new(x0, y), Pos2::new(x0 + bar_px, y)],
             Stroke::new(2.0, Color32::WHITE),
         );
-        painter.text(
+        halo::text(&painter, 
             Pos2::new(x0, y - 4.0),
             Align2::LEFT_BOTTOM,
             format!("{} m", bar_m),
@@ -4612,7 +4742,7 @@ ui.menu_button("⚙", |ui| {
 
     /// La leyenda de la planta, y del 3D cuando es la única vista: las clases presentes al colorear por clasificación, o los
     /// tipos de retorno al colorear por retorno.
-    fn paint_legend(&self, painter: &egui::Painter, rect: Rect, t: &Tokens) {
+    fn paint_legend(&self, painter: &egui::Painter, rect: Rect, _t: &Tokens) {
         let entries: Vec<(String, [u8; 3])> = match self.style.color_by {
             ColorBy::Class | ColorBy::ClassIntensity => (0..256usize)
                 .filter(|c| self.class_counts[*c] > 0)
@@ -4651,17 +4781,18 @@ ui.menu_button("⚙", |ui| {
         let mut y = rect.top() + 26.0;
         let x = rect.right() - 170.0;
         for (name, c) in entries {
-            painter.rect_filled(
+            halo::swatch(
+                painter,
                 Rect::from_min_size(Pos2::new(x, y), Vec2::new(12.0, 12.0)),
-                2.0,
                 color32(c),
             );
-            painter.text(
+            halo::text(
+                painter,
                 Pos2::new(x + 18.0, y + 6.0),
                 Align2::LEFT_CENTER,
                 name,
                 FontId::proportional(11.0),
-                t.text,
+                Color32::from_rgb(25, 25, 25),
             );
             y += 16.0;
         }
@@ -4920,7 +5051,7 @@ ui.menu_button("⚙", |ui| {
                 let hueco = rect.width() - 70.0;
                 let texto = if ancho(&completo) <= hueco { completo } else { datos };
                 if ancho(&texto) <= hueco {
-                    painter.text(rect.right_top() + Vec2::new(-8.0, 6.0), Align2::RIGHT_TOP, texto, font, t.weak);
+                    halo::text(&painter, rect.right_top() + Vec2::new(-8.0, 6.0), Align2::RIGHT_TOP, texto, font, t.weak);
                 }
             }
             if let Some((_, _, lo, hi)) = &self.tex_prof {
@@ -4950,7 +5081,7 @@ ui.menu_button("⚙", |ui| {
                             [Pos2::new(rect.min.x, y), Pos2::new(rect.max.x, y)],
                             line,
                         );
-                        painter.text(
+                        halo::text(&painter, 
                             Pos2::new(rect.min.x + 4.0, y - 1.0),
                             Align2::LEFT_BOTTOM,
                             aba_plots::tick_text(z, step),
@@ -4973,7 +5104,7 @@ ui.menu_button("⚙", |ui| {
                             painter.line_segment([at(&s[0]), at(&s[1])], Stroke::new(2.0, c));
                         }
                     }
-                    painter.text(
+                    halo::text(&painter, 
                         rect.right_bottom() + Vec2::new(-8.0, -6.0 - 15.0 * i as f32),
                         Align2::RIGHT_BOTTOM,
                         format!("— {name}"),
@@ -4989,7 +5120,7 @@ ui.menu_button("⚙", |ui| {
                 }
             }
             if self.profile_loading() {
-                painter.text(
+                halo::text(&painter, 
                     rect.left_bottom() + Vec2::new(10.0, -8.0),
                     Align2::LEFT_BOTTOM,
                     "⏳ Leyendo todos los puntos de la zona; ahora se ven solo los de pantalla…",
@@ -5294,7 +5425,10 @@ ui.menu_button("⚙", |ui| {
             let px3 = self.orbit.dist / f;
             let half = w.max(h) as f64 * px3 * 0.6;
             let (tx, ty) = (self.orbit.target[0], self.orbit.target[1]);
-            if has_cloud {
+            let por_vista = has_cloud && self.vdet.on;
+            if por_vista {
+                self.update_view_detail(ctx, w, h, interactive);
+            } else if has_cloud {
                 self.update_detail3(
                     ctx,
                     [tx - half, ty - half, tx + half, ty + half],
@@ -5303,19 +5437,22 @@ ui.menu_button("⚙", |ui| {
                 );
             }
             let focused = self.ed.focus.is_some();
-            let over = self
-                .detail3
-                .as_ref()
-                .filter(|_| has_cloud)
-                .filter(|d| focused || contains(d.window, [tx - half, ty - half, tx + half, ty + half]))
-                .map(|d| {
-                    (
-                        d.store.clone(),
-                        d.level_spacing.max(d.spacing),
-                        d.id,
-                        d.window,
-                    )
-                });
+            let over = if por_vista && let Some(d) = &self.vdet.data {
+                Some((d.0.clone(), d.0.lvl_spacing0, d.1, viewdetail::EVERYTHING))
+            } else {
+                self.detail3
+                    .as_ref()
+                    .filter(|_| has_cloud && !por_vista)
+                    .filter(|d| focused || contains(d.window, [tx - half, ty - half, tx + half, ty + half]))
+                    .map(|d| {
+                        (
+                            d.store.clone(),
+                            d.level_spacing.max(d.spacing),
+                            d.id,
+                            d.window,
+                        )
+                    })
+            };
             if let Some(d) = &over {
                 st.hole = Some(d.3);
             }
@@ -5407,7 +5544,7 @@ ui.menu_button("⚙", |ui| {
                     Color32::WHITE,
                 );
             }
-            painter.text(
+            halo::text(&painter, 
                 rect.right_top() + Vec2::new(-8.0, 6.0),
                 Align2::RIGHT_TOP,
                 if editing::is_select_3d(self.nav) {
@@ -5489,7 +5626,7 @@ ui.menu_button("⚙", |ui| {
                     .show_tooltip_text("Doble clic: norte arriba (tecla N)");
             }
             painter.line_segment([c, tip], Stroke::new(2.0, Color32::from_rgb(230, 70, 60)));
-            painter.text(
+            halo::text(&painter, 
                 tip,
                 Align2::CENTER_CENTER,
                 "N",
@@ -5497,7 +5634,7 @@ ui.menu_button("⚙", |ui| {
                 Color32::from_rgb(230, 70, 60),
             );
         } else {
-            painter.text(
+            halo::text(&painter, 
                 rect.center(),
                 Align2::CENTER_CENTER,
                 "Vista 3D",
@@ -5759,6 +5896,7 @@ ui.menu_button("⚙", |ui| {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.paso_tls();
         // lo que señaló el cursor en el fotograma anterior se marca en las demás vistas
         self.hover = self.hover_next.take();
         if let Some(w) = &mut self.window_png {

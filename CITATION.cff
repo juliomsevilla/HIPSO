@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "Si HIPSO te ha servido en tu trabajo, cítalo así."
 title: "HIPSO: procesamiento y edición de nubes de puntos"
 type: software
-version: 0.8.1
+version: 0.8.6
 authors:
   - family-names: Sevilla
     given-names: Julio M.

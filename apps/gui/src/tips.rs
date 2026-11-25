@@ -6,6 +6,7 @@
 pub fn tip(label: &str) -> Option<&'static str> {
     let key = label.replace('\n', " ");
     let t = match key.as_str() {
+        "Ver nubes TLS" => "Abre en una ventana propia la primera nube cargada con todo el detalle al acercarte, pensada para nubes terrestres (TLS) de cientos de millones de puntos: relieve, varios colores y filtros de puntos. La primera vez prepara la nube (unos minutos) y la guarda en la caché.",
         "Extraer valores" => "Añade a una capa un campo por banda de uno o varios rásteres, con el valor bajo cada elemento (por ejemplo el CHM en cada parcela o árbol).",
         "Unir tabla" => "Une a una capa las columnas de una tabla (csv, texto o Excel) por un campo clave, como el inventario de campo a las parcelas.",
         "Combinar capas" => "Junta varias capas del mismo tipo de geometría en una; los campos son la unión de los de todas.",

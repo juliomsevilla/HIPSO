@@ -107,6 +107,23 @@ impl App {
         self.mark_detail_selection();
     }
 
+    /// Recoge el final de la preparación de la copia COPC.
+    pub fn poll_cache(&mut self, ctx: &egui::Context) {
+        if let Some(rx) = &self.cache_job
+            && let Ok(r) = rx.try_recv()
+        {
+            self.cache_job = None;
+            match r {
+                Ok(v) => {
+                    self.detail_src = v;
+                    self.log("Detalle al acercar listo.".to_string());
+                    ctx.request_repaint();
+                }
+                Err(e) => self.log(format!("No se pudo preparar el detalle al acercar: {e}")),
+            }
+        }
+    }
+
     fn step_detail(&mut self, ctx: &egui::Context, vw: [f64; 4], px: f64, interactive: bool) {
         if let Some((rx, win, px)) = &self.detail_job
             && let Ok(r) = rx.try_recv()
@@ -142,19 +159,7 @@ impl App {
                 Err(e) => self.log(format!("No se pudo leer el detalle de la ventana: {e}")),
             }
         }
-        if let Some(rx) = &self.cache_job
-            && let Ok(r) = rx.try_recv()
-        {
-            self.cache_job = None;
-            match r {
-                Ok(v) => {
-                    self.detail_src = v;
-                    self.log("Detalle al acercar listo.".to_string());
-                    ctx.request_repaint();
-                }
-                Err(e) => self.log(format!("No se pudo preparar el detalle al acercar: {e}")),
-            }
-        }
+        self.poll_cache(ctx);
         let Some(base) = &self.store else { return };
         let b = base.bounds;
         let (window, px) = if let Some(f) = &self.ed.focus {

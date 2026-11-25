@@ -111,6 +111,7 @@ fn short_label(tool: &str, id: &str) -> Option<String> {
         ("tree-metrics", "gap") => Some("Salto que cierra la copa (m)"),
         ("tree-metrics", "crown_min") => Some("Altura mínima de copa (m)"),
         ("tree-metrics", "alpha") => Some("Radio alfa (m)"),
+        ("tree-metrics", "dim") => Some("Atributo que numera los individuos"),
         _ => None,
     };
     if let Some(o) = own {
@@ -584,6 +585,12 @@ impl App {
             .filter(|a| args.get(&a.id).is_none_or(|v| v.iter().all(|s| s.trim().is_empty())))
             .map(|a| short_label(name, &a.id).unwrap_or_else(|| a.long.clone().map_or(a.id.clone(), |l| format!("--{l}"))))
             .collect();
+        // las opciones de un método o de una casilla solo salen cuando se usa
+        let visible: Vec<&model::ArgSpec> = spec
+            .args
+            .iter()
+            .filter(|a| !hidden(a) && spec.shown(a, &args))
+            .collect();
         let accent = t.accent;
         let mut busy_stop = false;
         let mut out_dir = std::mem::take(&mut self.tools.out_dir);
@@ -595,7 +602,7 @@ impl App {
                 if !missing.is_empty() {
                     crate::procwin::note(format!("Falta: {}", missing.join(", ")));
                 }
-                for a in spec.args.iter().filter(|a| !hidden(a)) {
+                for a in visible.iter().copied() {
                     // las opciones que nombran un campo: una lista con los campos de la tabla del archivo
                     // elegido (si no se lee, el cuadro de texto de siempre)
                     if let Some(fs) = model::field_source(name, &a.id) {
