@@ -10,13 +10,13 @@
 :root {
   --header: #E6E9EE; --ribbon: #F6F7F9; --canvas: #DDE1E7; --pane: #F0F2F5;
   --border: #CDD3DB; --text: #1F2430; --weak: #6A7280; --accent: #3B6FE0;
-  --selection: #CADBFB; --hover: #E4E8EE;
+  --selection: #CADBFB; --hover: #E4E8EE; --halo: #FFFFFF;
   color-scheme: light;
 }
 :root[data-tema="oscuro"] {
   --header: #171B21; --ribbon: #242931; --canvas: #12151A; --pane: #1E232A;
   --border: #343B45; --text: #E6EAEF; --weak: #98A1AD; --accent: #5B8DF6;
-  --selection: #26406E; --hover: #2E3540;
+  --selection: #26406E; --hover: #2E3540; --halo: #12151A;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -59,6 +59,16 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; m
   animation: gira 0.9s linear infinite; flex: none; }
 #reloj.listo .rueda { animation: none; border-color: var(--accent); }
 @keyframes gira { to { transform: rotate(360deg); } }
+#leyenda { position: absolute; left: 14px; bottom: 12px; z-index: 6; pointer-events: none; max-height: calc(100% - 70px);
+  overflow: hidden; color: var(--text); font-size: 12px;
+  text-shadow: -1px -1px 0 var(--halo), 1px -1px 0 var(--halo), -1px 1px 0 var(--halo), 1px 1px 0 var(--halo),
+    0 -1.5px 0 var(--halo), 0 1.5px 0 var(--halo), -1.5px 0 0 var(--halo), 1.5px 0 0 var(--halo); }
+#leyenda .t { font-weight: 600; margin-bottom: 4px; }
+#leyenda .f { display: flex; align-items: center; gap: 7px; line-height: 17px; }
+#leyenda .f.off { opacity: .45; }
+#leyenda .sw { width: 13px; height: 13px; border-radius: 2px; flex: none; border: 1.5px solid var(--halo); outline: 1px solid rgba(0,0,0,.25); }
+#leyenda .barra { width: 190px; height: 12px; border-radius: 2px; border: 1.5px solid var(--halo); outline: 1px solid rgba(0,0,0,.25); }
+#leyenda .ext { display: flex; justify-content: space-between; width: 190px; margin-top: 2px; }
 #cargando { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: var(--weak); }
 /* panel de filtros, como los menús desplegables de la cinta de HIPSO */
 #filtros { position: absolute; left: 8px; top: 0; z-index: 10; width: 360px; max-height: calc(100% - 12px); overflow: auto;
@@ -142,6 +152,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; m
     <div class="hint">izq.: girar · der.: mover · rueda: zoom</div>
     <div id="reloj"><span class="rueda"></span><span id="reloj_t">Abriendo la nube… 00:00</span></div>
     <div id="cargando">Cargando nube…</div>
+    <div id="leyenda"></div>
     <div id="filtros"></div>
   </div>
   <footer class="status">
@@ -252,6 +263,36 @@ window.addEventListener("unhandledrejection", (e) => dbg("rechazo: " + (e.reason
     if (q.get("tipo")) m.pointSizeType = Potree.PointSizeType[q.get("tipo")];
     dbg("arranque listo");
   }
+  let colorActual = "elevacion";
+  function leyenda() {
+    const el = $("leyenda"), clave = colorActual, a = attr(clave);
+    const css = (c) => `rgb(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)})`;
+    const barra = (tit, g, lo, hi, u) => {
+      const p = g.map(([t, c]) => `${css(c)} ${Math.round(t * 100)}%`).join(",");
+      el.innerHTML = `<div class="t">${tit}</div><div class="barra" style="background:linear-gradient(90deg,${p})"></div>
+        <div class="ext"><span>${fmt1(lo)}${u}</span><span>${fmt1(hi)}${u}</span></div>`;
+    };
+    const tit = nombres[clave] || clave;
+    if (clave === "rgba") { el.innerHTML = ""; return; }
+    if (clave === "elevacion" || clave === "tierra" || clave === "viridis") {
+      return barra("Elevación", clave === "elevacion" ? AZUL_ROJO : clave === "tierra" ? TIERRA : Potree.Gradients.VIRIDIS, zmin, zmax, " m");
+    }
+    if (clave === "classification") {
+      const h = (a && a.histogram) || [];
+      const filas = Object.entries(CLASES).filter(([k]) => h.length === 0 || h[+k] > 0).map(([k, [n, c]]) =>
+        `<div class="f${estado.clases.has(+k) ? "" : " off"}"><span class="sw" style="background:rgb(${c})"></span>${k} · ${n}</div>`).join("");
+      el.innerHTML = `<div class="t">Clasificación</div>${filas}`;
+      return;
+    }
+    const g = clave === "intensity" ? Potree.Gradients.GRAYSCALE : clave === "scan angle" ? ANGULO
+      : (clave === "return number" || clave === "number of returns") ? RETORNO : Potree.Gradients.SPECTRAL;
+    const [lo, hi] = clave === "scan angle" ? [-30, 30] : a ? [a.min[0], a.max[0]] : [0, 1];
+    barra(tit, g, lo, hi, clave === "scan angle" ? "°" : "");
+  }
+  const aplicarColor0 = aplicarColor;
+  aplicarColor = (c) => { colorActual = c; aplicarColor0(c); leyenda(); };
+  const aplicarFiltros0 = aplicarFiltros;
+  aplicarFiltros = () => { aplicarFiltros0(); leyenda(); };
   const attr = (n) => meta && meta.attributes.find((a) => a.name === n);
 
   function aplicarColor(clave) {

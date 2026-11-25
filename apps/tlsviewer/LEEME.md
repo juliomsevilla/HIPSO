@@ -38,7 +38,7 @@ un LAS o LAZ necesita PotreeConverter (variable `POTREE_CONVERTER`); una carpeta
 la caché de HIPSO) se copia tal cual.
 
 Es un visor: color por elevación, clase, intensidad y demás atributos, filtros de clases, relieve,
-vistas (extensión, planta, frontal, lateral) y medidas de distancia, altura y superficie. Mientras la
+leyenda de colores en pantalla (clases presentes, o rampa con su rango), vistas (extensión, planta, frontal, lateral) y medidas de distancia, altura y superficie. Mientras la
 nube se trae y se dibuja, un reloj (`Procesando la nube… 00:12`) lo indica arriba y en la barra de
 estado; al terminar pone `Nube completa`.
 
