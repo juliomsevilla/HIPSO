@@ -43,7 +43,7 @@ fn leer_args() -> Result<Args, String> {
     let mut it = std::env::args().skip(1);
     let mut datos = None;
     let mut oscuro = false;
-    let mut titulo = String::from("Nubes TLS");
+    let mut titulo = String::from("Visor de nubes");
     while let Some(a) = it.next() {
         match a.as_str() {
             "--tema" => oscuro = it.next().as_deref() == Some("oscuro"),
@@ -55,6 +55,7 @@ fn leer_args() -> Result<Args, String> {
     if let Some(d) = &datos
         && !d.join("metadata.json").is_file()
         && !es_nube(d)
+        && listar_nubes(d).is_empty()
     {
         return Err(format!("{} no es una carpeta convertida ni un LAS o LAZ", d.display()));
     }
@@ -63,6 +64,35 @@ fn leer_args() -> Result<Args, String> {
         oscuro,
         titulo,
     })
+}
+
+/// Los nombres de las subcarpetas de `raiz` que son nubes convertidas, en orden.
+fn listar_nubes(raiz: &Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(raiz)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().join("metadata.json").is_file())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect();
+    v.sort();
+    v
+}
+
+/// La carpeta `nubes` que viaja junto al visor (en macOS, junto a la aplicación `.app`), con las
+/// nubes que se entregan a un cliente.
+fn carpeta_cliente() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let mut candidatas = vec![dir.join("nubes")];
+    if let Some(fuera) = dir.parent().and_then(Path::parent).and_then(Path::parent)
+        && dir.ends_with("Contents/MacOS")
+    {
+        candidatas.push(fuera.join("nubes"));
+    }
+    candidatas
+        .into_iter()
+        .find(|c| c.is_dir() && !listar_nubes(c).is_empty())
 }
 
 /// Si `p` es un archivo LAS o LAZ.
@@ -221,6 +251,13 @@ fn atender(datos: &Mutex<Option<PathBuf>>, req: &Request<Vec<u8>>) -> Response<C
                 .get(header::RANGE)
                 .and_then(|v| v.to_str().ok());
             let carpeta = datos.lock().ok().and_then(|d| d.clone());
+            if dato == "lista.json"
+                && let Some(c) = &carpeta
+            {
+                let nombres: Vec<String> = listar_nubes(c).iter().map(|n| js_texto(n)).collect();
+                let cuerpo = format!("[{}]", nombres.join(",")).into_bytes();
+                return respuesta(StatusCode::OK, "application/json", cuerpo, &[]);
+            }
             match carpeta {
                 Some(c) => servir_dato(&c, dato, rango),
                 None => error(StatusCode::NOT_FOUND),
@@ -293,9 +330,27 @@ fn abrir_nube(
 }
 
 fn principal() -> Result<(), Box<dyn std::error::Error>> {
-    let args = leer_args()?;
+    let mut args = leer_args()?;
+    // sin nada que abrir, el visor de un cliente: las nubes entregadas junto al programa
+    if args.datos.is_none() {
+        args.datos = carpeta_cliente();
+        if let Some(c) = &args.datos
+            && let Some(t) = c
+                .parent()
+                .and_then(|p| std::fs::read_to_string(p.join("titulo.txt")).ok())
+            && !t.trim().is_empty()
+        {
+            args.titulo = t.trim().to_string();
+        }
+    }
+    let cliente = args
+        .datos
+        .as_ref()
+        .is_some_and(|d| d.is_dir() && !d.join("metadata.json").is_file());
     let datos: Arc<Mutex<Option<PathBuf>>> = Arc::new(Mutex::new(
-        args.datos.clone().filter(|d| d.join("metadata.json").is_file()),
+        args.datos
+            .clone()
+            .filter(|d| d.join("metadata.json").is_file() || cliente),
     ));
     let evento: EventLoop<String> = EventLoopBuilder::with_user_event().build();
     let proxy = evento.create_proxy();
@@ -314,6 +369,9 @@ fn principal() -> Result<(), Box<dyn std::error::Error>> {
         if args.oscuro { "oscuro" } else { "claro" },
         codificar(&args.titulo)
     );
+    if cliente {
+        url.push_str("&cliente=1");
+    }
     // parámetros extra de arranque (color, filtros, cámara) para pruebas
     if let Ok(extra) = std::env::var("HIPSO_TLS_EXTRA") {
         url.push('&');

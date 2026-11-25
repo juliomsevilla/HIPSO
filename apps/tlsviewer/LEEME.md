@@ -21,6 +21,30 @@ La conversión queda en la caché (`…/HIPSO/octree/`) y ocupa algo menos que l
 compila (en Linux necesita las bibliotecas de WebKitGTK). Se compila con `cargo build --release -p
 hipso-tls`.
 
+## Visor para clientes
+
+Una carpeta que se entrega junto con sus nubes LiDAR y se abre con doble clic, sin instalar nada ni
+montar un servidor (la ventana trae su propio lector de datos):
+
+```sh
+cargo build --release -p hipso-tls
+scripts/visor_cliente.sh entrega/ "Nombre del cliente" nube1.laz carpeta_ya_convertida ...
+```
+
+Deja en `entrega/`: `HIPSO Visor.app` (en Linux, `HIPSO Visor`; en Windows se copia `hipso-tls.exe`
+con el mismo reparto), `nubes/<nube>/` con una carpeta por nube y `titulo.txt`. Sin argumentos, el
+visor abre las nubes de la carpeta `nubes` que tiene al lado; con varias, aparece un selector. Convertir
+un LAS o LAZ necesita PotreeConverter (variable `POTREE_CONVERTER`); una carpeta ya convertida (la de
+la caché de HIPSO) se copia tal cual.
+
+Es un visor: color por elevación, clase, intensidad y demás atributos, filtros de clases, relieve,
+vistas (extensión, planta, frontal, lateral) y medidas de distancia, altura y superficie. Mientras la
+nube se trae y se dibuja, un reloj (`Procesando la nube… 00:12`) lo indica arriba y en la barra de
+estado; al terminar pone `Nube completa`.
+
+Probado en macOS con dos nubes. Pendiente: la aplicación no va firmada (en macOS el primer arranque
+pide abrirla con clic derecho › Abrir) y falta probar Windows y Linux.
+
 ## Publicar una nube en la web
 
 Es el uso que queda preparado para cuando haya que pasar nubes LiDAR a clientes. La página del visor

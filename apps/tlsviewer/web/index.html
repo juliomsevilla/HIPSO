@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>HIPSO · Ver nubes TLS</title>
+<title>HIPSO · Visor de nubes</title>
 <link rel="stylesheet" type="text/css" href="./libs/potree/potree.css">
 <style>
 /* Colores de apps/gui/src/theme.rs (LIGHT y DARK): el visor se ve igual que el resto de HIPSO */
@@ -51,6 +51,14 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; m
 .status span { padding: 0 10px; border-right: 1px solid var(--border); }
 .status span:last-child { border-right: 0; }
 .hint { position: absolute; right: 12px; top: 8px; color: var(--weak); font-size: 12px; pointer-events: none; }
+#reloj { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 8; display: flex; align-items: center;
+  gap: 10px; background: var(--pane); border: 1px solid var(--border); border-radius: 16px; padding: 5px 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .2); pointer-events: none; font-variant-numeric: tabular-nums; }
+#reloj.listo { opacity: 0; transition: opacity 1.2s 2.5s; }
+#reloj .rueda { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent);
+  animation: gira 0.9s linear infinite; flex: none; }
+#reloj.listo .rueda { animation: none; border-color: var(--accent); }
+@keyframes gira { to { transform: rotate(360deg); } }
 #cargando { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: var(--weak); }
 /* panel de filtros, como los menús desplegables de la cinta de HIPSO */
 #filtros { position: absolute; left: 8px; top: 0; z-index: 10; width: 360px; max-height: calc(100% - 12px); overflow: auto;
@@ -73,18 +81,24 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; m
     <span class="doc" id="nombre">Nubes TLS</span>
   </header>
   <div class="ribbon" id="cinta">
-    <div class="group">
+    <div class="group" id="g_archivo">
       <div class="body">
         <div class="row"><button id="babrir">Abrir nube…</button></div>
       </div>
       <div class="title">Archivo</div>
+    </div>
+    <div class="group" id="g_nubes" style="display:none">
+      <div class="body">
+        <div class="row"><select id="nubes"></select></div>
+      </div>
+      <div class="title">Nube</div>
     </div>
     <div class="group">
       <div class="body">
         <div class="row"><label for="color">Color</label><select id="color"></select></div>
         <div class="row"><label for="tam">Tamaño</label>
           <input id="tam" type="range" min="0.3" max="4" step="0.1" value="0.65"><span id="tamv">0,7</span></div>
-        <div class="row"><label for="tmax" title="Tamaño máximo de un punto en pantalla: al acercarte, los puntos cercanos no pasan de aquí y la masa se ve compacta">Máx. cerca</label>
+        <div class="row avanzado"><label for="tmax" title="Tamaño máximo de un punto en pantalla: al acercarte, los puntos cercanos no pasan de aquí y la masa se ve compacta">Máx. cerca</label>
           <input id="tmax" type="range" min="2" max="30" step="1" value="6"><span id="tmaxv">6</span></div>
       </div>
       <div class="title">Visualización</div>
@@ -100,7 +114,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; m
       <div class="body">
         <div class="row"><input id="edl" type="checkbox" checked><label for="edl">Relieve</label>
           <input id="edlv" type="number" min="0.05" max="2" step="0.05" value="0.4"></div>
-        <div class="row"><label for="pres">Puntos</label>
+        <div class="row avanzado"><label for="pres">Puntos</label>
           <select id="pres">
             <option value="1000000">1 M</option><option value="2000000">2 M</option>
             <option value="4000000" selected>4 M</option><option value="8000000">8 M</option>
@@ -115,15 +129,23 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; m
       </div>
       <div class="title">Navegación</div>
     </div>
+    <div class="group">
+      <div class="body">
+        <div class="row"><button id="mdist" title="Clic en cada punto; doble clic para terminar">Distancia</button><button id="malt">Altura</button></div>
+        <div class="row"><button id="marea">Superficie</button><button id="mborrar">Borrar</button></div>
+      </div>
+      <div class="title">Medir</div>
+    </div>
   </div>
   <div id="stage">
     <div id="potree_render_area"></div>
     <div class="hint">izq.: girar · der.: mover · rueda: zoom</div>
+    <div id="reloj"><span class="rueda"></span><span id="reloj_t">Abriendo la nube… 00:00</span></div>
     <div id="cargando">Cargando nube…</div>
     <div id="filtros"></div>
   </div>
   <footer class="status">
-    <span id="s_puntos">—</span><span id="s_z">—</span><span id="s_vis">—</span><span>Herramienta: Zoom</span>
+    <span id="s_puntos">—</span><span id="s_z">—</span><span id="s_vis">—</span><span id="s_reloj">—</span>
   </footer>
 </div>
 
@@ -200,6 +222,9 @@ window.addEventListener("unhandledrejection", (e) => dbg("rechazo: " + (e.reason
   });
   esquema.DEFAULT = { visible: true, name: "Otra", color: [0.7, 0.7, 0.7, 1] };
 
+  const cliente = q.get("cliente") === "1";
+  let base = "data/";
+  if (cliente) document.querySelectorAll(".avanzado").forEach((e) => { e.style.display = "none"; });
   let pc = null, meta = null, zmin = 0, zmax = 1, arrancado = false;
 
   // parámetros opcionales de arranque (color, filtros, cámara), que usa la ventana al abrirse
@@ -320,9 +345,22 @@ window.addEventListener("unhandledrejection", (e) => dbg("rechazo: " + (e.reason
 
   window.progreso = (t) => { const c = $("cargando"); if (c) { c.textContent = t; c.style.display = "block"; } };
   // sin la ventana de HIPSO (en una web) no hay con qué elegir un archivo: se oculta el grupo
-  if (window.ipc) $("babrir").onclick = () => dbg("abrir");
-  else $("babrir").closest(".group").style.display = "none";
-  fetch("data/metadata.json").then((r) => { if (!r.ok) throw new Error("sin nube"); return r.json(); }).then((m) => {
+  if (window.ipc && !cliente) $("babrir").onclick = () => dbg("abrir");
+  else $("g_archivo").style.display = "none";
+  // la entrega a un cliente trae una o varias nubes en subcarpetas
+  const inicio = cliente
+    ? fetch("data/lista.json").then((r) => r.json()).then((l) => {
+        if (!l.length) throw new Error("sin nubes");
+        const sel = $("nubes");
+        l.forEach((n) => { const o = document.createElement("option"); o.value = n; o.textContent = n; sel.appendChild(o); });
+        const n = l.includes(q.get("nube")) ? q.get("nube") : l[0];
+        sel.value = n;
+        if (l.length > 1) $("g_nubes").style.display = "";
+        sel.onchange = () => { const u = new URL(location.href); u.searchParams.set("nube", sel.value); location.href = u.toString(); };
+        base = "data/" + encodeURIComponent(n) + "/";
+      })
+    : Promise.resolve();
+  inicio.then(() => fetch(base + "metadata.json")).then((r) => { if (!r.ok) throw new Error("sin nube"); return r.json(); }).then((m) => {
     meta = m;
     const pos = attr("position");
     zmin = pos.min[2]; zmax = pos.max[2];
@@ -338,9 +376,12 @@ window.addEventListener("unhandledrejection", (e) => dbg("rechazo: " + (e.reason
     construirFiltros();
     arrancar();
     cargarNube();
-  }).catch(() => progreso("Sin nube: pulsa «Abrir nube…» y elige un LAS o LAZ."));
+  }).catch(() => {
+    $("reloj").style.display = "none"; $("s_reloj").textContent = "—"; sinNube = true;
+    progreso(cliente ? "No hay ninguna nube en la carpeta «nubes»." : "Sin nube: pulsa «Abrir nube…» y elige un LAS o LAZ.");
+  });
 
-  function cargarNube() { Potree.loadPointCloud("data/metadata.json", "nube", (e) => {
+  function cargarNube() { Potree.loadPointCloud(base + "metadata.json", "nube", (e) => {
     pc = e.pointcloud;
     const m = pc.material;
     m.size = 0.65;
@@ -367,6 +408,40 @@ window.addEventListener("unhandledrejection", (e) => dbg("rechazo: " + (e.reason
   $("planta").onclick = () => viewer.setTopView();
   $("frontal").onclick = () => viewer.setFrontView();
   $("lateral").onclick = () => viewer.setLeftView();
+
+  // ---- reloj: mientras la nube se trae y se dibuja siempre se ve que el visor trabaja ----
+  const dos = (n) => String(n).padStart(2, "0");
+  const hora = (ms) => { const s = Math.floor(ms / 1000); return dos(Math.floor(s / 60)) + ":" + dos(s % 60); };
+  let desde = Date.now(), quieto = 0, fin = null, sinNube = false;
+  function ocupada() {
+    if (!pc) return true;
+    if (Potree.numNodesLoading > 0) return true;
+    return (pc.visibleNodes || []).some((v) => v.geometryNode && v.geometryNode.loaded === false);
+  }
+  setInterval(() => {
+    if (sinNube) return;
+    const ahora = Date.now(), r = $("reloj"), t = $("reloj_t");
+    if (ocupada()) {
+      if (fin !== null) { desde = ahora; fin = null; }
+      quieto = 0;
+      r.classList.remove("listo");
+      const txt = pc ? "Procesando la nube… " : "Abriendo la nube… ";
+      t.textContent = txt + hora(ahora - desde);
+      $("s_reloj").textContent = "⏱ " + txt + hora(ahora - desde);
+    } else if (fin === null && ++quieto >= 3) {
+      fin = ahora;
+      t.textContent = "Nube completa · " + hora(fin - desde);
+      r.classList.add("listo");
+      $("s_reloj").textContent = "✓ Nube completa";
+    }
+  }, 300);
+
+  // ---- mediciones ----
+  const medir = (o) => () => viewer.measuringTool.startInsertion(o);
+  $("mdist").onclick = medir({ showDistances: true, showArea: false, closed: false, name: "Distancia" });
+  $("malt").onclick = medir({ showDistances: false, showHeight: true, showArea: false, closed: false, maxMarkers: 2, name: "Altura" });
+  $("marea").onclick = medir({ showDistances: true, showArea: true, closed: true, name: "Superficie" });
+  $("mborrar").onclick = () => viewer.scene.removeAllMeasurements();
 
   setInterval(() => {
     if (!pc) return;
