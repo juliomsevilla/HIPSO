@@ -72,23 +72,18 @@ def capitulos_del_manual():
     return caps
 
 
-def partir_capitulo_4(lineas):
-    """Capítulo 4: la introducción y sus doce apartados (4.1 a 4.12)."""
-    idx = [i for i, l in enumerate(lineas) if re.match(r"^### 4\.\d+ ", l)]
-    return lineas[: idx[0]], [lineas[idx[k]: idx[k + 1] if k + 1 < len(idx) else len(lineas)] for k in range(len(idx))]
-
-
-def partir_capitulo_7(lineas):
-    """Capítulo 7: la introducción y sus tres bloques (7.1, 7.2 y 7.3)."""
-    idx = [i for i, l in enumerate(lineas) if re.match(r"^### 7\.\d ", l)]
-    return lineas[: idx[0]], [lineas[idx[k]: idx[k + 1] if k + 1 < len(idx) else len(lineas)] for k in range(len(idx))]
+def partir(lineas, n):
+    """Un capítulo partido en su introducción y sus apartados (### n.1, ### n.2…)."""
+    idx = [i for i, l in enumerate(lineas) if re.match(rf"^### {n}\.\d+ ", l)]
+    return lineas[: idx[0]], [lineas[i: j] for i, j in zip(idx, idx[1:] + [len(lineas)])]
 
 
 # ---------------------------------------------------------------------------------------------
 # estructura del sitio
 
 class Pagina:
-    def __init__(self, ruta, titulo, grupo, md=None, html_extra="", imagen=None, resumen=""):
+    def __init__(self, ruta, titulo, grupo, md=None, html_extra="", imagen=None, resumen="", nivel=1):
+        self.nivel = nivel          # 2: subpágina, sangrada en el menú
         self.ruta = ruta            # relativa a la salida, p. ej. "manual/interfaz.html"
         self.titulo = titulo
         self.grupo = grupo
@@ -104,29 +99,81 @@ IMAGENES = {
     "que-es": ("01-dales-planta-perfil-3d.jpg", "Una nube urbana clasificada (DALES) en planta, perfil y 3D."),
     "interfaz": ("01-dales-planta-perfil-3d.jpg", "La ventana de HIPSO con la vista en planta, el perfil y la vista 3D de una misma nube."),
     "cinta-lidar": ("03-cinta-lidar-estadio.jpg", "La pestaña LiDAR con sus seis grupos."),
-    "cinta-vectorial": ("10-edicion-vectorial.jpg", "El panel Edición con una capa vectorial."),
     "cinta-flujos": ("09-constructor-de-flujos.jpg", "La pestaña Flujos con el constructor."),
     "vistas": ("06-pnoa-mdt-perfil-3d.jpg", "Planta, perfil y vista 3D con un ráster sobre el perfil."),
     "edicion": ("08-edicion-histograma.jpg", "Edición de puntos con el histograma de elevaciones que acota la reclasificación."),
     "preparar": ("03-cinta-lidar-estadio.jpg", "La pestaña LiDAR con las herramientas de preparación sobre una nube con color."),
+    "clasificar": ("04-linea-electrica-clasificada.jpg", "Una línea eléctrica clasificada: suelo, vegetación por estratos, cables y torres."),
     "superficies": ("06-pnoa-mdt-perfil-3d.jpg", "Una hoja del PNOA con su modelo del terreno: la línea del ráster se ve sobre el perfil y como superficie en 3D."),
-    "inventario": ("11-modelos-lineales.jpg", "Modelo lineal de una variable de inventario con sus gráficas de diagnóstico."),
-    "vectorial": ("10-edicion-vectorial.jpg", "Edición de una capa de rodales sobre la nube y sus herramientas."),
-    "raster": ("05-terreno-opengf.jpg", "Un modelo del terreno coloreado por elevación, con su vista 3D."),
-    "aba": ("11-modelos-lineales.jpg", "Modelo lineal de una variable de inventario con sus residuos."),
+    "als": ("11-modelos-lineales.jpg", "Modelo lineal de una variable de inventario con sus gráficas de diagnóstico."),
+    "tls": ("07-tls-troncos-y-ramas.jpg", "Troncos y ramas clasificados en una nube de escáner terrestre."),
+    "raster-terreno": ("05-terreno-opengf.jpg", "Un modelo del terreno coloreado por elevación, con su vista 3D."),
+    "vectorial-edicion": ("10-edicion-vectorial.jpg", "Edición de una capa de rodales sobre la nube y sus herramientas."),
     "flujos": ("09-constructor-de-flujos.jpg", "El constructor de flujos con un inventario por área dibujado como grafo de nodos."),
     "asistente": ("12-asistente-ia.jpg", "El panel del asistente de IA junto a una nube clasificada: explica las herramientas y crea flujos."),
-    "tls": ("07-tls-troncos-y-ramas.jpg", "Troncos y ramas clasificados en una nube de escáner terrestre."),
 }
+
+# las páginas en que se reparten los capítulos 7, 8 y 9: (página, título en el menú) por apartado
+APARTADOS = {
+    7: [("preparar", "Preparar"), ("clasificar", "Clasificar"), ("calidad", "Calidad"), ("superficies", "Superficies"),
+        ("als", "ALS: inventario aéreo"), ("tls", "TLS: escáner terrestre"), ("infraestructuras", "Infraestructuras")],
+    8: [("raster-imagen", "Imagen"), ("raster-geoprocesos", "Geoprocesos"), ("raster-terreno", "Análisis del terreno")],
+    9: [("vectorial-capas", "Capas"), ("tabla-de-atributos", "Tabla de atributos"), ("vectorial-edicion", "Edición de elementos"),
+        ("vectorial-geometria", "Geometría"), ("vectorial-tabla", "Tabla"), ("vectorial-geoprocesos", "Geoprocesos")],
+}
+
+# apartado o capítulo del manual -> página; se rellena al construir las páginas
+DESTINOS = {}
+# direcciones de versiones anteriores de la web que siguen enlazadas desde fuera
+REDIRECCIONES = {"manual/inventario.html": "als.html", "manual/aba.html": "flujos.html"}
+
+
+def indice_de_herramientas(n, bloques):
+    """El índice de un capítulo de herramientas: sus apartados y los títulos de cada uno."""
+    out = ["", "## Todas las herramientas del capítulo {#indice}", ""]
+    for (slug, nombre), b in zip(APARTADOS[n], bloques):
+        titulos = [l[5:].strip() for l in b if l.startswith("#### ")]
+        enlaces = " · ".join(f"[{t}]({slug}.html#{identificador(t)})" for t in titulos)
+        out.append(f"- **[{nombre}]({slug}.html)**: {enlaces}")
+    return out
+
+
+def paginas_de_ordenes():
+    """La referencia de herramientas: un índice y una página por área."""
+    lineas = (DOCS / "CLI.md").read_text(encoding="utf-8").splitlines()
+    marcas = [i for i, l in enumerate(lineas) if l.startswith("## ")]
+    intro = lineas[: marcas[0]]
+    areas = []
+    for i, j in zip(marcas, marcas[1:] + [len(lineas)]):
+        titulo = lineas[i][3:].strip()
+        areas.append((f"ordenes-{identificador(titulo)}.html", titulo, lineas[i:j]))
+    indice = intro + ["", "## Índice por áreas {#indice}", ""]
+    for ruta, titulo, b in areas:
+        ordenes = [l[4:].strip() for l in b if l.startswith("### ")]
+        if not ordenes:
+            indice += [f"### [{titulo}]({ruta})", ""]
+            continue
+        indice += [f"### [{titulo}]({ruta})", "", "| Orden | Dónde está en la interfaz |", "|---|---|"]
+        for o in ordenes:
+            k = b.index(f"### {o}")
+            donde = next(l for l in b[k:] if l.startswith("**En la interfaz:**"))
+            donde = donde.removeprefix("**En la interfaz:** ").split(" El método se explica")[0].rstrip(".")
+            indice.append(f"| [`{o}`]({ruta}#{identificador(o)}) | {donde} |")
+        indice.append("")
+    P = [Pagina("ordenes.html", "Referencia de herramientas", "Referencia", md="\n".join(indice))]
+    for ruta, titulo, b in areas:
+        P.append(Pagina(ruta, titulo, "Referencia", md="\n".join(trocear(b, 2, 1)), nivel=2))
+    return P
 
 
 def construir_paginas():
     caps = capitulos_del_manual()
     P = []
 
-    def cap(n, ruta, titulo, grupo, desplazar=1, lineas=None, clave=None):
+    def cap(n, ruta, titulo, grupo, desplazar=1, lineas=None, apartado=None):
         md = "\n".join(trocear(lineas if lineas is not None else caps[n], 2, desplazar))
-        P.append(Pagina(ruta, titulo, grupo, md=md, imagen=IMAGENES.get(clave or Path(ruta).stem)))
+        P.append(Pagina(ruta, titulo, grupo, md=md, imagen=IMAGENES.get(Path(ruta).stem)))
+        DESTINOS.setdefault(apartado or str(n), ruta)
 
     g = "Empezar"
     cap(1, "manual/que-es.html", "Qué es HIPSO", g)
@@ -134,59 +181,58 @@ def construir_paginas():
     cap(3, "manual/primeros-pasos.html", "Primeros pasos", g)
 
     g = "La interfaz"
-    intro4, bloques4 = partir_capitulo_4(caps[4])
+    intro4, bloques4 = partir(caps[4], 4)
     paginas4 = [
-        ("interfaz", "Las piezas de la ventana", bloques4[0] + bloques4[1]),
-        ("cinta-archivo", "Pestaña Archivo", bloques4[2]),
-        ("cinta-vista", "Pestaña Vista", bloques4[3]),
-        ("cinta-lidar", "Pestaña LiDAR", bloques4[4]),
-        ("cinta-vectorial", "Pestaña Vectorial", bloques4[5]),
-        ("cinta-raster", "Pestaña Raster", bloques4[6]),
-        ("cinta-flujos", "Pestaña Flujos", bloques4[7]),
-        ("panel-lateral", "El panel lateral", bloques4[8]),
-        ("vistas", "Las vistas", bloques4[9]),
-        ("ajustes", "Ajustes", bloques4[10]),
-        ("asistente", "El asistente de IA", bloques4[11]),
+        ("interfaz", "Las piezas de la ventana", [1, 2]),
+        ("cinta-archivo", "Pestaña Archivo", [3]),
+        ("cinta-vista", "Pestaña Vista", [4]),
+        ("cinta-lidar", "Pestaña LiDAR", [5]),
+        ("cinta-vectorial", "Pestaña Vectorial", [6]),
+        ("cinta-raster", "Pestaña Raster", [7]),
+        ("cinta-flujos", "Pestaña Flujos", [8]),
+        ("panel-lateral", "El panel lateral", [9]),
+        ("vistas", "Las vistas", [10]),
+        ("ajustes", "Ajustes", [11]),
+        ("asistente", "El asistente de IA", [12]),
     ]
-    for k, (slug, nombre, b) in enumerate(paginas4):
+    for k, (slug, nombre, nums) in enumerate(paginas4):
         # el capítulo entero va delante de la primera página como introducción
-        lineas = (intro4 if k == 0 else []) + b
-        cap(4, f"manual/{slug}.html", nombre, g, desplazar=2 if k else 1, lineas=lineas, clave=slug)
+        lineas = (intro4 if k == 0 else []) + [l for a in nums for l in bloques4[a - 1]]
+        cap(4, f"manual/{slug}.html", nombre, g, desplazar=2 if k else 1, lineas=lineas, apartado=f"4.{nums[0]}")
+        for a in nums:
+            DESTINOS[f"4.{a}"] = f"manual/{slug}.html"
+    DESTINOS["4"] = "manual/interfaz.html"
 
-    g = "Nubes de puntos"
+    g = "Consultar y editar"
     cap(5, "manual/consulta.html", "Herramientas de consulta", g)
     cap(6, "manual/edicion.html", "Edición de nubes de puntos", g)
-    intro, bloques = partir_capitulo_7(caps[7])
-    cap(7, "manual/lidar.html", "LiDAR: visión general", g, lineas=intro)
-    nombres = [("preparar", "Preparar"), ("superficies", "Superficies"), ("inventario", "Inventario de la vegetación")]
-    for (slug, nombre), b in zip(nombres, bloques):
-        cap(7, f"manual/{slug}.html", f"7. LiDAR · {nombre}", g, desplazar=2, lineas=b, clave=slug)
+    DESTINOS.update({"6.1": "manual/edicion.html", "6.2": "manual/edicion.html"})
 
-    g = "Ráster y vectorial"
-    cap(8, "manual/raster.html", "Ráster", g)
-    cap(9, "manual/vectorial.html", "Vectorial", g)
+    for n, grupo, slug in ((7, "LiDAR", "lidar"), (8, "Ráster", "raster"), (9, "Vectorial", "vectorial")):
+        intro, bloques = partir(caps[n], n)
+        cap(n, f"manual/{slug}.html", "Visión general", grupo, lineas=intro + indice_de_herramientas(n, bloques))
+        for k, ((sl, nombre), b) in enumerate(zip(APARTADOS[n], bloques), 1):
+            cap(n, f"manual/{sl}.html", nombre, grupo, desplazar=2, lineas=b, apartado=f"{n}.{k}")
+
+    g = "Flujos y automatización"
+    cap(13, "manual/flujos.html", "El constructor de flujos", g)
+    P.append(Pagina("flujos-ejemplo.html", "Flujos de ejemplo", g, html_extra=pagina_flujos(), imagen=IMAGENES["flujos"]))
+    P.append(Pagina("recetas.html", "Recetas de clasificación", g, html_extra=pagina_recetas()))
+    cap(14, "manual/linea-de-comandos.html", "Línea de comandos", g)
+    cap(12, "manual/teselas.html", "Trabajar con miles de teselas", g)
 
     g = "Datos y rendimiento"
     cap(10, "manual/formatos.html", "Rutas y formatos", g)
     cap(11, "manual/rendimiento.html", "Rendimiento y memoria", g)
-    cap(12, "manual/teselas.html", "Trabajar con miles de teselas", g)
 
-    g = "Flujos y automatización"
-    cap(13, "manual/aba.html", "El constructor de flujos", g, clave="aba")
-    P.append(Pagina("flujos-ejemplo.html", "Flujos de ejemplo", g, html_extra=pagina_flujos(), imagen=IMAGENES["flujos"]))
-    cap(14, "manual/linea-de-comandos.html", "Línea de comandos", g)
-    P.append(Pagina("ordenes.html", "Referencia de herramientas", g, md=(DOCS / "CLI.md").read_text(encoding="utf-8").replace("# Órdenes de `hipso`\n", "# Órdenes de `hipso`\n", 1)))
-    P.append(Pagina("recetas.html", "Recetas de clasificación", g, html_extra=pagina_recetas()))
+    P.extend(paginas_de_ordenes())
+    ref = (DOCS / "REFERENCIA.md").read_text(encoding="utf-8").splitlines()
+    P.append(Pagina("referencia.html", "Referencia técnica", "Referencia", md="\n".join(ref)))
+    cap(17, "manual/bibliografia.html", "Bibliografía", "Referencia")
 
     g = "Ayuda"
     cap(15, "manual/atajos.html", "Atajos", g)
     cap(16, "manual/solucion-de-problemas.html", "Solución de problemas", g)
-
-    g = "Referencia"
-    ref = (DOCS / "REFERENCIA.md").read_text(encoding="utf-8").splitlines()
-    ref = [l for l in ref]
-    P.append(Pagina("referencia.html", "Referencia técnica", g, md="\n".join(trocear(ref, 1, 0))))
-    cap(17, "manual/bibliografia.html", "Bibliografía", g)
     cap(18, "manual/acerca-de.html", "Acerca de", g)
     return P
 
@@ -245,36 +291,30 @@ def pagina_recetas():
 # ---------------------------------------------------------------------------------------------
 # conversión y plantilla
 
-DESTINO_APARTADO = {
-    "4.1": "interfaz", "4.2": "interfaz", "4.3": "cinta-archivo", "4.4": "cinta-vista", "4.5": "cinta-lidar",
-    "4.6": "cinta-vectorial", "4.7": "cinta-raster", "4.8": "cinta-flujos", "4.9": "panel-lateral",
-    "4.10": "vistas", "4.11": "ajustes", "4.12": "asistente",
-    "6.1": "edicion", "6.2": "edicion", "6.3": "edicion", "6.4": "edicion",
-    "7.1": "preparar", "7.2": "superficies", "7.3": "inventario",
-}
-DESTINO_CAPITULO = {
-    "1": "que-es", "2": "instalacion", "3": "primeros-pasos", "4": "interfaz", "5": "consulta", "6": "edicion",
-    "7": "lidar", "8": "raster", "9": "vectorial", "10": "formatos", "11": "rendimiento", "12": "teselas",
-    "13": "aba", "14": "linea-de-comandos", "15": "atajos", "16": "solucion-de-problemas",
-    "17": "bibliografia", "18": "acerca-de",
-}
-
-
 def enlazar_apartados(texto, ruta):
-    """Convierte «apartado 7.1» y «capítulo 14» en enlaces a la página que los contiene."""
-    base = "" if ruta.startswith("manual/") else "manual/"
+    """Convierte «apartado 7.1, *Adelgazar nube*» y «capítulo 14» en enlaces a su página y título."""
+    def enlace(destino):
+        return "../" * ruta.count("/") + destino
 
     def apartado(m):
-        n = m.group(2)
-        dest = DESTINO_APARTADO.get(n) or DESTINO_CAPITULO.get(n.split(".")[0])
-        return f"[{m.group(1)} {n}]({base}{dest}.html)" if dest else m.group(0)
+        n, titulo = m.group(2), m.group(3)
+        dest = DESTINOS.get(n) or DESTINOS.get(n.split(".")[0])
+        if not dest:
+            return m.group(0)
+        out = f"[{m.group(1)} {n}]({enlace(dest)})"
+        if titulo:
+            # el título enlaza a su encabezado; el primero de la página no lleva ancla
+            # un capítulo entero no lleva ancla: su título es el de la página
+            ancla = f"#{identificador(titulo)}" if "." in n else ""
+            out += f", [*{titulo}*]({enlace(dest)}{ancla})"
+        return out
 
     partes, codigo = [], False
     for linea in texto.split("\n"):
         if linea.startswith("```"):
             codigo = not codigo
         if not codigo and not linea.startswith("#"):
-            linea = re.sub(r"\b([Aa]partados?|[Cc]apítulos?) (\d+(?:\.\d+)?)\b(?!\.\d)", apartado, linea)
+            linea = re.sub(r"\b([Aa]partados?|[Cc]apítulos?) (\d+(?:\.\d+)?)\b(?!\.\d)(?:, \*([^*\n]+)\*)?", apartado, linea)
         partes.append(linea)
     return "\n".join(partes)
 
@@ -323,7 +363,8 @@ def menu(paginas, actual):
         abierto = " open" if any(p is actual for p in ps) else ""
         out.append(f"<details{abierto}><summary>{html.escape(nombre)}</summary>")
         for p in ps:
-            c = ' class="activa"' if p is actual else ""
+            clases = " ".join(x for x, si in (("activa", p is actual), ("sub", p.nivel > 1)) if si)
+            c = f' class="{clases}"' if clases else ""
             out.append(f'<a{c} href="{r}{p.ruta}">{html.escape(p.titulo)}</a>')
         out.append("</details>")
     return "\n".join(out)
@@ -387,6 +428,21 @@ def indice_busqueda(paginas, inicio_texto):
     return reg
 
 
+def enlaces_rotos():
+    """Enlaces internos del sitio construido que apuntan a una página o a un ancla que no existen."""
+    anclas = {f.resolve(): set(re.findall(r'id="([^"]+)"', f.read_text(encoding="utf-8"))) for f in SALIDA.rglob("*.html")}
+    rotos = []
+    for f in SALIDA.rglob("*.html"):
+        for u in re.findall(r'(?:href|src)="([^"]+)"', f.read_text(encoding="utf-8")):
+            if re.match(r"^(https?:|mailto:|data:)", u):
+                continue
+            ruta, _, ancla = u.partition("#")
+            destino = (f.parent / ruta).resolve() if ruta else f.resolve()
+            if not destino.exists() or (ancla and ancla not in anclas.get(destino, set())):
+                rotos.append(f"{f.relative_to(SALIDA)} -> {u}")
+    return rotos
+
+
 def main():
     v = version()
     if SALIDA.exists():
@@ -407,6 +463,10 @@ def main():
     inicio = (SITIO / "contenido" / "inicio.html").read_text(encoding="utf-8").replace("{{version}}", v).replace("{{repo}}", REPO)
     portada = Pagina("index.html", "HIPSO", "")
     (SALIDA / "index.html").write_text(pagina_html(plantilla, paginas, portada, v, cuerpo=inicio, es_inicio=True), encoding="utf-8")
+    for vieja, nueva in REDIRECCIONES.items():
+        (SALIDA / vieja).write_text(
+            f'<!doctype html><meta charset="utf-8"><title>HIPSO</title><meta http-equiv="refresh" content="0; url={nueva}"><a href="{nueva}">La página ha cambiado de dirección</a>',
+            encoding="utf-8")
     # estáticos, imágenes y marca
     shutil.copytree(SITIO / "static", SALIDA / "static")
     (SALIDA / "img").mkdir()
@@ -419,6 +479,9 @@ def main():
     plano = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", inicio))
     (SALIDA / "static" / "busqueda.json").write_text(json.dumps(indice_busqueda(paginas, plano), ensure_ascii=False), encoding="utf-8")
     (SALIDA / ".nojekyll").write_text("", encoding="utf-8")
+    rotos = enlaces_rotos()
+    if rotos:
+        sys.exit("Enlaces rotos:\n  " + "\n  ".join(rotos))
     print(f"{len(paginas) + 1} páginas en {SALIDA}")
 
 

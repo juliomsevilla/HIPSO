@@ -4,349 +4,13 @@ Cada herramienta del programa es una orden de la línea de comandos, y la interf
 
 La página se genera con `scripts/gen_cli_docs.py` a partir de la definición de las órdenes del propio programa, de modo que lista exactamente lo que admite la versión publicada. Todas las órdenes aceptan además `--help`, que imprime lo mismo en la terminal. Todas admiten también `--force`, que permite que la salida dada con `-o` sustituya a un archivo existente (nunca a una entrada). Cuando una opción no lleva valor por defecto, la herramienta decide por sí misma o no actúa hasta que se le dé un valor.
 
-## Revisar y preparar nubes
-
-### hipso info
-
-Informe completo de archivos LAS/LAZ: cabecera, clases, retornos, densidad, avisos
-
-**En la interfaz:** panel lateral → Información. El método se explica en el apartado 4.9.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Archivos LAS o LAZ de los que se saca el informe. **Obligatoria.** Se puede repetir. |
-
-### hipso catalog
-
-Revisa una entrega de hojas solo con sus cabeceras (no se lee ningún punto): mismo sistema de coordenadas, hojas repetidas, solapes, huecos dentro del bloque. Una carpeta equivale a sus LAS/LAZ
-
-**En la interfaz:** sin botón propio (la línea de comandos y el constructor de flujos). El método se explica en el apartado 12.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Archivos LAS/LAZ (o carpetas con ellos) de la entrega que se revisa. **Obligatoria.** Se puede repetir. |
-| `--tolerance` | número | `1` | Cuánto (m) pueden solaparse las hojas o quedarse cortas unas de otras sin que cuente. |
-
-### hipso crs
-
-Da a las nubes sin sistema de coordenadas el de otra nube o un código EPSG
-
-**En la interfaz:** LiDAR → Preparar → Asignar proyección. El método se explica en el apartado 7.1.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ a las que se asigna el sistema de coordenadas. **Obligatoria.** Se puede repetir. |
-| `--from` | archivo o carpeta | ninguno | Una nube que tiene el sistema de coordenadas que copiar. |
-| `--epsg` | texto o número | ninguno | Código EPSG del sistema de coordenadas, p. ej. 25830. |
-| `--replace` | casilla | desactivada | Sustituye el sistema de coordenadas de nubes que ya tienen uno. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Salida (solo una entrada); por defecto: <resultados>/<entrada>_crs.<ext>. |
-
-### hipso import
-
-Importa una nube de puntos de otro formato como LAS/LAZ: PLY (ASCII o binario) o E57 (escáneres terrestres y móviles; cada escaneo se coloca con su pose y su número queda como identificador de fuente del punto)
-
-**En la interfaz:** Abrir (un PLY o un E57 se convierte al abrirlo). El método se explica en el apartado 10.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUT` | archivo o carpeta | ninguno | El archivo que convertir. **Obligatoria.** |
-| `-o`, `--output` | archivo o carpeta | ninguno | .las o .laz de salida; por defecto: <resultados>/<entrada>_ply.laz o _e57.laz (nunca un archivo existente) |
-| `--epsg` | texto o número | ninguno | Código EPSG del sistema de coordenadas de los puntos (PLY y E57 rara vez lo dicen) |
-
-### hipso dedup
-
-Quita los puntos duplicados (mismas x, y, z y los atributos pedidos)
-
-**En la interfaz:** LiDAR → Preparar → Quitar duplicados. El método se explica en el apartado 6.4.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ de las que se quitan los puntos repetidos. **Obligatoria.** Se puede repetir. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Archivo de salida (solo una entrada); por defecto, en la carpeta de resultados. |
-| `--all-copies` | casilla | desactivada | Borra todas las copias, no solo las sobrantes. |
-| `--also` | texto o número | ninguno | Atributos que también deben coincidir: class, gps, intensity, return, count, source. Se puede repetir. |
-
-### hipso merge-clouds
-
-Une dos o más nubes en una y decide qué hacer con los puntos duplicados
-
-**En la interfaz:** LiDAR → Calidad → Unir nubes. El método se explica en el apartado 6.5.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ que se unen (dos o más) **Obligatoria.** Se puede repetir. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Nube unida; por defecto, en la carpeta de resultados. |
-| `--dups` | una de las opciones | `keep` | Qué hacer con los duplicados: keep (no buscarlos), mark (marcarlos como retenidos) o delete (quitarlos) Valores: `keep`: No buscar duplicados; `mark`: Marcarlos como retenidos (withheld), dejando uno de cada conjunto; `delete`: Quitarlos, dejando uno de cada conjunto. |
-| `--also` | texto o número | ninguno | Atributos que también deben coincidir: class, gps, intensity, return, count, source. Se puede repetir. |
-
-### hipso tile
-
-Divide las nubes en teselas cuadradas (con un margen opcional), un archivo por tesela
-
-**En la interfaz:** sin botón propio (la línea de comandos y el constructor de flujos). El método se explica en el apartado 12.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ que dividir en teselas. **Obligatoria.** Se puede repetir. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Nombre base de las teselas; por defecto: <resultados>/<entrada>_tile.<ext>. |
-| `--size` | número | `1000` | Lado de cada tesela (m) |
-| `--buffer` | número | `0` | Margen (m) que cada tesela toma de sus vecinas. |
-
-### hipso clip
-
-Recorta nubes con polígonos, parcelas o rectángulos
-
-**En la interfaz:** LiDAR → ALS → Extraer muestras. El método se explica en el apartado 7.3.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ que recortar. **Obligatoria.** Se puede repetir. |
-| `--regions` | archivo o carpeta | ninguno | Polígonos (.shp), centros de parcelas (.shp de puntos, con --radius) o una lista (.csv/.txt) |
-| `--rect` | texto o número | ninguno | Un rectángulo: minx,miny,maxx,maxy (se repite para varios) Se puede repetir. |
-| `--circle` | texto o número | ninguno | Una parcela circular: x,y,radio (se repite para varias) Se puede repetir. |
-| `--name-field` | texto o número | ninguno | El atributo que da nombre a cada región: el nombre de un campo o su posición contando desde 1. |
-| `--buffer` | texto o número | ninguno | Amplía cada región esta distancia en unidades del mapa (metros en un sistema proyectado); si es negativa, la reduce. Las esquinas quedan redondeadas. |
-| `--split-parts` | casilla | desactivada | Divide los elementos de varias partes en una región por parte (llamadas <nombre>_p1, <nombre>_p2…) |
-| `--radius` | texto o número | ninguno | Radio de las parcelas dadas como puntos. |
-| `--radius-field` | texto o número | ninguno | Atributo que guarda el radio propio de cada punto (metros) |
-| `--square` | casilla | desactivada | Las parcelas dadas como puntos son cuadradas en lugar de circulares. |
-| `--side` | texto o número | ninguno | Lado de las parcelas cuadradas, en metros (o los campos que guardan los lados) |
-| `--side-x-field` | texto o número | ninguno | Campo de las regiones con el lado X de la parcela cuadrada (m) |
-| `--side-y-field` | texto o número | ninguno | Campo de las regiones con el lado Y de la parcela cuadrada (m) |
-| `--sample` | una de las opciones | ninguno | Genera las parcelas en lugar de leerlas: al azar o en una cuadrícula regular. Valores: `random`: Parcelas al azar (--count), con una distancia mínima entre centros; `systematic`: Parcelas en una cuadrícula regular (--spacing). |
-| `--count` | número | `10` | Muestreo aleatorio: número de parcelas. |
-| `--spacing` | texto o número | ninguno | Muestreo sistemático: separación entre centros en metros, X o X,Y. |
-| `--min-dist` | texto o número | ninguno | Muestreo aleatorio: distancia mínima entre centros (por defecto: el doble del tamaño de la parcela) |
-| `--seed` | número | `1` | Semilla del muestreo aleatorio: la misma semilla da las mismas parcelas. |
-| `--limit` | archivo o carpeta | ninguno | Las parcelas generadas se quedan dentro de estos polígonos (un rodal, por ejemplo) |
-| `--layout` | archivo o carpeta | ninguno | Dónde se guarda la capa con las parcelas; por defecto: junto a los resultados. |
-| `--where` | texto o número | ninguno | Conserva solo las regiones cuyo atributo tiene un valor: CAMPO=VALOR. |
-| `--mode` | una de las opciones | `merge` | Qué se escribe: una nube con todo (merge), una nube por región (each) o solo la capa con las métricas (metrics) Valores: `merge`: Una nube con los puntos de todas las unidades de muestreo; `each`: Una nube por unidad de muestreo; `metrics`: Sin nubes: solo la capa de unidades de muestreo con sus métricas. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Archivo de salida (un nombre base con --mode each); por defecto: junto a los resultados. |
-| `--class` | texto o número | ninguno | Clases que se conservan: 2,5 o ~7,18 para todas menos esas. |
-| `--returns` | texto o número | ninguno | Retornos que se conservan: A, F, L o números (p. ej. 1,2) |
-| `--zmin` | texto o número | ninguno | Elevación mínima (m) de los puntos que se conservan. |
-| `--zmax` | texto o número | ninguno | Elevación máxima (m) de los puntos que se conservan. |
-| `--dtm` | archivo o carpeta | ninguno | Modelo del suelo: escribe alturas sobre el suelo en lugar de elevaciones. |
-| `--z-offset` | número | `0` | Se suma a cada elevación escrita (m) |
-| `--decimate` | número | `1` | Conserva un punto de cada tantos. |
-| `--exclusive` | casilla | desactivada | Regiones que se solapan: un punto va solo a la primera. |
-| `--keep-empty` | casilla | desactivada | Escribe archivos para las regiones sin puntos. |
-| `--max-open` | número | `64` | Archivos abiertos a la vez con --mode each. |
-| `--metrics` | archivo o carpeta | ninguno | Escribe además las CloudMetrics de cada región en este CSV. |
-| `--above` | número | `2` | Métricas: altura de corte para la cobertura. |
-| `--metrics-format` | una de las opciones | ninguno | Formato de la tabla de métricas: shapefile de las regiones, tabla de texto o ambos. Valores: `vector`: Solo shapefile; `csv`: Solo tabla de texto (lo mejor para ejecuciones muy grandes); `both`: Both. |
-| `--minht` | número | `0` | Métricas: solo los retornos por encima de esta altura. |
-| `--metrics-columns` | texto o número | ninguno | Métricas: las columnas que se escriben, por nombre (`Elev P90,Elev mean,Int mean`); por defecto: todas. Se puede repetir. |
-
-### hipso filter
-
-Une, filtra, normaliza o convierte nubes en una pasada (LAS o LAZ según la extensión de la salida)
-
-**En la interfaz:** LiDAR → Preparar → Exportar puntos (con normalizar). El método se explica en el apartado 7.1.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ que unir, filtrar o convertir. **Obligatoria.** Se puede repetir. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Salida; por defecto: <resultados>/<entrada>_filtrada.<ext>. |
-| `--class` | texto o número | ninguno | Clases que se conservan: 2,5 o ~7,18 para todas menos esas. |
-| `--returns` | texto o número | ninguno | Retornos que se conservan: A, F, L o números (p. ej. 1,2) |
-| `--zmin` | texto o número | ninguno | Elevación mínima (m) de los puntos que se usan. |
-| `--zmax` | texto o número | ninguno | Elevación máxima (m) de los puntos que se usan. |
-| `--decimate` | número | `1` | Conserva un punto de cada tantos. |
-| `--dtm` | archivo o carpeta | ninguno | Escribe alturas sobre este modelo del suelo en lugar de elevaciones. |
-| `--z-offset` | número | `0` | Se suma a cada elevación escrita (m) |
-
-### hipso thin
-
-Adelgaza (diezma) una nube: por celda, por celda 3D, un punto de cada n, al azar o hasta una densidad. Cada entrada tiene su propio archivo adelgazado salvo que se dé -o (entonces se unen)
-
-**En la interfaz:** LiDAR → Preparar → Adelgazar nube. El método se explica en el apartado 7.1.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ que adelgazar. **Obligatoria.** Se puede repetir. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Archivo de salida (las entradas se unen); por defecto: un archivo adelgazado por cada entrada. |
-| `--method` | una de las opciones | `lowest` | Cómo se adelgaza la nube: un punto por celda (más bajo, más alto, central o percentil), por celda 3D, uno de cada n, quitando uno de cada n, al azar o hasta una densidad. Valores: `lowest`: Punto más bajo de cada celda; `highest`: Punto más alto de cada celda; `nearest`: Punto más cercano al centro de cada celda; `percentile`: Punto en el percentil --percentile de las elevaciones de cada celda; `voxel`: Más cercano al centro de cada celda 3D (--vcell high); `every`: Uno de cada n puntos (--n); `remove`: Quita uno de cada n puntos (--n); `random`: Random sample (--fraction); `density`: Muestra aleatoria hasta --density puntos por m². |
-| `--cell` | número | `1` | Tamaño de celda en metros (métodos por celda) |
-| `--vcell` | número | `1` | Altura de la celda 3D en metros (vóxel) |
-| `--percentile` | número | `50` | Percentil, de 0 a 100, que se conserva en cada celda (50 es la mediana) |
-| `--n` | número | `2` | Con `every` y `remove`: cada cuántos puntos se conserva (o se quita) uno. |
-| `--fraction` | número | `0.5` | Proporción de puntos que se conservan, de 0 a 1 (aleatorio) |
-| `--density` | número | `1` | Puntos por m² que se dejan (densidad) |
-| `--seed` | número | `1` | Semilla de los métodos aleatorios. |
-| `--class` | texto o número | ninguno | Clases que se conservan: 2,5 o ~7,18 para todas menos esas. |
-| `--returns` | texto o número | ninguno | Retornos que se conservan: A, F, L o números (p. ej. 1,2) |
-| `--zmin` | texto o número | ninguno | Elevación mínima (m) de los puntos que se usan. |
-| `--zmax` | texto o número | ninguno | Elevación máxima (m) de los puntos que se usan. |
-| `--decimate` | número | `1` | Conserva un punto de cada tantos. |
-
-### hipso edit
-
-Edita puntos como si fueran elementos: borra o reclasifica los puntos dentro de polígonos o a cierta distancia de líneas que cumplen las pruebas de atributos; escribe un archivo nuevo, nunca el original
-
-**En la interfaz:** panel lateral → Edición (nubes de puntos) y LiDAR → Preparar → Editar con capas. El método se explica en el apartado 6.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUT` | archivo o carpeta | ninguno | Nube LAS o LAZ que editar. **Obligatoria.** |
-| `-o`, `--output` | archivo o carpeta | ninguno | Nube de salida; por defecto, en la carpeta de resultados con el nombre de la entrada. |
-| `--regions` | archivo o carpeta | ninguno | Polígonos, centros de parcelas (con --radius) o una lista; por defecto: toda la nube. |
-| `--radius` | texto o número | ninguno | Radio (m) de las parcelas cuando las regiones son puntos. |
-| `--lines` | archivo o carpeta | ninguno | Capa de líneas (ejes, caminos, cauces): se seleccionan los puntos a menos de --distance de ellas. |
-| `--distance` | texto o número | ninguno | Distancia (m) a cada lado de las líneas de --lines. |
-| `--outside` | casilla | desactivada | Selecciona en cambio los puntos fuera de las regiones. |
-| `--class` | texto o número | ninguno | Solo se seleccionan los puntos de estas clases (2,5 o ~7,18) |
-| `--zmin` | texto o número | ninguno | Elevación mínima (m) de los puntos que se seleccionan. |
-| `--zmax` | texto o número | ninguno | Elevación máxima (m) de los puntos que se seleccionan. |
-| `--delete` | casilla | desactivada | Borra los puntos seleccionados. |
-| `--withhold` | casilla | desactivada | Marca los puntos seleccionados como retenidos (withheld): siguen en el archivo pero los procesos los ignoran. |
-| `--set-class` | texto o número | ninguno | Cambia los puntos seleccionados a esta clase. |
-
-### hipso apply-edits
-
-Aplica a una o más nubes las ediciones guardadas desde el visor (un archivo de ediciones JSON) y escribe archivos nuevos, nunca el original
-
-**En la interfaz:** panel lateral → Edición → Guardar ediciones… y Cargar ediciones…. El método se explica en el apartado 6.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ a las que se aplican las ediciones. **Obligatoria.** Se puede repetir. |
-| `--edits` | archivo o carpeta | ninguno | Archivo de ediciones, el que escribe el visor con «Guardar ediciones…». **Obligatoria.** |
-| `-o`, `--output` | archivo o carpeta | ninguno | Nube de salida (solo una entrada); por defecto, en la carpeta de resultados. |
-
-### hipso propagate-class
-
-Copia la clase de una nube de referencia (por ejemplo, una versión adelgazada ya clasificada) a los puntos de otra nube más densa: cada punto toma la clase del punto de referencia más cercano dentro del radio; los que no tienen ninguno conservan la suya
-
-**En la interfaz:** LiDAR → Preparar → Propagar clase. Flujo típico: `thin`, `classify` sobre lo adelgazado y `propagate-class` sobre la nube completa.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ a las que se propaga la clase. **Obligatoria.** Se puede repetir. |
-| `--reference` | archivo o carpeta | ninguno | Nube clasificada de la que se toma la clase. **Obligatoria.** |
-| `--radius` | número | `1` | Distancia máxima, en metros, a la que un punto de referencia da su clase. |
-| `--classes` | texto o número | ninguno | Clases de la referencia que se propagan (p. ej. «2,5-6»); por defecto, todas. |
-| `--flat` | casilla | desactivada | Mide la distancia solo en planta, sin la cota. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Nube de salida (solo una entrada); por defecto, en la carpeta de resultados. |
-
-### hipso colorize
-
-Colorea los puntos a partir de una imagen del mismo lugar (una ortofoto): cada punto toma el rojo, el verde y el azul de su píxel. Los formatos sin color se escriben como formato 7
-
-**En la interfaz:** LiDAR → Preparar → Colorear con imagen. El método se explica en el apartado 7.1.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ a las que se da el color de la imagen. **Obligatoria.** Se puede repetir. |
-| `--image` | archivo o carpeta | ninguno | La imagen (GeoTIFF, JPEG 2000…), en el sistema de coordenadas de las nubes. **Obligatoria.** |
-| `--bands` | número | `1` | Bandas del rojo, el verde y el azul, desde 1. Se puede repetir. |
-| `--nir` | texto o número | ninguno | Banda del infrarrojo cercano, que se escribe en los formatos 8 y 10. |
-| `--keep-outside` | casilla | desactivada | Los puntos fuera de la imagen conservan su color (por defecto: negro) |
-| `-o`, `--output` | archivo o carpeta | ninguno | Salida (solo una entrada); por defecto: <resultados>/<entrada>_rgb.<ext>. |
-
-### hipso intensity
-
-Normaliza la intensidad por la distancia al escáner, I · (R / R_ref)^a, a partir de la trayectoria (tiempo GPS, x, y, z) o de la altitud de vuelo y el ángulo de barrido
-
-**En la interfaz:** LiDAR → Preparar → Normalizar intensidad. El método se explica en el apartado 7.1.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ cuya intensidad se normaliza. **Obligatoria.** Se puede repetir. |
-| `--trajectory` | archivo o carpeta | ninguno | Trayectoria del escáner: un archivo de texto con líneas «tiempo x y z». |
-| `--altitude` | texto o número | ninguno | Altitud del vuelo (m, mismo datum vertical que los puntos), cuando no hay trayectoria. |
-| `--exponent` | número | `2` | Exponente a de la distancia: 2 para superficies (suelo, dosel), alrededor de 3 para cables. |
-| `--reference` | texto o número | ninguno | Distancia de referencia R_ref (m); por defecto: la distancia media de cada nube. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Salida (solo una entrada); por defecto: <resultados>/<entrada>_intensidad.<ext>. |
-
-### hipso swath
-
-Diferencia de altura entre pasadas como GeoTIFF, con las cifras del solape
-
-**En la interfaz:** LiDAR → Calidad → Entre pasadas. El método se explica en el apartado 7.1.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ aéreas con ID de fuente o tiempo GPS. **Obligatoria.** Se puede repetir. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Ráster de salida; por defecto, en la carpeta de resultados. |
-| `--cell` | número | `1` | Tamaño de celda del ráster de diferencias (m) |
-| `--returns` | texto | `last` | Retornos que se usan: all, last, single. |
-| `--by-cloud` | casilla | desactivada | Toma cada nube como una pasada en lugar del identificador de fuente del punto. |
-| `--gps-gap` | texto o número | ninguno | Halla las pasadas a partir de los saltos del tiempo GPS mayores que esto (s), cuando el identificador de fuente del punto no las guarda. |
-
-### hipso flightlines
-
-Pasadas de una nube aérea halladas a partir de los saltos del tiempo GPS: cuántas hay, cuándo, cuántos puntos tienen y dónde. Con --assign, copias de las nubes que llevan el número de pasada
-
-**En la interfaz:** LiDAR → Calidad → Líneas de vuelo. El método se explica en el apartado 7.1.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ aéreas con tiempo GPS. **Obligatoria.** Se puede repetir. |
-| `--gap` | número | `30` | Un silencio del tiempo GPS mayor que esto (s) separa dos pasadas. |
-| `--min-points` | número | `1000` | Los tramos con menos puntos no son pasadas. |
-| `--min-duration` | número | `0` | Los tramos más cortos que esto (s) no son pasadas. |
-| `--assign` | texto o número | ninguno | Escribe el número de pasada en copias de las nubes: `source-id` o `user-data`. |
-| `--no-csv` | casilla | desactivada | No escribe la tabla de resultados en CSV. |
-| `--no-vector` | casilla | desactivada | Sin capa de polígonos con el contorno de cada pasada. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Carpeta de la tabla y de las copias; por defecto: la carpeta de resultados de la primera nube. |
-
-### hipso compare
-
-Puntos de una nube que han cambiado frente a una nube de referencia (detección de cambios)
-
-**En la interfaz:** LiDAR → Calidad → Comparar nubes. El método se explica en el apartado 7.1.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUT` | archivo o carpeta | ninguno | Nube en la que se buscan cambios. **Obligatoria.** |
-| `--reference` | archivo o carpeta | ninguno | Nube(s) de referencia con las que se compara. **Obligatoria.** Se puede repetir. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Nube de salida con los puntos que han cambiado; por defecto, en la carpeta de resultados. |
-| `--distance` | número | `0.5` | Distancia (m) a partir de la cual un punto ha cambiado. |
-| `--neighbors` | número | `3` | Otros puntos cambiados que necesita un punto cambiado dentro del doble de la distancia. |
-
-### hipso fit
-
-Lleva una nube sobre una nube de referencia (punto más cercano iterativo) y escribe el resultado
-
-**En la interfaz:** LiDAR → Calidad → Ajustar nubes. El método se explica en el apartado 7.1.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUT` | archivo o carpeta | ninguno | Nube que se mueve para que encaje con la de referencia. **Obligatoria.** |
-| `--reference` | archivo o carpeta | ninguno | Nube(s) de referencia sobre las que se ajusta. **Obligatoria.** Se puede repetir. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Nube ajustada; por defecto, en la carpeta de resultados. |
-| `--thin` | número | `1` | Adelgazamiento (m) de los puntos usados para hallar el movimiento. |
-| `--max-xy` | número | `5` | Máximo desplazamiento horizontal (m) que se admite entre un punto y su pareja. |
-| `--max-z` | número | `2` | Máxima diferencia de altura (m) que se admite entre un punto y su pareja. |
-| `--iterations` | número | `30` | Máximo de iteraciones del ajuste. |
-| `--stop` | número | `0.01` | Se detiene cuando el movimiento de una iteración baja de este valor (m) |
-| `--shift-only` | casilla | desactivada | Solo traslada, no gira. |
-| `--plane` | casilla | desactivada | Punto a plano: distancia al plano tangente del punto de referencia. |
-| `--trim` | número | `1` | Proporción de los pares más cercanos que se usan para hallar el movimiento (1 los conserva todos) |
-
-### hipso hag
-
-Altura de cada punto sobre el suelo, a partir de los puntos de suelo que ya tiene la nube (un TIN con ellos): se escribe como el atributo adicional HeightAboveGround o, con --replace-z, en lugar de la elevación
-
-**En la interfaz:** LiDAR → Preparar → Alturas sobre suelo. El método se explica en el apartado 6.3.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ con el suelo ya clasificado (clase 2) **Obligatoria.** Se puede repetir. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Salida (solo una entrada); por defecto: <resultados>/<entrada>_alturas.<ext>. |
-| `--cell` | número | `0.5` | Celda de la superficie del suelo. |
-| `--ground-class` | número | `2` | Clase de los puntos de suelo. |
-| `--replace-z` | casilla | desactivada | Escribe la altura como elevación (una nube normalizada) en lugar de como atributo. |
-
-## Clasificar y modelar superficies
+## LiDAR · Preparar y clasificar
 
 ### hipso classify
 
 Clasifica ruido, suelo y edificios, tesela a tesela en paralelo, y escribe los puntos
 
-**En la interfaz:** LiDAR → Preparar → Clasificar. El método se explica en el apartado 7.1.
+**En la interfaz:** LiDAR → Preparar → Clasificar. El método se explica en el apartado 7.2.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -425,11 +89,336 @@ Clasifica ruido, suelo y edificios, tesela a tesela en paralelo, y escribe los p
 | `--buffer` | número | `30` | Margen que se lee alrededor de cada tesela (elevado a la mitad de la ventana de edificios al clasificar edificios) |
 | `--threads` | número | `0` | Hilos (0: uno por núcleo) |
 
+### hipso crs
+
+Da a las nubes sin sistema de coordenadas el de otra nube o un código EPSG
+
+**En la interfaz:** LiDAR → Preparar → Asignar proyección. El método se explica en el apartado 7.1.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ a las que se asigna el sistema de coordenadas. **Obligatoria.** Se puede repetir. |
+| `--from` | archivo o carpeta | ninguno | Una nube que tiene el sistema de coordenadas que copiar. |
+| `--epsg` | texto o número | ninguno | Código EPSG del sistema de coordenadas, p. ej. 25830. |
+| `--replace` | casilla | desactivada | Sustituye el sistema de coordenadas de nubes que ya tienen uno. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Salida (solo una entrada); por defecto: <resultados>/<entrada>_crs.<ext>. |
+
+### hipso export
+
+Extrae puntos de LAS/LAZ a LAS/LAZ, a columnas ASCII o a un shapefile de puntos 3D
+
+**En la interfaz:** LiDAR → Preparar → Exportar puntos. El método se explica en el apartado 7.1.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ que exportar. **Obligatoria.** Se puede repetir. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Archivo (o, con varias entradas, una carpeta). .laz y .las escriben una nube, .shp un shapefile PointZ y cualquier otro, texto. **Obligatoria.** |
+| `--normalize` | casilla | desactivada | Exporta alturas sobre el suelo: cada nube menos su MDT. |
+| `--dtm` | archivo o carpeta | ninguno | MDT con el que normalizar (una entrada); por defecto: el MDT más reciente hecho con cada nube. |
+| `--items` | texto | `x` | Columnas en orden: x,y,z,intensity,return,returns,class,source,red,green,blue. Se puede repetir. |
+| `--delimiter` | texto | `,` | Separador de columnas del texto. |
+| `--header` | casilla | desactivada | Escribe una primera línea con los nombres de las columnas. |
+| `--decimals` | número | `2` | Decimales de las coordenadas. |
+| `--class` | texto o número | ninguno | Clases que se exportan: 2,5 o ~7,18. |
+| `--returns` | texto o número | ninguno | Retornos que se exportan: A, F, L o números. |
+| `--zmin` | texto o número | ninguno | Elevación mínima (m) de los puntos que se exportan. |
+| `--zmax` | texto o número | ninguno | Elevación máxima (m) de los puntos que se exportan. |
+| `--decimate` | número | `1` | Conserva un punto de cada tantos. |
+
+### hipso filter
+
+Une, filtra, normaliza o convierte nubes en una pasada (LAS o LAZ según la extensión de la salida)
+
+**En la interfaz:** LiDAR → Preparar → Exportar puntos (con normalizar). El método se explica en el apartado 7.1.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ que unir, filtrar o convertir. **Obligatoria.** Se puede repetir. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Salida; por defecto: <resultados>/<entrada>_filtrada.<ext>. |
+| `--class` | texto o número | ninguno | Clases que se conservan: 2,5 o ~7,18 para todas menos esas. |
+| `--returns` | texto o número | ninguno | Retornos que se conservan: A, F, L o números (p. ej. 1,2) |
+| `--zmin` | texto o número | ninguno | Elevación mínima (m) de los puntos que se usan. |
+| `--zmax` | texto o número | ninguno | Elevación máxima (m) de los puntos que se usan. |
+| `--decimate` | número | `1` | Conserva un punto de cada tantos. |
+| `--dtm` | archivo o carpeta | ninguno | Escribe alturas sobre este modelo del suelo en lugar de elevaciones. |
+| `--z-offset` | número | `0` | Se suma a cada elevación escrita (m) |
+
+### hipso thin
+
+Adelgaza (diezma) una nube: por celda, por celda 3D, un punto de cada n, al azar o hasta una densidad. Cada entrada tiene su propio archivo adelgazado salvo que se dé -o (entonces se unen)
+
+**En la interfaz:** LiDAR → Preparar → Adelgazar nube. El método se explica en el apartado 7.1.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ que adelgazar. **Obligatoria.** Se puede repetir. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Archivo de salida (las entradas se unen); por defecto: un archivo adelgazado por cada entrada. |
+| `--method` | una de las opciones | `lowest` | Cómo se adelgaza la nube: un punto por celda (más bajo, más alto, central o percentil), por celda 3D, uno de cada n, quitando uno de cada n, al azar o hasta una densidad. Valores: `lowest`: Punto más bajo de cada celda; `highest`: Punto más alto de cada celda; `nearest`: Punto más cercano al centro de cada celda; `percentile`: Punto en el percentil --percentile de las elevaciones de cada celda; `voxel`: Más cercano al centro de cada celda 3D (--vcell high); `every`: Uno de cada n puntos (--n); `remove`: Quita uno de cada n puntos (--n); `random`: Random sample (--fraction); `density`: Muestra aleatoria hasta --density puntos por m². |
+| `--cell` | número | `1` | Tamaño de celda en metros (métodos por celda) |
+| `--vcell` | número | `1` | Altura de la celda 3D en metros (vóxel) |
+| `--percentile` | número | `50` | Percentil, de 0 a 100, que se conserva en cada celda (50 es la mediana) |
+| `--n` | número | `2` | Con `every` y `remove`: cada cuántos puntos se conserva (o se quita) uno. |
+| `--fraction` | número | `0.5` | Proporción de puntos que se conservan, de 0 a 1 (aleatorio) |
+| `--density` | número | `1` | Puntos por m² que se dejan (densidad) |
+| `--seed` | número | `1` | Semilla de los métodos aleatorios. |
+| `--class` | texto o número | ninguno | Clases que se conservan: 2,5 o ~7,18 para todas menos esas. |
+| `--returns` | texto o número | ninguno | Retornos que se conservan: A, F, L o números (p. ej. 1,2) |
+| `--zmin` | texto o número | ninguno | Elevación mínima (m) de los puntos que se usan. |
+| `--zmax` | texto o número | ninguno | Elevación máxima (m) de los puntos que se usan. |
+| `--decimate` | número | `1` | Conserva un punto de cada tantos. |
+
+### hipso hag
+
+Altura de cada punto sobre el suelo, a partir de los puntos de suelo que ya tiene la nube (un TIN con ellos): se escribe como el atributo adicional HeightAboveGround o, con --replace-z, en lugar de la elevación
+
+**En la interfaz:** LiDAR → Preparar → Alturas sobre suelo. El método se explica en el apartado 7.1.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ con el suelo ya clasificado (clase 2) **Obligatoria.** Se puede repetir. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Salida (solo una entrada); por defecto: <resultados>/<entrada>_alturas.<ext>. |
+| `--cell` | número | `0.5` | Celda de la superficie del suelo. |
+| `--ground-class` | número | `2` | Clase de los puntos de suelo. |
+| `--replace-z` | casilla | desactivada | Escribe la altura como elevación (una nube normalizada) en lugar de como atributo. |
+
+### hipso dedup
+
+Quita los puntos duplicados (mismas x, y, z y los atributos pedidos)
+
+**En la interfaz:** LiDAR → Preparar → Quitar duplicados. El método se explica en el apartado 7.1.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ de las que se quitan los puntos repetidos. **Obligatoria.** Se puede repetir. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Archivo de salida (solo una entrada); por defecto, en la carpeta de resultados. |
+| `--all-copies` | casilla | desactivada | Borra todas las copias, no solo las sobrantes. |
+| `--also` | texto o número | ninguno | Atributos que también deben coincidir: class, gps, intensity, return, count, source. Se puede repetir. |
+
+### hipso colorize
+
+Colorea los puntos a partir de una imagen del mismo lugar (una ortofoto): cada punto toma el rojo, el verde y el azul de su píxel. Los formatos sin color se escriben como formato 7
+
+**En la interfaz:** LiDAR → Preparar → Colorear con imagen. El método se explica en el apartado 7.1.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ a las que se da el color de la imagen. **Obligatoria.** Se puede repetir. |
+| `--image` | archivo o carpeta | ninguno | La imagen (GeoTIFF, JPEG 2000…), en el sistema de coordenadas de las nubes. **Obligatoria.** |
+| `--bands` | número | `1` | Bandas del rojo, el verde y el azul, desde 1. Se puede repetir. |
+| `--nir` | texto o número | ninguno | Banda del infrarrojo cercano, que se escribe en los formatos 8 y 10. |
+| `--keep-outside` | casilla | desactivada | Los puntos fuera de la imagen conservan su color (por defecto: negro) |
+| `-o`, `--output` | archivo o carpeta | ninguno | Salida (solo una entrada); por defecto: <resultados>/<entrada>_rgb.<ext>. |
+
+### hipso intensity
+
+Normaliza la intensidad por la distancia al escáner, I · (R / R_ref)^a, a partir de la trayectoria (tiempo GPS, x, y, z) o de la altitud de vuelo y el ángulo de barrido
+
+**En la interfaz:** LiDAR → Preparar → Normalizar intensidad. El método se explica en el apartado 7.1.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ cuya intensidad se normaliza. **Obligatoria.** Se puede repetir. |
+| `--trajectory` | archivo o carpeta | ninguno | Trayectoria del escáner: un archivo de texto con líneas «tiempo x y z». |
+| `--altitude` | texto o número | ninguno | Altitud del vuelo (m, mismo datum vertical que los puntos), cuando no hay trayectoria. |
+| `--exponent` | número | `2` | Exponente a de la distancia: 2 para superficies (suelo, dosel), alrededor de 3 para cables. |
+| `--reference` | texto o número | ninguno | Distancia de referencia R_ref (m); por defecto: la distancia media de cada nube. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Salida (solo una entrada); por defecto: <resultados>/<entrada>_intensidad.<ext>. |
+
+### hipso raster
+
+Rejilla de una estadística de los puntos (densidad, recuento, elevación, intensidad) como GeoTIFF
+
+**En la interfaz:** LiDAR → Preparar → Imagen de intensidad (la rejilla de intensidad media). El método se explica en el apartado 7.1.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ de las que se calcula la rejilla. **Obligatoria.** Se puede repetir. |
+| `-o`, `--output` | archivo o carpeta | ninguno | GeoTIFF de salida; por defecto, en la carpeta de resultados con el nombre de la entrada y el estadístico. |
+| `--cell` | número | `1` | Tamaño de celda de la rejilla (m) |
+| `--stat` | una de las opciones | `density` | Estadístico de cada celda: densidad, recuento, elevación media, máxima, mínima o rango, o intensidad media o máxima. Valores: `density`: Puntos por m²; `count`: Número de puntos; `mean-z`: Elevación media; `max-z`: Elevación máxima; `min-z`: Elevación mínima; `range-z`: Diferencia entre la elevación máxima y la mínima; `mean-intensity`: Intensidad media; `max-intensity`: Intensidad máxima. |
+| `--class` | texto o número | ninguno | Clases que se conservan: 2,5 o ~7,18 para todas menos esas. |
+| `--returns` | texto o número | ninguno | Retornos que se conservan: A, F, L o números (p. ej. 1,2) |
+| `--zmin` | texto o número | ninguno | Elevación mínima (m) de los puntos que se usan. |
+| `--zmax` | texto o número | ninguno | Elevación máxima (m) de los puntos que se usan. |
+| `--decimate` | número | `1` | Conserva un punto de cada tantos. |
+
+### hipso propagate-class
+
+Copia la clase de una nube de referencia (por ejemplo, una versión adelgazada ya clasificada) a los puntos de otra nube más densa: cada punto toma la clase del punto de referencia más cercano dentro del radio; los que no tienen ninguno conservan la suya
+
+**En la interfaz:** LiDAR → Preparar → Propagar clase. Flujo típico: `thin`, `classify` sobre lo adelgazado y `propagate-class` sobre la nube completa.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ a las que se propaga la clase. **Obligatoria.** Se puede repetir. |
+| `--reference` | archivo o carpeta | ninguno | Nube clasificada de la que se toma la clase. **Obligatoria.** |
+| `--radius` | número | `1` | Distancia máxima, en metros, a la que un punto de referencia da su clase. |
+| `--classes` | texto o número | ninguno | Clases de la referencia que se propagan (p. ej. «2,5-6»); por defecto, todas. |
+| `--flat` | casilla | desactivada | Mide la distancia solo en planta, sin la cota. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Nube de salida (solo una entrada); por defecto, en la carpeta de resultados. |
+
+### hipso edit
+
+Edita puntos como si fueran elementos: borra o reclasifica los puntos dentro de polígonos o a cierta distancia de líneas que cumplen las pruebas de atributos; escribe un archivo nuevo, nunca el original
+
+**En la interfaz:** panel lateral → Edición (nubes de puntos) y LiDAR → Preparar → Editar con capas. El método se explica en el apartado 6.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | Nube LAS o LAZ que editar. **Obligatoria.** |
+| `-o`, `--output` | archivo o carpeta | ninguno | Nube de salida; por defecto, en la carpeta de resultados con el nombre de la entrada. |
+| `--regions` | archivo o carpeta | ninguno | Polígonos, centros de parcelas (con --radius) o una lista; por defecto: toda la nube. |
+| `--radius` | texto o número | ninguno | Radio (m) de las parcelas cuando las regiones son puntos. |
+| `--lines` | archivo o carpeta | ninguno | Capa de líneas (ejes, caminos, cauces): se seleccionan los puntos a menos de --distance de ellas. |
+| `--distance` | texto o número | ninguno | Distancia (m) a cada lado de las líneas de --lines. |
+| `--outside` | casilla | desactivada | Selecciona en cambio los puntos fuera de las regiones. |
+| `--class` | texto o número | ninguno | Solo se seleccionan los puntos de estas clases (2,5 o ~7,18) |
+| `--zmin` | texto o número | ninguno | Elevación mínima (m) de los puntos que se seleccionan. |
+| `--zmax` | texto o número | ninguno | Elevación máxima (m) de los puntos que se seleccionan. |
+| `--delete` | casilla | desactivada | Borra los puntos seleccionados. |
+| `--withhold` | casilla | desactivada | Marca los puntos seleccionados como retenidos (withheld): siguen en el archivo pero los procesos los ignoran. |
+| `--set-class` | texto o número | ninguno | Cambia los puntos seleccionados a esta clase. |
+
+### hipso apply-edits
+
+Aplica a una o más nubes las ediciones guardadas desde el visor (un archivo de ediciones JSON) y escribe archivos nuevos, nunca el original
+
+**En la interfaz:** panel lateral → Edición → Guardar ediciones… y Cargar ediciones…. El método se explica en el apartado 6.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ a las que se aplican las ediciones. **Obligatoria.** Se puede repetir. |
+| `--edits` | archivo o carpeta | ninguno | Archivo de ediciones, el que escribe el visor con «Guardar ediciones…». **Obligatoria.** |
+| `-o`, `--output` | archivo o carpeta | ninguno | Nube de salida (solo una entrada); por defecto, en la carpeta de resultados. |
+
+## LiDAR · Calidad
+
+### hipso compare
+
+Puntos de una nube que han cambiado frente a una nube de referencia (detección de cambios)
+
+**En la interfaz:** LiDAR → Calidad → Comparar nubes. El método se explica en el apartado 7.3.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | Nube en la que se buscan cambios. **Obligatoria.** |
+| `--reference` | archivo o carpeta | ninguno | Nube(s) de referencia con las que se compara. **Obligatoria.** Se puede repetir. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Nube de salida con los puntos que han cambiado; por defecto, en la carpeta de resultados. |
+| `--distance` | número | `0.5` | Distancia (m) a partir de la cual un punto ha cambiado. |
+| `--neighbors` | número | `3` | Otros puntos cambiados que necesita un punto cambiado dentro del doble de la distancia. |
+
+### hipso fit
+
+Lleva una nube sobre una nube de referencia (punto más cercano iterativo) y escribe el resultado
+
+**En la interfaz:** LiDAR → Calidad → Ajustar nubes. El método se explica en el apartado 7.3.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | Nube que se mueve para que encaje con la de referencia. **Obligatoria.** |
+| `--reference` | archivo o carpeta | ninguno | Nube(s) de referencia sobre las que se ajusta. **Obligatoria.** Se puede repetir. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Nube ajustada; por defecto, en la carpeta de resultados. |
+| `--thin` | número | `1` | Adelgazamiento (m) de los puntos usados para hallar el movimiento. |
+| `--max-xy` | número | `5` | Máximo desplazamiento horizontal (m) que se admite entre un punto y su pareja. |
+| `--max-z` | número | `2` | Máxima diferencia de altura (m) que se admite entre un punto y su pareja. |
+| `--iterations` | número | `30` | Máximo de iteraciones del ajuste. |
+| `--stop` | número | `0.01` | Se detiene cuando el movimiento de una iteración baja de este valor (m) |
+| `--shift-only` | casilla | desactivada | Solo traslada, no gira. |
+| `--plane` | casilla | desactivada | Punto a plano: distancia al plano tangente del punto de referencia. |
+| `--trim` | número | `1` | Proporción de los pares más cercanos que se usan para hallar el movimiento (1 los conserva todos) |
+
+### hipso swath
+
+Diferencia de altura entre pasadas como GeoTIFF, con las cifras del solape
+
+**En la interfaz:** LiDAR → Calidad → Entre pasadas. El método se explica en el apartado 7.3.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ aéreas con ID de fuente o tiempo GPS. **Obligatoria.** Se puede repetir. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Ráster de salida; por defecto, en la carpeta de resultados. |
+| `--cell` | número | `1` | Tamaño de celda del ráster de diferencias (m) |
+| `--returns` | texto | `last` | Retornos que se usan: all, last, single. |
+| `--by-cloud` | casilla | desactivada | Toma cada nube como una pasada en lugar del identificador de fuente del punto. |
+| `--gps-gap` | texto o número | ninguno | Halla las pasadas a partir de los saltos del tiempo GPS mayores que esto (s), cuando el identificador de fuente del punto no las guarda. |
+
+### hipso flightlines
+
+Pasadas de una nube aérea halladas a partir de los saltos del tiempo GPS: cuántas hay, cuándo, cuántos puntos tienen y dónde. Con --assign, copias de las nubes que llevan el número de pasada
+
+**En la interfaz:** LiDAR → Calidad → Líneas de vuelo. El método se explica en el apartado 7.3.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ aéreas con tiempo GPS. **Obligatoria.** Se puede repetir. |
+| `--gap` | número | `30` | Un silencio del tiempo GPS mayor que esto (s) separa dos pasadas. |
+| `--min-points` | número | `1000` | Los tramos con menos puntos no son pasadas. |
+| `--min-duration` | número | `0` | Los tramos más cortos que esto (s) no son pasadas. |
+| `--assign` | texto o número | ninguno | Escribe el número de pasada en copias de las nubes: `source-id` o `user-data`. |
+| `--no-csv` | casilla | desactivada | No escribe la tabla de resultados en CSV. |
+| `--no-vector` | casilla | desactivada | Sin capa de polígonos con el contorno de cada pasada. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Carpeta de la tabla y de las copias; por defecto: la carpeta de resultados de la primera nube. |
+
+### hipso voronoi-density
+
+Densidad de puntos por celdas de Voronoi, para comprobar una nube: n / suma de las áreas de las celdas de los puntos de cada celda ráster, con la proporción de celdas que alcanzan un umbral
+
+**En la interfaz:** LiDAR → Calidad → Densidad de Voronoi. El método se explica en el apartado 7.3.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ de las que se mide la densidad. **Obligatoria.** Se puede repetir. |
+| `--cell` | número | `5` | Celda del ráster de densidad (m) |
+| `--threshold` | número | `8` | Puntos por m2 que debe alcanzar la densidad. |
+| `--returns` | texto | `F` | Retornos que se usan: A, F, L o números; por defecto F (primeros retornos: pulsos) |
+| `--class` | texto o número | ninguno | Clases que se usan: 2,5 o ~7,18. |
+| `--max-cell-area` | número | `100` | Una celda de Voronoi mayor que esto (m2) es un hueco en los datos. |
+| `--no-pass-fail` | casilla | desactivada | Sin ráster de 1 donde se alcanza el umbral y 0 donde no. |
+| `--no-csv` | casilla | desactivada | No escribe la tabla de resultados en CSV. |
+| `--tile` | número | `250` | Lado de las teselas y su margen (m) |
+| `--buffer` | número | `20` | Margen (m) que cada tesela toma de sus vecinas. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<primera nube>_vdensidad. |
+
+### hipso merge-clouds
+
+Une dos o más nubes en una y decide qué hacer con los puntos duplicados
+
+**En la interfaz:** LiDAR → Calidad → Unir nubes. El método se explica en el apartado 7.3.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ que se unen (dos o más) **Obligatoria.** Se puede repetir. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Nube unida; por defecto, en la carpeta de resultados. |
+| `--dups` | una de las opciones | `keep` | Qué hacer con los duplicados: keep (no buscarlos), mark (marcarlos como retenidos) o delete (quitarlos) Valores: `keep`: No buscar duplicados; `mark`: Marcarlos como retenidos (withheld), dejando uno de cada conjunto; `delete`: Quitarlos, dejando uno de cada conjunto. |
+| `--also` | texto o número | ninguno | Atributos que también deben coincidir: class, gps, intensity, return, count, source. Se puede repetir. |
+
+### hipso dtm-validate
+
+Exactitud de un MDT frente a puntos de control del suelo (los de suelo de una nube, una capa de puntos con un campo de cota o una tabla con X, Y y Z): sesgo, MAE, RMSE, desviación y los estadísticos robustos NMAD y LE95, más la tabla de errores punto a punto
+
+**En la interfaz:** LiDAR → Calidad → Validar MDT. El método se explica en el apartado 7.3.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `DTM` | archivo o carpeta | ninguno | El MDT (GeoTIFF) **Obligatoria.** |
+| `REFERENCE` | archivo o carpeta | ninguno | Puntos de control: nube LAS/LAZ (su clase suelo), capa de puntos (.shp, .gpkg, .geojson) o tabla (.csv, .xlsx) **Obligatoria.** |
+| `--sampling` | texto | `bilinear` | Cómo se lee el MDT bajo cada punto: bilinear o nearest. |
+| `--class` | número | `2` | Clase de la nube que sirve de referencia. |
+| `--z-field` | texto o número | ninguno | Campo con la cota (capas y tablas); por defecto z, cota o elev si existen. |
+| `--x-field` | texto o número | ninguno | Columna X de una tabla. |
+| `--y-field` | texto o número | ninguno | Columna Y de una tabla. |
+| `--max-error` | texto o número | ninguno | Descarta los puntos con un error absoluto mayor que esto (m) |
+| `--no-csv` | casilla | desactivada | No escribe la tabla de errores. |
+| `--shp` | casilla | desactivada | Escribe también los errores como capa de puntos. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<MDT>_validacion. |
+
+## LiDAR · Superficies
+
 ### hipso dtm
 
 MDT como GeoTIFF, uno por hoja. Por defecto: la clase de suelo (2) que ya trae la nube; --ground prueba otro método
 
-**En la interfaz:** LiDAR → Superficies → MDT. El método se explica en el apartado 7.2.
+**En la interfaz:** LiDAR → Superficies → MDT. El método se explica en el apartado 7.4.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -518,7 +507,7 @@ MDT como GeoTIFF, uno por hoja. Por defecto: la clase de suelo (2) que ya trae l
 
 Modelo digital de superficie (retornos más altos) como GeoTIFF, uno por hoja
 
-**En la interfaz:** LiDAR → Superficies → MDS / CHM. El método se explica en el apartado 7.2.
+**En la interfaz:** LiDAR → Superficies → MDS / CHM. El método se explica en el apartado 7.4.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -537,7 +526,7 @@ Modelo digital de superficie (retornos más altos) como GeoTIFF, uno por hoja
 
 Modelo de altura de copas como GeoTIFF, uno por hoja
 
-**En la interfaz:** LiDAR → Superficies → MDS / CHM. El método se explica en el apartado 7.2.
+**En la interfaz:** LiDAR → Superficies → MDS / CHM. El método se explica en el apartado 7.4.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -555,31 +544,36 @@ Modelo de altura de copas como GeoTIFF, uno por hoja
 | `--mosaic` | casilla | desactivada | Une además los CHM de las hojas en un mosaico (por defecto cada hoja conserva el suyo) |
 | `--neighbors` | número | `0` | Lee las hojas que estén a menos de tantos metros de cada hoja como contexto, de modo que sus bordes salgan como saldrían de todo el bloque, y escribe solo los puntos de la propia hoja (0: desactivado) |
 
-### hipso dtm-validate
+### hipso change
 
-Exactitud de un MDT frente a puntos de control del suelo (los de suelo de una nube, una capa de puntos con un campo de cota o una tabla con X, Y y Z): sesgo, MAE, RMSE, desviación y los estadísticos robustos NMAD y LE95, más la tabla de errores punto a punto
+Cambio forestal entre dos fechas a partir de dos modelos de altura de copas sobre las mismas celdas: diferencia de altura, crecimiento, pérdida y cambio de cobertura, manchas de dosel perdido, resumen por rodal y crecimiento de cada árbol
 
-**En la interfaz:** LiDAR → Calidad → Validar MDT. El método se explica en el apartado 7.1.
+**En la interfaz:** LiDAR → Superficies → Cambio de la cubierta vegetal. El método se explica en el apartado 7.4.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
-| `DTM` | archivo o carpeta | ninguno | El MDT (GeoTIFF) **Obligatoria.** |
-| `REFERENCE` | archivo o carpeta | ninguno | Puntos de control: nube LAS/LAZ (su clase suelo), capa de puntos (.shp, .gpkg, .geojson) o tabla (.csv, .xlsx) **Obligatoria.** |
-| `--sampling` | texto | `bilinear` | Cómo se lee el MDT bajo cada punto: bilinear o nearest. |
-| `--class` | número | `2` | Clase de la nube que sirve de referencia. |
-| `--z-field` | texto o número | ninguno | Campo con la cota (capas y tablas); por defecto z, cota o elev si existen. |
-| `--x-field` | texto o número | ninguno | Columna X de una tabla. |
-| `--y-field` | texto o número | ninguno | Columna Y de una tabla. |
-| `--max-error` | texto o número | ninguno | Descarta los puntos con un error absoluto mayor que esto (m) |
-| `--no-csv` | casilla | desactivada | No escribe la tabla de errores. |
-| `--shp` | casilla | desactivada | Escribe también los errores como capa de puntos. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<MDT>_validacion. |
+| `BEFORE` | archivo o carpeta | ninguno | Modelo de altura de copas de la primera fecha. **Obligatoria.** |
+| `AFTER` | archivo o carpeta | ninguno | Modelo de altura de copas de la segunda fecha (mismas celdas; véase `align`) **Obligatoria.** |
+| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<después>_cambio.shp (nunca un archivo existente) |
+| `--min-change` | número | `1` | Un cambio de altura menor que este es ruido. |
+| `--cover-height` | número | `2` | Altura a partir de la cual una celda cuenta como dosel. |
+| `--min-patch` | número | `10` | Las manchas de dosel perdido menores que tantas celdas no se comunican. |
+| `--years` | texto o número | ninguno | Años entre las fechas, para las tasas anuales. |
+| `--stands` | archivo o carpeta | ninguno | Rodales que resumir (.shp o .geojson) |
+| `--stand-field` | texto o número | ninguno | Campo de los rodales que los nombra. |
+| `--trees` | casilla | desactivada | Empareja además los árboles de las dos fechas y mide su crecimiento. |
+| `--hmin` | número | `2` | Árboles: altura mínima (m) de una cima para contarla como árbol. |
+| `--ws-a` | número | `3` | Árboles: diámetro de ventana = a + b h (unidades del mapa) |
+| `--ws-b` | número | `0.1` | Coeficiente de la altura (b) del diámetro de la ventana de búsqueda de cimas. |
+| `--smooth` | número | `0` | Árboles: suaviza antes los dos modelos con una ventana de este tamaño (0: nada) |
+| `--match-dist` | número | `3` | Árboles: es el mismo árbol cuando están más cerca que esto. |
+| `--format` | una de las opciones | ninguno | Formato de salida: shapefile, tabla de texto o ambos. Valores: `vector`: Solo shapefile; `csv`: Solo tabla de texto (lo mejor para ejecuciones muy grandes); `both`: Both. |
 
 ### hipso hillshade
 
 PNG de sombreado de un MDT o un CHM
 
-**En la interfaz:** sin botón propio (la línea de comandos y el constructor de flujos). El método se explica en el apartado 7.2.
+**En la interfaz:** sin botón propio (la línea de comandos y el constructor de flujos). El método se explica en el apartado 7.4.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -600,29 +594,60 @@ Curvas de nivel de un MDT o un CHM como shapefile de polilíneas 3D
 | `-o`, `--output` | archivo o carpeta | ninguno | Shapefile de salida; por defecto: <resultados>/<entrada>_curvas_<equidistancia>m.shp. |
 | `--interval` | número | `5` | Equidistancia de las curvas de nivel (m) |
 
-### hipso raster
+## LiDAR · ALS, TLS e infraestructuras
 
-Rejilla de una estadística de los puntos (densidad, recuento, elevación, intensidad) como GeoTIFF
+### hipso clip
 
-**En la interfaz:** LiDAR → Preparar → Imagen de intensidad (la rejilla de intensidad media). El método se explica en el apartado 7.1.
+Recorta nubes con polígonos, parcelas o rectángulos
+
+**En la interfaz:** LiDAR → ALS → Extraer muestras. El método se explica en el apartado 7.5.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ de las que se calcula la rejilla. **Obligatoria.** Se puede repetir. |
-| `-o`, `--output` | archivo o carpeta | ninguno | GeoTIFF de salida; por defecto, en la carpeta de resultados con el nombre de la entrada y el estadístico. |
-| `--cell` | número | `1` | Tamaño de celda de la rejilla (m) |
-| `--stat` | una de las opciones | `density` | Estadístico de cada celda: densidad, recuento, elevación media, máxima, mínima o rango, o intensidad media o máxima. Valores: `density`: Puntos por m²; `count`: Número de puntos; `mean-z`: Elevación media; `max-z`: Elevación máxima; `min-z`: Elevación mínima; `range-z`: Diferencia entre la elevación máxima y la mínima; `mean-intensity`: Intensidad media; `max-intensity`: Intensidad máxima. |
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ que recortar. **Obligatoria.** Se puede repetir. |
+| `--regions` | archivo o carpeta | ninguno | Polígonos (.shp), centros de parcelas (.shp de puntos, con --radius) o una lista (.csv/.txt) |
+| `--rect` | texto o número | ninguno | Un rectángulo: minx,miny,maxx,maxy (se repite para varios) Se puede repetir. |
+| `--circle` | texto o número | ninguno | Una parcela circular: x,y,radio (se repite para varias) Se puede repetir. |
+| `--name-field` | texto o número | ninguno | El atributo que da nombre a cada región: el nombre de un campo o su posición contando desde 1. |
+| `--buffer` | texto o número | ninguno | Amplía cada región esta distancia en unidades del mapa (metros en un sistema proyectado); si es negativa, la reduce. Las esquinas quedan redondeadas. |
+| `--split-parts` | casilla | desactivada | Divide los elementos de varias partes en una región por parte (llamadas <nombre>_p1, <nombre>_p2…) |
+| `--radius` | texto o número | ninguno | Radio de las parcelas dadas como puntos. |
+| `--radius-field` | texto o número | ninguno | Atributo que guarda el radio propio de cada punto (metros) |
+| `--square` | casilla | desactivada | Las parcelas dadas como puntos son cuadradas en lugar de circulares. |
+| `--side` | texto o número | ninguno | Lado de las parcelas cuadradas, en metros (o los campos que guardan los lados) |
+| `--side-x-field` | texto o número | ninguno | Campo de las regiones con el lado X de la parcela cuadrada (m) |
+| `--side-y-field` | texto o número | ninguno | Campo de las regiones con el lado Y de la parcela cuadrada (m) |
+| `--sample` | una de las opciones | ninguno | Genera las parcelas en lugar de leerlas: al azar o en una cuadrícula regular. Valores: `random`: Parcelas al azar (--count), con una distancia mínima entre centros; `systematic`: Parcelas en una cuadrícula regular (--spacing). |
+| `--count` | número | `10` | Muestreo aleatorio: número de parcelas. |
+| `--spacing` | texto o número | ninguno | Muestreo sistemático: separación entre centros en metros, X o X,Y. |
+| `--min-dist` | texto o número | ninguno | Muestreo aleatorio: distancia mínima entre centros (por defecto: el doble del tamaño de la parcela) |
+| `--seed` | número | `1` | Semilla del muestreo aleatorio: la misma semilla da las mismas parcelas. |
+| `--limit` | archivo o carpeta | ninguno | Las parcelas generadas se quedan dentro de estos polígonos (un rodal, por ejemplo) |
+| `--layout` | archivo o carpeta | ninguno | Dónde se guarda la capa con las parcelas; por defecto: junto a los resultados. |
+| `--where` | texto o número | ninguno | Conserva solo las regiones cuyo atributo tiene un valor: CAMPO=VALOR. |
+| `--mode` | una de las opciones | `merge` | Qué se escribe: una nube con todo (merge), una nube por región (each) o solo la capa con las métricas (metrics) Valores: `merge`: Una nube con los puntos de todas las unidades de muestreo; `each`: Una nube por unidad de muestreo; `metrics`: Sin nubes: solo la capa de unidades de muestreo con sus métricas. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Archivo de salida (un nombre base con --mode each); por defecto: junto a los resultados. |
 | `--class` | texto o número | ninguno | Clases que se conservan: 2,5 o ~7,18 para todas menos esas. |
 | `--returns` | texto o número | ninguno | Retornos que se conservan: A, F, L o números (p. ej. 1,2) |
-| `--zmin` | texto o número | ninguno | Elevación mínima (m) de los puntos que se usan. |
-| `--zmax` | texto o número | ninguno | Elevación máxima (m) de los puntos que se usan. |
+| `--zmin` | texto o número | ninguno | Elevación mínima (m) de los puntos que se conservan. |
+| `--zmax` | texto o número | ninguno | Elevación máxima (m) de los puntos que se conservan. |
+| `--dtm` | archivo o carpeta | ninguno | Modelo del suelo: escribe alturas sobre el suelo en lugar de elevaciones. |
+| `--z-offset` | número | `0` | Se suma a cada elevación escrita (m) |
 | `--decimate` | número | `1` | Conserva un punto de cada tantos. |
+| `--exclusive` | casilla | desactivada | Regiones que se solapan: un punto va solo a la primera. |
+| `--keep-empty` | casilla | desactivada | Escribe archivos para las regiones sin puntos. |
+| `--max-open` | número | `64` | Archivos abiertos a la vez con --mode each. |
+| `--metrics` | archivo o carpeta | ninguno | Escribe además las CloudMetrics de cada región en este CSV. |
+| `--above` | número | `2` | Métricas: altura de corte para la cobertura. |
+| `--metrics-format` | una de las opciones | ninguno | Formato de la tabla de métricas: shapefile de las regiones, tabla de texto o ambos. Valores: `vector`: Solo shapefile; `csv`: Solo tabla de texto (lo mejor para ejecuciones muy grandes); `both`: Both. |
+| `--minht` | número | `0` | Métricas: solo los retornos por encima de esta altura. |
+| `--metrics-columns` | texto o número | ninguno | Métricas: las columnas que se escriben, por nombre (`Elev P90,Elev mean,Int mean`); por defecto: todas. Se puede repetir. |
 
 ### hipso metrics
 
 Métricas por celda de la rejilla: elevación y, opcionalmente, intensidad y estratos
 
-**En la interfaz:** LiDAR → ALS → Métricas por celda. El método se explica en el apartado 7.3.
+**En la interfaz:** LiDAR → ALS → Métricas por celda. El método se explica en el apartado 7.5.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -647,13 +672,39 @@ Métricas por celda de la rejilla: elevación y, opcionalmente, intensidad y est
 | `--cbh-share` | número | `0.1` | Estructura: una capa es copa cuando guarda esta proporción de los retornos de la capa más llena. |
 | `--format` | una de las opciones | ninguno | Formato de salida: shapefile de celdas, tabla de texto o ambos (por defecto: según el nombre de la salida) Valores: `vector`: Solo shapefile; `csv`: Solo tabla de texto (lo mejor para ejecuciones muy grandes); `both`: Both. |
 
-## Vegetación e inventario
+### hipso model
+
+Modelo de transición (por área): regresión de una variable de campo (volumen, área basimétrica…) sobre las métricas LiDAR de las parcelas, con validación cruzada dejando una fuera que repite la elección de métricas, diagnósticos y, dadas las métricas de las celdas, el mapa de la variable
+
+**En la interfaz:** LiDAR → ALS → Modelos lineales. El método se explica en el apartado 7.5.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `--plots` | archivo o carpeta | ninguno | Métricas de las parcelas: la capa (.shp) o la tabla de texto de `clip --metrics`. **Obligatoria.** |
+| `--field` | archivo o carpeta | ninguno | Tabla de campo, una fila por parcela (.csv, .txt o .xlsx) **Obligatoria.** |
+| `--response` | texto o número | ninguno | Columna de la tabla de campo que se estima. **Obligatoria.** |
+| `--plot-key` | texto | `Muestra` | Columna que nombra la parcela en la tabla de métricas. |
+| `--field-key` | texto o número | ninguno | Columna que nombra la parcela en la tabla de campo; por defecto: el mismo nombre. |
+| `--predictors` | texto o número | ninguno | Métricas que se usan, separadas por comas; por defecto: elegidas automáticamente. Se puede repetir. |
+| `--transform` | una de las opciones | `none` | Transformación antes del ajuste: ninguna, logaritmo de la respuesta, o logaritmo de la respuesta y de las métricas. Valores: `none`: Sin transformación; `log-response`: Logaritmo de la respuesta; `log-both`: Logaritmo de la respuesta y de las métricas (una ley de potencias). |
+| `--criterion` | una de las opciones | `bic` | Criterio de la elección automática. Valores: `bic`: Criterio de información bayesiano (BIC): castiga más los modelos con muchas métricas; `aicc`: Criterio de Akaike corregido para muestras pequeñas (AICc). |
+| `--max-vars` | número | `0` | Máximo de métricas que conserva la elección automática (0: una por cada cinco parcelas, como mucho cinco) |
+| `--max-vif` | número | `5` | Mayor factor de inflación de la varianza que acepta la elección automática. |
+| `--candidates` | texto o número | ninguno | Métricas que puede usar la elección automática, separadas por comas; por defecto: todas las de la tabla. Se puede repetir. |
+| `--max-corr` | número | `0.8` | Los candidatos correlacionados más que esto dicen lo mismo: solo se conserva el más relacionado con la variable (1: se conservan todos) |
+| `--analyze` | casilla | desactivada | Solo el análisis previo al ajuste: normalidad de la variable y cribado de los candidatos. |
+| `--with-intensity` | casilla | desactivada | Ofrece también las métricas de intensidad a la elección automática (por defecto se dejan fuera: la intensidad de la mayoría de los vuelos no está calibrada entre pasadas) |
+| `--cells` | archivo o carpeta | ninguno | Métricas de las celdas (la tabla de texto de `metrics`; una por hoja): escribe el mapa. Se puede repetir. |
+| `-o`, `--output` | archivo o carpeta | ninguno | El mapa (GeoTIFF); por defecto: junto a la tabla de parcelas. |
+| `--interval` | casilla | desactivada | Escribe también la semianchura del intervalo de predicción del 95 %. |
+| `--extrapolate` | casilla | desactivada | Estima también las celdas fuera del rango de las parcelas. |
+| `--epsg` | texto o número | ninguno | Código EPSG del mapa; por defecto: el de la capa de la tabla de celdas. |
 
 ### hipso trees
 
 Árboles individuales a partir de un modelo de altura de copas: cimas (máximos locales), copas (Dalponte, Silva o cuenca), polígonos, treeID por punto y comprobación con datos de campo
 
-**En la interfaz:** LiDAR → ALS → Segmentar con CHM. El método se explica en el apartado 7.3.
+**En la interfaz:** LiDAR → ALS → Segmentar con CHM. El método se explica en el apartado 7.5.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -696,7 +747,7 @@ Métricas por celda de la rejilla: elevación y, opcionalmente, intensidad y est
 
 Árboles individuales sobre los puntos, de arriba abajo, sin pasar por un ráster: crecimiento de regiones desde las cimas en la línea de Li et al. (2012). Escribe la nube con treeID, las cimas y una tabla
 
-**En la interfaz:** LiDAR → ALS → Segmentar con puntos. El método se explica en el apartado 7.3.
+**En la interfaz:** LiDAR → ALS → Segmentar con puntos. El método se explica en el apartado 7.5.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -720,7 +771,7 @@ Métricas por celda de la rejilla: elevación y, opcionalmente, intensidad y est
 
 Métricas de cada árbol de una nube con treeID: altura, base y longitud de la copa, proporción de copa, superficie y radio, y el volumen de la copa como envolvente convexa y como forma alfa 3D
 
-**En la interfaz:** LiDAR → ALS → Métricas por árbol. El método se explica en el apartado 7.3.
+**En la interfaz:** LiDAR → ALS → Métricas por árbol. El método se explica en el apartado 7.5.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -736,50 +787,11 @@ Métricas de cada árbol de una nube con treeID: altura, base y longitud de la c
 | `--dim` | texto | `treeID` | Atributo adicional que numera los individuos (por defecto treeID; vale cualquier dimensión entera, como la de un segmentador externo) |
 | `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<nube>_metricas_arboles. |
 
-### hipso canopy-gaps
-
-Huecos del dosel: las manchas conectadas de un CHM por debajo de una altura, cada una con su superficie, perímetro, forma y alturas, y la fracción de dosel que son hueco
-
-**En la interfaz:** LiDAR → ALS → Huecos del dosel. El método se explica en el apartado 7.3.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUT` | archivo o carpeta | ninguno | El CHM (GeoTIFF en un sistema proyectado, celda en metros) **Obligatoria.** |
-| `--height` | número | `5` | Una celda por debajo de esta altura (m) está en un hueco. |
-| `--min-area` | número | `1` | Descarta los huecos menores que esto (m²) |
-| `--max-area` | número | `10000` | Descarta los huecos mayores que esto (m²): no son huecos del dosel sino claros. |
-| `--include-edge` | casilla | desactivada | Conserva los huecos cortados por el borde del ráster o por celdas sin dato. |
-| `--raster` | casilla | desactivada | Escribe también el ráster de huecos (identificadores) |
-| `--gpkg` | casilla | desactivada | Escribe además un GeoPackage. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<CHM>_huecos.shp. |
-
-### hipso voxel-metrics
-
-Métricas de vóxeles: la estructura vertical del dosel en columnas de celdas y capas de altura, con un ráster por métrica (puntos, vóxeles ocupados, volumen, relleno, altura máxima y media, entropía de alturas, fracción de huecos y LAI de MacArthur y Horn)
-
-**En la interfaz:** LiDAR → ALS → Métricas de vóxeles. El método se explica en el apartado 7.3.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ. **Obligatoria.** Se puede repetir. |
-| `--dtm` | archivo o carpeta | ninguno | MDT con el que se normalizan las alturas; sin él, la nube ya trae alturas sobre el suelo. |
-| `--cell` | número | `2` | Lado de la columna (m) |
-| `--dz` | número | `1` | Grosor de la capa (m) |
-| `--max-height` | número | `60` | Altura (m) por encima de la cual los puntos no cuentan. |
-| `--min-points` | número | `1` | Puntos que ocupan un vóxel. |
-| `--ground-height` | número | `1` | Los puntos por debajo de esta altura (m) son suelo para la fracción de huecos y el LAI. |
-| `--k` | número | `0.5` | Coeficiente de extinción de la luz para el LAI. |
-| `--metrics` | texto o número | ninguno | Métricas que escribir (puntos, voxeles, volumen, relleno, hmax, hmedia, entropia, hueco, lai); por defecto, todas. Se puede repetir. |
-| `--returns` | texto | `A` | Retornos que se usan: A, F, L o números. |
-| `--class` | texto o número | ninguno | Clases que se usan: 2,5 o ~7,18. |
-| `--tile` | número | `250` | Lado de las teselas (m) |
-| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base: cada métrica es <ruta>_<métrica>.tif; por defecto: <resultados>/<primera nube>_voxeles. |
-
 ### hipso obia
 
 Análisis basado en objetos: agrupa las celdas de varias capas (altura de copas, intensidad, retornos, rugosidad…) en objetos, los describe y clasifica, y escribe polígonos
 
-**En la interfaz:** LiDAR → ALS → Análisis por objetos. El método se explica en el apartado 7.3.
+**En la interfaz:** LiDAR → ALS → Análisis por objetos. El método se explica en el apartado 7.5.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -815,11 +827,50 @@ Análisis basado en objetos: agrupa las celdas de varias capas (altura de copas,
 | `--format` | una de las opciones | ninguno | Formato de salida: shapefile de objetos, tabla de texto o ambos. Valores: `vector`: Solo shapefile; `csv`: Solo tabla de texto (lo mejor para ejecuciones muy grandes); `both`: Both. |
 | `--simplify` | número | `0` | Simplifica los polígonos en tantas unidades del mapa (0: contornos exactos) |
 
+### hipso canopy-gaps
+
+Huecos del dosel: las manchas conectadas de un CHM por debajo de una altura, cada una con su superficie, perímetro, forma y alturas, y la fracción de dosel que son hueco
+
+**En la interfaz:** LiDAR → ALS → Huecos del dosel. El método se explica en el apartado 7.5.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | El CHM (GeoTIFF en un sistema proyectado, celda en metros) **Obligatoria.** |
+| `--height` | número | `5` | Una celda por debajo de esta altura (m) está en un hueco. |
+| `--min-area` | número | `1` | Descarta los huecos menores que esto (m²) |
+| `--max-area` | número | `10000` | Descarta los huecos mayores que esto (m²): no son huecos del dosel sino claros. |
+| `--include-edge` | casilla | desactivada | Conserva los huecos cortados por el borde del ráster o por celdas sin dato. |
+| `--raster` | casilla | desactivada | Escribe también el ráster de huecos (identificadores) |
+| `--gpkg` | casilla | desactivada | Escribe además un GeoPackage. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<CHM>_huecos.shp. |
+
+### hipso voxel-metrics
+
+Métricas de vóxeles: la estructura vertical del dosel en columnas de celdas y capas de altura, con un ráster por métrica (puntos, vóxeles ocupados, volumen, relleno, altura máxima y media, entropía de alturas, fracción de huecos y LAI de MacArthur y Horn)
+
+**En la interfaz:** LiDAR → ALS → Métricas de vóxeles. El método se explica en el apartado 7.5.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ. **Obligatoria.** Se puede repetir. |
+| `--dtm` | archivo o carpeta | ninguno | MDT con el que se normalizan las alturas; sin él, la nube ya trae alturas sobre el suelo. |
+| `--cell` | número | `2` | Lado de la columna (m) |
+| `--dz` | número | `1` | Grosor de la capa (m) |
+| `--max-height` | número | `60` | Altura (m) por encima de la cual los puntos no cuentan. |
+| `--min-points` | número | `1` | Puntos que ocupan un vóxel. |
+| `--ground-height` | número | `1` | Los puntos por debajo de esta altura (m) son suelo para la fracción de huecos y el LAI. |
+| `--k` | número | `0.5` | Coeficiente de extinción de la luz para el LAI. |
+| `--metrics` | texto o número | ninguno | Métricas que escribir (puntos, voxeles, volumen, relleno, hmax, hmedia, entropia, hueco, lai); por defecto, todas. Se puede repetir. |
+| `--returns` | texto | `A` | Retornos que se usan: A, F, L o números. |
+| `--class` | texto o número | ninguno | Clases que se usan: 2,5 o ~7,18. |
+| `--tile` | número | `250` | Lado de las teselas (m) |
+| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base: cada métrica es <ruta>_<métrica>.tif; por defecto: <resultados>/<primera nube>_voxeles. |
+
 ### hipso stem-volume
 
 Mide los troncos de una nube terrestre o móvil a lo largo del tronco y estima el volumen de cada individuo con la fórmula de Smalian (un shapefile o CSV de árboles, un CSV de trozas y, opcionalmente, nubes por árbol)
 
-**En la interfaz:** LiDAR → TLS → Medición de troncos. El método se explica en el apartado 7.3.
+**En la interfaz:** LiDAR → TLS → Medición de troncos. El método se explica en el apartado 7.6.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -846,64 +897,11 @@ Mide los troncos de una nube terrestre o móvil a lo largo del tronco y estima e
 | `--max-gap` | número | `2` | Mayor tramo (m) de un tronco que puede quedar sin medir antes de darlo por perdido. |
 | `--lost-top-share` | número | `0` | Altura comercial como proporción (0-1) de la altura del árbol, para estimarla en los troncos perdidos cuando aún eran gruesos y muy por debajo de la cima (por ejemplo 0,65 para el eucalipto); 0: sin estimación. |
 
-### hipso model
-
-Modelo de transición (por área): regresión de una variable de campo (volumen, área basimétrica…) sobre las métricas LiDAR de las parcelas, con validación cruzada dejando una fuera que repite la elección de métricas, diagnósticos y, dadas las métricas de las celdas, el mapa de la variable
-
-**En la interfaz:** LiDAR → ALS → Modelos lineales. El método se explica en el apartado 7.3.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `--plots` | archivo o carpeta | ninguno | Métricas de las parcelas: la capa (.shp) o la tabla de texto de `clip --metrics`. **Obligatoria.** |
-| `--field` | archivo o carpeta | ninguno | Tabla de campo, una fila por parcela (.csv, .txt o .xlsx) **Obligatoria.** |
-| `--response` | texto o número | ninguno | Columna de la tabla de campo que se estima. **Obligatoria.** |
-| `--plot-key` | texto | `Muestra` | Columna que nombra la parcela en la tabla de métricas. |
-| `--field-key` | texto o número | ninguno | Columna que nombra la parcela en la tabla de campo; por defecto: el mismo nombre. |
-| `--predictors` | texto o número | ninguno | Métricas que se usan, separadas por comas; por defecto: elegidas automáticamente. Se puede repetir. |
-| `--transform` | una de las opciones | `none` | Transformación antes del ajuste: ninguna, logaritmo de la respuesta, o logaritmo de la respuesta y de las métricas. Valores: `none`: Sin transformación; `log-response`: Logaritmo de la respuesta; `log-both`: Logaritmo de la respuesta y de las métricas (una ley de potencias). |
-| `--criterion` | una de las opciones | `bic` | Criterio de la elección automática. Valores: `bic`: Criterio de información bayesiano (BIC): castiga más los modelos con muchas métricas; `aicc`: Criterio de Akaike corregido para muestras pequeñas (AICc). |
-| `--max-vars` | número | `0` | Máximo de métricas que conserva la elección automática (0: una por cada cinco parcelas, como mucho cinco) |
-| `--max-vif` | número | `5` | Mayor factor de inflación de la varianza que acepta la elección automática. |
-| `--candidates` | texto o número | ninguno | Métricas que puede usar la elección automática, separadas por comas; por defecto: todas las de la tabla. Se puede repetir. |
-| `--max-corr` | número | `0.8` | Los candidatos correlacionados más que esto dicen lo mismo: solo se conserva el más relacionado con la variable (1: se conservan todos) |
-| `--analyze` | casilla | desactivada | Solo el análisis previo al ajuste: normalidad de la variable y cribado de los candidatos. |
-| `--with-intensity` | casilla | desactivada | Ofrece también las métricas de intensidad a la elección automática (por defecto se dejan fuera: la intensidad de la mayoría de los vuelos no está calibrada entre pasadas) |
-| `--cells` | archivo o carpeta | ninguno | Métricas de las celdas (la tabla de texto de `metrics`; una por hoja): escribe el mapa. Se puede repetir. |
-| `-o`, `--output` | archivo o carpeta | ninguno | El mapa (GeoTIFF); por defecto: junto a la tabla de parcelas. |
-| `--interval` | casilla | desactivada | Escribe también la semianchura del intervalo de predicción del 95 %. |
-| `--extrapolate` | casilla | desactivada | Estima también las celdas fuera del rango de las parcelas. |
-| `--epsg` | texto o número | ninguno | Código EPSG del mapa; por defecto: el de la capa de la tabla de celdas. |
-
-### hipso change
-
-Cambio forestal entre dos fechas a partir de dos modelos de altura de copas sobre las mismas celdas: diferencia de altura, crecimiento, pérdida y cambio de cobertura, manchas de dosel perdido, resumen por rodal y crecimiento de cada árbol
-
-**En la interfaz:** LiDAR → Superficies → Cambio de la cubierta vegetal. El método se explica en el apartado 7.3.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `BEFORE` | archivo o carpeta | ninguno | Modelo de altura de copas de la primera fecha. **Obligatoria.** |
-| `AFTER` | archivo o carpeta | ninguno | Modelo de altura de copas de la segunda fecha (mismas celdas; véase `align`) **Obligatoria.** |
-| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<después>_cambio.shp (nunca un archivo existente) |
-| `--min-change` | número | `1` | Un cambio de altura menor que este es ruido. |
-| `--cover-height` | número | `2` | Altura a partir de la cual una celda cuenta como dosel. |
-| `--min-patch` | número | `10` | Las manchas de dosel perdido menores que tantas celdas no se comunican. |
-| `--years` | texto o número | ninguno | Años entre las fechas, para las tasas anuales. |
-| `--stands` | archivo o carpeta | ninguno | Rodales que resumir (.shp o .geojson) |
-| `--stand-field` | texto o número | ninguno | Campo de los rodales que los nombra. |
-| `--trees` | casilla | desactivada | Empareja además los árboles de las dos fechas y mide su crecimiento. |
-| `--hmin` | número | `2` | Árboles: altura mínima (m) de una cima para contarla como árbol. |
-| `--ws-a` | número | `3` | Árboles: diámetro de ventana = a + b h (unidades del mapa) |
-| `--ws-b` | número | `0.1` | Coeficiente de la altura (b) del diámetro de la ventana de búsqueda de cimas. |
-| `--smooth` | número | `0` | Árboles: suaviza antes los dos modelos con una ventana de este tamaño (0: nada) |
-| `--match-dist` | número | `3` | Árboles: es el mismo árbol cuando están más cerca que esto. |
-| `--format` | una de las opciones | ninguno | Formato de salida: shapefile, tabla de texto o ambos. Valores: `vector`: Solo shapefile; `csv`: Solo tabla de texto (lo mejor para ejecuciones muy grandes); `both`: Both. |
-
 ### hipso corridor
 
 Corredores de líneas eléctricas: conductores reconstruidos a partir de los puntos de cable (clase 14), postes (clase 15) y la vegetación que se acerca demasiado o que podría alcanzar la línea si cayera, con un informe por vano. Se clasifican antes los cables y los postes
 
-**En la interfaz:** LiDAR → Infraestructuras → Corredores eléctricos. El método se explica en el apartado 7.3.
+**En la interfaz:** LiDAR → Infraestructuras → Corredores eléctricos. El método se explica en el apartado 7.7.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -926,13 +924,13 @@ Corredores de líneas eléctricas: conductores reconstruidos a partir de los pun
 | `--pole-reach` | número | `8` | Un poste a más de esta distancia de un conductor no es uno de sus apoyos. |
 | `--format` | una de las opciones | ninguno | Formato de salida: shapefile, tabla de texto o ambos. Valores: `vector`: Solo shapefile; `csv`: Solo tabla de texto (lo mejor para ejecuciones muy grandes); `both`: Both. |
 
-## Ráster
+## Ráster · Imagen y geoprocesos
 
 ### hipso stack
 
 Imagen multibanda a partir de rásteres: cada banda de cada entrada pasa a ser una banda de la salida
 
-**En la interfaz:** Raster → Imagen → Crear multibanda. El método se explica en el apartado 8.
+**En la interfaz:** Raster → Imagen → Crear multibanda. El método se explica en el apartado 8.1.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -948,7 +946,7 @@ Imagen multibanda a partir de rásteres: cada banda de cada entrada pasa a ser u
 
 Mosaico de rásteres con las mismas bandas; --overlap dice qué hacer donde se solapan
 
-**En la interfaz:** Raster → Imagen → Mosaico. El método se explica en el apartado 8.
+**En la interfaz:** Raster → Imagen → Mosaico. El método se explica en el apartado 8.1.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -967,7 +965,7 @@ Mosaico de rásteres con las mismas bandas; --overlap dice qué hacer donde se s
 
 Pone rásteres sobre las celdas de un ráster de referencia (mismo origen, celda y tamaño), de modo que coincidan celda a celda. Escribe <resultados>/<nombre>_alineado.tif para cada uno
 
-**En la interfaz:** Raster → Imagen → Igualar rásteres. El método se explica en el apartado 8.
+**En la interfaz:** Raster → Imagen → Igualar rásteres. El método se explica en el apartado 8.1.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -982,7 +980,7 @@ Pone rásteres sobre las celdas de un ráster de referencia (mismo origen, celda
 
 Lleva una nube (LAS/LAZ), un ráster o una capa vectorial (shp, geojson, gpkg, kml) a otro sistema de coordenadas, p. ej. de ED50 a ETRS89 con la rejilla del IGN español. Las alturas se conservan salvo que --vertical-out pida otra referencia vertical (p. ej. de elipsoidal a ortométrica con el modelo de geoide)
 
-**En la interfaz:** Raster → Geoprocesos → Reproyectar (también capas vectoriales). El método se explica en el apartado 8.
+**En la interfaz:** Raster → Geoprocesos → Reproyectar (también capas vectoriales). El método se explica en el apartado 8.2.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1001,17 +999,35 @@ Lleva una nube (LAS/LAZ), un ráster o una capa vectorial (shp, geojson, gpkg, k
 | `--allow-ballpark` | casilla | desactivada | Acepta aproximaciones: sin ajuste de datum, alturas conservadas donde ningún geoide cubre el punto (por defecto: las rechaza; también HIPSO_ALLOW_BALLPARK=YES) |
 | `--allow-fallback` | casilla | desactivada | Acepta una operación inferior cuando la mejor no puede ejecutarse, p. ej. por falta de una rejilla (por defecto: la rechaza; también HIPSO_ONLY_BEST=NO) |
 
-### hipso cog
+### hipso calc
 
-Reescribe un ráster como Cloud Optimized GeoTIFF (teselas y vistas reducidas, con todos los directorios al principio del archivo); las imágenes de varias bandas se escriben en flujo, sea cual sea su tamaño
+Calculadora ráster: una expresión sobre rásteres con nombres, celda a celda. Funciones: abs sqrt ln log10 exp pow min max floor ceil round sin cos tan atan2 clamp if isnan; comparaciones, `and`, `or`, `not`, `%`, `^`. `A.2` es la banda 2 de A. Ejemplo: `hipso calc "if(A>0, A, 0)" A=chm.tif -o out.tif`
 
-**En la interfaz:** sin botón propio (la línea de comandos y el constructor de flujos). El método se explica en el apartado 10.
+**En la interfaz:** Raster → Geoprocesos → Calculadora. El método se explica en el apartado 8.2.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
-| `INPUT` | archivo o carpeta | ninguno | GeoTIFF, JPEG 2000 o rejilla ASCII, de una banda o de varias (ortofotos, imágenes de satélite) **Obligatoria.** |
-| `-o`, `--output` | archivo o carpeta | ninguno | Salida; por defecto: <resultados>/<entrada>_cog.tif (nunca un archivo existente) |
-| `--nearest` | casilla | desactivada | Reduce las vistas reducidas tomando una celda en lugar de promediar (clases, identificadores) |
+| `EXPR` | texto o número | ninguno | La expresión, entre comillas. **Obligatoria.** |
+| `INPUTS` | archivo o carpeta | ninguno | Los rásteres, como `NOMBRE=archivo.tif` (`A=chm.tif B=otro.tif`); con uno solo, también vale un archivo sin nombre y sus bandas son B1, B2…. **Obligatoria.** Se puede repetir. |
+| `-o`, `--output` | archivo o carpeta | ninguno | El resultado; por defecto: <resultados>/<primer ráster>_calc.tif. |
+| `--dtype` | una de las opciones | `f32` | Tipo de muestra del resultado. Valores: `f32`: Decimal de 32 bits; `u8`: Entero sin signo de 8 bits; `u16`: Entero sin signo de 16 bits. |
+| `--nearest` | casilla | desactivada | Las vistas reducidas conservan el primer píxel válido en lugar de la media (clases) |
+| `--align` | una de las opciones | ninguno | Los rásteres cuyas celdas difieren de las del primero se ponen sobre ellas con este remuestreo; sin él se rechazan. Valores: `auto`: Según los datos: vecino más cercano (o moda al reducir) en rásteres de enteros; media si las celdas de salida son mayores que las de entrada; bilineal en los demás casos; `nearest`: Para clases e identificadores; `bilinear`: Interpolación bilineal (superficies continuas); `average`: Media de las celdas que cubre cada celda nueva; `cubic`: Cubic convolution (smooth surfaces); `mode`: Valor más frecuente (clases, al reducir). |
+
+### hipso clip-raster
+
+Recorta un ráster con una capa de polígonos u otro ráster: lo que queda fuera de la máscara se vacía y, salvo con --no-crop, el resultado se corta a la caja de la máscara
+
+**En la interfaz:** Raster → Geoprocesos → Cortar por máscara. El método se explica en el apartado 8.2.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | Ráster que recortar. **Obligatoria.** |
+| `--mask` | archivo o carpeta | ninguno | Máscara: una capa de polígonos (shapefile, GeoPackage, GeoJSON, KML) o un ráster (se conservan las celdas con datos distintos de cero) **Obligatoria.** |
+| `--no-crop` | casilla | desactivada | No corta a la caja de la máscara: conserva el tamaño de la entrada. |
+| `--invert` | casilla | desactivada | Conserva lo que queda fuera de la máscara en lugar de lo que queda dentro. |
+| `--nodata` | texto o número | ninguno | Lo que contienen las celdas descartadas (por defecto: lo del archivo; si no, 0 o -9999 según el tipo) |
+| `-o`, `--output` | archivo o carpeta | ninguno | GeoTIFF; por defecto: <resultados>/<entrada>_recorte.tif. |
 | `--compress` | una de las opciones | `auto` | Compresión de las teselas: auto (JPEG para imágenes de 8 bits y tres bandas, las ortofotos habituales; deflate en los demás casos), deflate (sin pérdidas) o jpeg (imágenes de 8 bits de 1 o 3 bandas) Valores: `auto`: JPEG en imágenes de 8 bits y tres bandas, deflate en los demás casos; `deflate`: Sin pérdidas; `jpeg`: Con pérdidas, para imágenes de 8 bits de una o tres bandas. |
 | `--quality` | número | `90` | Calidad JPEG, de 1 a 100. |
 
@@ -1019,7 +1035,7 @@ Reescribe un ráster como Cloud Optimized GeoTIFF (teselas y vistas reducidas, c
 
 Reclasifica un ráster: cada valor o rango de valores pasa a ser otro. Las reglas son texto, una por línea o separadas por `;`: `10 = 1`, `0..5 = 2`, `< 0 = nodata`, `>= 100 = 4`, `nodata = 0`; decide la primera regla que coincide con una celda
 
-**En la interfaz:** Raster → Geoprocesos → Reclasificar. El método se explica en el apartado 8.
+**En la interfaz:** Raster → Geoprocesos → Reclasificar. El método se explica en el apartado 8.2.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1034,28 +1050,11 @@ Reclasifica un ráster: cada valor o rango de valores pasa a ser otro. Las regla
 | `--compress` | una de las opciones | `auto` | Compresión de las teselas: auto (JPEG para imágenes de 8 bits y tres bandas, las ortofotos habituales; deflate en los demás casos), deflate (sin pérdidas) o jpeg (imágenes de 8 bits de 1 o 3 bandas) Valores: `auto`: JPEG en imágenes de 8 bits y tres bandas, deflate en los demás casos; `deflate`: Sin pérdidas; `jpeg`: Con pérdidas, para imágenes de 8 bits de una o tres bandas. |
 | `--quality` | número | `90` | Calidad JPEG, de 1 a 100. |
 
-### hipso clip-raster
-
-Recorta un ráster con una capa de polígonos u otro ráster: lo que queda fuera de la máscara se vacía y, salvo con --no-crop, el resultado se corta a la caja de la máscara
-
-**En la interfaz:** Raster → Geoprocesos → Cortar por máscara. El método se explica en el apartado 8.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUT` | archivo o carpeta | ninguno | Ráster que recortar. **Obligatoria.** |
-| `--mask` | archivo o carpeta | ninguno | Máscara: una capa de polígonos (shapefile, GeoPackage, GeoJSON, KML) o un ráster (se conservan las celdas con datos distintos de cero) **Obligatoria.** |
-| `--no-crop` | casilla | desactivada | No corta a la caja de la máscara: conserva el tamaño de la entrada. |
-| `--invert` | casilla | desactivada | Conserva lo que queda fuera de la máscara en lugar de lo que queda dentro. |
-| `--nodata` | texto o número | ninguno | Lo que contienen las celdas descartadas (por defecto: lo del archivo; si no, 0 o -9999 según el tipo) |
-| `-o`, `--output` | archivo o carpeta | ninguno | GeoTIFF; por defecto: <resultados>/<entrada>_recorte.tif. |
-| `--compress` | una de las opciones | `auto` | Compresión de las teselas: auto (JPEG para imágenes de 8 bits y tres bandas, las ortofotos habituales; deflate en los demás casos), deflate (sin pérdidas) o jpeg (imágenes de 8 bits de 1 o 3 bandas) Valores: `auto`: JPEG en imágenes de 8 bits y tres bandas, deflate en los demás casos; `deflate`: Sin pérdidas; `jpeg`: Con pérdidas, para imágenes de 8 bits de una o tres bandas. |
-| `--quality` | número | `90` | Calidad JPEG, de 1 a 100. |
-
 ### hipso sieve
 
 Quita las manchas pequeñas de un ráster de clases: las celdas conectadas de un valor con menos celdas que --threshold toman el valor de su mancha vecina mayor
 
-**En la interfaz:** Raster → Geoprocesos → Tamizar. El método se explica en el apartado 8.
+**En la interfaz:** Raster → Geoprocesos → Tamizar. El método se explica en el apartado 8.2.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1068,7 +1067,7 @@ Quita las manchas pequeñas de un ráster de clases: las celdas conectadas de un
 
 Distancia de cada celda a la celda más cercana de algunas clases (euclídea, exacta)
 
-**En la interfaz:** Raster → Geoprocesos → Proximidad. El método se explica en el apartado 8.
+**En la interfaz:** Raster → Geoprocesos → Proximidad. El método se explica en el apartado 8.2.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1082,7 +1081,7 @@ Distancia de cada celda a la celda más cercana de algunas clases (euclídea, ex
 
 Rellena las celdas vacías a partir de las celdas con valor que las rodean (pesos por el inverso de la distancia en ocho direcciones)
 
-**En la interfaz:** Raster → Geoprocesos → Rellenar huecos. El método se explica en el apartado 8.
+**En la interfaz:** Raster → Geoprocesos → Rellenar huecos. El método se explica en el apartado 8.2.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1091,26 +1090,11 @@ Rellena las celdas vacías a partir de las celdas con valor que las rodean (peso
 | `--smoothing` | número | `0` | Pasadas de una media 3x3 sobre las celdas rellenadas. |
 | `-o`, `--output` | archivo o carpeta | ninguno | GeoTIFF; por defecto: <resultados>/<entrada>_relleno.tif. |
 
-### hipso calc
-
-Calculadora ráster: una expresión sobre rásteres con nombres, celda a celda. Funciones: abs sqrt ln log10 exp pow min max floor ceil round sin cos tan atan2 clamp if isnan; comparaciones, `and`, `or`, `not`, `%`, `^`. `A.2` es la banda 2 de A. Ejemplo: `hipso calc "if(A>0, A, 0)" A=chm.tif -o out.tif`
-
-**En la interfaz:** Raster → Geoprocesos → Calculadora. El método se explica en el apartado 8.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `EXPR` | texto o número | ninguno | La expresión, entre comillas. **Obligatoria.** |
-| `INPUTS` | archivo o carpeta | ninguno | Los rásteres, como `NOMBRE=archivo.tif` (`A=chm.tif B=otro.tif`); con uno solo, también vale un archivo sin nombre y sus bandas son B1, B2…. **Obligatoria.** Se puede repetir. |
-| `-o`, `--output` | archivo o carpeta | ninguno | El resultado; por defecto: <resultados>/<primer ráster>_calc.tif. |
-| `--dtype` | una de las opciones | `f32` | Tipo de muestra del resultado. Valores: `f32`: Decimal de 32 bits; `u8`: Entero sin signo de 8 bits; `u16`: Entero sin signo de 16 bits. |
-| `--nearest` | casilla | desactivada | Las vistas reducidas conservan el primer píxel válido en lugar de la media (clases) |
-| `--align` | una de las opciones | ninguno | Los rásteres cuyas celdas difieren de las del primero se ponen sobre ellas con este remuestreo; sin él se rechazan. Valores: `auto`: Según los datos: vecino más cercano (o moda al reducir) en rásteres de enteros; media si las celdas de salida son mayores que las de entrada; bilineal en los demás casos; `nearest`: Para clases e identificadores; `bilinear`: Interpolación bilineal (superficies continuas); `average`: Media de las celdas que cubre cada celda nueva; `cubic`: Cubic convolution (smooth surfaces); `mode`: Valor más frecuente (clases, al reducir). |
-
 ### hipso vectorize
 
 Vectoriza un ráster: las celdas que comparten una clase, caen en un rango o están entre dos cortes pasan a ser polígonos con el valor, el área y el número de celdas como atributos
 
-**En la interfaz:** Raster → Geoprocesos → Vectorizar. El método se explica en el apartado 8.
+**En la interfaz:** Raster → Geoprocesos → Vectorizar. El método se explica en el apartado 8.2.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1127,7 +1111,7 @@ Vectoriza un ráster: las celdas que comparten una clase, caen en un rango o est
 
 Rasteriza una capa: cada celda recibe el valor de un campo del último elemento que la cubre (o 1)
 
-**En la interfaz:** Raster → Geoprocesos → Rasterizar. El método se explica en el apartado 8.
+**En la interfaz:** Raster → Geoprocesos → Rasterizar. El método se explica en el apartado 8.2.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1141,7 +1125,7 @@ Rasteriza una capa: cada celda recibe el valor de un campo del último elemento 
 
 Filtro focal de un ráster: media, mediana, mínimo, máximo, suma, rango, desviación o mayoría sobre una ventana
 
-**En la interfaz:** Raster → Geoprocesos → Filtro focal. El método se explica en el apartado 8.
+**En la interfaz:** Raster → Geoprocesos → Filtro focal. El método se explica en el apartado 8.2.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1152,6 +1136,18 @@ Filtro focal de un ráster: media, mediana, mínimo, máximo, suma, rango, desvi
 | `--sigma` | texto o número | ninguno | Desviación típica del filtro gaussiano, en celdas (por defecto, la mitad del radio) |
 | `--min-valid` | número | `1` | Menos celdas con valor que esto dejan la celda vacía. |
 | `-o`, `--output` | archivo o carpeta | ninguno | GeoTIFF de salida; por defecto: <resultados>/<entrada>_focal.tif. |
+
+### hipso tabulate
+
+Área de cada clase de un ráster dentro de cada zona de otro (tabular área), como CSV
+
+**En la interfaz:** Raster → Geoprocesos → Tabular áreas. El método se explica en el apartado 8.2.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `ZONES` | archivo o carpeta | ninguno | El ráster de zonas (clases enteras) **Obligatoria.** |
+| `--values` | archivo o carpeta | ninguno | El ráster de clases que se mide dentro de cada zona. **Obligatoria.** |
+| `-o`, `--output` | archivo o carpeta | ninguno | CSV de salida; por defecto: <resultados>/<zonas>_tabulado.csv. |
 
 ### hipso rstats
 
@@ -1165,39 +1161,27 @@ Estadísticas de un ráster (recuento, mínimo, máximo, media, desviación, med
 | `--bins` | número | `20` | Intervalos del histograma. |
 | `-o`, `--output` | archivo o carpeta | ninguno | CSV del histograma; por defecto: <resultados>/<entrada>_histograma.csv. |
 
-### hipso tabulate
+### hipso cog
 
-Área de cada clase de un ráster dentro de cada zona de otro (tabular área), como CSV
+Reescribe un ráster como Cloud Optimized GeoTIFF (teselas y vistas reducidas, con todos los directorios al principio del archivo); las imágenes de varias bandas se escriben en flujo, sea cual sea su tamaño
 
-**En la interfaz:** Raster → Geoprocesos → Tabular áreas. El método se explica en el apartado 8.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `ZONES` | archivo o carpeta | ninguno | El ráster de zonas (clases enteras) **Obligatoria.** |
-| `--values` | archivo o carpeta | ninguno | El ráster de clases que se mide dentro de cada zona. **Obligatoria.** |
-| `-o`, `--output` | archivo o carpeta | ninguno | CSV de salida; por defecto: <resultados>/<zonas>_tabulado.csv. |
-
-### hipso zonal
-
-Estadísticas de un ráster (un CHM, un índice, un MDT) dentro de cada polígono. El resultado es una capa de polígonos (shapefile) con los atributos propios de los polígonos más un campo nuevo por estadístico: count, min, max, mean, sum, stddev, median. Una celda cuenta cuando su centro está en el polígono
-
-**En la interfaz:** Vectorial → Geoprocesos → Estadística zonal. El método se explica en el apartado 9.
+**En la interfaz:** sin botón propio (la línea de comandos y el constructor de flujos). El método se explica en el apartado 10.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
-| `RASTER` | archivo o carpeta | ninguno | El ráster (GeoTIFF) **Obligatoria.** |
-| `--regions` | archivo o carpeta | ninguno | Los polígonos (.shp, .geojson, .gpkg), en el sistema del ráster. **Obligatoria.** |
-| `--prefix` | texto | ninguno | Prefijo de los campos nuevos (un campo de shapefile tiene como mucho 10 caracteres: `chm_` deja 6 para el estadístico, así que caben `stddev` y `median`) |
-| `--split-parts` | casilla | desactivada | Divide los elementos de varias partes en un polígono por parte. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Shapefile; por defecto: <resultados>/<ráster>_zonal.shp. |
+| `INPUT` | archivo o carpeta | ninguno | GeoTIFF, JPEG 2000 o rejilla ASCII, de una banda o de varias (ortofotos, imágenes de satélite) **Obligatoria.** |
+| `-o`, `--output` | archivo o carpeta | ninguno | Salida; por defecto: <resultados>/<entrada>_cog.tif (nunca un archivo existente) |
+| `--nearest` | casilla | desactivada | Reduce las vistas reducidas tomando una celda en lugar de promediar (clases, identificadores) |
+| `--compress` | una de las opciones | `auto` | Compresión de las teselas: auto (JPEG para imágenes de 8 bits y tres bandas, las ortofotos habituales; deflate en los demás casos), deflate (sin pérdidas) o jpeg (imágenes de 8 bits de 1 o 3 bandas) Valores: `auto`: JPEG en imágenes de 8 bits y tres bandas, deflate en los demás casos; `deflate`: Sin pérdidas; `jpeg`: Con pérdidas, para imágenes de 8 bits de una o tres bandas. |
+| `--quality` | número | `90` | Calidad JPEG, de 1 a 100. |
 
-## Terreno e hidrología
+## Ráster · Análisis del terreno
 
 ### hipso terrain
 
 Análisis de terreno de un MDT (GeoTIFF): pendiente, orientación, sombreado, curvaturas, rugosidad, TRI, TPI, depresiones, flujo acumulado, índice de humedad, cauces, subcuencas, cuenca visual
 
-**En la interfaz:** Raster → Análisis del terreno (menús Relieve, Forma del terreno, Hidrología y Visibilidad y rutas). El método se explica en el apartado 7.2.
+**En la interfaz:** Raster → Análisis del terreno (menús Relieve, Forma del terreno, Hidrología y Visibilidad y rutas). El método se explica en el apartado 8.3.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1216,11 +1200,26 @@ Análisis de terreno de un MDT (GeoTIFF): pendiente, orientación, sombreado, cu
 | `--target` | número | `0` | Cuenca visual: altura sobre el suelo que debe verse (m) |
 | `--max-distance` | número | `1000` | Cuenca visual: hasta dónde mira el observador (unidades del mapa) |
 
+### hipso ridges
+
+Líneas de cresta o de drenaje trazadas a partir de un MDT, como líneas 3D con orden de Strahler, longitud y pendiente media
+
+**En la interfaz:** Raster → Análisis del terreno → Forma del terreno → Crestas y drenaje. El método se explica en el apartado 8.3.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | El MDT (un GeoTIFF en un sistema proyectado) **Obligatoria.** |
+| `--drainage` | casilla | desactivada | Traza las líneas de drenaje en lugar de las crestas. |
+| `--min-area` | número | `1000` | Superficie drenada que forma una línea (m2) |
+| `--min-length` | número | `0` | Descarta las líneas más cortas que esto (m) |
+| `--smooth` | número | `0` | Pasadas de suavizado (Chaikin); 0 conserva las celdas. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Las líneas; por defecto: <resultados>/<entrada>_crestas.shp (o _drenaje) |
+
 ### hipso ponds
 
 Charcas: donde queda agua en un MDT. El modelo se rellena hasta que drena, y cada mancha conectada de agua más profunda que el mínimo es una charca, medida por área, profundidad, volumen, nivel de desborde y superficie drenada
 
-**En la interfaz:** Raster → Análisis del terreno → Hidrología → Zonas encharcadas. El método se explica en el apartado 7.2.
+**En la interfaz:** Raster → Análisis del terreno → Hidrología → Zonas encharcadas. El método se explica en el apartado 8.3.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1243,7 +1242,7 @@ Charcas: donde queda agua en un MDT. El modelo se rellena hasta que drena, y cad
 
 Simulación de inundación sobre un MDT: el área, el volumen y la profundidad del agua a uno o varios niveles, desde unas semillas. Con conectividad, un hoyo detrás de una cresta queda seco
 
-**En la interfaz:** Raster → Análisis del terreno → Hidrología → Inundación. El método se explica en el apartado 7.2.
+**En la interfaz:** Raster → Análisis del terreno → Hidrología → Inundación. El método se explica en el apartado 8.3.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1260,26 +1259,11 @@ Simulación de inundación sobre un MDT: el área, el volumen y la profundidad d
 | `--no-csv` | casilla | desactivada | No escribe la tabla de resultados en CSV. |
 | `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<entrada>_inundacion. |
 
-### hipso ridges
-
-Líneas de cresta o de drenaje trazadas a partir de un MDT, como líneas 3D con orden de Strahler, longitud y pendiente media
-
-**En la interfaz:** Raster → Análisis del terreno → Forma del terreno → Crestas y drenaje. El método se explica en el apartado 7.2.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUT` | archivo o carpeta | ninguno | El MDT (un GeoTIFF en un sistema proyectado) **Obligatoria.** |
-| `--drainage` | casilla | desactivada | Traza las líneas de drenaje en lugar de las crestas. |
-| `--min-area` | número | `1000` | Superficie drenada que forma una línea (m2) |
-| `--min-length` | número | `0` | Descarta las líneas más cortas que esto (m) |
-| `--smooth` | número | `0` | Pasadas de suavizado (Chaikin); 0 conserva las celdas. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Las líneas; por defecto: <resultados>/<entrada>_crestas.shp (o _drenaje) |
-
 ### hipso leastcost
 
 Ruta de menor coste sobre un MDT, desde un origen hasta un destino con paradas opcionales
 
-**En la interfaz:** Raster → Análisis del terreno → Visibilidad y rutas → Ruta de menor coste. El método se explica en el apartado 7.2.
+**En la interfaz:** Raster → Análisis del terreno → Visibilidad y rutas → Ruta de menor coste. El método se explica en el apartado 8.3.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1298,11 +1282,27 @@ Ruta de menor coste sobre un MDT, desde un origen hasta un destino con paradas o
 | `--cost-distance` | casilla | desactivada | Escribe también un ráster con el coste de llegar a cada celda desde el origen. |
 | `-o`, `--output` | archivo o carpeta | ninguno | La ruta; por defecto: <resultados>/<entrada>_ruta.shp. |
 
+### hipso cutfill
+
+Desmonte y terraplén entre un terreno existente y un diseño: dz = diseño - existente; positivo es terraplén (tierra que añadir), negativo es desmonte (tierra que quitar)
+
+**En la interfaz:** Raster → Análisis del terreno → Volúmenes → Desmonte y terraplén. El método se explica en el apartado 8.3.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `EXISTING` | archivo o carpeta | ninguno | El terreno existente (un GeoTIFF) **Obligatoria.** |
+| `--design` | texto o número | ninguno | El diseño: un archivo ráster, `level:<z>` o `plane:<z0>,<pendiente %>,<orientación grados>,<x>,<y>` (elevación z0 en x,y, bajando hacia la orientación) **Obligatoria.** |
+| `--regions` | archivo o carpeta | ninguno | Polígonos que medir uno a uno (el ráster entero se mide siempre también) |
+| `--tolerance` | número | `0.05` | Las diferencias de hasta este tamaño cuentan como sin cambio (m) |
+| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<existente>_cutfill. |
+| `--no-csv` | casilla | desactivada | No escribe la tabla de resultados en CSV. |
+| `--classified` | casilla | desactivada | Escribe también un ráster de números enteros: 1 desmonte, 2 terraplén, 0 sin cambio. |
+
 ### hipso piles
 
 Volúmenes de acopios: el material sobre una superficie base dentro del contorno de cada pila. La base se hace para cada pila (un nivel, la altura más baja o mediana de su contorno, un plano por el contorno, una superficie interpolada a partir de él o un modelo del terreno del sitio antes)
 
-**En la interfaz:** Raster → Análisis del terreno → Volúmenes → Cubicación de pilas. El método se explica en el apartado 7.2.
+**En la interfaz:** Raster → Análisis del terreno → Volúmenes → Cubicación de pilas. El método se explica en el apartado 8.3.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1316,29 +1316,13 @@ Volúmenes de acopios: el material sobre una superficie base dentro del contorno
 | `--base-raster` | casilla | desactivada | Escribe también un ráster con la superficie base. |
 | `--height-raster` | casilla | desactivada | Escribe también un ráster con la altura sobre la base. |
 
-### hipso cutfill
-
-Desmonte y terraplén entre un terreno existente y un diseño: dz = diseño - existente; positivo es terraplén (tierra que añadir), negativo es desmonte (tierra que quitar)
-
-**En la interfaz:** Raster → Análisis del terreno → Volúmenes → Desmonte y terraplén. El método se explica en el apartado 7.2.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `EXISTING` | archivo o carpeta | ninguno | El terreno existente (un GeoTIFF) **Obligatoria.** |
-| `--design` | texto o número | ninguno | El diseño: un archivo ráster, `level:<z>` o `plane:<z0>,<pendiente %>,<orientación grados>,<x>,<y>` (elevación z0 en x,y, bajando hacia la orientación) **Obligatoria.** |
-| `--regions` | archivo o carpeta | ninguno | Polígonos que medir uno a uno (el ráster entero se mide siempre también) |
-| `--tolerance` | número | `0.05` | Las diferencias de hasta este tamaño cuentan como sin cambio (m) |
-| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<existente>_cutfill. |
-| `--no-csv` | casilla | desactivada | No escribe la tabla de resultados en CSV. |
-| `--classified` | casilla | desactivada | Escribe también un ráster de números enteros: 1 desmonte, 2 terraplén, 0 sin cambio. |
-
-## Vectorial
+## Vectorial · Geometría y tabla
 
 ### hipso is-valid
 
 Comprueba que los polígonos de una capa son válidos (anillos cerrados, sin autointersecciones, huecos dentro, sin solapes entre partes) y lista los que no lo son
 
-**En la interfaz:** Vectorial → Geometría → Comprobar validez. El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Geometría → Comprobar validez. El método se explica en el apartado 9.4.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1348,7 +1332,7 @@ Comprueba que los polígonos de una capa son válidos (anillos cerrados, sin aut
 
 Repara polígonos inválidos (regla par-impar: un lazo pasa a ser dos partes y los bordes duplicados se cancelan). Los válidos no se tocan; los atributos se conservan
 
-**En la interfaz:** Vectorial → Geometría → Reparar geometrías. El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Geometría → Reparar geometrías. El método se explica en el apartado 9.4.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1359,7 +1343,7 @@ Repara polígonos inválidos (regla par-impar: un lazo pasa a ser dos partes y l
 
 Comprueba la topología de una capa: polígonos que se solapan, huecos entre polígonos y contornos que se cruzan consigo mismos; en líneas, cabos sueltos
 
-**En la interfaz:** panel lateral → Edición (capas vectoriales) → Comprobar topología. El método se explica en el apartado 9.
+**En la interfaz:** panel lateral → Edición (capas vectoriales) → Comprobar topología. El método se explica en el apartado 9.3.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1371,7 +1355,7 @@ Comprueba la topología de una capa: polígonos que se solapan, huecos entre pol
 
 Repara la topología de una capa: ajusta los vértices cercanos de polígonos vecinos para que sus bordes coincidan, quita los solapes, rellena los huecos pequeños entre polígonos y, en líneas, une los extremos que se quedan cortos. Los atributos se conservan
 
-**En la interfaz:** Vectorial → Geometría → Reparar topología (y panel lateral → Edición → Reparar topología, sobre la capa activa). El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Geometría → Reparar topología (y panel lateral → Edición → Reparar topología, sobre la capa activa). El método se explica en el apartado 9.4.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1385,7 +1369,7 @@ Repara la topología de una capa: ajusta los vértices cercanos de polígonos ve
 
 Quita vértices de las líneas y de los contornos de una capa (Douglas y Peucker): el borde que comparten dos polígonos se simplifica una vez para los dos, de modo que no se abren huecos
 
-**En la interfaz:** Vectorial → Geometría → Simplificar. El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Geometría → Simplificar. El método se explica en el apartado 9.4.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1398,7 +1382,7 @@ Quita vértices de las líneas y de los contornos de una capa (Douglas y Peucker
 
 Traza la paralela de cada línea a una distancia: positiva a su izquierda según se recorre, negativa a su derecha. Las esquinas exteriores llevan inglete y los lazos de las interiores se recortan
 
-**En la interfaz:** Vectorial → Geometría → Paralela. El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Geometría → Paralela. El método se explica en el apartado 9.4.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1407,96 +1391,24 @@ Traza la paralela de cada línea a una distancia: positiva a su izquierda según
 | `--miter` | número | `2` | Límite de la inglete en las esquinas exteriores, en múltiplos de la distancia; más allá se corta con un bisel. |
 | `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_paralela.<ext>. |
 
-### hipso buffer
+### hipso clip-vector
 
-Amplía (o, si es negativa, reduce) cada polígono una distancia en unidades del mapa, con esquinas redondeadas
+Recorta una capa de puntos, líneas o polígonos con los polígonos de otra (con --erase, borra lo que cubren)
 
-**En la interfaz:** Vectorial → Geoprocesos → Búfer. El método se explica en el apartado 9.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUT` | archivo o carpeta | ninguno | Capa que ampliar o reducir (.shp, .geojson, .gpkg) **Obligatoria.** |
-| `--distance` | texto o número | ninguno | Distancia en las unidades de la capa (metros en un sistema proyectado; grados si es geográfico) **Obligatoria.** |
-| `--make-valid` | casilla | desactivada | Repara antes los polígonos inválidos. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Shapefile; por defecto: <resultados>/<entrada>_buffer.shp. |
-
-### hipso dissolve
-
-Une polígonos: los que comparten el valor de un campo pasan a ser un solo elemento (con el número de unidos en `n`); sin campo, toda la capa pasa a ser uno
-
-**En la interfaz:** Vectorial → Geoprocesos → Disolver. El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Geometría → Recortar capa. El método se explica en el apartado 9.4.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
-| `INPUT` | archivo o carpeta | ninguno | Capa de polígonos que disolver (.shp, .geojson, .gpkg) **Obligatoria.** |
-| `--field` | texto o número | ninguno | Campo por el que disolver. |
-| `--make-valid` | casilla | desactivada | Repara antes los polígonos inválidos. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Shapefile; por defecto: <resultados>/<entrada>_disuelto.shp. |
-
-### hipso union
-
-Unión de dos capas de polígonos como superposición: las piezas que están en las dos (atributos de ambas, los de la segunda con el prefijo `b_`), solo en la primera y solo en la segunda
-
-**En la interfaz:** Vectorial → Geoprocesos → Unión. El método se explica en el apartado 9.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `FIRST` | archivo o carpeta | ninguno | La primera capa de polígonos. **Obligatoria.** |
-| `SECOND` | archivo o carpeta | ninguno | La segunda capa de polígonos. **Obligatoria.** |
-| `--make-valid` | casilla | desactivada | Repara antes los polígonos inválidos. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Shapefile; por defecto: <resultados>/<primera>_union.shp. |
-
-### hipso intersect
-
-Intersección de dos capas de polígonos: solo las piezas que están en las dos (atributos de ambas, los de la segunda con el prefijo `b_`)
-
-**En la interfaz:** Vectorial → Geoprocesos → Intersección. El método se explica en el apartado 9.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `FIRST` | archivo o carpeta | ninguno | La primera capa de polígonos. **Obligatoria.** |
-| `SECOND` | archivo o carpeta | ninguno | La segunda capa de polígonos. **Obligatoria.** |
-| `--make-valid` | casilla | desactivada | Repara antes los polígonos inválidos. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Shapefile; por defecto: <resultados>/<primera>_interseccion.shp. |
-
-### hipso voronoi
-
-Polígonos de Voronoi (y, con --delaunay, las aristas de Delaunay) de una capa de puntos, con los atributos de cada punto
-
-**En la interfaz:** Vectorial → Geoprocesos → Voronoi. El método se explica en el apartado 9.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUT` | archivo o carpeta | ninguno | Una capa de puntos. **Obligatoria.** |
-| `--clip` | texto o número | ninguno | Las celdas se cortan por `bbox` (la caja de los puntos, algo mayor) o por una capa de polígonos; sin ello, se dejan fuera las celdas de los puntos del borde. |
-| `--delaunay` | casilla | desactivada | Escribe también las aristas de la triangulación de Delaunay. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Los polígonos: `.shp`, `.gpkg` o `.geojson`; por defecto: <resultados>/<entrada>_voronoi.shp. |
-
-### hipso voronoi-density
-
-Densidad de puntos por celdas de Voronoi, para comprobar una nube: n / suma de las áreas de las celdas de los puntos de cada celda ráster, con la proporción de celdas que alcanzan un umbral
-
-**En la interfaz:** LiDAR → Calidad → Densidad de Voronoi. El método se explica en el apartado 7.1.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ de las que se mide la densidad. **Obligatoria.** Se puede repetir. |
-| `--cell` | número | `5` | Celda del ráster de densidad (m) |
-| `--threshold` | número | `8` | Puntos por m2 que debe alcanzar la densidad. |
-| `--returns` | texto | `F` | Retornos que se usan: A, F, L o números; por defecto F (primeros retornos: pulsos) |
-| `--class` | texto o número | ninguno | Clases que se usan: 2,5 o ~7,18. |
-| `--max-cell-area` | número | `100` | Una celda de Voronoi mayor que esto (m2) es un hueco en los datos. |
-| `--no-pass-fail` | casilla | desactivada | Sin ráster de 1 donde se alcanza el umbral y 0 donde no. |
-| `--no-csv` | casilla | desactivada | No escribe la tabla de resultados en CSV. |
-| `--tile` | número | `250` | Lado de las teselas y su margen (m) |
-| `--buffer` | número | `20` | Margen (m) que cada tesela toma de sus vecinas. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<primera nube>_vdensidad. |
+| `INPUT` | archivo o carpeta | ninguno | La capa que recortar. **Obligatoria.** |
+| `--mask` | archivo o carpeta | ninguno | Los polígonos con los que recortar. **Obligatoria.** |
+| `--erase` | casilla | desactivada | Borra lo que cubren los polígonos en lugar de conservarlo. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_recortada.<ext> (o _borrada) |
 
 ### hipso extract
 
 Extrae los valores de uno o varios rásteres a una capa: un campo nuevo por banda con el valor bajo cada elemento (en el punto o en un punto interior de la línea o del polígono)
 
-**En la interfaz:** Vectorial → Tabla → Extraer valores. El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Tabla → Extraer valores. El método se explica en el apartado 9.5.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1511,7 +1423,7 @@ Extrae los valores de uno o varios rásteres a una capa: un campo nuevo por band
 
 Une a una capa las columnas de una tabla (csv, texto o xlsx) por un campo clave
 
-**En la interfaz:** Vectorial → Tabla → Unir tabla. El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Tabla → Unir tabla. El método se explica en el apartado 9.5.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1522,11 +1434,23 @@ Une a una capa las columnas de una tabla (csv, texto o xlsx) por un campo clave
 | `--prefix` | texto | ninguno | Prefijo de los campos nuevos. |
 | `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_union.<ext>. |
 
+### hipso split
+
+Divide una capa en una por cada valor distinto de un campo (un archivo por rodal, por especie...)
+
+**En la interfaz:** Vectorial → Tabla → Dividir por campo. El método se explica en el apartado 9.5.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | La capa que se divide (.shp, .gpkg o .geojson) **Obligatoria.** |
+| `--field` | texto o número | ninguno | El campo por el que dividir. **Obligatoria.** |
+| `--dir` | archivo o carpeta | ninguno | Carpeta de salida; por defecto: <resultados>/<capa>_partes. |
+
 ### hipso fields
 
 Quita y renombra campos de la tabla de una capa, conservando los demás con sus tipos
 
-**En la interfaz:** Vectorial → Tabla → Quitar y renombrar campos (y menú de la cabecera de la tabla de atributos). El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Tabla → Quitar y renombrar campos (y menú de la cabecera de la tabla de atributos). El método se explica en el apartado 9.5.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1535,11 +1459,92 @@ Quita y renombra campos de la tabla de una capa, conservando los demás con sus 
 | `--rename` | texto o número | ninguno | Campos que renombrar, como `viejo=nuevo` (varios, separados por comas) Se puede repetir. |
 | `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_campos.<ext>. |
 
+## Vectorial · Geoprocesos
+
+### hipso zonal
+
+Estadísticas de un ráster (un CHM, un índice, un MDT) dentro de cada polígono. El resultado es una capa de polígonos (shapefile) con los atributos propios de los polígonos más un campo nuevo por estadístico: count, min, max, mean, sum, stddev, median. Una celda cuenta cuando su centro está en el polígono
+
+**En la interfaz:** Vectorial → Geoprocesos → Estadística zonal. El método se explica en el apartado 9.6.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `RASTER` | archivo o carpeta | ninguno | El ráster (GeoTIFF) **Obligatoria.** |
+| `--regions` | archivo o carpeta | ninguno | Los polígonos (.shp, .geojson, .gpkg), en el sistema del ráster. **Obligatoria.** |
+| `--prefix` | texto | ninguno | Prefijo de los campos nuevos (un campo de shapefile tiene como mucho 10 caracteres: `chm_` deja 6 para el estadístico, así que caben `stddev` y `median`) |
+| `--split-parts` | casilla | desactivada | Divide los elementos de varias partes en un polígono por parte. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Shapefile; por defecto: <resultados>/<ráster>_zonal.shp. |
+
+### hipso buffer
+
+Amplía (o, si es negativa, reduce) cada polígono una distancia en unidades del mapa, con esquinas redondeadas
+
+**En la interfaz:** Vectorial → Geoprocesos → Búfer. El método se explica en el apartado 9.6.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | Capa que ampliar o reducir (.shp, .geojson, .gpkg) **Obligatoria.** |
+| `--distance` | texto o número | ninguno | Distancia en las unidades de la capa (metros en un sistema proyectado; grados si es geográfico) **Obligatoria.** |
+| `--make-valid` | casilla | desactivada | Repara antes los polígonos inválidos. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Shapefile; por defecto: <resultados>/<entrada>_buffer.shp. |
+
+### hipso dissolve
+
+Une polígonos: los que comparten el valor de un campo pasan a ser un solo elemento (con el número de unidos en `n`); sin campo, toda la capa pasa a ser uno
+
+**En la interfaz:** Vectorial → Geoprocesos → Disolver. El método se explica en el apartado 9.6.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | Capa de polígonos que disolver (.shp, .geojson, .gpkg) **Obligatoria.** |
+| `--field` | texto o número | ninguno | Campo por el que disolver. |
+| `--make-valid` | casilla | desactivada | Repara antes los polígonos inválidos. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Shapefile; por defecto: <resultados>/<entrada>_disuelto.shp. |
+
+### hipso union
+
+Unión de dos capas de polígonos como superposición: las piezas que están en las dos (atributos de ambas, los de la segunda con el prefijo `b_`), solo en la primera y solo en la segunda
+
+**En la interfaz:** Vectorial → Geoprocesos → Unión. El método se explica en el apartado 9.6.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `FIRST` | archivo o carpeta | ninguno | La primera capa de polígonos. **Obligatoria.** |
+| `SECOND` | archivo o carpeta | ninguno | La segunda capa de polígonos. **Obligatoria.** |
+| `--make-valid` | casilla | desactivada | Repara antes los polígonos inválidos. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Shapefile; por defecto: <resultados>/<primera>_union.shp. |
+
+### hipso intersect
+
+Intersección de dos capas de polígonos: solo las piezas que están en las dos (atributos de ambas, los de la segunda con el prefijo `b_`)
+
+**En la interfaz:** Vectorial → Geoprocesos → Intersección. El método se explica en el apartado 9.6.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `FIRST` | archivo o carpeta | ninguno | La primera capa de polígonos. **Obligatoria.** |
+| `SECOND` | archivo o carpeta | ninguno | La segunda capa de polígonos. **Obligatoria.** |
+| `--make-valid` | casilla | desactivada | Repara antes los polígonos inválidos. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Shapefile; por defecto: <resultados>/<primera>_interseccion.shp. |
+
+### hipso voronoi
+
+Polígonos de Voronoi (y, con --delaunay, las aristas de Delaunay) de una capa de puntos, con los atributos de cada punto
+
+**En la interfaz:** Vectorial → Geoprocesos → Voronoi. El método se explica en el apartado 9.6.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | Una capa de puntos. **Obligatoria.** |
+| `--clip` | texto o número | ninguno | Las celdas se cortan por `bbox` (la caja de los puntos, algo mayor) o por una capa de polígonos; sin ello, se dejan fuera las celdas de los puntos del borde. |
+| `--delaunay` | casilla | desactivada | Escribe también las aristas de la triangulación de Delaunay. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Los polígonos: `.shp`, `.gpkg` o `.geojson`; por defecto: <resultados>/<entrada>_voronoi.shp. |
+
 ### hipso merge
 
 Combina capas del mismo tipo de geometría en una (los campos son la unión de los de todas)
 
-**En la interfaz:** Vectorial → Geoprocesos → Combinar capas. El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Geoprocesos → Combinar capas. El método se explica en el apartado 9.6.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1547,36 +1552,11 @@ Combina capas del mismo tipo de geometría en una (los campos son la unión de l
 | `--origin` | texto o número | ninguno | Añade un campo con el nombre del archivo de origen de cada elemento. |
 | `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<primera>_combinada.<ext>. |
 
-### hipso split
-
-Divide una capa en una por cada valor distinto de un campo (un archivo por rodal, por especie...)
-
-**En la interfaz:** Vectorial → Tabla → Dividir por campo. El método se explica en el apartado 9.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUT` | archivo o carpeta | ninguno | La capa que se divide (.shp, .gpkg o .geojson) **Obligatoria.** |
-| `--field` | texto o número | ninguno | El campo por el que dividir. **Obligatoria.** |
-| `--dir` | archivo o carpeta | ninguno | Carpeta de salida; por defecto: <resultados>/<capa>_partes. |
-
-### hipso clip-vector
-
-Recorta una capa de puntos, líneas o polígonos con los polígonos de otra (con --erase, borra lo que cubren)
-
-**En la interfaz:** Vectorial → Geometría → Recortar capa. El método se explica en el apartado 9.
-
-| Opción | Valor | Por defecto | Qué hace |
-|---|---|---|---|
-| `INPUT` | archivo o carpeta | ninguno | La capa que recortar. **Obligatoria.** |
-| `--mask` | archivo o carpeta | ninguno | Los polígonos con los que recortar. **Obligatoria.** |
-| `--erase` | casilla | desactivada | Borra lo que cubren los polígonos en lugar de conservarlo. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Capa de salida; por defecto: <resultados>/<capa>_recortada.<ext> (o _borrada) |
-
 ### hipso near
 
 Distancia de cada elemento al elemento más cercano de otra capa, con su número de orden y, si se pide, uno de sus campos
 
-**En la interfaz:** Vectorial → Geoprocesos → Cercanía. El método se explica en el apartado 9.
+**En la interfaz:** Vectorial → Geoprocesos → Cercanía. El método se explica en el apartado 9.6.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
@@ -1610,29 +1590,53 @@ Convierte una capa vectorial entre shapefile y GeoJSON (según la extensión de 
 | `INPUT` | archivo o carpeta | ninguno | Un .shp (da un .geojson) o un .geojson (da un .shp) **Obligatoria.** |
 | `-o`, `--output` | archivo o carpeta | ninguno | Salida; por defecto: <resultados>/<entrada>.geojson o .shp (nunca un archivo existente) |
 
-## Salida y comprobación de nubes
+## Datos, formatos y entregas
 
-### hipso export
+### hipso info
 
-Extrae puntos de LAS/LAZ a LAS/LAZ, a columnas ASCII o a un shapefile de puntos 3D
+Informe completo de archivos LAS/LAZ: cabecera, clases, retornos, densidad, avisos
 
-**En la interfaz:** LiDAR → Preparar → Exportar puntos. El método se explica en el apartado 7.1.
+**En la interfaz:** panel lateral → Información. El método se explica en el apartado 4.9.
 
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
-| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ que exportar. **Obligatoria.** Se puede repetir. |
-| `-o`, `--output` | archivo o carpeta | ninguno | Archivo (o, con varias entradas, una carpeta). .laz y .las escriben una nube, .shp un shapefile PointZ y cualquier otro, texto. **Obligatoria.** |
-| `--normalize` | casilla | desactivada | Exporta alturas sobre el suelo: cada nube menos su MDT. |
-| `--dtm` | archivo o carpeta | ninguno | MDT con el que normalizar (una entrada); por defecto: el MDT más reciente hecho con cada nube. |
-| `--items` | texto | `x` | Columnas en orden: x,y,z,intensity,return,returns,class,source,red,green,blue. Se puede repetir. |
-| `--delimiter` | texto | `,` | Separador de columnas del texto. |
-| `--header` | casilla | desactivada | Escribe una primera línea con los nombres de las columnas. |
-| `--decimals` | número | `2` | Decimales de las coordenadas. |
-| `--class` | texto o número | ninguno | Clases que se exportan: 2,5 o ~7,18. |
-| `--returns` | texto o número | ninguno | Retornos que se exportan: A, F, L o números. |
-| `--zmin` | texto o número | ninguno | Elevación mínima (m) de los puntos que se exportan. |
-| `--zmax` | texto o número | ninguno | Elevación máxima (m) de los puntos que se exportan. |
-| `--decimate` | número | `1` | Conserva un punto de cada tantos. |
+| `INPUTS` | archivo o carpeta | ninguno | Archivos LAS o LAZ de los que se saca el informe. **Obligatoria.** Se puede repetir. |
+
+### hipso import
+
+Importa una nube de puntos de otro formato como LAS/LAZ: PLY (ASCII o binario) o E57 (escáneres terrestres y móviles; cada escaneo se coloca con su pose y su número queda como identificador de fuente del punto)
+
+**En la interfaz:** Abrir (un PLY o un E57 se convierte al abrirlo). El método se explica en el apartado 10.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUT` | archivo o carpeta | ninguno | El archivo que convertir. **Obligatoria.** |
+| `-o`, `--output` | archivo o carpeta | ninguno | .las o .laz de salida; por defecto: <resultados>/<entrada>_ply.laz o _e57.laz (nunca un archivo existente) |
+| `--epsg` | texto o número | ninguno | Código EPSG del sistema de coordenadas de los puntos (PLY y E57 rara vez lo dicen) |
+
+### hipso catalog
+
+Revisa una entrega de hojas solo con sus cabeceras (no se lee ningún punto): mismo sistema de coordenadas, hojas repetidas, solapes, huecos dentro del bloque. Una carpeta equivale a sus LAS/LAZ
+
+**En la interfaz:** sin botón propio (la línea de comandos y el constructor de flujos). El método se explica en el apartado 12.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Archivos LAS/LAZ (o carpetas con ellos) de la entrega que se revisa. **Obligatoria.** Se puede repetir. |
+| `--tolerance` | número | `1` | Cuánto (m) pueden solaparse las hojas o quedarse cortas unas de otras sin que cuente. |
+
+### hipso tile
+
+Divide las nubes en teselas cuadradas (con un margen opcional), un archivo por tesela
+
+**En la interfaz:** sin botón propio (la línea de comandos y el constructor de flujos). El método se explica en el apartado 12.
+
+| Opción | Valor | Por defecto | Qué hace |
+|---|---|---|---|
+| `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ que dividir en teselas. **Obligatoria.** Se puede repetir. |
+| `-o`, `--output` | archivo o carpeta | ninguno | Nombre base de las teselas; por defecto: <resultados>/<entrada>_tile.<ext>. |
+| `--size` | número | `1000` | Lado de cada tesela (m) |
+| `--buffer` | número | `0` | Margen (m) que cada tesela toma de sus vecinas. |
 
 ### hipso copc
 

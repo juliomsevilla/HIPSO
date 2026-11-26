@@ -11,6 +11,7 @@ Uso: python3 scripts/bateria_gui.py [--solo gui|cli] [--filtro texto] [carpeta d
 La carpeta de datos por defecto es /Volumes/Ext1Tb/EasyLiDAR_data. Los resultados van a target/bateria.
 Solo usa la biblioteca estándar.
 """
+import glob
 import os
 import subprocess
 import sys
@@ -64,7 +65,7 @@ def escenarios(D):
     add("p15_copc_autzen", [f"{D}/autzen-classified.copc.laz"], 8)
     add("p16_copc_lion", [f"{D}/lion_takanawa.copc.laz"])
     add("p17_copc_sofi", [f"{D}/sofi.copc.laz"], 25)
-    add("p18_dron_Z1_65M", [f"{D}/QULTIVA/Z1_170426.las"], 45, 400)
+    add("p18_dron_Z1_65M", sorted(glob.glob(f"{D}/*/Z1_170426.las")), 45, 400)
     add("p19_tls_nogueiro5_5G", [f"{D}/TLS/ATM SUBASTA NOGUEIRO5.las"], 100, 600)
     add("p20_lineas_raildata", [f"{D}/Powerlines/RAILDATA.laz"], 25)
     add("p21_lineas_editada", [f"{D}/Powerlines/20200207_editada.laz"], 8)

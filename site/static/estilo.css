@@ -142,3 +142,8 @@ body.inicio .contenido article { max-width: none; }
   .contenido { padding: 1.4rem 1.1rem 3rem; }
   .buscar { font-size: .8rem; }
 }
+
+/* subpáginas del menú y ramas de las tarjetas de la portada */
+.lateral a.sub { padding-left: 2.4rem; font-size: .92em; }
+.tarjeta h3 a { color: inherit; text-decoration: none; }
+.tarjeta .ramas { font-size: .9em; }
