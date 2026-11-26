@@ -430,7 +430,7 @@ impl Region {
         let depth: Vec<usize> = (0..rings.len())
             .map(|i| (0..rings.len()).filter(|&j| j != i && holds(j, i)).count())
             .collect();
-        let outers: Vec<usize> = (0..rings.len()).filter(|&i| depth[i] % 2 == 0).collect();
+        let outers: Vec<usize> = (0..rings.len()).filter(|&i| depth[i].is_multiple_of(2)).collect();
         if outers.len() <= 1 {
             return vec![self.clone()];
         }
@@ -2100,7 +2100,6 @@ pub fn write_layer(
     kind: crate::view::GeomKind,
     prj: Option<&str>,
 ) -> Result<()> {
-    use crate::view::GeomKind;
     if path
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("gpkg"))
@@ -2137,13 +2136,68 @@ pub fn write_layer(
     {
         return crate::geojson::write_vector(path, d, kind, prj.and_then(epsg_from_prj));
     }
+    // el shapefile son varios archivos: se escriben aparte y sustituyen a los anteriores cuando
+    // están completos
+    let name = path
+        .file_name()
+        .ok_or_else(|| Error::Param(format!("«{}» no es un archivo", path.display())))?;
+    let dir = crate::paths::temp_sibling(path);
+    std::fs::create_dir_all(&dir)?;
+    let done = write_shapefile(&dir.join(name), d, kind, prj).and_then(|()| {
+        let beside = path.parent().unwrap_or(Path::new(""));
+        for e in std::fs::read_dir(&dir)? {
+            let e = e?;
+            std::fs::rename(e.path(), beside.join(e.file_name()))?;
+        }
+        // un `<nombre>_tipos.txt` anterior sobra si la capa ya no tiene enlaces
+        if !(0..d.fields.len()).any(|c| d.field_type(c) == crate::fieldtype::FieldType::Link) {
+            let _ = std::fs::remove_file(crate::view::types_sidecar(path));
+        }
+        Ok(())
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+    done
+}
+
+/// Los bytes de un campo de texto de un DBF: el mínimo con el que se escribe y el máximo que admite.
+const DBF_TEXT: (usize, usize) = (80, 254);
+
+fn write_shapefile(
+    path: &Path,
+    d: &crate::view::VectorData,
+    kind: crate::view::GeomKind,
+    prj: Option<&str>,
+) -> Result<()> {
+    use crate::view::GeomKind;
     use crate::fieldtype::FieldType;
     // cada campo se escribe como lo que es: el tipo que se le dio o, si no, lo que digan sus
     // valores
     let types: Vec<FieldType> = (0..d.fields.len()).map(|c| d.field_type(c)).collect();
     let names: Vec<String> = dbf_names(&d.fields).into_iter().map(|n| n.0).collect();
     let mut b = TableWriterBuilder::new();
-    for (name, ty) in names.iter().zip(&types) {
+    // cada campo de texto es tan ancho como su valor más largo; lo que no cabe en un DBF es un
+    // error, nunca un recorte
+    let mut widths = vec![DBF_TEXT.0; names.len()];
+    for (c, ty) in types.iter().enumerate() {
+        if !matches!(ty, FieldType::Text | FieldType::Link) {
+            continue;
+        }
+        let longest = d
+            .text
+            .iter()
+            .filter_map(|r| r.get(c))
+            .map(|t| t.trim().len())
+            .max()
+            .unwrap_or(0);
+        if longest > DBF_TEXT.1 {
+            return Err(Error::Param(format!(
+                "el campo «{}» tiene textos de {longest} bytes y un shapefile admite {}: guarda la capa como GeoPackage o GeoJSON",
+                d.fields[c], DBF_TEXT.1
+            )));
+        }
+        widths[c] = longest.max(DBF_TEXT.0);
+    }
+    for (c, (name, ty)) in names.iter().zip(&types).enumerate() {
         let n = FieldName::try_from(name.as_str())
             .map_err(|e| Error::Param(format!("field '{name}': {e}")))?;
         b = match ty {
@@ -2151,8 +2205,8 @@ pub fn write_layer(
             FieldType::Real => b.add_numeric_field(n, 18, 6),
             FieldType::Bool => b.add_logical_field(n),
             FieldType::Date => b.add_date_field(n),
-            FieldType::Link => b.add_character_field(n, 254),
-            FieldType::Text => b.add_character_field(n, 80),
+            FieldType::Link => b.add_character_field(n, DBF_TEXT.1 as u8),
+            FieldType::Text => b.add_character_field(n, widths[c] as u8),
         };
     }
     let mut w = shapefile::Writer::from_path(path, b).map_err(shp_open_err(path))?;
@@ -2176,8 +2230,7 @@ pub fn write_layer(
                         dbase::Date::new(dd as u32, m as u32, y as u32).ok()
                     }),
                 ),
-                FieldType::Link => FieldValue::Character(Some(truncate(t, 254))),
-                FieldType::Text => FieldValue::Character(Some(truncate(t, 80))),
+                FieldType::Link | FieldType::Text => FieldValue::Character(Some(t.to_string())),
             };
             rec.insert(name.clone(), value);
         }
@@ -2270,6 +2323,33 @@ fn write_types_sidecar(path: &Path, d: &crate::view::VectorData, types: &[crate:
 #[cfg(test)]
 mod capture_tests {
     use super::*;
+
+    #[test]
+    fn saving_a_layer_keeps_long_texts_or_refuses() -> Result<()> {
+        use crate::view::{Feature, GeomKind, VectorData};
+        let dir = std::env::temp_dir().join(format!("hipso_longtext_{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join("t.shp");
+        let long = "a".repeat(200);
+        let mut d = VectorData {
+            fields: vec!["nota".into()],
+            text: vec![vec![long.clone()]],
+            num: vec![vec![f64::NAN]],
+            features: vec![Feature { parts: vec![vec![[1.0, 2.0]]] }],
+            ..Default::default()
+        };
+        write_layer(&path, &d, GeomKind::Point, None)?;
+        assert_eq!(attribute_table(&path)?.1[0][0], long);
+        // lo que no cabe en un shapefile es un error y el archivo anterior se conserva
+        let before = std::fs::read(dir.join("t.dbf"))?;
+        d.text[0][0] = "b".repeat(300);
+        assert!(write_layer(&path, &d, GeomKind::Point, None).is_err());
+        assert_eq!(std::fs::read(dir.join("t.dbf"))?, before);
+        // no quedan temporales
+        assert!(std::fs::read_dir(&dir)?.flatten().all(|e| !e.file_name().to_string_lossy().ends_with(".tmp")));
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
 
     fn square() -> Vec<Vec<[f64; 2]>> {
         vec![vec![[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]]]

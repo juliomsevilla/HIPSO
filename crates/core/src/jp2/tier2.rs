@@ -206,6 +206,11 @@ pub struct TileComp {
     pub roishift: u32,
 }
 
+/// Los precintos de una resolución y los paquetes de una tesela que se admiten: muy por encima de
+/// cualquier imagen real y lejos de agotar la memoria con un archivo dañado.
+const MAX_PRECINCTS: usize = 1 << 20;
+const MAX_PACKETS: usize = 1 << 24;
+
 /// Construye la geometría de un componente de una tesela; `tile` es la tesela en la rejilla de
 /// referencia.
 pub fn build_comp(
@@ -251,7 +256,10 @@ pub fn build_comp(
         } else {
             0
         };
-        let np = npw * nph;
+        let np = npw
+            .checked_mul(nph)
+            .filter(|n| *n <= MAX_PRECINCTS)
+            .ok_or_else(|| bad("demasiados precintos"))?;
         let orients: &[u8] = if r == 0 { &[0] } else { &[1, 2, 3] };
         let nb = if r == 0 { nl } else { nl - r + 1 };
         let mut bands = Vec::new();
@@ -391,6 +399,13 @@ pub fn packet_order(tile: Rect, tcs: &[TileComp], prog: u8, layers: usize) -> Re
     let max_res = tcs.iter().map(|t| t.res.len()).max().unwrap_or(0);
     let mut out = Vec::new();
     let np = |c: usize, r: usize| tcs[c].res.get(r).map_or(0, Resolution::precincts);
+    let precincts: usize = tcs
+        .iter()
+        .flat_map(|t| t.res.iter().map(Resolution::precincts))
+        .fold(0, usize::saturating_add);
+    if precincts.saturating_mul(layers) > MAX_PACKETS {
+        return Err(bad("demasiados paquetes"));
+    }
     match prog {
         0 => {
             for l in 0..layers {
@@ -644,4 +659,40 @@ pub fn read_packet(
         *pos = end;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::codestream::CompSiz;
+    use super::*;
+
+    /// Una imagen de 4000 millones de píxeles de lado con recintos de 2 x 2: construir su
+    /// geometría agotaría la memoria.
+    #[test]
+    fn an_absurd_number_of_precincts_is_refused() {
+        let side = u32::MAX - 1;
+        let siz = Siz {
+            x: side,
+            y: side,
+            xo: 0,
+            yo: 0,
+            xt: side,
+            yt: side,
+            xto: 0,
+            yto: 0,
+            comps: vec![CompSiz { depth: 8, signed: false, dx: 1, dy: 1 }],
+        };
+        let cod = CompCod {
+            levels: 0,
+            xcb: 6,
+            ycb: 6,
+            style: 0,
+            reversible: true,
+            precincts: vec![(1, 1)],
+        };
+        let quant = Quant { style: 0, guard: 1, steps: vec![(8, 0)] };
+        let tile = Rect { x0: 0, y0: 0, x1: i64::from(side), y1: i64::from(side) };
+        let r = build_comp(&siz, 0, tile, &cod, &quant, 0);
+        assert!(r.is_err_and(|e| e.to_string().contains("precintos")));
+    }
 }

@@ -41,7 +41,7 @@ impl App {
     pub fn update_view_detail(&mut self, ctx: &egui::Context, w: usize, h: usize, interactive: bool) {
         if std::env::var_os("HIPSO_VIEW_DEBUG").is_some() {
             static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-            if N.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 60 == 0 {
+            if N.fetch_add(1, std::sync::atomic::Ordering::Relaxed).is_multiple_of(60) {
                 eprintln!(
                     "[vista] estado: on={} src={} detail_src={} loader={} abriendo={} trabajo={} interactivo={}",
                     self.vdet.on,

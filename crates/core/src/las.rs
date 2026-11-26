@@ -20,6 +20,8 @@ const BATCH: usize = 1 << 16;
 
 /// Máximo de puntos LAZ descomprimidos a la vez (en paralelo): unos 100 MB de registros como mucho.
 const MAX_LAZ_BATCH: usize = 1 << 21;
+/// Los bytes de un lote de registros, por largos que sean.
+const MAX_BUFFER: usize = 512 << 20;
 
 /// Registros de longitud variable leídos, y el máximo de bytes que puede contener uno.
 const MAX_VLRS: u32 = 1000;
@@ -1056,6 +1058,11 @@ impl Reader {
             }
             None => Source::Las(r),
         };
+        // nunca más búfer que los puntos que dice haber ni que `MAX_BUFFER` bytes
+        let most = (MAX_BUFFER / rec_len.max(1)).max(1);
+        batch = batch
+            .min(most)
+            .min(usize::try_from(h.count).unwrap_or(usize::MAX));
         let mut buf = vec![0u8; batch * rec_len];
         let mut left = h.count;
         while left > 0 {
@@ -1250,6 +1257,8 @@ impl Writer {
     }
 
     pub fn create_with(path: &Path, template: &Reader, opts: &WriterOptions) -> Result<Self> {
+        // crear el archivo lo vacía: nunca el que se está leyendo
+        crate::paths::guard_output(&[&template.path], path)?;
         let laz = path
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("laz"));

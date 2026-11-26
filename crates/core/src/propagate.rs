@@ -105,7 +105,7 @@ pub fn propagate_class(
     if !(params.radius > 0.0) {
         return Err(Error::Param("el radio debe ser positivo".into()));
     }
-    if target == output || reference == output {
+    if crate::paths::same_file(target, output) || crate::paths::same_file(reference, output) {
         return Err(Error::Param(
             "la nube de salida debe ser un archivo nuevo".into(),
         ));

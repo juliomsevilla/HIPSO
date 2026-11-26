@@ -62,6 +62,108 @@ pub fn ensure_parent(path: &Path) -> std::io::Result<()> {
     }
 }
 
+/// La variable de entorno con la que un proceso `hipso` anuncia lo que va a crear.
+pub const ANNOUNCE_ENV: &str = "HIPSO_ANUNCIA_SALIDAS";
+/// Cómo empieza la línea que lo anuncia.
+pub const ANNOUNCE: &str = "» creará: ";
+
+/// Dice qué archivo nuevo se va a escribir, si quien lanzó el proceso lo pidió: así, si lo detiene,
+/// sabe qué productos a medias debe borrar.
+pub fn announce(path: &Path) {
+    if std::env::var_os(ANNOUNCE_ENV).is_some() && !path.exists() {
+        println!("{ANNOUNCE}{}", path.display());
+    }
+}
+
+/// Borra un producto a medias, con los archivos que acompañan a un shapefile.
+pub fn remove_partial(path: &Path) {
+    let _ = std::fs::remove_file(path);
+    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("shp")) {
+        for ext in ["shx", "dbf", "prj", "cpg"] {
+            let _ = std::fs::remove_file(path.with_extension(ext));
+        }
+    }
+}
+
+/// Si dos rutas nombran el mismo archivo, aunque se escriban de otra forma (`a.las` y `./a.las`,
+/// relativa y absoluta, enlaces, o mayúsculas donde el disco no las distingue).
+pub fn same_file(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let (Ok(x), Ok(y)) = (std::fs::metadata(a), std::fs::metadata(b)) {
+            return x.dev() == y.dev() && x.ino() == y.ino();
+        }
+    }
+    // un archivo que aún no existe se identifica por su carpeta ya resuelta y su nombre
+    let full = |p: &Path| -> Option<PathBuf> {
+        std::fs::canonicalize(p).ok().or_else(|| {
+            let dir = p.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+            Some(std::fs::canonicalize(dir).ok()?.join(p.file_name()?))
+        })
+    };
+    match (full(a), full(b)) {
+        (Some(x), Some(y)) if cfg!(windows) => {
+            x.to_string_lossy().to_lowercase() == y.to_string_lossy().to_lowercase()
+        }
+        (Some(x), Some(y)) => x == y,
+        _ => false,
+    }
+}
+
+/// Se niega a escribir `output` si es alguna de las entradas: el original nunca se modifica.
+pub fn guard_output<P: AsRef<Path>>(inputs: &[P], output: &Path) -> crate::Result<()> {
+    if inputs.iter().any(|i| same_file(i.as_ref(), output)) {
+        return Err(crate::Error::Param(format!(
+            "la salida «{}» es uno de los archivos de entrada: el original no se sobrescribe",
+            output.display()
+        )));
+    }
+    Ok(())
+}
+
+/// El nombre temporal hermano de `path` con el que se escribe antes de renombrar.
+pub fn temp_sibling(path: &Path) -> PathBuf {
+    let name = path
+        .file_name()
+        .map_or(String::new(), |n| n.to_string_lossy().into_owned());
+    path.with_file_name(format!(".{name}.{}.tmp", std::process::id()))
+}
+
+/// Escribe `bytes` en `path` de una sola vez: en un temporal hermano que después se renombra, de
+/// modo que un fallo a mitad de escritura conserva la versión anterior.
+pub fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
+    use std::io::Write;
+    replace_atomic(path, |tmp| {
+        let mut f = std::fs::File::create(tmp)?;
+        // el temporal hereda los permisos del archivo que va a sustituir
+        if let Ok(m) = std::fs::metadata(path) {
+            f.set_permissions(m.permissions())?;
+        }
+        f.write_all(bytes.as_ref())?;
+        f.sync_all()
+    })
+}
+
+/// Como [`write_atomic`] para lo que se escribe poco a poco: `write` recibe el temporal, que
+/// sustituye a `path` solo si todo ha ido bien.
+pub fn replace_atomic<E: From<std::io::Error>>(
+    path: &Path,
+    write: impl FnOnce(&Path) -> Result<(), E>,
+) -> Result<(), E> {
+    // un enlace simbólico sigue siéndolo: se sustituye el archivo al que apunta
+    let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let tmp = temp_sibling(&path);
+    let done = write(&tmp).and_then(|()| std::fs::rename(&tmp, &path).map_err(E::from));
+    if done.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    done
+}
+
 /// Los formatos en que se escribe un resultado de tabla: una capa vectorial (shapefile), una tabla
 /// de texto o ambos. Las tablas de texto siguen disponibles porque las ejecuciones muy grandes
 /// hacen lenta de escribir y de abrir una tabla con un polígono por celda.
@@ -127,6 +229,7 @@ pub fn num(v: f64) -> String {
 /// La primera ruta como `path` que está libre: `a.tif`, luego `a_2.tif`, `a_3.tif`…
 pub fn unique(path: &Path) -> PathBuf {
     if !path.exists() {
+        announce(path);
         return path.to_path_buf();
     }
     let stem = path
@@ -140,6 +243,7 @@ pub fn unique(path: &Path) -> PathBuf {
         };
         let p = path.with_file_name(name);
         if !p.exists() {
+            announce(&p);
             return p;
         }
     }
@@ -161,6 +265,7 @@ pub fn unique_with(path: &Path, companions: &[(&str, &str)]) -> PathBuf {
                 .all(|(suffix, ext)| !p.with_file_name(format!("{stem}_{suffix}.{ext}")).exists())
     };
     if free(path) {
+        announce(path);
         return path.to_path_buf();
     }
     let stem = path
@@ -174,6 +279,7 @@ pub fn unique_with(path: &Path, companions: &[(&str, &str)]) -> PathBuf {
         };
         let p = path.with_file_name(name);
         if free(&p) {
+            announce(&p);
             return p;
         }
     }
@@ -290,6 +396,23 @@ mod tests {
         assert_eq!(num(1.0), "1");
         assert_eq!(num(0.5), "0.5");
         assert_eq!(num(0.125), "0.125");
+    }
+
+    #[test]
+    fn the_same_file_is_recognised_however_it_is_written() -> std::io::Result<()> {
+        let root = std::env::temp_dir().join(format!("rl_same_{}", std::process::id()));
+        std::fs::create_dir_all(root.join("d"))?;
+        let a = root.join("d/a.las");
+        std::fs::write(&a, b"x")?;
+        assert!(same_file(&a, &root.join("d/./a.las")));
+        assert!(same_file(&a, &root.join("d/../d/a.las")));
+        assert!(!same_file(&a, &root.join("d/b.las")));
+        assert!(same_file(&root.join("d/nuevo.las"), &root.join("d/./nuevo.las")));
+        assert!(guard_output(std::slice::from_ref(&a), &root.join("d/./a.las")).is_err());
+        write_atomic(&a, b"yz")?;
+        assert_eq!(std::fs::read(&a)?, b"yz");
+        assert_eq!(std::fs::read_dir(root.join("d"))?.count(), 1);
+        std::fs::remove_dir_all(&root)
     }
 
     #[test]

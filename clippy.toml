@@ -1,0 +1,4 @@
+# en las pruebas, un `unwrap` que falla es la prueba que falla
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

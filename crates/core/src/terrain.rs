@@ -196,9 +196,9 @@ pub fn compute(g: &Grid, job: &TerrainJob) -> Result<Grid> {
         Product::Roughness => roughness(g, z, job.edges),
         Product::Ruggedness => ruggedness(g, z, job.edges),
         Product::Position => position(g, z, job.radius)?,
-        Product::FillDepth => crate::hydro::fill_depth(g, z),
-        Product::FlowAccumulation => crate::hydro::flow_accumulation(g, z),
-        Product::Wetness => crate::hydro::wetness(g, z),
+        Product::FillDepth => crate::hydro::fill_depth(g, z)?,
+        Product::FlowAccumulation => crate::hydro::flow_accumulation(g, z)?,
+        Product::Wetness => crate::hydro::wetness(g, z)?,
         Product::Streams => crate::hydro::streams(g, z, job.threshold)?,
         Product::Subbasins => crate::hydro::subbasins(g, z, job.threshold)?,
         Product::Viewshed => {

@@ -82,13 +82,15 @@ fn read_box(f: &mut File, at: u64, limit: u64) -> Result<Option<BoxHead>> {
         }
         n => (n, 8),
     };
-    if len < hs {
+    // una longitud desorbitada no debe dar la vuelta: la caja siempre avanza
+    let end = at.saturating_add(len).min(limit);
+    if len < hs || end < at.saturating_add(hs) {
         return Err(bad("caja no válida"));
     }
     Ok(Some(BoxHead {
         kind,
         body: at + hs,
-        end: (at + len).min(limit),
+        end,
     }))
 }
 

@@ -82,6 +82,7 @@ pub fn thin_cloud(
     params: &ThinParams,
     filter: &Filter,
 ) -> Result<(u64, u64)> {
+    crate::paths::guard_output(inputs, output)?;
     let first = inputs
         .first()
         .ok_or_else(|| Error::Param("no hay nube de entrada".into()))?;

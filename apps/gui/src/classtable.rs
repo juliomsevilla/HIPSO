@@ -52,7 +52,7 @@ impl ClassTable {
         if let Some(d) = f.parent() {
             let _ = std::fs::create_dir_all(d);
         }
-        let _ = std::fs::write(f, text);
+        let _ = hipso_core::paths::write_atomic(&f, text);
     }
 
     pub fn name(&self, c: u8) -> String {

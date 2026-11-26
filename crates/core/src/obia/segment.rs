@@ -109,10 +109,10 @@ pub(crate) fn label_components(
                 }
             }
             if m == 0 {
-                if parent.len() >= u32::MAX as usize {
-                    return Err(Error::Param("demasiados objetos iniciales".into()));
-                }
-                lab[i] = parent.push() as u32;
+                lab[i] = parent
+                    .push()
+                    .ok_or_else(|| Error::Param("demasiados objetos iniciales".into()))?
+                    as u32;
             } else {
                 for &c in &cand[1..m] {
                     parent.union(cand[0] as usize, c as usize);

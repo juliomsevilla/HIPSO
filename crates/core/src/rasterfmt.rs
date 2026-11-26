@@ -165,12 +165,15 @@ fn load_png(path: &Path) -> Result<Loaded> {
     let (x0, y_top, cell) = world_file(path, &["pgw", "pngw", "wld"])?;
     let mut dec = png::Decoder::new(BufReader::new(crate::open_file(path)?));
     dec.set_transformations(png::Transformations::EXPAND);
-    dec.set_limits(png::Limits { bytes: usize::MAX });
+    // lo que puede ocupar la imagen según lo que pesa el archivo (véase `tiffio::limits`)
+    let most = crate::tiffio::limits(std::fs::metadata(path)?.len()).decoding_buffer_size;
+    dec.set_limits(png::Limits { bytes: most });
     let mut reader = dec
         .read_info()
         .map_err(|e| bad(path, &format!("PNG: {e}")))?;
     let size = reader
         .output_buffer_size()
+        .filter(|n| *n <= most)
         .ok_or_else(|| bad(path, "PNG demasiado grande"))?;
     let mut buf = vec![0u8; size];
     let info = reader
@@ -479,8 +482,16 @@ fn load_binary(path: &Path) -> Result<Loaded> {
             hdr.display()
         )));
     }
-    let n = cols * rows;
-    let need = h.offset + n * nb * size;
+    let too_big = || bad(&hdr, "las dimensiones del .hdr son imposibles");
+    let n = cols
+        .checked_mul(rows)
+        .filter(|n| *n <= crate::grid::MAX_CELLS)
+        .ok_or_else(too_big)?;
+    let need = n
+        .checked_mul(nb)
+        .and_then(|v| v.checked_mul(size))
+        .and_then(|v| v.checked_add(h.offset))
+        .ok_or_else(too_big)?;
     let mut data = Vec::new();
     crate::open_file(path)?.read_to_end(&mut data)?;
     if data.len() < need {

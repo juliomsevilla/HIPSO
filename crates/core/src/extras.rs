@@ -1659,7 +1659,7 @@ mod tests {
         }
         let ground = vec![true; pts.len()];
         // dos columnas estrechas de 9 m de altura, de 2 m de ancho, una cerca del cable y la otra no
-        let mut column = |x: f64, y: f64, pts: &mut Vec<Point>| -> (usize, usize) {
+        let column = |x: f64, y: f64, pts: &mut Vec<Point>| -> (usize, usize) {
             let from = pts.len();
             for i in 0..30 {
                 let z = 3.0 + f64::from(i) * 0.3;

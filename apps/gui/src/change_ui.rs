@@ -222,6 +222,16 @@ impl App {
                 },
             };
             let o = job.outputs();
+            if t.out_manual
+                && [Some(&o.difference), Some(&o.classes)]
+                    .into_iter()
+                    .chain([&o.patches, &o.patches_table, &o.stands, &o.trees].map(Option::as_ref))
+                    .flatten()
+                    .any(|p| p.exists())
+            {
+                self.log("La salida elegida a mano ya existe: cámbiala o bórrala.");
+                return;
+            }
             let mut show = vec![o.classes.clone(), o.difference.clone()];
             show.extend(o.patches.clone());
             let mut outputs = show.clone();

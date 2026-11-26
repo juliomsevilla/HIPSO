@@ -132,6 +132,25 @@ impl ObiaJob {
 }
 
 pub fn obia(j: &ObiaJob) -> Result<String> {
+    let mut inputs: Vec<&PathBuf> = j.rasters.iter().chain(&j.clouds).collect();
+    match &j.classify {
+        ClassifyBy::Rules(file) | ClassifyBy::Samples { file, .. } => inputs.push(file),
+        ClassifyBy::Nothing | ClassifyBy::Kmeans { .. } => {}
+    }
+    let o = j.outputs();
+    for out in [Some(&o.objects)]
+        .into_iter()
+        .chain(
+            [&o.polygons, &o.table, &o.classes, &o.strata_polygons, &o.strata_table, &o.strata_classes]
+                .map(Option::as_ref),
+        )
+        .flatten()
+    {
+        crate::paths::guard_output(&inputs, out)?;
+    }
+    if j.gpkg {
+        crate::paths::guard_output(&inputs, &crate::paths::swap_ext(&j.output, "gpkg"))?;
+    }
     let first = j.rasters.first().ok_or_else(|| {
         Error::Param("hace falta al menos un ráster (el modelo de alturas)".into())
     })?;
@@ -452,9 +471,9 @@ mod tests {
         assert!(dir.join("resultado_clases.tif").exists());
         // los rásteres de números enteros se abren como capas (números de objeto y de clase)
         let g = crate::grid::Grid::read(&dir.join("resultado_clases.tif"))?;
-        assert!(g.data.iter().any(|v| *v == 1.0));
+        assert!(g.data.contains(&1.0));
         let g = crate::grid::Grid::read(&dir.join("resultado_objetos.tif"))?;
-        assert!(g.data.iter().any(|v| *v == 2.0));
+        assert!(g.data.contains(&2.0));
         let gpkg = dir.join("resultado.gpkg");
         assert!(gpkg.exists());
         assert_eq!(crate::view::read_vector(&gpkg)?.features.len(), 2);

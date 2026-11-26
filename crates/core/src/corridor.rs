@@ -967,6 +967,17 @@ fn name(c: usize, s: &Span) -> String {
 
 /// Ejecuta todo el análisis y escribe los resultados.
 pub fn run(j: &CorridorJob) -> Result<String> {
+    let mut inputs: Vec<&PathBuf> = j.inputs.iter().collect();
+    inputs.push(&j.dtm);
+    let o = j.outputs();
+    for out in [&o.conductors, &o.poles, &o.hazards]
+        .map(Option::as_ref)
+        .into_iter()
+        .flatten()
+        .chain([&o.spans, &o.hazards_table])
+    {
+        crate::paths::guard_output(&inputs, out)?;
+    }
     let mut files = j.inputs.clone();
     files.push(j.dtm.clone());
     let unified = crate::crs::unify(&files, false)?;

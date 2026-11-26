@@ -133,7 +133,7 @@ fn dedup(
     delete_all: bool,
     mark: bool,
 ) -> Result<(u64, u64)> {
-    if input == output {
+    if crate::paths::same_file(input, output) {
         return Err(Error::Param(
             "el archivo nuevo no debe sobrescribir el original".into(),
         ));
@@ -363,7 +363,9 @@ pub fn compare_clouds(
     if !(p.min_dist > 0.0) {
         return Err(Error::Param("la distancia debe ser positiva".into()));
     }
-    if reference.iter().any(|r| r == source) || source == output {
+    if reference.iter().any(|r| crate::paths::same_file(r, source) || crate::paths::same_file(r, output))
+        || crate::paths::same_file(source, output)
+    {
         return Err(Error::Param(
             "la nube de referencia y la que se comprueba deben ser distintas".into(),
         ));
@@ -728,7 +730,9 @@ pub fn fit_cloud(
     output: &Path,
     p: &FitParams,
 ) -> Result<FitReport> {
-    if reference.iter().any(|r| r == source) || source == output {
+    if reference.iter().any(|r| crate::paths::same_file(r, source) || crate::paths::same_file(r, output))
+        || crate::paths::same_file(source, output)
+    {
         return Err(Error::Param(
             "la nube de referencia y la que se mueve deben ser distintas".into(),
         ));

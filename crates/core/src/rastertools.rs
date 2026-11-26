@@ -627,11 +627,12 @@ impl Resample {
     }
 }
 
-/// Un origen cuyos valores son todos números enteros (clases, identificadores) en una muestra de la
-/// imagen.
+/// Un origen cuyos valores son clases o identificadores: números enteros en una muestra de la
+/// imagen. Los enteros de 16 bits son medidas (un SRTM, un MDT en centímetros) y se interpolan; un
+/// ráster de clases en 16 bits necesita pedir la celda más cercana.
 fn looks_categorical(pyr: &Pyramid) -> bool {
     // varias bandas son una imagen (fotografía, composición), no clases
-    if pyr.bands != 1 {
+    if pyr.bands != 1 || pyr.bits == 16 {
         return false;
     }
     let Ok((sample, _)) = pyr.overview(2_000_000) else {

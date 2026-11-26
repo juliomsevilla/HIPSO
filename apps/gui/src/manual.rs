@@ -253,7 +253,7 @@ pub fn render(ui: &mut egui::Ui, lines: &[&str], goto: &mut Option<usize>, needl
                 continue;
             }
             let mut shown = true;
-            if !needle.is_empty() && !l.to_lowercase().contains(&needle) {
+            if !needle.is_empty() && !l.to_lowercase().contains(needle) {
                 shown = l.starts_with('#');
             }
             if let Some(t) = l.strip_prefix("# ") {

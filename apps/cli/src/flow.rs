@@ -28,7 +28,7 @@ pub fn schema() -> Schema {
         };
         for a in sub.get_arguments() {
             let id = a.get_id().as_str();
-            if id == "help" || id == "version" {
+            if id == "help" || id == "version" || id == "force" {
                 continue;
             }
             let action = a.get_action();

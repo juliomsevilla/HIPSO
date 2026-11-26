@@ -2271,7 +2271,7 @@ pub fn write_tree_ids(
     output: &Path,
 ) -> Result<(u64, u64)> {
     use rayon::prelude::*;
-    if input == output {
+    if crate::paths::same_file(input, output) {
         return Err(Error::Param(
             "la nube con treeID debe ir a un archivo nuevo, no sobre el original".into(),
         ));
@@ -2485,7 +2485,7 @@ pub fn classify_stems(
     with_ids: bool,
 ) -> Result<StemReport> {
     use rayon::prelude::*;
-    if input == output {
+    if crate::paths::same_file(input, output) {
         return Err(Error::Param(
             "la nube clasificada debe ir a un archivo nuevo, no sobre el original".into(),
         ));

@@ -241,6 +241,16 @@ fn tips(g: &Grid, tc: &TreeChange) -> Vec<Tip> {
 }
 
 pub fn change(j: &ChangeJob) -> Result<String> {
+    let mut inputs = vec![&j.before, &j.after];
+    inputs.extend(j.regions.iter().map(|r| &r.0));
+    let o = j.outputs();
+    for out in [Some(&o.difference), Some(&o.classes)]
+        .into_iter()
+        .chain([&o.patches, &o.patches_table, &o.stands, &o.trees].map(Option::as_ref))
+        .flatten()
+    {
+        crate::paths::guard_output(&inputs, out)?;
+    }
     // `after` se lleva sobre las celdas de `before` y los rodales a su sistema
     let mut files = vec![j.before.as_path(), j.after.as_path()];
     files.extend(j.regions.iter().map(|r| r.0.as_path()));

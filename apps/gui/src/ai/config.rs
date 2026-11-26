@@ -187,6 +187,20 @@ pub fn clean_key(k: &str) -> String {
     t.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
+/// Si una dirección envía la clave sin cifrar fuera de este equipo: `http://` a otra máquina.
+pub fn unencrypted(base: &str) -> bool {
+    let Some(rest) = base.trim().to_ascii_lowercase().strip_prefix("http://").map(str::to_string) else {
+        return false;
+    };
+    let host = rest.split('/').next().unwrap_or("");
+    let host = host.rsplit_once('@').map_or(host, |h| h.1);
+    let name = match host.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or(""),
+        None => host.split(':').next().unwrap_or(""),
+    };
+    !(name == "localhost" || name == "::1" || name.parse::<std::net::Ipv4Addr>().is_ok_and(|a| a.is_loopback()))
+}
+
 impl Config {
     pub fn file() -> Option<PathBuf> {
         Some(crate::prefs::config_dir()?.join("asistente.json"))
@@ -382,5 +396,19 @@ mod tests {
         assert!(!c.has_key());
         // un archivo roto da los valores por defecto
         assert_eq!(Config::from_json("{no"), Config::default());
+    }
+}
+#[cfg(test)]
+mod unencrypted_tests {
+    use super::unencrypted;
+
+    #[test]
+    fn only_plain_http_to_another_machine_is_unencrypted() {
+        for u in ["http://api.ejemplo.com/v1", "HTTP://192.168.1.4:8080", "http://localhost.ejemplo.com"] {
+            assert!(unencrypted(u), "{u}");
+        }
+        for u in ["https://api.ejemplo.com", "http://localhost:11434/v1", "http://127.0.0.1/v1", "http://[::1]:80", ""] {
+            assert!(!unencrypted(u), "{u}");
+        }
     }
 }

@@ -171,6 +171,7 @@ pub fn unified(job: &ClipJob) -> Result<(ClipJob, crate::crs::Unified)> {
 }
 
 pub fn run(job: &ClipJob) -> Result<ClipReport> {
+    crate::paths::guard_output(&job.inputs, &job.output)?;
     if job.regions.is_empty() {
         return Err(Error::Param("no hay zonas con las que recortar".into()));
     }

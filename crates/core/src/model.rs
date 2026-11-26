@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering, AtomicUsize};
 use std::sync::mpsc;
 
 use crate::json::{Json, quote};
@@ -911,7 +911,10 @@ impl Model {
         }
         let mut ids = HashSet::new();
         for n in &self.nodes {
-            if !ids.insert(n.id.as_str()) {
+            if !valid_id(&n.id) {
+                add(Some(&n.id), format!("El identificador «{}» no vale: solo letras sin tilde, cifras, «-» y «_».", n.id));
+            }
+            if !ids.insert(folder_name(&n.id).to_lowercase()) {
                 add(Some(&n.id), format!("El identificador «{}» está repetido.", n.id));
             }
         }
@@ -1080,6 +1083,12 @@ fn collect(dir: &Path) -> Vec<PathBuf> {
     v
 }
 
+/// Si `id` sirve como identificador de un nodo: nombra su carpeta de trabajo, así que no admite
+/// rutas (`..`, separadores ni unidades de disco).
+pub fn valid_id(id: &str) -> bool {
+    !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 /// Un nombre que sirve como nombre de carpeta.
 fn folder_name(s: &str) -> String {
     let t: String = s
@@ -1187,11 +1196,47 @@ pub fn tool_argv(spec: &ToolSpec, args: &BTreeMap<String, Vec<String>>) -> Vec<S
     v
 }
 
+/// El programa se está cerrando: las órdenes en marcha se detienen.
+static CLOSING: AtomicBool = AtomicBool::new(false);
+/// Cuántas órdenes y flujos están en marcha.
+static BUSY: AtomicUsize = AtomicUsize::new(0);
+
+/// Cuenta un trabajo en marcha mientras vive.
+struct Busy;
+
+impl Busy {
+    fn new() -> Self {
+        BUSY.fetch_add(1, Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for Busy {
+    fn drop(&mut self) {
+        BUSY.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Para el cierre del programa: detiene las órdenes en marcha y espera, como mucho `wait`, a que
+/// terminen de borrar lo que dejaban a medias. Sin esto seguirían escribiendo tras cerrar.
+pub fn shutdown(wait: std::time::Duration) {
+    CLOSING.store(true, Ordering::SeqCst);
+    let from = std::time::Instant::now();
+    while BUSY.load(Ordering::SeqCst) > 0 && from.elapsed() < wait {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+/// Lanza `exe` con `argv` y entrega a `log` lo que escribe. Si se cancela, el proceso se detiene y
+/// se borran los productos que había anunciado.
 pub fn spawn(exe: &Path, argv: &[String], cancel: &AtomicBool, log: &mut dyn FnMut(&str)) -> Result<()> {
     use std::io::{BufRead, BufReader};
     use std::process::{Command, Stdio};
+    let _busy = Busy::new();
+    let mut created: Vec<PathBuf> = Vec::new();
     let mut child = Command::new(exe)
         .args(argv)
+        .env(crate::paths::ANNOUNCE_ENV, "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1220,6 +1265,10 @@ pub fn spawn(exe: &Path, argv: &[String], cancel: &AtomicBool, log: &mut dyn FnM
     loop {
         match rx.recv_timeout(std::time::Duration::from_millis(100)) {
             Ok(l) => {
+                if let Some(p) = l.strip_prefix(crate::paths::ANNOUNCE) {
+                    created.push(PathBuf::from(p));
+                    continue;
+                }
                 if l.starts_with("error") {
                     last_error = l.clone();
                 }
@@ -1228,11 +1277,20 @@ pub fn spawn(exe: &Path, argv: &[String], cancel: &AtomicBool, log: &mut dyn FnM
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
-        if cancel.load(Ordering::Relaxed) {
+        if cancel.load(Ordering::Relaxed) || CLOSING.load(Ordering::SeqCst) {
             let _ = child.kill();
             let _ = child.wait();
             for r in readers {
                 let _ = r.join();
+            }
+            // lo anunciado que aún no se había leído
+            for l in rx.try_iter() {
+                if let Some(p) = l.strip_prefix(crate::paths::ANNOUNCE) {
+                    created.push(PathBuf::from(p));
+                }
+            }
+            for p in &created {
+                crate::paths::remove_partial(p);
             }
             return Err(Error::Param("cancelado".into()));
         }
@@ -1270,6 +1328,7 @@ impl Model {
                 *path = p.clone();
             }
         }
+        let _busy = Busy::new();
         let this = &replaced;
         let problems = this.problems(r.schema);
         if let Some(p) = problems.first() {
@@ -1295,7 +1354,7 @@ impl Model {
                     }
                     let name = folder_name(&this.name(n));
                     let dest = free_name(r.results, &name);
-                    let from = work.join(&n.id);
+                    let from = work.join(folder_name(&n.id));
                     std::fs::rename(&from, &dest)?;
                     let moved = files
                         .iter()
@@ -1382,7 +1441,7 @@ impl Model {
                             self.name(n)
                         )));
                     }
-                    let dir = work.join(&n.id);
+                    let dir = work.join(folder_name(&n.id));
                     std::fs::create_dir_all(&dir)?;
                     let rounds: Vec<HashMap<String, Vec<PathBuf>>> = match many.first() {
                         Some(id) => sent[id]
@@ -1431,7 +1490,7 @@ impl Model {
                         && !src.keep
                         && matches!(src.kind, NodeKind::Tool { .. })
                     {
-                        let _ = std::fs::remove_dir_all(work.join(&src.id));
+                        let _ = std::fs::remove_dir_all(work.join(folder_name(&src.id)));
                     }
                 }
             }
@@ -1530,6 +1589,17 @@ mod tests {
         m.edges.push(Edge { from: "b".into(), to: "c".into(), port: "inputs".into() });
         assert!(m.order().is_none());
         assert!(m.problems(&schema()).iter().any(|p| p.text.contains("bucle")));
+    }
+
+    #[test]
+    fn a_node_id_cannot_name_a_path() {
+        for bad in ["..", "", "a/b", "a\\b", "C:", "/tmp", "."] {
+            assert!(!valid_id(bad), "{bad}");
+            let mut m = Model::default();
+            m.nodes = vec![input(bad, "x"), tool("c", "chm", true)];
+            assert!(m.problems(&schema()).iter().any(|p| p.text.contains("no vale")), "{bad}");
+        }
+        assert!(valid_id("n1") && valid_id("mdt_1-a"));
     }
 
     #[test]

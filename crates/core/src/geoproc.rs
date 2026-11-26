@@ -339,11 +339,10 @@ pub fn merge(inputs: &[PathBuf], origin: Option<&str>) -> Result<(VectorData, Ge
             push_from(&mut out, f.clone(), d, None);
             let row = out.features.len() - 1;
             for (c, m) in map.iter().enumerate() {
-                if let (Some(m), Some(v)) = (m, d.text.get(i).and_then(|r| r.get(c))) {
-                    if !v.is_empty() {
+                if let (Some(m), Some(v)) = (m, d.text.get(i).and_then(|r| r.get(c)))
+                    && !v.is_empty() {
                         out.set_value(row, *m, v).map_err(Error::Param)?;
                     }
-                }
             }
             if let Some(o) = ofield {
                 out.set_value(row, o, &stem).map_err(Error::Param)?;

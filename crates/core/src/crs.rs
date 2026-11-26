@@ -321,8 +321,16 @@ pub fn unify_like<P: AsRef<Path>>(
                 } else {
                     let g = crate::grid::Grid::read(p)?;
                     let moved = match (&like_grid, like.and_then(epsg_of)) {
-                        (Some(l), Some(_)) => crate::reproject::grid_onto(&g, e, t, l.like())?,
-                        _ => crate::reproject::grid(&g, e, t)?,
+                        (Some(l), Some(_)) => {
+                            crate::reproject::grid_of_file_onto(p, &g, e, t, l.like())?
+                        }
+                        _ => {
+                            let (b, cell) = crate::reproject::target_frame_of(
+                                [g.x0, g.y0, g.cell], g.cols, g.rows, e, t,
+                            )?;
+                            let out = crate::grid::Grid::covering(b, cell)?;
+                            crate::reproject::grid_of_file_onto(p, &g, e, t, out)?
+                        }
                     };
                     let out = out.with_extension("tif");
                     moved.write_tiff(&out, Some(t))?;

@@ -1289,7 +1289,7 @@ impl App {
                 .crs_of(&path)
                 .map_or("sin declarar".to_string(), hipso_core::crs::name);
             let r = &self.refs[k];
-            let mut l = vec![format!("{}", r.name)];
+            let mut l = vec![r.name.to_string()];
             let ext = |b: [f64; 4]| format!("X {:.2} a {:.2} · Y {:.2} a {:.2}", b[0], b[2], b[1], b[3]);
             match &r.kind {
                 RefKind::Vector(v) => {

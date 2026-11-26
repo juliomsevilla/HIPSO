@@ -11,6 +11,12 @@ use crate::{Error, Result};
 /// La mayor parte XML que se acepta una vez descomprimida (los archivos son hostiles mientras no se
 /// demuestre lo contrario).
 const MAX_PART: u64 = 256 << 20;
+/// El tope de todo lo que se descomprime de un archivo.
+const MAX_TOTAL: u64 = 512 << 20;
+/// Las columnas de una hoja de Excel.
+const MAX_COLUMNS: usize = 16_384;
+/// Las celdas de la tabla que se admiten, contando las vacías con las que se rellenan las filas.
+const MAX_TABLE: usize = 50_000_000;
 
 fn bad(msg: &str) -> Error {
     Error::Format(format!("xlsx: {msg}"))
@@ -37,6 +43,8 @@ pub(crate) fn zip_parts(zip: &[u8], want: impl Fn(&str) -> bool) -> Result<Vec<(
     let count = le16(zip, eocd + 10).ok_or_else(|| bad("archivo truncado"))?;
     let mut at = le32(zip, eocd + 16).ok_or_else(|| bad("archivo truncado"))?;
     let mut out = Vec::new();
+    // lo descomprimido de todas las partes juntas también tiene tope
+    let mut total = 0u64;
     for _ in 0..count {
         if zip.get(at..at + 4) != Some(&[0x50, 0x4b, 0x01, 0x02][..]) {
             return Err(bad("directorio del zip dañado"));
@@ -78,6 +86,10 @@ pub(crate) fn zip_parts(zip: &[u8], want: impl Fn(&str) -> bool) -> Result<Vec<(
             }
             _ => return Err(bad("compresión del zip no admitida")),
         };
+        total += bytes.len() as u64;
+        if total > MAX_TOTAL {
+            return Err(bad("el contenido descomprimido es demasiado grande"));
+        }
         out.push((name, bytes));
     }
     Ok(out)
@@ -158,7 +170,9 @@ fn texts(xml: &str) -> String {
 fn column_of(r: &str) -> usize {
     let mut c = 0usize;
     for ch in r.bytes().take_while(u8::is_ascii_alphabetic) {
-        c = c * 26 + usize::from(ch.to_ascii_uppercase() - b'A' + 1);
+        c = c
+            .saturating_mul(26)
+            .saturating_add(usize::from(ch.to_ascii_uppercase() - b'A' + 1));
     }
     c.saturating_sub(1)
 }
@@ -229,6 +243,9 @@ pub fn read(path: &Path) -> Result<Vec<Vec<String>>> {
                     .map(|v| unescape(v.trim()))
                     .unwrap_or_default(),
             };
+            if col >= MAX_COLUMNS {
+                return Err(bad("una celda está fuera de las columnas de una hoja"));
+            }
             if cells.len() <= col {
                 cells.resize(col + 1, String::new());
             }
@@ -237,6 +254,9 @@ pub fn read(path: &Path) -> Result<Vec<Vec<String>>> {
         rows.push(cells);
     }
     let width = rows.iter().map(Vec::len).max().unwrap_or(0);
+    if rows.len().saturating_mul(width) > MAX_TABLE {
+        return Err(bad("la hoja es demasiado grande"));
+    }
     for r in &mut rows {
         r.resize(width, String::new());
     }
@@ -252,6 +272,8 @@ mod tests {
         assert_eq!(unescape("a &amp; b &lt;c&gt; &#65;&#x42;"), "a & b <c> AB");
         assert_eq!(column_of("A1"), 0);
         assert_eq!(column_of("AB12"), 27);
+        // una referencia absurda no da la vuelta
+        assert!(column_of("ZZZZZZZZZZZZZZZZZZZZ1") >= MAX_COLUMNS);
     }
 
     #[test]

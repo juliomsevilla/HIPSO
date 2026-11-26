@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 mod flow;
 mod mcp;
 use hipso_core::axelsson::AxelssonParams;
@@ -32,6 +32,9 @@ struct Cli {
     /// carpeta de cada entrada
     #[arg(long, global = true)]
     results_dir: Option<PathBuf>,
+    /// Sobrescribe la salida dada con -o si ya existe (nunca un archivo de entrada)
+    #[arg(long, global = true)]
+    force: bool,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -773,7 +776,7 @@ impl StepArgs {
         use hipso_core::extras::{Extras, PoleParams, RoadParams, VegParams, WaterParams, WireParams};
         Extras {
             vegetation: self.vegetation.then(VegParams::default),
-            wires: self.wires.then(|| WireParams {
+            wires: self.wires.then_some(WireParams {
                 min_height: self.wire_min_height,
                 radius: self.wire_radius,
                 linearity: self.wire_linearity,
@@ -791,7 +794,7 @@ impl StepArgs {
                 piece_isolation: self.wire_piece_isolation,
                 piece_max_others: self.wire_piece_max_others,
             }),
-            poles: self.poles.then(|| PoleParams {
+            poles: self.poles.then_some(PoleParams {
                 min_height: self.pole_min_height,
                 radius: self.pole_radius,
                 max_width: self.pole_max_width,
@@ -2010,8 +2013,9 @@ enum Cmd {
         /// que el resultado coincida celda a celda con él
         #[arg(long, conflicts_with_all = ["to", "cell", "vertical_out"])]
         reference: Option<PathBuf>,
-        /// Rásteres: cómo se trasladan los valores (auto: las clases conservan sus valores; si no,
-        /// la media cuando las celdas crecen y bilineal en caso contrario)
+        /// Rásteres: cómo se trasladan los valores (auto: las clases, de 8 bits o de enteros en
+        /// decimales, conservan sus valores; si no, la media cuando las celdas crecen y bilineal en
+        /// caso contrario. Los enteros de 16 bits se interpolan: para clases en 16 bits, nearest)
         #[arg(long, value_enum, default_value_t = AlignResample::Auto)]
         resample: AlignResample,
         /// Rásteres: celda del resultado (por defecto: la de la entrada o la equivalente en el
@@ -3608,7 +3612,7 @@ fn run(cmd: Cmd) -> Result<()> {
         Cmd::Parallel { input, distance, miter, output } => {
             let (mut d, kind, prj) = hipso_core::vecops::read_layer(&input)?;
             if kind != hipso_core::view::GeomKind::Line {
-                return Err(hipso_core::Error::Param("la paralela solo se traza en capas de líneas (para polígonos, usa el búfer)".into()).into());
+                return Err(hipso_core::Error::Param("la paralela solo se traza en capas de líneas (para polígonos, usa el búfer)".into()));
             }
             let r = hipso_core::geomedit::parallel(&mut d, distance, miter)?;
             let out = out_path(output, &input, "paralela", &layer_ext(&input));
@@ -3623,7 +3627,7 @@ fn run(cmd: Cmd) -> Result<()> {
         }
         Cmd::Fields { input, drop, rename, output } => {
             if drop.is_empty() && rename.is_empty() {
-                return Err(hipso_core::Error::Param("indica qué quitar (--drop) o qué renombrar (--rename)".into()).into());
+                return Err(hipso_core::Error::Param("indica qué quitar (--drop) o qué renombrar (--rename)".into()));
             }
             let (mut d, kind, prj) = hipso_core::vecops::read_layer(&input)?;
             let find = |d: &hipso_core::view::VectorData, n: &str| -> hipso_core::Result<usize> {
@@ -3646,7 +3650,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 drops.push(find(&d, name)?);
             }
             if let Some(c) = drops.iter().find(|c| renames.iter().any(|r| r.0 == **c)) {
-                return Err(hipso_core::Error::Param(format!("el campo «{}» se quita y se renombra a la vez: elige una de las dos cosas", d.fields[*c])).into());
+                return Err(hipso_core::Error::Param(format!("el campo «{}» se quita y se renombra a la vez: elige una de las dos cosas", d.fields[*c])));
             }
             for (c, new) in renames {
                 d.rename_field(c, new).map_err(hipso_core::Error::Param)?;
@@ -3706,7 +3710,7 @@ fn run(cmd: Cmd) -> Result<()> {
             println!("{}", flow::schema().to_json());
             return Ok(());
         }
-        Cmd::Mcp => return mcp::serve(flow::schema()).map_err(Into::into),
+        Cmd::Mcp => return mcp::serve(flow::schema()),
         Cmd::Run { model, inputs } => return flow::run(&model, &inputs, paths::output_dir()),
         Cmd::ModelValidate { model } => return flow::validate(&model),
         Cmd::Catalog { inputs, tolerance } => {
@@ -5278,7 +5282,7 @@ fn run(cmd: Cmd) -> Result<()> {
         } => {
             use hipso_core::filter::{ClassSel, Filter, ReturnSel};
             let first = inputs.first().cloned().unwrap_or_default();
-            let out = output.unwrap_or_else(|| paths::product(&first, "vdensidad", "tif"));
+            let out = output.unwrap_or_else(|| paths::unique(&paths::product(&first, "vdensidad", "tif")));
             let mut job = hipso_core::vdensity::VDensityJob::new(inputs, out);
             job.cell = cell;
             job.threshold = threshold;
@@ -5317,21 +5321,21 @@ fn run(cmd: Cmd) -> Result<()> {
             } else if border {
                 Seeds::Border
             } else {
-                return Err(hipso_core::Error::Param("indica de dónde viene el agua: --seed x,y, --border o --bathtub".into()).into());
+                return Err(hipso_core::Error::Param("indica de dónde viene el agua: --seed x,y, --border o --bathtub".into()));
             };
             let mut all = level;
             if let Some(r) = levels {
                 let p: Vec<f64> = r.split(':').filter_map(|v| v.trim().replace(',', ".").parse().ok()).collect();
                 let [a, b, st] = p[..] else {
-                    return Err(hipso_core::Error::Param(format!("--levels: «{r}» no válido (desde:hasta:paso)")).into());
+                    return Err(hipso_core::Error::Param(format!("--levels: «{r}» no válido (desde:hasta:paso)")));
                 };
                 if !(st > 0.0) || b < a || (b - a) / st > 1000.0 {
-                    return Err(hipso_core::Error::Param("--levels: el paso debe ser positivo y salir 1000 niveles como máximo".into()).into());
+                    return Err(hipso_core::Error::Param("--levels: el paso debe ser positivo y salir 1000 niveles como máximo".into()));
                 }
                 let n = ((b - a) / st + 1e-9).floor() as usize;
                 all.extend((0..=n).map(|k| a + k as f64 * st));
             }
-            let out = output.unwrap_or_else(|| paths::product(&input, "inundacion", "shp"));
+            let out = output.unwrap_or_else(|| paths::unique(&paths::product(&input, "inundacion", "shp")));
             let mut job = FloodJob::new(input, seeds, all, out);
             job.relative = match relative {
                 None => Relative::Absolute,
@@ -5354,7 +5358,7 @@ fn run(cmd: Cmd) -> Result<()> {
         } => {
             use hipso_core::terrainlines::{Kind, LinesJob};
             let kind = if drainage { Kind::Drainage } else { Kind::Ridge };
-            let out = output.unwrap_or_else(|| paths::product(&input, if drainage { "drenaje" } else { "crestas" }, "shp"));
+            let out = output.unwrap_or_else(|| paths::unique(&paths::product(&input, if drainage { "drenaje" } else { "crestas" }, "shp")));
             let mut job = LinesJob::new(input, kind, out);
             job.min_area = min_area;
             job.min_length = min_length;
@@ -5386,7 +5390,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 pts.push(xy(t, "--to")?);
             }
             if to.len() > 1 && !nearest {
-                return Err(hipso_core::Error::Param("varios --to piden --nearest".into()).into());
+                return Err(hipso_core::Error::Param("varios --to piden --nearest".into()));
             }
             let model = match model.as_str() {
                 "slope" => CostModel::Slope { power, reference_pct: reference_slope },
@@ -5394,10 +5398,10 @@ fn run(cmd: Cmd) -> Result<()> {
                 "uniform" => CostModel::Uniform,
                 m => match m.split_once(':') {
                     Some(("raster", f)) => CostModel::Raster(PathBuf::from(f)),
-                    _ => return Err(hipso_core::Error::Param(format!("--model: «{m}» no válido (slope, tobler, uniform, raster:<tif>)")).into()),
+                    _ => return Err(hipso_core::Error::Param(format!("--model: «{m}» no válido (slope, tobler, uniform, raster:<tif>)"))),
                 },
             };
-            let out = output.unwrap_or_else(|| paths::product(&input, "ruta", "shp"));
+            let out = output.unwrap_or_else(|| paths::unique(&paths::product(&input, "ruta", "shp")));
             let mut job = PathJob::new(input, pts, out);
             job.model = model;
             job.constraints.max_slope_pct = max_slope;
@@ -5432,10 +5436,10 @@ fn run(cmd: Cmd) -> Result<()> {
                 t => match t.split_once(':') {
                     Some(("level", z)) => Base::Level(z.trim().parse().map_err(|_| bad(t))?),
                     Some(("dtm", f)) => Base::Dtm(PathBuf::from(f)),
-                    _ => return Err(bad(t).into()),
+                    _ => return Err(bad(t)),
                 },
             };
-            let out = output.unwrap_or_else(|| paths::product(&surface, "pilas", "shp"));
+            let out = output.unwrap_or_else(|| paths::unique(&paths::product(&surface, "pilas", "shp")));
             let out = if out.extension().is_some() { out } else { out.with_extension("shp") };
             let mut job = PileJob::new(surface, piles, out);
             job.base = base;
@@ -5467,7 +5471,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 Some(("plane", v)) => {
                     let p: Vec<&str> = v.split(',').collect();
                     if p.len() != 5 {
-                        return Err(bad(&design).into());
+                        return Err(bad(&design));
                     }
                     Design::Plane {
                         z0: number(p[0], &design)?,
@@ -5478,7 +5482,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 }
                 _ => Design::Surface(PathBuf::from(&design)),
             };
-            let out = output.unwrap_or_else(|| paths::product(&existing, "cutfill", "tif"));
+            let out = output.unwrap_or_else(|| paths::unique(&paths::product(&existing, "cutfill", "tif")));
             let mut job = CutFillJob::new(existing, design, out);
             job.regions = regions;
             job.tolerance = tolerance;
@@ -5504,8 +5508,7 @@ fn run(cmd: Cmd) -> Result<()> {
                         return Err(hipso_core::Error::Param(format!(
                             "«{a}» (ráster {}): con varios rásteres cada uno va como NOMBRE=archivo",
                             i + 1
-                        ))
-                        .into());
+                        )));
                     }
                 }
             }
@@ -5517,13 +5520,13 @@ fn run(cmd: Cmd) -> Result<()> {
                 CalcDtype::U16 => Dtype::U16,
             };
             job.nearest = nearest;
-            job.align = align.and_then(|a| match a {
-                AlignResample::Auto => Some(Resample::Bilinear),
-                AlignResample::Nearest => Some(Resample::Nearest),
-                AlignResample::Bilinear => Some(Resample::Bilinear),
-                AlignResample::Average => Some(Resample::Average),
-                AlignResample::Cubic => Some(Resample::Cubic),
-                AlignResample::Mode => Some(Resample::Mode),
+            job.align = align.map(|a| match a {
+                AlignResample::Auto => Resample::Bilinear,
+                AlignResample::Nearest => Resample::Nearest,
+                AlignResample::Bilinear => Resample::Bilinear,
+                AlignResample::Average => Resample::Average,
+                AlignResample::Cubic => Resample::Cubic,
+                AlignResample::Mode => Resample::Mode,
             });
             hipso_core::rastercalc::run(&job)?
         }
@@ -5572,7 +5575,7 @@ fn run(cmd: Cmd) -> Result<()> {
             job.method = match method.as_str() {
                 "depression" => hipso_core::ponds::Method::Depression,
                 "local" => hipso_core::ponds::Method::Local,
-                o => return Err(hipso_core::Error::Param(format!("--method: «{o}» no válido (depression, local)")).into()),
+                o => return Err(hipso_core::Error::Param(format!("--method: «{o}» no válido (depression, local)"))),
             };
             job.smooth = smooth;
             job.nodata = nodata;
@@ -5605,7 +5608,7 @@ fn run(cmd: Cmd) -> Result<()> {
             job.sampling = match sampling.as_str() {
                 "bilinear" => hipso_core::dtmcheck::Sampling::Bilinear,
                 "nearest" => hipso_core::dtmcheck::Sampling::Nearest,
-                o => return Err(hipso_core::Error::Param(format!("--sampling: «{o}» no válido (bilinear, nearest)")).into()),
+                o => return Err(hipso_core::Error::Param(format!("--sampling: «{o}» no válido (bilinear, nearest)"))),
             };
             job.class = class;
             job.z_field = z_field;
@@ -5644,7 +5647,7 @@ fn run(cmd: Cmd) -> Result<()> {
         } => {
             use hipso_core::filter::{ClassSel, Filter, ReturnSel};
             let first = inputs.first().cloned().unwrap_or_default();
-            let out = output.unwrap_or_else(|| paths::product(&first, "voxeles", "tif"));
+            let out = output.unwrap_or_else(|| paths::unique(&paths::product(&first, "voxeles", "tif")));
             let mut job = hipso_core::voxelmetrics::VoxelJob::new(inputs, out);
             job.dtm = dtm;
             job.cell = cell;
@@ -5755,7 +5758,7 @@ fn run(cmd: Cmd) -> Result<()> {
                 "nodata" => hipso_core::terrain::Edges::NoData,
                 "repeat" => hipso_core::terrain::Edges::RepeatEdge,
                 "center" => hipso_core::terrain::Edges::Center,
-                o => return Err(hipso_core::Error::Param(format!("--edges: «{o}» no válido (nodata, repeat, center)")).into()),
+                o => return Err(hipso_core::Error::Param(format!("--edges: «{o}» no válido (nodata, repeat, center)"))),
             };
             job.z_factor = z_factor;
             (job.azimuth, job.altitude) = (azimuth, altitude);
@@ -6597,19 +6600,66 @@ fn expand_recipes(args: Vec<String>) -> Result<Vec<String>> {
     Ok(out)
 }
 
+/// Antes de ejecutar una orden: la salida dada no puede ser uno de los archivos que lee, y no
+/// sobrescribe un archivo que ya exista salvo con `--force`.
+fn check_output(command: &clap::Command, matches: &clap::ArgMatches, force: bool) -> Result<()> {
+    let Some((name, given)) = matches.subcommand() else {
+        return Ok(());
+    };
+    let Some(sub) = command.find_subcommand(name) else {
+        return Ok(());
+    };
+    let (mut output, mut inputs) = (None, Vec::new());
+    for a in sub.get_arguments() {
+        let id = a.get_id().as_str();
+        // los rásteres de la calculadora se dan como `NOMBRE=archivo`
+        let named = name == "calc" && id == "inputs";
+        let path = a.get_value_parser().type_id() == std::any::TypeId::of::<PathBuf>();
+        if (!path && !named) || id == "results_dir" || id == "dir" {
+            continue;
+        }
+        for v in given.get_raw(id).into_iter().flatten() {
+            if id == "output" {
+                output = Some(PathBuf::from(v));
+            } else if named {
+                let text = v.to_string_lossy();
+                inputs.push(PathBuf::from(text.split_once('=').map_or(&*text, |p| p.1)));
+            } else {
+                inputs.push(PathBuf::from(v));
+            }
+        }
+    }
+    let Some(output) = output else {
+        return Ok(());
+    };
+    paths::guard_output(&inputs, &output)?;
+    if output.is_file() && !force {
+        return Err(Error::Param(format!(
+            "la salida «{}» ya existe: elige otro nombre o añade --force para sobrescribirla",
+            output.display()
+        )));
+    }
+    paths::announce(&output);
+    Ok(())
+}
+
 fn main() -> ExitCode {
     // El análisis y `run` retienen los argumentos de todas las órdenes; las compilaciones de
     // depuración necesitan más pila que el hilo principal.
     let result = std::thread::Builder::new()
         .stack_size(64 << 20)
         .spawn(|| {
-            let cli = match expand_recipes(std::env::args().collect()) {
-                Ok(args) => Cli::parse_from(args),
+            let args = match expand_recipes(std::env::args().collect()) {
+                Ok(args) => args,
                 Err(e) => {
                     eprintln!("error: {e}");
                     std::process::exit(2);
                 }
             };
+            let command = Cli::command();
+            let matches = command.clone().get_matches_from(args);
+            let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+            check_output(&command, &matches, cli.force)?;
             paths::set_output_dir(cli.results_dir);
             run(cli.cmd)
         })

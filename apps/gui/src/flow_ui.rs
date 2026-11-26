@@ -368,7 +368,7 @@ impl App {
         };
         if due {
             if let Some(f) = prefs::draft() {
-                let _ = std::fs::write(f, self.flow.model.to_json());
+                let _ = hipso_core::paths::write_atomic(&f, self.flow.model.to_json());
             }
             self.flow.saved = Some((self.flow.model.clone(), Instant::now()));
         }
@@ -559,9 +559,7 @@ impl App {
             self.flow.sel_edge = wires
                 .iter()
                 .position(|w| !w.is_empty() && dist_to_polyline(p, w) < 6.0);
-            if self.flow.sel_edge.is_some() {
-                self.flow.selected.clear();
-            } else if !ui.input(|i| i.modifiers.shift) {
+            if self.flow.sel_edge.is_some() || !ui.input(|i| i.modifiers.shift) {
                 self.flow.selected.clear();
             }
         }
@@ -1086,7 +1084,7 @@ impl App {
                         .save_file(),
                 };
                 if let Some(p) = target {
-                    match std::fs::write(&p, self.flow.model.to_json()) {
+                    match hipso_core::paths::write_atomic(&p, self.flow.model.to_json()) {
                         Ok(()) => {
                             self.flow.status = format!("Guardado en {}", p.display());
                             self.flow.path = Some(p);

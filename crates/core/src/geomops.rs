@@ -45,7 +45,7 @@ pub fn multipolygon_of(rings: &[Vec<[f64; 2]>]) -> MultiPolygon<f64> {
         .collect();
     let line = |r: &Vec<[f64; 2]>| LineString::new(r.iter().map(|p| Coord { x: p[0], y: p[1] }).collect());
     let mut out = Vec::new();
-    for o in (0..rings.len()).filter(|&i| depth[i] % 2 == 0) {
+    for o in (0..rings.len()).filter(|&i| depth[i].is_multiple_of(2)) {
         let holes: Vec<LineString<f64>> = (0..rings.len())
             .filter(|&h| depth[h] == depth[o] + 1 && holds(o, h))
             .map(|h| line(rings[h]))
@@ -630,7 +630,7 @@ mod tests {
     #[test]
     fn a_line_cuts_a_polygon_in_two_that_add_up() {
         let square = sq(0.0, 0.0, 10.0);
-        let pieces = cut_by_line(&[square.clone()], &[[5.0, -3.0], [5.0, 13.0]]);
+        let pieces = cut_by_line(std::slice::from_ref(&square), &[[5.0, -3.0], [5.0, 13.0]]);
         assert_eq!(pieces.len(), 2);
         let areas: Vec<f64> = pieces.iter().map(|p| multipolygon_of(p).unsigned_area()).collect();
         assert!((areas[0] + areas[1] - 100.0).abs() < 1e-3, "{areas:?}");

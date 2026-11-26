@@ -2637,6 +2637,17 @@ pub fn analyze(job: &AbaJob) -> Result<(Screening, Vec<String>)> {
 /// Ajusta, juzga y (cuando se dan las métricas de las celdas) hace el mapa. Devuelve el informe.
 pub fn run(job: &AbaJob) -> Result<String> {
     crate::check_cancel()?;
+    let mut inputs = vec![&job.plots, &job.field];
+    inputs.extend(&job.cells);
+    // el informe y la tabla de las unidades se escriben siempre; el mapa y su intervalo, cuando hay
+    // celdas
+    let mut written = vec![job.report_path(), job.plots_path()];
+    if !job.cells.is_empty() {
+        written.extend([job.output.clone(), job.interval_path()]);
+    }
+    for out in &written {
+        crate::paths::guard_output(&inputs, out)?;
+    }
     let plots = Table::read(&job.plots)?;
     let field = Table::read(&job.field)?;
     // con un mapa que hacer, solo se pueden usar las métricas que también tiene la tabla de celdas

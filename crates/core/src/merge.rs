@@ -36,7 +36,7 @@ pub fn merge(
     if inputs.len() < 2 {
         return Err(Error::Param("hacen falta dos o más nubes para unir".into()));
     }
-    if inputs.iter().any(|p| p == output) {
+    if inputs.iter().any(|p| crate::paths::same_file(p, output)) {
         return Err(Error::Param(
             "el archivo nuevo no debe sobrescribir una de las nubes".into(),
         ));

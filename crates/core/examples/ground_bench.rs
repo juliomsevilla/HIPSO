@@ -313,7 +313,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .enumerate()
                     .filter(|(_, c)| *c > 0)
                     .collect();
-                v.sort_by(|a, b| b.1.cmp(&a.1));
+                v.sort_by_key(|a| std::cmp::Reverse(a.1));
                 v.iter()
                     .take(4)
                     .map(|(c, k)| format!("c{c}:{:.0}%", 100.0 * *k as f64 / fp.max(1) as f64))

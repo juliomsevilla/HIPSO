@@ -152,7 +152,7 @@ pub fn proximity(g: &Grid, targets: &Targets, max_distance: Option<f64>, in_cell
     let is_target = |v: f32| {
         !v.is_nan()
             && match targets {
-                Targets::Values(list) => list.iter().any(|t| *t == v),
+                Targets::Values(list) => list.contains(&v),
                 Targets::NonZero => v != 0.0,
             }
     };
@@ -164,7 +164,7 @@ pub fn proximity(g: &Grid, targets: &Targets, max_distance: Option<f64>, in_cell
             d2[i] = 0.0;
         }
     }
-    if !d2.iter().any(|v| *v == 0.0) {
+    if !d2.contains(&0.0) {
         return Err(Error::Param("el ráster no tiene ninguna celda de las clases pedidas".into()));
     }
     fn edt1(f: &[f64], out: &mut [f64], v: &mut [usize], z: &mut [f64]) {
@@ -380,7 +380,7 @@ mod tests {
         let mut k = 12345u64;
         for v in g.data.iter_mut() {
             k = k.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            *v = if (k >> 33) % 40 == 0 { 1.0 } else { 0.0 };
+            *v = if (k >> 33).is_multiple_of(40) { 1.0 } else { 0.0 };
         }
         g.data[5] = 1.0;
         let p = proximity(&g, &Targets::NonZero, None, true)?;

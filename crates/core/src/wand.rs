@@ -110,6 +110,8 @@ fn cell_of(cell: f64, x: f64, y: f64, z: f64) -> (i64, i64, i64) {
     )
 }
 
+/// La clave de una celda, con 21 bits por eje: más allá de unas 10⁶ celdas dos celdas pueden
+/// compartirla. No cambia el resultado (`around` filtra después por distancia), solo la velocidad.
 fn pack((x, y, z): (i64, i64, i64)) -> u64 {
     const M: u64 = 0x1F_FFFF;
     ((x as u64 & M) << 42) | ((y as u64 & M) << 21) | (z as u64 & M)

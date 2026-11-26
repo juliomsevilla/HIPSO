@@ -9,6 +9,7 @@
 use super::*;
 
 /// La ventana de «Ir a coordenadas».
+#[derive(Default)]
 pub struct Goto {
     pub x: String,
     pub y: String,
@@ -17,11 +18,6 @@ pub struct Goto {
     pub msg: String,
 }
 
-impl Default for Goto {
-    fn default() -> Self {
-        Self { x: String::new(), y: String::new(), epsg: String::new(), msg: String::new() }
-    }
-}
 
 #[derive(Default)]
 pub struct Coords {
@@ -271,7 +267,7 @@ impl App {
             let c = to_screen(p[0], p[1]);
             painter.line_segment([c - Vec2::new(7.0, 0.0), c + Vec2::new(7.0, 0.0)], Stroke::new(1.5, red));
             painter.line_segment([c - Vec2::new(0.0, 7.0), c + Vec2::new(0.0, 7.0)], Stroke::new(1.5, red));
-            crate::halo::text(&painter, c + Vec2::new(8.0, -8.0), Align2::LEFT_BOTTOM, format!("{}", k + 1), FontId::proportional(11.5), red);
+            crate::halo::text(painter, c + Vec2::new(8.0, -8.0), Align2::LEFT_BOTTOM, format!("{}", k + 1), FontId::proportional(11.5), red);
         }
         if let Some(p) = self.crd.mark {
             let c = to_screen(p[0], p[1]);

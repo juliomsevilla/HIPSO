@@ -399,18 +399,16 @@ mod tests {
                         break;
                     }
                     buf.extend_from_slice(&chunk[..n]);
-                    if header_end.is_none() {
-                        if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                    if header_end.is_none()
+                        && let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
                             header_end = Some(p + 4);
                             let head = String::from_utf8_lossy(&buf[..p]).to_lowercase();
                             want = head.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse().ok()).unwrap_or(0);
                         }
-                    }
-                    if let Some(h) = header_end {
-                        if buf.len() >= h + want {
+                    if let Some(h) = header_end
+                        && buf.len() >= h + want {
                             break;
                         }
-                    }
                 }
                 let h = header_end.unwrap_or(0);
                 bodies.push(String::from_utf8_lossy(&buf[h..]).into_owned());

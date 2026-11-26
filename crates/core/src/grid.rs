@@ -17,7 +17,7 @@ pub const NODATA: f32 = -9999.0;
 /// Máximo de celdas que puede contener una rejilla (4 bytes cada una). La memoria del equipo fija
 /// el límite real (véase [`Grid::new`]): un mosaico de cientos de hojas tiene cientos de millones
 /// de celdas.
-const MAX_CELLS: usize = 1 << 32;
+pub(crate) const MAX_CELLS: usize = 1 << 32;
 
 /// La parte de la memoria del equipo que puede ocupar una rejilla: las herramientas que leen una
 /// rejilla hacen otras igual de grandes (el resultado, el entorno), así que una rejilla por encima
@@ -198,8 +198,16 @@ impl Grid {
     }
 
     /// La superficie en `(x, y)`, interpolada entre los cuatro centros de celda más cercanos; los
-    /// vecinos vacíos recurren a la celda que contiene el punto.
+    /// vecinos vacíos recurren a la celda que contiene el punto. Fuera de la rejilla (su borde
+    /// incluido) no hay valor.
     pub fn sample(&self, x: f64, y: f64) -> Option<f32> {
+        let (right, top) = (
+            self.x0 + self.cols as f64 * self.cell,
+            self.y0 + self.rows as f64 * self.cell,
+        );
+        if !(x >= self.x0 && x <= right && y >= self.y0 && y <= top) {
+            return None;
+        }
         let fx = (x - self.x0) / self.cell - 0.5;
         let fy = (self.y0 + self.rows as f64 * self.cell - y) / self.cell - 0.5;
         let (c0, r0) = (fx.floor(), fy.floor());
@@ -501,6 +509,7 @@ impl Grid {
                 path.display()
             )));
         };
+        let (tx, ty) = crate::tiffio::corner(&mut d, tx, ty, sx, sy);
         Ok(([tx, ty - f64::from(h) * sy, tx + f64::from(w) * sx, ty], sx))
     }
 
@@ -524,8 +533,8 @@ impl Grid {
     /// Lee un GeoTIFF de decimales de 32 bits orientado al norte como los que escribe
     /// [`Grid::write_tiff`].
     pub fn read_tiff(path: &Path) -> Result<Self> {
-        use tiff::decoder::{Decoder, DecodingResult};
-        let mut d = Decoder::new(BufReader::new(crate::open_file(path)?)).map(|d| d.with_limits(tiff::decoder::Limits::unlimited())).map_err(tiff_err)?;
+        use tiff::decoder::DecodingResult;
+        let mut d = crate::tiffio::open(path)?;
         let (w, h) = d.dimensions().map_err(tiff_err)?;
         let scale = d
             .get_tag_f64_vec(Tag::ModelPixelScaleTag)
@@ -553,7 +562,9 @@ impl Grid {
             )));
         }
         let (cols, rows) = (w as usize, h as usize);
-        let mut g = Self::new(tx, ty - rows as f64 * sy, sx, cols, rows)?;
+        let (tx, ty) = crate::tiffio::corner(&mut d, tx, ty, sx, sy);
+        // los valores se leen antes de reservar la rejilla: los límites del lector rechazan una
+        // cabecera que declara un tamaño imposible para el archivo
         let data = match d.read_image().map_err(tiff_err)? {
             DecodingResult::F32(v) => v,
             DecodingResult::F64(v) => v.into_iter().map(|x| x as f32).collect(),
@@ -570,6 +581,7 @@ impl Grid {
                 )));
             }
         };
+        let mut g = Self::new(tx, ty - rows as f64 * sy, sx, cols, rows)?;
         if data.len() != g.data.len() {
             return Err(Error::Format(format!(
                 "{}: se esperaba una banda de {cols} x {rows} valores reales",
@@ -746,6 +758,11 @@ mod tests {
         g.data = vec![0.0, 2.0];
         assert_eq!(g.sample(1.0, 0.5), Some(1.0));
         assert_eq!(g.sample(0.5, 0.5), Some(0.0));
+        // el borde cuenta como dentro; más allá no hay valor
+        assert_eq!(g.sample(2.0, 1.0), Some(2.0));
+        assert_eq!(g.sample(2.01, 0.5), None);
+        assert_eq!(g.sample(-0.01, 0.5), None);
+        assert_eq!(g.sample(0.5, 1.01), None);
         Ok(())
     }
 

@@ -123,6 +123,9 @@ pub struct Editing {
     pub saved: usize,
     /// Se activó o desactivó una edición desde el último guardado.
     pub toggled: bool,
+    /// El guardado en curso: cuántas ediciones escribe y si se activó o desactivó alguna después de
+    /// empezarlo. Las marcas de guardado solo se ponen si termina bien.
+    pub saving: Option<(usize, bool)>,
     pub want_save: bool,
     /// Guarda sin preguntar dónde (línea de comandos `--save-edited`).
     pub auto_save: bool,
@@ -176,6 +179,7 @@ impl Default for Editing {
             i_hi: String::new(),
             saved: 0,
             toggled: false,
+            saving: None,
             want_save: false,
             auto_save: false,
             focus: None,
@@ -1259,6 +1263,9 @@ impl App {
                             Cmd::Toggle(k) => {
                                 if ses.toggle(store, k) {
                                     self.ed.toggled = true;
+                                    if let Some(s) = &mut self.ed.saving {
+                                        s.1 = true;
+                                    }
                                     edited = true;
                                 }
                             }
@@ -1266,6 +1273,7 @@ impl App {
                                 ses.discard(store);
                                 self.ed.saved = 0;
                                 self.ed.toggled = false;
+                                self.ed.saving = None;
                                 edited = true;
                             }
                         }
@@ -1449,8 +1457,7 @@ impl App {
             };
             pairs.push((i.clone(), out));
         }
-        self.ed.saved = saved_len;
-        self.ed.toggled = false;
+        self.ed.saving = Some((saved_len, false));
         let outputs: Vec<PathBuf> = pairs.iter().map(|p| p.1.clone()).collect();
         let session_file = self.ed.session_file.clone();
         let launch = Launch {

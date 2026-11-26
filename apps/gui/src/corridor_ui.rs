@@ -171,6 +171,17 @@ impl App {
                 },
             };
             let o = job.outputs();
+            if t.out_manual
+                && [&o.conductors, &o.poles, &o.hazards]
+                    .map(Option::as_ref)
+                    .into_iter()
+                    .flatten()
+                    .chain([&o.spans, &o.hazards_table])
+                    .any(|p| p.exists())
+            {
+                self.log("La salida elegida a mano ya existe: cámbiala o bórrala.");
+                return;
+            }
             let mut show: Vec<PathBuf> = Vec::new();
             show.extend(o.conductors.clone());
             show.extend(o.poles.clone());

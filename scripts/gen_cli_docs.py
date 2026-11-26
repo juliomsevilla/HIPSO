@@ -217,7 +217,7 @@ def main():
         "",
         "Cada herramienta del programa es una orden de la línea de comandos, y la interfaz gráfica y el constructor de flujos ejecutan estas mismas órdenes. Por eso esta página sirve para las tres cosas: para cada herramienta dice qué hace, dónde está en la cinta y qué significa cada una de sus opciones, con su valor por defecto y los valores que admite. Las ventanas de la interfaz muestran estas mismas opciones, con la misma ayuda, y el constructor de flujos las ofrece como puertos y parámetros de cada nodo.",
         "",
-        "La página se genera con `scripts/gen_cli_docs.py` a partir de la definición de las órdenes del propio programa, de modo que lista exactamente lo que admite la versión publicada. Todas las órdenes aceptan además `--help`, que imprime lo mismo en la terminal. Cuando una opción no lleva valor por defecto, la herramienta decide por sí misma o no actúa hasta que se le dé un valor.",
+        "La página se genera con `scripts/gen_cli_docs.py` a partir de la definición de las órdenes del propio programa, de modo que lista exactamente lo que admite la versión publicada. Todas las órdenes aceptan además `--help`, que imprime lo mismo en la terminal. Todas admiten también `--force`, que permite que la salida dada con `-o` sustituya a un archivo existente (nunca a una entrada). Cuando una opción no lleva valor por defecto, la herramienta decide por sí misma o no actúa hasta que se le dé un valor.",
         "",
     ]
     for titulo, nombres in GRUPOS:

@@ -249,7 +249,7 @@ pub fn find(g: &Grid, job: &PondJob) -> Result<Ponds> {
     let mut depth = base.like();
     let min = job.min_depth as f32;
     let local = job.method == Method::Local;
-    let accumulation = hydro::flow_accumulation(&base, 1.0);
+    let accumulation = hydro::flow_accumulation(&base, 1.0)?;
     let slope = terrain::slope(&base, 1.0, false, Edges::NoData);
     let mask: Vec<bool> = if local {
         // pendiente de la superficie rellena y superficie drenada, celda a celda

@@ -921,7 +921,9 @@ impl App {
             .set_file_name(format!("{name}.tif"))
             .save_file()
         {
-            let r = g.write_tiff(&p, None);
+            // nunca sobre una capa o una nube abierta: el índice sale de ellas
+            let open: Vec<&PathBuf> = self.clouds.iter().chain(self.refs.iter().map(|r| &r.path)).collect();
+            let r = hipso_core::paths::guard_output(&open, &p).and_then(|()| g.write_tiff(&p, None));
             let msg = r.map_or_else(
                 |e| format!("No se pudo guardar: {e}"),
                 |()| format!("Índice guardado: {}", p.display()),

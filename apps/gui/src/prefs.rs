@@ -160,7 +160,7 @@ fn save(p: &Prefs) {
     if let Some(parent) = f.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let _ = std::fs::write(f, text);
+    let _ = hipso_core::paths::write_atomic(&f, text);
 }
 
 /// Entrega los ajustes de la caché a la biblioteca que los usa.

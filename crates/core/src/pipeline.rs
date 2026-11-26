@@ -253,6 +253,8 @@ pub fn classify_with_context(
     s: &Steps,
     t: &Tiling,
 ) -> Result<Report> {
+    crate::paths::guard_output(inputs, output)?;
+    crate::paths::guard_output(context, output)?;
     let readers = open_all(inputs)?;
     let context = open_all(context)?;
     let template = readers

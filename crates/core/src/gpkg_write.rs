@@ -773,7 +773,7 @@ pub fn write(path: &Path, tables: &[Table]) -> Result<()> {
     for p in &pager.pages {
         out.extend(p);
     }
-    std::fs::write(path, out)?;
+    crate::paths::write_atomic(path, out)?;
     Ok(())
 }
 

@@ -2185,6 +2185,12 @@ impl App {
             let (label, show) = (run.label.clone(), run.show.clone());
             let (outputs, pre) = (run.outputs.clone(), run.pre.clone());
             self.running = None;
+            if let Some((n, toggled)) = self.ed.saving.take()
+                && result.is_ok()
+            {
+                self.ed.saved = n;
+                self.ed.toggled = toggled;
+            }
             match result {
                 Ok(summary) => {
                     self.log(format!("{label}: {summary}\nhecho en {secs:.2} s"));
@@ -4638,7 +4644,7 @@ ui.menu_button("⚙", |ui| {
                 ];
                 let area = polygon_text(&self.measure);
                 if !area.is_empty() {
-                    lines.push(area.trim_start_matches(|c: char| c == ' ' || c == '|').trim().to_string());
+                    lines.push(area.trim_start_matches([' ', '|']).trim().to_string());
                 }
                 let size = Vec2::new(
                     lines
@@ -5894,6 +5900,23 @@ ui.menu_button("⚙", |ui| {
 }
 
 impl eframe::App for App {
+    /// Al cerrar no queda nada trabajando: las herramientas y los flujos en marcha se detienen y la
+    /// tarea interna se cancela, y a ambos se les da tiempo para borrar sus productos a medias.
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        let wait = Duration::from_secs(5);
+        if let Some(run) = self.running.take() {
+            hipso_core::request_cancel();
+            if run.rx.recv_timeout(wait).is_ok_and(|r| r.is_err()) {
+                for f in run.outputs.iter().flat_map(|o| tools::related(o)) {
+                    if !run.pre.contains(&f) {
+                        let _ = std::fs::remove_file(f);
+                    }
+                }
+            }
+        }
+        hipso_core::model::shutdown(wait);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.paso_tls();

@@ -460,6 +460,10 @@ fn geometry_text(parts: &[Vec<[f64; 2]>], kind: GeomKind) -> String {
 /// Escribe una capa como GeoJSON, un elemento por línea para que las herramientas de flujo puedan
 /// leer un archivo grande. `epsg` pasa a ser el miembro `crs`.
 pub fn write_vector(path: &Path, d: &VectorData, kind: GeomKind, epsg: Option<u16>) -> Result<()> {
+    crate::paths::replace_atomic(path, |tmp| write_features(tmp, d, kind, epsg))
+}
+
+fn write_features(path: &Path, d: &VectorData, kind: GeomKind, epsg: Option<u16>) -> Result<()> {
     let mut out = BufWriter::new(std::fs::File::create(path)?);
     write!(out, "{{\"type\":\"FeatureCollection\"")?;
     if let Some(e) = epsg {

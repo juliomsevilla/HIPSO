@@ -109,7 +109,7 @@ fn message_line(m: &Message) -> String {
         ("c", s(&m.text)),
     ];
     if !m.tools.is_empty() {
-        members.push(("tools", arr(m.tools.iter().map(|t| s(t)).collect())));
+        members.push(("tools", arr(m.tools.iter().map(s).collect())));
     }
     if let Some((p, c)) = m.tokens {
         members.push(("u", arr(vec![n(f64::from(p)), n(f64::from(c))])));
@@ -225,7 +225,7 @@ impl Store {
         let Some(p) = conv.meta.path.clone() else { return Ok(()) };
         let body = std::fs::read_to_string(&p)?;
         let rest = body.split_once('\n').map_or("", |(_, r)| r);
-        std::fs::write(&p, format!("{}\n{rest}", meta_line(&conv.meta)))
+        hipso_core::paths::write_atomic(&p, format!("{}\n{rest}", meta_line(&conv.meta)))
     }
 }
 

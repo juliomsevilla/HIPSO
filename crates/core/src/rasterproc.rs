@@ -132,7 +132,7 @@ fn burn_polygon(g: &mut Grid, top: f64, rings: &[Vec<[f64; 2]>], v: f32) {
             }
         }
         xs.sort_by(|a, b| a.total_cmp(b));
-        for pair in xs.chunks_exact(2) {
+        for pair in xs.as_chunks::<2>().0 {
             // cells cuyo centro cae entre dos cruces
             let c0 = ((pair[0] - g.x0) / g.cell - 0.5).ceil().max(0.0) as usize;
             let c1v = ((pair[1] - g.x0) / g.cell - 0.5).floor();
@@ -305,7 +305,7 @@ pub fn stats(g: &Grid, bins: usize) -> Result<RasterStats> {
     v.par_sort_by(|a, b| a.total_cmp(b));
     let n = v.len() as f64;
     let mean = v.iter().map(|x| f64::from(*x)).sum::<f64>() / n;
-    let var = v.iter().map(|x| (f64::from(*x) - mean).powi(2)).sum::<f64>() / n;
+    let var = v.iter().map(|x| (f64::from(*x) - mean).powi(2)).sum::<f64>() / (n - 1.0).max(1.0);
     let q = |p: f64| {
         let r = p * (n - 1.0);
         let (lo, hi) = (r.floor() as usize, r.ceil() as usize);

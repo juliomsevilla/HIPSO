@@ -31,8 +31,13 @@ def escenarios(D):
     pnoa = f"{D}/PNOA/LiDAR/PNOA_2023_EXT_655-4371_H29_NPC02.laz"
     pnoa4 = [f"{D}/PNOA/LiDAR/PNOA_2023_EXT_{a}_H29_NPC02.laz" for a in ("655-4371", "655-4372", "656-4371", "656-4372")]
     aba = f"{D}/ABA/LiDAR/PNOA_2010_Lote7_CYL-MAD_434-4540_ORT-CLA-COL.LAZ"
-    aba_mdt = f"{D}/ABA/LiDAR/PNOA_2010_Lote7_CYL-MAD_434-4540_ORT-CLA-COL_mdt_1m_tin_clase2.tif"
-    ortos = sorted(f for f in os.listdir(f"{D}/PNOA/Raster") if f.endswith(".tif"))
+    # el MDT de la nube ABA se calcula si no está ya hecho: no se escribe nada junto a los datos
+    aba_mdt = os.path.join(SALIDA, "aba_mdt.tif")
+    if not os.path.exists(aba_mdt):
+        os.makedirs(SALIDA, exist_ok=True)
+        subprocess.run([CLI, "dtm", aba, "-o", aba_mdt], check=False, capture_output=True)
+    # macOS deja en discos externos un archivo «._nombre» junto a cada uno: no son datos
+    ortos = sorted(f for f in os.listdir(f"{D}/PNOA/Raster") if f.endswith(".tif") and not f.startswith("."))
     orto = f"{D}/PNOA/Raster/{ortos[0]}" if ortos else ""
     s = []
 
@@ -64,7 +69,7 @@ def escenarios(D):
     add("p20_lineas_raildata", [f"{D}/Powerlines/RAILDATA.laz"], 25)
     add("p21_lineas_editada", [f"{D}/Powerlines/20200207_editada.laz"], 8)
     add("p22_kladno_6G", [f"{D}/Kladno station pointcloud.las"], 100, 600)
-    dales = sorted(os.listdir(f"{D}/DALES2"))
+    dales = sorted(f for f in os.listdir(f"{D}/DALES2") if not f.startswith("."))
     if dales:
         add("p23_dales", [f"{D}/DALES2/{dales[0]}", "--color", "class"])
     npc3 = sorted(f for f in os.listdir(f"{D}/NPC03") if not f.startswith("."))
@@ -176,8 +181,8 @@ def comandos(D):
     add("campos_parcelas", ["fields", parcelas, "--rename", "PARCELA=parcela_id", "--results-dir", o])
     add("simplificar_rodales", ["simplify", f"{D}/ABA/Vectorial/rodales.shp", "--tolerance", "5", "--results-dir", o])
     add("reparar_rodales", ["fix-topology", f"{D}/ABA/Vectorial/rodales.shp", "--snap", "1", "--max-gap", "100", "--results-dir", o])
-    add("reproyectar_rodales_4326", ["reproject", f"{D}/ABA/Vectorial/rodales.shp", "--to", "4326", "-o", os.path.join(o, "rodales_4326.shp")])
-    add("reproyectar_finca", ["reproject", f"{D}/PNOA/FINCA.geojson", "--to", "25829", "-o", os.path.join(o, "finca_25829.geojson")])
+    add("reproyectar_rodales_4326", ["reproject", f"{D}/ABA/Vectorial/rodales.shp", "--force", "--to", "4326", "-o", os.path.join(o, "rodales_4326.shp")])
+    add("reproyectar_finca", ["reproject", f"{D}/PNOA/FINCA.geojson", "--force", "--to", "25829", "-o", os.path.join(o, "finca_25829.geojson")])
     add("simplificar_galicia", ["simplify", f"{D}/galicia2.shp", "--tolerance", "10", "--results-dir", o], 900)
     add("reparar_galicia", ["fix-topology", f"{D}/galicia2.shp", "--snap", "0.5", "--results-dir", o], 900)
     add("validar_galicia", ["is-valid", f"{D}/galicia2.shp"], 600)

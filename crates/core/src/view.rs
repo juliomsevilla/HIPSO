@@ -3356,7 +3356,7 @@ mod surface_tests {
         g.data[20 * 40 + 20] = f32::NAN;
         let color = Image::filled(40, 40, [200, 100, 50]);
         let mut rgba = color.rgba.clone();
-        for px in rgba.chunks_exact_mut(4) {
+        for px in rgba.as_chunks_mut::<4>().0 {
             px[3] = 255;
         }
         let color = Image { rgba, ..color };
@@ -3371,7 +3371,7 @@ mod surface_tests {
             150,
         );
         let bg = Style::default().background;
-        let drawn = img.rgba.chunks_exact(4).filter(|p| [p[0], p[1], p[2]] != bg).count();
+        let drawn = img.rgba.as_chunks::<4>().0.iter().filter(|p| [p[0], p[1], p[2]] != bg).count();
         assert!(drawn > 2000, "{drawn}");
     }
 

@@ -256,13 +256,13 @@ fn shift_click_cuts_perpendicular_and_the_cursor_is_shared() {
     assert!((w3[0] - 5.0).abs() < 0.2 && w3[1].abs() < 1e-6 && (w3[2] - 12.0).abs() < 0.2, "{w3:?}");
     // Mayús + clic: caja perpendicular por ese punto, con el mismo largo y ancho
     let shifted = |t: f64, events: Vec<egui::Event>| {
-        let input = egui::RawInput {
+        
+        egui::RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0))),
             time: Some(t),
             events,
             ..egui::RawInput::default()
-        };
-        input
+        }
     };
     // las teclas modificadoras llegan con los eventos de botón
     let sbutton = |p: Pos2, pressed: bool, button: egui::PointerButton| egui::Event::PointerButton {
@@ -521,7 +521,7 @@ fn real_cloud_profile_line_tools() {
         return;
     };
     let path = std::path::PathBuf::from(path);
-    let store = hipso_core::view::load(&[path.clone()], 3_000_000).unwrap();
+    let store = hipso_core::view::load(std::slice::from_ref(&path), 3_000_000).unwrap();
     eprintln!("cargados {} de {} puntos (1 de cada {})", store.len(), store.total, store.stride);
     let b = store.bounds;
     let _ = b;
@@ -581,11 +581,10 @@ fn real_cloud_profile_line_tools() {
             t += 0.05;
         }
         eprintln!("{}: órdenes sin procesar {}, ops {}, ediciones {}", nav.name(), app.ed.cmds.len(), app.ed.ops.len(), app.ed.session.as_ref().unwrap().edits.len());
-        if let Some(op) = app.ed.ops.first() {
-            if let Region::Side { path, .. } | Region::Near { path, .. } = &op.region {
+        if let Some(op) = app.ed.ops.first()
+            && let Region::Side { path, .. } | Region::Near { path, .. } = &op.region {
                 eprintln!("{}: línea {path:?}, ancho de caja {}", nav.name(), bx.width);
             }
-        }
         let ps = app.profile_store(&ctx, &bx).unwrap();
         {
             let mut n_strip = 0;
@@ -594,7 +593,7 @@ fn real_cloud_profile_line_tools() {
             for i in 0..ps.len() {
                 let p = ps.xyz(i);
                 let (u, t) = bx.local(p[0], p[1]);
-                if u >= 23.4 && u <= 90.0 && t.abs() <= 5.0 {
+                if (23.4..=90.0).contains(&u) && t.abs() <= 5.0 {
                     n_strip += 1;
                     zs = (zs.0.min(p[2]), zs.1.max(p[2]));
                     if p[2] > 657.34 {
@@ -606,7 +605,7 @@ fn real_cloud_profile_line_tools() {
         }
         let sel = ps.selected.iter().filter(|s| **s).count();
         let img = hipso_core::view::render_profile(&ps, &bx, 800, 400, &app.style, None).0;
-        let cyan = img.rgba.chunks_exact(4).filter(|p| [p[0], p[1], p[2]] == hipso_core::view::HIGHLIGHT).count();
+        let cyan = img.rgba.as_chunks::<4>().0.iter().filter(|p| [p[0], p[1], p[2]] == hipso_core::view::HIGHLIGHT).count();
         eprintln!("{}: seleccionados {sel}, píxeles resaltados {cyan}", nav.name());
     }
 }
@@ -662,7 +661,7 @@ fn real_cloud_profile_with_edited_on_top() {
     pump(&mut app);
     let c = {
         // la misma caja antes y después de añadir la editada: sobre un punto que ella clasificó como 5
-        let e = hipso_core::view::load(&[edited.clone()], 6_000_000).unwrap();
+        let e = hipso_core::view::load(std::slice::from_ref(&edited), 6_000_000).unwrap();
         let k = (0..e.len()).find(|&i| e.class[i] == 5).unwrap();
         let c = e.xyz(k);
         app.profile_width = 20.0;
@@ -735,7 +734,7 @@ fn real_cloud_profile_with_edited_on_top() {
     eprintln!("(archivo, clase, visible) -> puntos: {by:?}");
     eprintln!("sombras: {:?}", app.style.shadows);
     let img = hipso_core::view::render_profile(&ps, &bx, 800, 400, &app.style, None).0;
-    let px = |c: [u8; 3]| img.rgba.chunks_exact(4).filter(|p| [p[0], p[1], p[2]] == c).count();
+    let px = |c: [u8; 3]| img.rgba.as_chunks::<4>().0.iter().filter(|p| [p[0], p[1], p[2]] == c).count();
     eprintln!(
         "píxeles: clase 5 {}, clase 3 {}, clase 14 {}",
         px(app.style.class_colors[5]),
@@ -1057,7 +1056,7 @@ fn marking_a_scatter_rectangle_of_points_queues_one_rule_over_two_attributes() {
     for k in 0..3 {
         charts_frame(&mut app, &ctx, f64::from(k) * 0.05, vec![mv(Pos2::new(5.0, 5.0))]);
     }
-    assert_eq!(app.ch.src_is_points_for_test(), true);
+    assert!(app.ch.src_is_points_for_test());
     // la dispersión es el segundo gráfico: arrastrar un rectángulo dentro de su trazado
     let (a, b) = (Pos2::new(520.0, 620.0), Pos2::new(640.0, 700.0));
     let mut t = 0.2;
@@ -1247,4 +1246,131 @@ fn the_table_toolbar_does_not_overlap_its_texts_even_with_a_long_layer_name() {
             out.drop_without_applying_deltas();
         }
     }
+}
+
+/// Una carpeta temporal para una prueba, borrada al soltarla.
+struct Carpeta(PathBuf);
+
+impl Carpeta {
+    fn new(name: &str) -> std::io::Result<Self> {
+        let d = std::env::temp_dir().join(format!("hipso_gui_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d)?;
+        Ok(Self(d))
+    }
+}
+
+impl Drop for Carpeta {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn saving_a_layer_over_its_file_keeps_long_texts_or_leaves_it_alone() {
+    let dir = Carpeta::new("capa").unwrap();
+    let path = dir.0.join("rodales.shp");
+    let layer = |text: &str| view::VectorData {
+        fields: vec!["nota".into()],
+        text: vec![vec![text.to_string()]],
+        num: vec![vec![f64::NAN]],
+        features: vec![view::Feature { parts: vec![vec![[1.0, 2.0]]] }],
+        points: true,
+        ..view::VectorData::default()
+    };
+    hipso_core::vector::write_layer(&path, &layer("antes"), view::GeomKind::Point, None).unwrap();
+    let mut app = App::default();
+    let long = "x".repeat(200);
+    app.refs.push(RefLayer {
+        name: "rodales".into(),
+        path: path.clone(),
+        kind: RefKind::Vector(Box::new(layers::VecLayer::new(layer(&long), view::GeomKind::Point))),
+        visible: true,
+        opacity: 1.0,
+    });
+    app.save_layer(0, false);
+    assert_eq!(view::read_vector(&path).unwrap().text[0][0], long);
+    // lo que no cabe en un shapefile: se dice, el archivo queda como estaba y la capa sigue sin
+    // guardar
+    let dbf = std::fs::read(dir.0.join("rodales.dbf")).unwrap();
+    if let RefKind::Vector(v) = &mut app.refs[0].kind {
+        v.data.text[0][0] = "y".repeat(300);
+        v.dirty = true;
+    }
+    app.save_layer(0, false);
+    assert_eq!(std::fs::read(dir.0.join("rodales.dbf")).unwrap(), dbf);
+    assert!(app.log.last().unwrap().contains("254"), "{:?}", app.log.last());
+    assert!(matches!(&app.refs[0].kind, RefKind::Vector(v) if v.dirty));
+}
+
+/// Una nube LAS 1.2 mínima de diez puntos.
+fn write_las(path: &Path) {
+    let mut h = vec![0u8; 227];
+    h[..4].copy_from_slice(b"LASF");
+    h[24] = 1;
+    h[25] = 2;
+    h[94..96].copy_from_slice(&227u16.to_le_bytes());
+    h[96..100].copy_from_slice(&227u32.to_le_bytes());
+    h[105..107].copy_from_slice(&20u16.to_le_bytes());
+    h[107..111].copy_from_slice(&10u32.to_le_bytes());
+    for k in 0..3 {
+        h[131 + 8 * k..139 + 8 * k].copy_from_slice(&0.01f64.to_le_bytes());
+    }
+    for i in 0..10i32 {
+        let mut r = [0u8; 20];
+        r[..4].copy_from_slice(&(i * 100).to_le_bytes());
+        r[14] = 0x09;
+        r[15] = 1;
+        h.extend(r);
+    }
+    std::fs::write(path, h).unwrap();
+}
+
+/// Espera a que termine la tarea en marcha.
+fn finish_task(app: &mut App, ctx: &egui::Context) {
+    for _ in 0..500 {
+        app.poll(ctx);
+        if app.running.is_none() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("la tarea no termina");
+}
+
+#[test]
+fn an_edit_is_marked_as_saved_only_when_the_cloud_was_written() {
+    let dir = Carpeta::new("edicion").unwrap();
+    let cloud_path = dir.0.join("a.las");
+    write_las(&cloud_path);
+    let original = std::fs::read(&cloud_path).unwrap();
+    let ctx = egui::Context::default();
+    let store = cloud();
+    let mut app = App::default();
+    let mut session = Session::new(&store);
+    let mut store = store;
+    let ring = hipso_core::edit::circle(0.0, 0.0, 1.5);
+    let sel = hipso_core::edit::SelOp {
+        mode: hipso_core::edit::Mode::New,
+        region: Region::Plan(ring),
+        attr: hipso_core::edit::Attr::default(),
+    };
+    let edit = hipso_core::edit::Edit::new(vec![sel], hipso_core::edit::Action::Delete, "borrar".into());
+    session.apply(&mut store, edit);
+    app.ed.session = Some(session);
+    app.ed.auto_save = true;
+    app.clouds = vec![cloud_path.clone()];
+    // primero falla: el archivo de entrada ha desaparecido
+    std::fs::remove_file(&cloud_path).unwrap();
+    app.save_edited(&ctx);
+    assert_eq!(app.ed.saved, 0, "no se marca antes de terminar");
+    finish_task(&mut app, &ctx);
+    assert_eq!(app.ed.saved, 0, "un guardado fallido no marca nada");
+    // ahora va bien
+    std::fs::write(&cloud_path, &original).unwrap();
+    app.save_edited(&ctx);
+    finish_task(&mut app, &ctx);
+    assert_eq!(app.ed.saved, 1, "{:?}", app.log.last());
+    assert_eq!(std::fs::read(&cloud_path).unwrap(), original, "el original no se toca");
+    assert!(dir.0.join("a_editada.las").is_file());
 }

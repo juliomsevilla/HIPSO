@@ -353,7 +353,7 @@ fn snap_to_edges(
         by_path.entry(o).or_default().push((s, list));
     }
     for (o, mut segs) in by_path {
-        segs.sort_by(|a, b| b.0.cmp(&a.0));
+        segs.sort_by_key(|a| std::cmp::Reverse(a.0));
         for (s, list) in segs {
             let at = s + 1;
             let new: Vec<[f64; 2]> = list.into_iter().map(|x| x.1).collect();
@@ -407,12 +407,11 @@ fn repair_polygons(d: &mut VectorData, opts: &Options) -> Report {
     let mut polys: Vec<MultiPolygon<f64>> = rings.iter().map(|r| multipolygon_of(r)).collect();
     // cada elemento, válido
     for m in &mut polys {
-        if !m.0.is_empty() && !m.is_valid() {
-            if let Ok(v) = m.make_valid() {
+        if !m.0.is_empty() && !m.is_valid()
+            && let Ok(v) = m.make_valid() {
                 *m = v;
                 rep.made_valid += 1;
             }
-        }
     }
     let scale = {
         let mut b = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];

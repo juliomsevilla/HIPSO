@@ -33,7 +33,7 @@ El tercero es procesar. La pestaña *LiDAR* reúne las herramientas en seis grup
 
 El cuarto es evaluar el resultado. Los resultados se guardan junto a los datos, en la carpeta de la nube de origen y con otro nombre, y se cargan solos en el visor al terminar. El primer resultado queda el primero de la lista, encima y seleccionado; una nube resultado pasa a ser la primera nube, y la original se queda cargada (si no hace falta, se quita a mano). Si un proceso produce más de 8 nubes, se cargan las 8 primeras, un aviso lo indica y el resto queda en disco.
 
-Todo trabajo se puede detener con *■ Detener*, y lo que se hubiera escrito a medias se borra. Mientras corre, la barra de estado y el Registro dicen cuánto falta (apartado 7).
+Todo trabajo se puede detener con *■ Detener*, y lo que se hubiera escrito a medias se borra. Al cerrar el programa, los procesos que sigan en marcha se detienen del mismo modo, de manera que ninguno continúa escribiendo sin que se vea. Mientras corre un trabajo, la barra de estado y el Registro dicen cuánto falta (apartado 7).
 
 ## 4. La interfaz
 
@@ -1351,7 +1351,7 @@ Reproyecta, recorta a la extensión y remuestrea varios rásteres sobre las celd
 |---|---|
 | Referencia | El ráster cuyas celdas se copian (origen, tamaño de celda y dimensiones), de un archivo o de las capas cargadas. |
 | Rásteres a igualar | Lista de rásteres (se añaden archivos o capas, y se vacía o se quita uno). Debajo de cada uno la ventana avisa de si ya coincide con la referencia o si está en otro sistema, en cuyo caso se reproyecta. |
-| Remuestreo | *Automático* (con rásteres de enteros conserva los valores; si no, media al reducir y bilineal en los demás casos), *Vecino más cercano*, *Bilineal*, *Media*, *Cúbico* o *Moda*. |
+| Remuestreo | *Automático* (con clases, es decir, rásteres de 8 bits o de números enteros guardados en decimales, conserva los valores; si no, media al reducir y bilineal en los demás casos, también con los enteros de 16 bits), *Vecino más cercano*, *Bilineal*, *Media*, *Cúbico* o *Moda*. |
 | Valor de «sin datos» en la salida | Lo que contienen las celdas que quedan fuera de un ráster (-9999 por defecto). |
 
 Cada resultado se guarda junto al original como `<nombre>_alineado.tif`, sin pisar nunca uno anterior. La orden es `hipso align`.
@@ -1524,7 +1524,7 @@ La ventana es como la de los demás procesos: arriba un párrafo que explica qu�
 
 #### Raster → Análisis del terreno
 
-Cinco menús reparten los productos que se derivan de un MDT (o de cualquier ráster de alturas en metros). Todos funcionan igual: se elige el MDT (un archivo o una capa cargada) y la salida, un GeoTIFF del mismo tamaño, y las celdas sin dato siguen sin dato. Véase el apartado 7.2, *Análisis de terreno*.
+Cinco menús reparten los productos que se derivan de un MDT (o de cualquier ráster de alturas en metros). Todos funcionan igual: se elige el MDT (un archivo o una capa cargada) y la salida, un GeoTIFF del mismo tamaño, y las celdas sin dato siguen sin dato. Véase el apartado 7.2, *Análisis de terreno*. La posición del ráster se toma de su cabecera, incluidos los GeoTIFF de tipo punto (aquellos cuyo anclaje es el centro del primer píxel y no su esquina), que de otro modo quedarían desplazados media celda.
 
 
 Los menús de *Análisis del terreno* abren una ventana con los mismos controles de fondo. Cada ventana pide un MDT (archivo o capa cargada), la carpeta de resultados y los siguientes ajustes, según el producto.
@@ -2052,7 +2052,7 @@ Se hace una vez, en *Inicio → Ajustes → Asistente de IA* (o con el engranaje
 | ChatGPT (OpenAI) | `https://api.openai.com/v1` | `gpt-4o-mini` |
 | Otro servicio compatible con OpenAI | la que se escriba (`…/v1`) | el que se escriba |
 
-Se elige el servicio, se pega la clave (los espacios, las comillas y un «Bearer» pegado por error se quitan solos) y se pulsa *Probar conexión*. *Cargar modelos* pide al servicio su lista y deja elegir uno; también se puede escribir el nombre a mano. Cada servicio conserva su propia clave y su propio modelo, de modo que se puede cambiar de servicio sin volver a pegar nada. Las claves se guardan en un archivo de la carpeta de configuración de HIPSO (`asistente.json`), solo legible por el usuario, y nunca salen del equipo salvo hacia el servicio elegido.
+Se elige el servicio, se pega la clave (los espacios, las comillas y un «Bearer» pegado por error se quitan solos) y se pulsa *Probar conexión*. *Cargar modelos* pide al servicio su lista y deja elegir uno; también se puede escribir el nombre a mano. Cada servicio conserva su propia clave y su propio modelo, de modo que se puede cambiar de servicio sin volver a pegar nada. Las claves se guardan como texto en un archivo de la carpeta de configuración de HIPSO (`asistente.json`) y nunca salen del equipo salvo hacia el servicio elegido. En macOS y Linux solo puede leerlo el usuario, mientras que en Windows su protección es la de la propia cuenta, porque el archivo no va cifrado. Si la dirección de otro servicio empieza por `http://` y apunta a otro equipo, el programa avisa de que la clave y las consultas viajan sin cifrar.
 
 ##### Usarlo
 
@@ -2077,8 +2077,10 @@ No lleva el manual en la cabeza: cada pregunta se contesta con unas pocas herram
 | `ayuda_herramienta` | La referencia exacta de una orden: opciones con su valor por defecto, puertos de archivo y los apartados del manual que la explican. |
 | `buscar_manual` y `leer_seccion` | Busca en el manual por palabras y lee el apartado elegido, por partes si es largo. |
 | `capas_abiertas` | Las nubes, rásteres y capas que hay abiertas. |
-| `describir_archivo` y `analisis_exploratorio` | Describe una nube, un ráster, una capa o una tabla, y la explora con estadísticos. |
+| `describir_archivo` y `analisis_exploratorio` | Describe una nube, un ráster, una capa o una tabla abiertos en el programa, y los explora con estadísticos. |
 | `crear_flujo` | Construye un flujo y lo valida contra las herramientas reales. |
+
+Lo que el asistente lee de un archivo se envía al servicio elegido. Por ese motivo solo puede leer las capas y nubes que están abiertas, y si se le pide cualquier otro archivo del equipo contesta que primero hay que abrirlo (esto incluye los resultados de un flujo, que se leen una vez cargados en el mapa).
 
 El asistente **no ejecuta** herramientas de HIPSO: arma el flujo y la persona lo ejecuta. `crear_flujo` comprueba que las herramientas, las opciones y los puertos existen y, si algo falla, devuelve el motivo para que el asistente lo corrija solo. El flujo se guarda en la carpeta `flujos_asistente` de la configuración y se abre en la pestaña *Flujos* con *Abrir en Flujos*, donde lo normal es que solo falten las rutas de los archivos de entrada.
 
@@ -3200,7 +3202,7 @@ Pone varios rásteres sobre las celdas de uno de referencia (mismo sistema de co
 
 El **remuestreo** es *automático* por defecto, y la ventana explica cada método al elegirlo:
 
-- *Automático*: si el ráster son números enteros (clases, identificadores) conserva los valores (vecino más cercano, o moda si se reduce la resolución); si no, usa la media cuando las celdas de salida son mayores que las de entrada y bilineal en los demás casos.
+- *Automático*: si el ráster es de clases o identificadores (de 8 bits, o de números enteros guardados en decimales) conserva los valores (vecino más cercano, o moda si se reduce la resolución); si no, usa la media cuando las celdas de salida son mayores que las de entrada y bilineal en los demás casos. Los enteros de 16 bits se consideran medidas (así vienen, por ejemplo, los modelos SRTM) y se interpolan, puesto que tomar la celda más cercana los dejaría escalonados. Un ráster de clases de 16 bits exige, por tanto, elegir expresamente *Vecino más cercano*.
 - *Vecino más cercano*: copia el valor de la celda más cercana, sin inventar valores. Es el que hay que usar con clases, identificadores y máscaras, y el más rápido; en imágenes continuas deja bordes escalonados.
 - *Bilineal*: pondera las cuatro celdas vecinas. Es suave y no se pasa de los valores originales; es lo habitual para modelos de elevaciones, temperaturas o índices cuando la celda de salida es igual o mayor que la de entrada.
 - *Cúbico*: ajusta una curva (convolución cúbica de Keys, con a = −0,5) por las 16 celdas vecinas. Conserva mejor el detalle al ampliar o girar una imagen, pero puede rebasar ligeramente los valores máximos y mínimos. Es para fotografías e imágenes, no para clases.
@@ -3366,7 +3368,7 @@ Los tipos se conservan al guardar. En un *shapefile* los campos son numéricos (
 
 ### Guardar la edición
 
-Una capa editada se guarda sobre sí misma (*Guardar*, o el botón *Guardar* al terminar de editar) o como capa nueva (*Guardar como…* / *Guardar como capa nueva…*). En un GeoPackage se escribe sobre la tabla de la que se leyó la capa y se conservan las demás tablas de objetos del archivo; si el archivo tiene datos que no se conservan (estilos guardados por QGIS, tablas solo de atributos, teselas) el programa lo avisa y deja elegir entre guardar igualmente o guardar como capa nueva. La capa vuelve a escribirse en el sistema de coordenadas en que estaba la tabla. Un KML o KMZ no se sobrescribe: se guarda siempre como archivo nuevo, para no perder sus estilos. Las herramientas de edición (*Digitalizar*, *Vértices*, *Mover*) se activan y desactivan con el mismo botón; al desactivarlas tras hacer cambios, el programa pregunta si se guardan, se descartan o se dejan sin guardar.
+Una capa editada se guarda sobre sí misma (*Guardar*, o el botón *Guardar* al terminar de editar) o como capa nueva (*Guardar como…* / *Guardar como capa nueva…*). En un GeoPackage se escribe sobre la tabla de la que se leyó la capa y se conservan las demás tablas de objetos del archivo; si el archivo tiene datos que no se conservan (estilos guardados por QGIS, tablas solo de atributos, teselas) el programa lo avisa y deja elegir entre guardar igualmente o guardar como capa nueva. La capa vuelve a escribirse en el sistema de coordenadas en que estaba la tabla. Un KML o KMZ no se sobrescribe: se guarda siempre como archivo nuevo, para no perder sus estilos. Un shapefile o un GeoJSON se escribe primero aparte y sustituye al anterior solo cuando está completo, de modo que un fallo a mitad de escritura conserva la capa. Los textos de un shapefile admiten hasta 254 bytes, que es el límite del formato; si alguno es más largo, el programa no lo recorta, sino que lo dice y deja el archivo como estaba (un GeoPackage o un GeoJSON no tienen ese límite). Las herramientas de edición (*Digitalizar*, *Vértices*, *Mover*) se activan y desactivan con el mismo botón; al desactivarlas tras hacer cambios, el programa pregunta si se guardan, se descartan o se dejan sin guardar.
 
 ### Recortar con polígonos
 
@@ -3384,7 +3386,7 @@ Una capa con muchos objetos (más de 4 000, o más de 150 000 vértices) se dibu
 
 Este capítulo reúne las reglas de dónde se escribe cada resultado y qué formatos se leen y se escriben, porque de ambas cosas depende que un flujo de trabajo sea repetible.
 
-Los resultados van a la misma carpeta que la entrada, con otro nombre, salvo que se elija otra: todas las ventanas de herramientas tienen la fila *Guardar en*, con una carpeta de resultados que es la misma para todas (vacía, significa junto al original), y en la línea de comandos se indica con `--results-dir`. Una ejecución nunca hereda la ruta de otra ni sobrescribe sin avisar, y si se elige a mano una ruta que ya existe, se pide confirmación. Las tablas (métricas, árboles, unidades de muestreo) se escriben como capa vectorial (shapefile, con el `.prj` de la nube), CSV o ambos. Los nombres de campo de un shapefile tienen como mucho 10 caracteres, y `<nombre>_campos.txt` explica cada uno. Toda salida de métricas lleva la fecha de captura (`Date`), sacada del tiempo GPS de los puntos (o de la hora Unix, si el escáner la usa, como GeoSLAM: una fecha futura no puede ser la de captura).
+Los resultados van a la misma carpeta que la entrada, con otro nombre, salvo que se elija otra: todas las ventanas de herramientas tienen la fila *Guardar en*, con una carpeta de resultados que es la misma para todas (vacía, significa junto al original), y en la línea de comandos se indica con `--results-dir`. Una ejecución nunca hereda la ruta de otra ni sobrescribe sin avisar. Si se elige a mano una ruta que ya existe, la ventana pide confirmación o pide otro nombre, y una salida que coincida con una de las entradas se rechaza siempre. Las tablas (métricas, árboles, unidades de muestreo) se escriben como capa vectorial (shapefile, con el `.prj` de la nube), CSV o ambos. Los nombres de campo de un shapefile tienen como mucho 10 caracteres, y `<nombre>_campos.txt` explica cada uno. Toda salida de métricas lleva la fecha de captura (`Date`), sacada del tiempo GPS de los puntos (o de la hora Unix, si el escáner la usa, como GeoSLAM: una fecha futura no puede ser la de captura).
 
 ### Formatos que se leen
 
@@ -3500,6 +3502,8 @@ A la izquierda está la paleta, con las herramientas agrupadas como en la cinta 
 
 La **estrella** de la cabecera de cada nodo marca los resultados que se conservan; los de los demás nodos son intermedios y se borran en cuanto nadie los necesita. Bajo el lienzo se listan los **problemas** a medida que se construye (un bucle, una entrada sin archivo, una opción obligatoria vacía, un hilo entre tipos que no encajan), y *Ejecutar* no empieza hasta que no queda ninguno. La ejecución es en segundo plano: cada nodo muestra su estado (naranja en curso, verde hecho, rojo con error), *Cancelar* detiene el proceso en marcha y, si un paso falla o se cancela, se borra todo lo que esa ejecución había escrito, sin dejar medio resultado. Los resultados conservados van a la carpeta elegida, cada nodo en una carpeta con su nombre y sin sobrescribir nunca una existente (si el nombre ya está, se usa `_2`), y se abren en el mapa si así se pidió. El flujo en que se trabaja se guarda solo y se recupera al volver a abrir el programa.
 
+Los identificadores de los nodos de un archivo de flujo solo admiten letras sin tilde, cifras, guiones y guiones bajos, porque cada uno da nombre a una carpeta de trabajo y no puede ser una ruta.
+
 Cada nodo ejecuta el programa `hipso` con las opciones del nodo, de modo que un flujo hace exactamente lo que harían los mismos comandos escritos uno tras otro. Por eso un flujo también se ejecuta sin interfaz: `hipso run flujo.model.json` (con `--input nombre=ruta` para cambiar un nodo de entrada por nombre, y `--results-dir` para la carpeta de resultados) y `hipso model-validate flujo.model.json`, que lista lo que impide ejecutarlo. Un archivo de flujo solo puede nombrar órdenes de `hipso` y sus opciones (nunca una orden de shell ni otro programa), así que ejecutar el flujo de otra persona no ejecuta nada distinto de lo que `hipso` sabe hacer. Las ayudas de las opciones salen del propio programa, de modo que una orden nueva de `hipso` aparece sola en la paleta.
 
 ## 14. Línea de comandos
@@ -3583,11 +3587,13 @@ hipso trees3d nube.laz --dtm mdt.tif --class '~2'
 hipso tree-metrics nube_arboles3d.laz --dtm mdt.tif --alpha 2
 ```
 
+Las órdenes protegen los archivos. La salida que se da con `-o` nunca puede ser uno de los archivos que la orden lee, aunque se escriba de otra forma (`a.las` y `./a.las` son el mismo), y si ya existe un archivo con ese nombre la orden se detiene, salvo que se añada `--force`. Sin `-o`, el nombre se calcula a partir de la entrada y nunca pisa un resultado anterior.
+
 ### Servidor MCP
 
 `hipso mcp` arranca un servidor del Protocolo de Contexto de Modelo (MCP) por la entrada y la salida estándar. Con él, un asistente de inteligencia artificial, o cualquier otro cliente MCP, descubre las herramientas de `hipso` y las llama: ejecutar una clasificación, hacer un MDT o medir los árboles de una hoja sin escribir la orden a mano.
 
-Cada orden de `hipso` es una herramienta del servidor, con el mismo nombre que en la línea de comandos. Sus opciones salen del mismo esquema que dibuja las ventanas y el constructor de flujos (`hipso schema`), así que una herramienta nueva aparece sola, con su descripción, el tipo de cada opción, los valores que admite y su valor por defecto. Una llamada lanza este mismo ejecutable con la orden y devuelve lo que escribe, y cada llamada va en su propio hilo, de modo que una orden larga no impide contestar a las demás peticiones.
+Cada orden de `hipso` es una herramienta del servidor, con el mismo nombre que en la línea de comandos. Sus opciones salen del mismo esquema que dibuja las ventanas y el constructor de flujos (`hipso schema`), así que una herramienta nueva aparece sola, con su descripción, el tipo de cada opción, los valores que admite y su valor por defecto. Una llamada lanza este mismo ejecutable con la orden y devuelve lo que escribe, y cada llamada va en su propio hilo, de modo que una orden larga no impide contestar a las demás peticiones. Se ejecutan como mucho cuatro órdenes a la vez, y las siguientes esperan su turno.
 
 Se configura en el cliente como una orden más. Por ejemplo, en un archivo de configuración de servidores MCP:
 
@@ -3595,7 +3601,7 @@ Se configura en el cliente como una orden más. Por ejemplo, en un archivo de co
 { "mcpServers": { "hipso": { "command": "hipso", "args": ["mcp"] } } }
 ```
 
-El servidor no tiene credenciales ni abre ningún puerto, y trabaja con las rutas del equipo en el que corre. Hace lo que haría la persona que lo configura: puede leer los archivos que esa persona lee y escribir donde ella escribe, así que conviene que el cliente pida confirmación antes de las llamadas que escriben. Cada herramienta escribe en la carpeta de resultados de su entrada, o en la que se dé con `results_dir` o `output`.
+El servidor no tiene credenciales ni abre ningún puerto, y trabaja con las rutas del equipo en el que corre. Hace lo que haría la persona que lo configura: puede leer los archivos que esa persona lee y escribir donde ella escribe, así que conviene que el cliente pida confirmación antes de las llamadas que escriben. Cada herramienta escribe en la carpeta de resultados de su entrada, o en la que se dé con `results_dir` o `output`, que no admite el nombre de un archivo que ya exista.
 
 ## 15. Atajos
 

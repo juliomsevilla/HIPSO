@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 use hipso_core::json::{Json, quote};
 use hipso_core::model::{ArgSpec, Schema, ToolSpec};
@@ -219,10 +219,38 @@ fn error(id: &Json, code: i64, message: &str) -> String {
     )
 }
 
+/// Cuántas órdenes se ejecutan a la vez; las demás llamadas esperan su turno.
+const MAX_RUNNING: usize = 4;
+
+/// Un cupo de [`MAX_RUNNING`] órdenes a la vez.
+#[derive(Default)]
+struct Slots {
+    taken: Mutex<usize>,
+    freed: Condvar,
+}
+
+impl Slots {
+    /// Ejecuta `f` cuando haya un hueco.
+    fn run<T>(&self, f: impl FnOnce() -> T) -> T {
+        let guard = self.taken.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut guard = self
+            .freed
+            .wait_while(guard, |n| *n >= MAX_RUNNING)
+            .unwrap_or_else(PoisonError::into_inner);
+        *guard += 1;
+        drop(guard);
+        let out = f();
+        *self.taken.lock().unwrap_or_else(PoisonError::into_inner) -= 1;
+        self.freed.notify_one();
+        out
+    }
+}
+
 /// Atiende peticiones hasta que se cierra la entrada.
 pub fn serve(schema: Schema) -> Result<()> {
     let schema = Arc::new(schema);
     let out = Arc::new(Mutex::new(std::io::stdout()));
+    let slots = Arc::new(Slots::default());
     let mut workers = Vec::new();
     for line in std::io::stdin().lock().lines() {
         let line = line?;
@@ -294,8 +322,9 @@ pub fn serve(schema: Schema) -> Result<()> {
                     .cloned()
                     .unwrap_or(Json::Obj(Vec::new()));
                 let (schema, out) = (Arc::clone(&schema), Arc::clone(&out));
+                let slots = Arc::clone(&slots);
                 workers.push(std::thread::spawn(move || {
-                    let (text, failed) = call(&schema, &name, &args);
+                    let (text, failed) = slots.run(|| call(&schema, &name, &args));
                     send(
                         &out,
                         &format!(

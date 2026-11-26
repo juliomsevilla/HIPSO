@@ -449,7 +449,7 @@ fn region_of(j: &Json) -> Result<Region> {
                 return Err(bad("las celdas de un conjunto de puntos no son múltiplo de 3"));
             }
             let mut keys = Vec::with_capacity(flat.len() / 3);
-            for c in flat.chunks_exact(3) {
+            for c in flat.as_chunks::<3>().0 {
                 let mut k = [0i32; 3];
                 for (slot, v) in k.iter_mut().zip(c) {
                     *slot = f64_of(v, "keys")? as i32;

@@ -486,3 +486,29 @@ fn fields_drops_and_renames_by_the_names_the_layer_has_and_refuses_a_contradicti
     assert!(String::from_utf8_lossy(&no.stderr).contains("no tiene el campo «nada»"));
     Ok(())
 }
+
+/// La salida nunca es una entrada, escrita como se escriba, y un archivo que ya existe solo se
+/// sobrescribe con `--force`.
+#[test]
+fn an_output_never_destroys_an_input_or_a_previous_file() -> Result<()> {
+    let d = Dir::new("guard")?;
+    synthetic_cloud(&d.join("a.las"))?;
+    let before = std::fs::read(d.join("a.las"))?;
+    for out in [d.s("a.las"), d.s("./a.las")] {
+        for extra in [None, Some("--force")] {
+            let mut args = vec!["thin", "-o", &out];
+            args.extend(extra);
+            let input = d.s("a.las");
+            args.push(&input);
+            assert!(run(&args).is_err(), "{args:?}");
+            assert_eq!(std::fs::read(d.join("a.las"))?, before);
+        }
+    }
+    std::fs::write(d.join("b.las"), b"previo")?;
+    let (a, b) = (d.s("a.las"), d.s("b.las"));
+    assert!(run(&["thin", &a, "-o", &b]).is_err());
+    assert_eq!(std::fs::read(d.join("b.las"))?, b"previo");
+    run(&["thin", &a, "-o", &b, "--force"])?;
+    assert!(std::fs::metadata(d.join("b.las"))?.len() > 1000);
+    Ok(())
+}

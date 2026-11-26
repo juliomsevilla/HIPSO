@@ -138,16 +138,15 @@ pub fn drainage(g: &Grid, z: f64) -> Result<Drainage> {
     Ok(Drainage { filled, dir })
 }
 
-pub fn fill_depth(g: &Grid, z: f64) -> Grid {
+pub fn fill_depth(g: &Grid, z: f64) -> Result<Grid> {
     let mut out = g.like();
-    if let Ok(d) = drainage(g, z) {
-        for (o, (f, v)) in out.data.iter_mut().zip(d.filled.iter().zip(&g.data)) {
-            if !f.is_nan() {
-                *o = (f64::from(*f) - f64::from(*v) * z) as f32;
-            }
+    let d = drainage(g, z)?;
+    for (o, (f, v)) in out.data.iter_mut().zip(d.filled.iter().zip(&g.data)) {
+        if !f.is_nan() {
+            *o = (f64::from(*f) - f64::from(*v) * z) as f32;
         }
     }
-    out
+    Ok(out)
 }
 
 /// Celdas que drenan por cada celda (ella misma incluida) y el orden, aguas arriba primero.
@@ -186,25 +185,24 @@ pub(crate) fn accumulate(g: &Grid, dir: &[u8]) -> (Vec<u32>, Vec<u32>) {
 }
 
 /// Superficie drenada por cada celda, m².
-pub fn flow_accumulation(g: &Grid, z: f64) -> Grid {
+pub fn flow_accumulation(g: &Grid, z: f64) -> Result<Grid> {
     let mut out = g.like();
-    if let Ok(d) = drainage(g, z) {
-        let (acc, _) = accumulate(g, &d.dir);
-        let a = g.cell * g.cell;
-        for (o, (n, v)) in out.data.iter_mut().zip(acc.iter().zip(&g.data)) {
-            if !v.is_nan() {
-                *o = (f64::from(*n) * a) as f32;
-            }
+    let d = drainage(g, z)?;
+    let (acc, _) = accumulate(g, &d.dir);
+    let a = g.cell * g.cell;
+    for (o, (n, v)) in out.data.iter_mut().zip(acc.iter().zip(&g.data)) {
+        if !v.is_nan() {
+            *o = (f64::from(*n) * a) as f32;
         }
     }
-    out
+    Ok(out)
 }
 
 /// `ln(a / tan β)`, con `a` la superficie drenada por metro de curva de nivel y `β` la pendiente de
 /// la dirección de drenaje (nunca más llana que 0,1 %, para que los llanos no se disparen).
-pub fn wetness(g: &Grid, z: f64) -> Grid {
+pub fn wetness(g: &Grid, z: f64) -> Result<Grid> {
     let mut out = g.like();
-    let Ok(d) = drainage(g, z) else { return out };
+    let d = drainage(g, z)?;
     let (acc, _) = accumulate(g, &d.dir);
     let cell = g.cell;
     out.data.par_iter_mut().enumerate().for_each(|(i, o)| {
@@ -221,7 +219,7 @@ pub fn wetness(g: &Grid, z: f64) -> Grid {
         let a = f64::from(acc[i]) * cell;
         *o = (a / tan).ln() as f32;
     });
-    out
+    Ok(out)
 }
 
 pub(crate) fn threshold_cells(g: &Grid, area: f64) -> Result<u32> {
@@ -333,7 +331,7 @@ mod tests {
         // el cuenco desborda por el 3 del borde este
         assert_eq!(d.filled[2 * 5 + 2], 5.0);
         assert_eq!(d.filled[2 * 5 + 4], 3.0);
-        let depth = fill_depth(&g, 1.0);
+        let depth = fill_depth(&g, 1.0)?;
         assert_eq!(depth.data[2 * 5 + 2], 4.0);
         assert_eq!(depth.data[0], 0.0);
         Ok(())
@@ -366,7 +364,7 @@ mod tests {
                 g.data[r * 11 + c] = ((c as f32 - 5.0).abs()) + 0.1 * (10 - r) as f32;
             }
         }
-        let acc = flow_accumulation(&g, 1.0);
+        let acc = flow_accumulation(&g, 1.0)?;
         // la celda del eje en la última fila ha drenado la mayor parte del mapa (celda de 4 m²)
         let axis = acc.data[10 * 11 + 5];
         let side = acc.data[10 * 11 + 1];
@@ -375,7 +373,7 @@ mod tests {
         let s = streams(&g, 1.0, 4.0 * 20.0)?;
         assert_eq!(s.data[10 * 11 + 5], 1.0);
         assert!(s.data[10 * 11 + 1].is_nan());
-        let w = wetness(&g, 1.0);
+        let w = wetness(&g, 1.0)?;
         assert!(w.data[10 * 11 + 5] > w.data[5 * 11 + 1]);
         Ok(())
     }

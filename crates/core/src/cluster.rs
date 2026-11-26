@@ -15,10 +15,10 @@ impl Dsu {
     }
 
     /// Un elemento nuevo, solo en su conjunto; devuelve su índice.
-    pub fn push(&mut self) -> usize {
-        let i = u32::try_from(self.0.len()).expect("too many items for a union-find");
+    pub fn push(&mut self) -> Option<usize> {
+        let i = u32::try_from(self.0.len()).ok()?;
         self.0.push(i);
-        i as usize
+        Some(i as usize)
     }
 
     pub fn len(&self) -> usize {

@@ -3,6 +3,7 @@
 //! (https://www.sqlite.org/fileformat.html); la estructura de este lector sigue la de terrio (MIT,
 //! Qiusheng Wu), recortada a lo que se necesita aquí.
 
+use std::collections::HashSet;
 use rayon::prelude::*;
 
 use crate::{Error, Result};
@@ -150,7 +151,7 @@ impl Db {
     /// páginas interiores y luego se decodifican las páginas hoja en paralelo.
     fn scan(&self, root: u32) -> Result<Vec<RawRow>> {
         let mut leaves = Vec::new();
-        self.leaves(root, &mut leaves, 0)?;
+        self.leaves(root, &mut leaves, &mut HashSet::new(), 0)?;
         let rows: Vec<Result<Vec<RawRow>>> =
             leaves.par_iter().map(|n| self.leaf_rows(*n)).collect();
         let mut out = Vec::new();
@@ -160,9 +161,19 @@ impl Db {
         Ok(out)
     }
 
-    fn leaves(&self, root: u32, out: &mut Vec<u32>, depth: usize) -> Result<()> {
+    fn leaves(
+        &self,
+        root: u32,
+        out: &mut Vec<u32>,
+        seen: &mut HashSet<u32>,
+        depth: usize,
+    ) -> Result<()> {
         if depth > 64 {
             return Err(bad("árbol demasiado profundo"));
+        }
+        // en un árbol sano cada página cuelga de un solo sitio
+        if !seen.insert(root) {
+            return Err(bad("árbol dañado: una página aparece dos veces"));
         }
         let page = self.page(root)?;
         let h = if root == 1 { 100 } else { 0 };
@@ -182,14 +193,14 @@ impl Db {
                     .and_then(|b| b.try_into().ok())
                     .ok_or_else(|| bad("celda"))?,
             );
-            self.leaves(child, out, depth + 1)?;
+            self.leaves(child, out, seen, depth + 1)?;
         }
         let right = u32::from_be_bytes(
             page.get(h + 8..h + 12)
                 .and_then(|b| b.try_into().ok())
                 .ok_or_else(|| bad("página"))?,
         );
-        self.leaves(right, out, depth + 1)
+        self.leaves(right, out, seen, depth + 1)
     }
 
     fn leaf_rows(&self, n: u32) -> Result<Vec<RawRow>> {
@@ -222,6 +233,9 @@ impl Db {
                 .get(start..start + size)
                 .map(<[u8]>::to_vec)
                 .ok_or_else(|| bad("contenido"));
+        }
+        if size > self.data.len() {
+            return Err(bad("contenido mayor que el archivo"));
         }
         let m = ((u - 12) * 32 / 255) - 23;
         let k = m + (size - m) % (u - 4);

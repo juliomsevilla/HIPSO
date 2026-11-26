@@ -1,6 +1,10 @@
 //! Unir nubes: dos nubes con puntos repetidos se unen y los duplicados se mantienen, marcan o
 //! eliminan.
 
+// en las pruebas, un `unwrap` que falla es la prueba que falla (clippy.toml no cubre los
+// ayudantes de las pruebas de integración)
+#![allow(clippy::unwrap_used)]
+
 mod common;
 
 use common::write_las;

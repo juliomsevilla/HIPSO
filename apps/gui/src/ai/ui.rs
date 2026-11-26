@@ -252,11 +252,10 @@ impl App {
         ui.separator();
         if ui.add_enabled(!self.ai.conv.messages.is_empty(), egui::Button::new("Exportar esta conversación (Markdown)…")).clicked() {
             let name = format!("{}.md", docs::fold(&self.ai.conv.meta.title).chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect::<String>());
-            if let Some(p) = prefs::dialog().add_filter("Markdown", &["md"]).set_file_name(name).save_file() {
-                if let Err(e) = std::fs::write(&p, store::to_markdown(&self.ai.conv)) {
+            if let Some(p) = prefs::dialog().add_filter("Markdown", &["md"]).set_file_name(name).save_file()
+                && let Err(e) = std::fs::write(&p, store::to_markdown(&self.ai.conv)) {
                     self.notice = Some(format!("No se pudo exportar: {e}"));
                 }
-            }
             ui.close();
         }
         if self.ai.conv.meta.path.is_some() {
@@ -311,11 +310,10 @@ impl App {
                     manual::markdown(ui, &m.text, "ai_msg");
                     ui.add_space(4.0);
                     ui.horizontal_wrapped(|ui| {
-                        if let Some(f) = &m.flow {
-                            if ui.button("Abrir en Flujos").on_hover_text(f.display().to_string()).clicked() {
+                        if let Some(f) = &m.flow
+                            && ui.button("Abrir en Flujos").on_hover_text(f.display().to_string()).clicked() {
                                 self.ai.open_flow = Some(f.clone());
                             }
-                        }
                         if ui.small_button("Copiar").on_hover_text("Copia la respuesta").clicked() {
                             ctx.copy_text(m.text.clone());
                         }
@@ -340,8 +338,8 @@ impl App {
     pub fn ai_settings(&mut self, ui: &mut egui::Ui) {
         let t = self.tokens();
         // lo que han devuelto las peticiones en segundo plano
-        if let Some(rx) = &self.ai.models_rx {
-            if let Ok(r) = rx.try_recv() {
+        if let Some(rx) = &self.ai.models_rx
+            && let Ok(r) = rx.try_recv() {
                 match r {
                     Ok(list) => {
                         self.ai.settings_msg = format!("{} modelos disponibles.", list.len());
@@ -351,13 +349,11 @@ impl App {
                 }
                 self.ai.models_rx = None;
             }
-        }
-        if let Some(rx) = &self.ai.test_rx {
-            if let Ok(r) = rx.try_recv() {
+        if let Some(rx) = &self.ai.test_rx
+            && let Ok(r) = rx.try_recv() {
                 self.ai.settings_msg = r.unwrap_or_else(|e| e);
                 self.ai.test_rx = None;
             }
-        }
         if self.ai.models_rx.is_some() || self.ai.test_rx.is_some() {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
         }
@@ -391,6 +387,9 @@ impl App {
                 let b = &mut self.ai.cfg.entry("custom").base;
                 changed |= ui.add(egui::TextEdit::singleline(b).desired_width(320.0).hint_text("https://…/v1")).changed();
             });
+            if super::config::unencrypted(&self.ai.cfg.entry("custom").base) {
+                ui.label(egui::RichText::new("Atención: con http:// la clave y las consultas viajan sin cifrar. Usa https:// si el servicio no está en este equipo.").size(11.5).color(ui.visuals().warn_fg_color));
+            }
         } else {
             ui.label(egui::RichText::new(format!("Dirección: {}", p.base)).size(11.5).color(t.weak));
         }
@@ -407,7 +406,7 @@ impl App {
                 self.ai.show_key = !show;
             }
         });
-        ui.label(egui::RichText::new(format!("La clave se saca en {}. Se guarda en un archivo de tu carpeta de configuración, solo legible por ti.", p.keys_at)).size(11.5).color(t.weak));
+        ui.label(egui::RichText::new(format!("La clave se saca en {}. Se guarda {} en un archivo de tu carpeta de configuración{}.", p.keys_at, "como texto", if cfg!(unix) { ", que solo tu usuario puede leer" } else { ": protege tu cuenta de Windows, porque no va cifrada" })).size(11.5).color(t.weak));
         ui.horizontal(|ui| {
             ui.label("Modelo");
             let default = p.model;
@@ -537,12 +536,11 @@ impl App {
         if self.ai.cfg.storage == Storage::Folder {
             ui.horizontal(|ui| {
                 ui.add(egui::TextEdit::singleline(&mut self.ai.cfg.folder).desired_width(360.0).hint_text("Carpeta"));
-                if ui.button("Elegir…").clicked() {
-                    if let Some(d) = rfd::FileDialog::new().pick_folder() {
+                if ui.button("Elegir…").clicked()
+                    && let Some(d) = rfd::FileDialog::new().pick_folder() {
                         self.ai.cfg.folder = d.display().to_string();
                         changed = true;
                     }
-                }
             });
         }
         if changed {

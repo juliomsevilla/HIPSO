@@ -56,6 +56,8 @@ pub mod grid;
 pub mod ground;
 pub mod hag;
 pub mod histogram;
+#[cfg(test)]
+mod hostile;
 pub mod hydro;
 pub mod idw;
 pub mod inspect;
@@ -103,6 +105,7 @@ pub mod terrainlines;
 pub mod layeredit;
 pub mod propagate;
 pub mod thin;
+pub(crate) mod tiffio;
 pub mod tile;
 pub mod tiled;
 pub mod tilemap;

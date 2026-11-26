@@ -388,7 +388,7 @@ fn kml_text(d: &VectorData, kind: GeomKind, title: &str) -> String {
 }
 
 /// Un zip que contiene un archivo, comprimido con deflate.
-fn zip_one(name: &str, data: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn zip_one(name: &str, data: &[u8]) -> Result<Vec<u8>> {
     let mut enc = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
     enc.write_all(data)?;
     let packed = enc.finish()?;
@@ -458,9 +458,9 @@ pub fn write_vector(path: &Path, d: &VectorData, kind: GeomKind, epsg: Option<u1
     let text = kml_text(data, kind, &title);
     crate::paths::ensure_parent(path)?;
     if is_kmz(path) {
-        std::fs::write(path, zip_one("doc.kml", text.as_bytes())?)?;
+        crate::paths::write_atomic(path, zip_one("doc.kml", text.as_bytes())?)?;
     } else {
-        std::fs::write(path, text)?;
+        crate::paths::write_atomic(path, text)?;
     }
     Ok(())
 }

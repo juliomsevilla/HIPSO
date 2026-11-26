@@ -366,7 +366,8 @@ impl App {
                     Op::PointOnSurface => "puntos_sup",
                     Op::SpatialJoin => "unido",
                     Op::Voronoi => "voronoi",
-                    Op::Validate => unreachable!(),
+                    // ya atendida arriba: no escribe ningún archivo
+                    Op::Validate => return,
                 };
                 let out = paths::unique(&paths::product(&layer, tag, "shp"));
                 let (raster, second) = (t.raster.clone(), t.second.clone());
@@ -421,7 +422,7 @@ impl App {
                     }
                     let (result, note) = match op {
                         Op::Zonal => {
-                            let g = Grid::read(raster.as_deref().expect("raster"))?;
+                            let g = Grid::read(raster.as_deref().ok_or_else(|| hipso_core::Error::Param("falta el ráster".into()))?)?;
                             let regions = vector::read_regions(&layer, &vector::ReadOptions::default())?;
                             let mut r = zonal::zonal_layer(&g, &regions, &prefix)?;
                             r.prj = l.prj.clone();
@@ -441,7 +442,7 @@ impl App {
                             (r, format!("{n} polígonos tras disolver"))
                         }
                         Op::Union => {
-                            let mut b = geomops::read_polygons(second.as_deref().expect("segunda"))?;
+                            let mut b = geomops::read_polygons(second.as_deref().ok_or_else(|| hipso_core::Error::Param("falta la segunda capa".into()))?)?;
                             if repair {
                                 b = geomops::make_valid(&b)?.0;
                             }
@@ -450,7 +451,7 @@ impl App {
                             (r, format!("{n} piezas"))
                         }
                         Op::Intersect => {
-                            let mut b = geomops::read_polygons(second.as_deref().expect("segunda"))?;
+                            let mut b = geomops::read_polygons(second.as_deref().ok_or_else(|| hipso_core::Error::Param("falta la segunda capa".into()))?)?;
                             if repair {
                                 b = geomops::make_valid(&b)?.0;
                             }

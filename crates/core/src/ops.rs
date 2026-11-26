@@ -475,7 +475,7 @@ pub fn assign_projection(
     output: &Path,
     replace: bool,
 ) -> Result<String> {
-    if input == output {
+    if crate::paths::same_file(input, output) {
         return Err(Error::Param(
             "el archivo nuevo no debe sobrescribir el original".into(),
         ));

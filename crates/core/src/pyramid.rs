@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use rayon::prelude::*;
 use tiff::ColorType;
-use tiff::decoder::{Decoder, DecodingResult, Limits};
+use tiff::decoder::{Decoder, DecodingResult};
 use tiff::tags::Tag;
 
 use crate::jp2::{self, Jp2};
@@ -65,9 +65,7 @@ pub fn is_jp2_file(path: &Path) -> bool {
 }
 
 fn open_decoder(path: &Path) -> Result<Decoder<BufReader<File>>> {
-    Ok(Decoder::new(BufReader::new(crate::open_file(path)?))
-        .map_err(tiff_err)?
-        .with_limits(Limits::unlimited()))
+    crate::tiffio::open(path)
 }
 
 fn bit_depth(c: ColorType) -> u8 {
@@ -148,6 +146,8 @@ impl Pyramid {
                 path.display()
             )));
         };
+        let sy = scale.get(1).copied().unwrap_or(sx);
+        let (tx, ty) = crate::tiffio::corner(&mut d, tx, ty, sx, sy);
         let spp = d.get_tag_u32(Tag::SamplesPerPixel).unwrap_or(1).max(1) as usize;
         let planar = d.get_tag_u32(Tag::PlanarConfiguration).unwrap_or(1) == 2;
         let colortype = d.colortype().map_err(tiff_err)?;

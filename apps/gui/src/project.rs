@@ -69,7 +69,7 @@ impl App {
             o.exaggeration,
             self.style.point_size
         );
-        match std::fs::write(&file, body) {
+        match hipso_core::paths::write_atomic(&file, body) {
             Ok(()) => self.log(format!("Proyecto guardado: {}", file.display())),
             Err(e) => self.log(format!("No se pudo guardar el proyecto: {e}")),
         }

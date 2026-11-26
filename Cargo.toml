@@ -41,6 +41,13 @@ todo = "deny"
 unreachable = "deny"
 # `!(x > 0.0)` es como los parámetros rechazan NaN además de los valores no positivos.
 neg_cmp_op_on_partial_ord = "allow"
+# estilo: en el código numérico los tipos compuestos, las firmas largas y los bucles por índice se
+# leen mejor que sus alternativas
+type_complexity = "allow"
+too_many_arguments = "allow"
+needless_range_loop = "allow"
+large_enum_variant = "allow"
+field_reassign_with_default = "allow"
 
 [profile.release]
 lto = "thin"

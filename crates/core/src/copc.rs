@@ -45,6 +45,8 @@ const MAX_PAGE: u64 = 256 << 20;
 const MAX_PAGES: usize = 1 << 20;
 /// Un lote de nodos descomprimidos juntos: como mucho tantos puntos.
 const BATCH_POINTS: u64 = 1 << 22;
+/// El nivel más profundo de un árbol: el cubo de un nivel se divide entre dos elevado a él.
+const MAX_LEVEL: i32 = 30;
 
 fn u16_at(b: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_le_bytes(b.get(at..at + 2)?.try_into().ok()?))
@@ -193,6 +195,7 @@ impl Copc {
             bbox.is_none_or(|b| c[0] <= b[2] && c[3] >= b[0] && c[1] <= b[3] && c[4] >= b[1])
         };
         let mut f = File::open(&self.path)?;
+        let len = f.metadata()?.len();
         let mut pages = vec![self.root];
         let mut out = Vec::new();
         let mut seen = 0usize;
@@ -222,6 +225,14 @@ impl Copc {
                 if count == -1 {
                     pages.push((off, u64::from(bytes)));
                 } else if count > 0 {
+                    // un nodo cabe en el archivo, y sus puntos, en lo que ocupa
+                    let count = u64::from(count as u32);
+                    if level > MAX_LEVEL
+                        || off.saturating_add(u64::from(bytes)) > len
+                        || count > BATCH_POINTS.max(u64::from(bytes) * 64)
+                    {
+                        return Err(bad("jerarquía no válida: un nodo imposible"));
+                    }
                     out.push(Node {
                         level,
                         x,

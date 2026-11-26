@@ -128,6 +128,7 @@ pub fn cloud_with(
     vertical: Vertical,
     policy: Policy,
 ) -> Result<CloudReport> {
+    crate::paths::guard_output(&[src], dst)?;
     if geographic(from) || geographic(to) {
         return Err(Error::Unsupported(
             "las nubes no se reproyectan desde o hacia coordenadas geográficas (grados): usa un sistema proyectado".into(),
@@ -624,14 +625,14 @@ pub fn grid_with(
             (g.x0 + w, g.y0 + h),
             (g.x0 + w / 2.0, g.y0 + h / 2.0),
         ] {
-            match t.transform_checked(x, y, 0.0, policy) {
-                Err(hipso_crs::Error::Policy(m)) => {
-                    return Err(Error::Param(format!("transformación rechazada: {m}")));
-                }
-                _ => {}
+            if let Err(hipso_crs::Error::Policy(m)) = t.transform_checked(x, y, 0.0, policy) {
+                return Err(Error::Param(format!("transformación rechazada: {m}")));
             }
         }
-        grid(g, from, to)?
+        let (b, cell) = target_frame_of([g.x0, g.y0, g.cell], g.cols, g.rows, from, to)?;
+        // si cambian las alturas el ráster es de alturas, que se interpolan
+        let nearest = vertical.output.is_none() && categorical(g);
+        grid_onto_with(g, from, to, Grid::covering(b, cell)?, nearest)?
     };
     let Some(vo) = vertical.output else {
         return Ok(out);
@@ -682,6 +683,13 @@ pub fn grid_onto(g: &Grid, from: u16, to: u16, out: Grid) -> Result<Grid> {
     grid_onto_with(g, from, to, out, categorical(g))
 }
 
+/// Como [`grid_onto`] para el archivo `source`: si sus valores son enteros de 16 bits son medidas
+/// (un SRTM), así que se interpolan.
+pub(crate) fn grid_of_file_onto(source: &Path, g: &Grid, from: u16, to: u16, out: Grid) -> Result<Grid> {
+    let measures = crate::pyramid::Pyramid::open(source).is_ok_and(|p| p.bits == 16);
+    grid_onto_with(g, from, to, out, !measures && categorical(g))
+}
+
 /// [`grid_onto`] diciendo si se toma la celda más cercana (rásteres de números enteros) o se
 /// interpola.
 fn grid_onto_with(g: &Grid, from: u16, to: u16, mut out: Grid, nearest: bool) -> Result<Grid> {
@@ -727,6 +735,7 @@ pub fn file_with(
     vertical: Vertical,
     policy: Policy,
 ) -> Result<String> {
+    crate::paths::guard_output(&[input], output)?;
     let name = input.file_name().map_or_else(
         || input.display().to_string(),
         |n| n.to_string_lossy().into_owned(),

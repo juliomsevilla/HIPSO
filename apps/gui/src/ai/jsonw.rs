@@ -8,7 +8,10 @@ pub fn dump(j: &Json) -> String {
         Json::Null => "null".into(),
         Json::Bool(b) => b.to_string(),
         Json::Num(n) => {
-            if n.fract() == 0.0 && n.abs() < 1e15 {
+            // JSON no tiene `NaN` ni infinitos
+            if !n.is_finite() {
+                "null".into()
+            } else if n.fract() == 0.0 && n.abs() < 1e15 {
                 format!("{}", *n as i64)
             } else {
                 n.to_string()
@@ -65,6 +68,8 @@ mod tests {
         let back = Json::parse(&dump(&j))?;
         assert_eq!(back, j);
         assert_eq!(dump(&n(3.0)), "3");
+        assert_eq!(dump(&n(f64::NAN)), "null");
+        assert_eq!(dump(&n(f64::INFINITY)), "null");
         Ok(())
     }
 }

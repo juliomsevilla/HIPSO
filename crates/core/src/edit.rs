@@ -837,7 +837,7 @@ pub struct SaveReport {
 pub fn save(input: &Path, output: &Path, edits: &[Edit]) -> Result<SaveReport> {
     let active: Vec<Edit> = edits.iter().filter(|e| e.enabled).cloned().collect();
     let edits = &active[..];
-    if input == output {
+    if crate::paths::same_file(input, output) {
         return Err(Error::Param(
             "la nube editada debe ir a un archivo nuevo, no sobre el original".into(),
         ));
@@ -937,7 +937,7 @@ pub fn save(input: &Path, output: &Path, edits: &[Edit]) -> Result<SaveReport> {
 /// en una pasada en flujo); cuántos. Las herramientas de proceso se ejecutan sobre esto cuando hay
 /// una selección activa.
 pub fn extract_selected(input: &Path, ops: &[SelOp], output: &Path) -> Result<u64> {
-    if input == output {
+    if crate::paths::same_file(input, output) {
         return Err(Error::Param(
             "la selección debe ir a un archivo nuevo".into(),
         ));

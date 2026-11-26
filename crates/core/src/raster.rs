@@ -3,10 +3,9 @@
 //! bandas. Las imágenes sirven de mapas base para las nubes y los índices como rásteres con los que
 //! comparar el CHM.
 
-use std::io::BufReader;
 use std::path::Path;
 
-use tiff::decoder::{Decoder, DecodingResult};
+use tiff::decoder::DecodingResult;
 use tiff::tags::Tag;
 
 use crate::grid::Grid;
@@ -50,7 +49,7 @@ pub fn read_image(path: &Path) -> Result<Image> {
     if let Some(l) = crate::rasterfmt::load(path)? {
         return Ok(l.image);
     }
-    let mut d = Decoder::new(BufReader::new(crate::open_file(path)?)).map(|d| d.with_limits(tiff::decoder::Limits::unlimited())).map_err(tiff_err)?;
+    let mut d = crate::tiffio::open(path)?;
     let (w, h) = d.dimensions().map_err(tiff_err)?;
     let scale = d
         .get_tag_f64_vec(Tag::ModelPixelScaleTag)
@@ -64,6 +63,7 @@ pub fn read_image(path: &Path) -> Result<Image> {
             path.display()
         )));
     };
+    let (tx, ty) = crate::tiffio::corner(&mut d, tx, ty, sx, sy);
     let nodata = d
         .get_tag_ascii_string(Tag::GdalNodata)
         .ok()

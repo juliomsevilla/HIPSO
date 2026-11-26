@@ -113,13 +113,13 @@ pub fn definitions() -> Json {
         f(
             "describir_archivo",
             "Describe una nube LAS/LAZ, un ráster o una capa/tabla en pocas líneas.",
-            vec![("ruta", p("string", "ruta o nombre de capa abierta"))],
+            vec![("ruta", p("string", "nombre o ruta de una capa abierta (solo se leen las abiertas)"))],
             &["ruta"],
         ),
         f(
             "analisis_exploratorio",
             "Análisis exploratorio de una capa o tabla (estadísticos por campo, frecuentes, correlaciones); en ráster, estadísticos e histograma; en nube, su resumen.",
-            vec![("ruta", p("string", "ruta o nombre de capa abierta")), ("campos", arr_of_strings("campos (todos por defecto)"))],
+            vec![("ruta", p("string", "nombre o ruta de una capa abierta (solo se leen las abiertas)")), ("campos", arr_of_strings("campos (todos por defecto)"))],
             &["ruta"],
         ),
         f(
@@ -162,14 +162,18 @@ pub fn run(name: &str, args: &Json, env: &Env) -> Output {
         "buscar_manual" => search(&text(args, "consulta"), args.get("n").and_then(Json::as_f64).map_or(3, |v| v as usize)).into(),
         "leer_seccion" => read_section(&text(args, "id"), page(args)).into(),
         "capas_abiertas" => layers(env).into(),
-        "describir_archivo" => describe(&resolve(&text(args, "ruta"), env)).into(),
+        "describir_archivo" => {
+            let given = text(args, "ruta");
+            resolve(&given, env).map_or_else(|| not_open(&given), |p| describe(&p)).into()
+        }
         "analisis_exploratorio" => {
             let fields: Vec<String> = args
                 .get("campos")
                 .and_then(Json::as_array)
                 .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
                 .unwrap_or_default();
-            explore(&resolve(&text(args, "ruta"), env), &fields).into()
+            let given = text(args, "ruta");
+            resolve(&given, env).map_or_else(|| not_open(&given), |p| explore(&p, &fields)).into()
         }
         "crear_flujo" => return create_flow(args, env),
         other => format!("No existe la herramienta «{other}». Las que hay: que_es_hipso, listar_herramientas, ayuda_herramienta, buscar_manual, leer_seccion, capas_abiertas, describir_archivo, analisis_exploratorio y crear_flujo.").into(),
@@ -322,13 +326,20 @@ fn layers(env: &Env) -> String {
         .join("\n")
 }
 
-/// La ruta de un archivo, o la de la capa abierta que se llama así.
-fn resolve(given: &str, env: &Env) -> PathBuf {
+/// El archivo de la capa abierta que se llama así o que tiene esa ruta. Solo se leen las capas
+/// abiertas: lo que se lee se envía al servicio, así que el modelo no puede pedir cualquier archivo
+/// del equipo.
+fn resolve(given: &str, env: &Env) -> Option<PathBuf> {
     let g = given.trim();
-    if let Some(l) = env.layers.iter().find(|l| l.name == g || l.path == g) {
-        return PathBuf::from(&l.path);
-    }
-    PathBuf::from(g)
+    env.layers
+        .iter()
+        .find(|l| l.name == g || l.path == g)
+        .map(|l| PathBuf::from(&l.path))
+}
+
+/// Lo que se contesta cuando se pide un archivo que no está abierto.
+fn not_open(given: &str) -> String {
+    format!("«{}» no es una capa abierta, y solo se leen las abiertas. Pide a la persona que la abra en HIPSO (capas_abiertas dice cuáles hay).", given.trim())
 }
 
 fn ext(p: &Path) -> String {
@@ -417,6 +428,9 @@ fn table_summary(d: &hipso_core::view::VectorData, what: &str) -> String {
 }
 
 fn quantile(sorted: &[f64], q: f64) -> f64 {
+    if sorted.is_empty() {
+        return f64::NAN;
+    }
     let r = q * (sorted.len() - 1) as f64;
     let (lo, hi) = (r.floor() as usize, r.ceil() as usize);
     sorted[lo] + (sorted[hi] - sorted[lo]) * (r - lo as f64)
@@ -568,8 +582,8 @@ pub fn build_model(args: &Json, schema: Option<&Schema>) -> Result<Model, Vec<St
     let mut ids: Vec<String> = Vec::new();
     for e in args.get("entradas").and_then(Json::as_array).unwrap_or(&[]) {
         let id = text(e, "id");
-        if id.is_empty() || ids.contains(&id) {
-            errors.push(format!("Una entrada necesita un id único (repetido o vacío: «{id}»)."));
+        if !model::valid_id(&id) || ids.contains(&id) {
+            errors.push(format!("Una entrada necesita un id único de letras sin tilde, cifras, «-» o «_» (no vale: «{id}»)."));
             continue;
         }
         ids.push(id.clone());
@@ -582,8 +596,8 @@ pub fn build_model(args: &Json, schema: Option<&Schema>) -> Result<Model, Vec<St
     // los ids de los pasos primero, para que un paso pueda recibir de otro anterior o posterior
     for st in steps {
         let id = text(st, "id");
-        if id.is_empty() || ids.contains(&id) {
-            errors.push(format!("Un paso necesita un id único (repetido o vacío: «{id}»)."));
+        if !model::valid_id(&id) || ids.contains(&id) {
+            errors.push(format!("Un paso necesita un id único de letras sin tilde, cifras, «-» o «_» (no vale: «{id}»)."));
         } else {
             ids.push(id);
         }
@@ -798,8 +812,8 @@ mod tests {
     #[test]
     fn layer_names_resolve_to_paths() {
         let env = Env { layers: vec![LayerInfo { name: "chm.tif".into(), kind: "ráster".into(), path: "/d/chm.tif".into(), note: String::new() }], ..Env::default() };
-        assert_eq!(resolve("chm.tif", &env), PathBuf::from("/d/chm.tif"));
-        assert_eq!(resolve("/otra/ruta.laz", &env), PathBuf::from("/otra/ruta.laz"));
+        assert_eq!(resolve("chm.tif", &env), Some(PathBuf::from("/d/chm.tif")));
+        assert_eq!(resolve("/otra/ruta.laz", &env), None);
         assert!(layers(&env).contains("[ráster]"));
         assert_eq!(layers(&Env::default()), "No hay ninguna capa abierta.");
     }
