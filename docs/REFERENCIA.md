@@ -209,7 +209,7 @@ Métodos disponibles:
 
 ## Distribuir
 
-Ver [DISTRIBUCION.md](DISTRIBUCION.md): ZIP portable, compilación para Windows, Linux y macOS con GitHub Actions, instaladores y firma.
+Ver [PUBLICAR.md](PUBLICAR.md): cómo se generan y publican los paquetes de Windows, Linux y macOS.
 
 ## Compilar
 
