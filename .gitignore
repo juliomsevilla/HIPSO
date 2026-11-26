@@ -9,3 +9,6 @@ my-voice.md
 .DS_Store
 /site/salida
 /_sitio
+
+# se conserva en local y no se publica
+/apps/tlsviewer/

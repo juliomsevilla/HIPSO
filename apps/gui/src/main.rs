@@ -55,7 +55,6 @@ mod ponds_ui;
 mod theme;
 mod tips;
 mod halo;
-mod tlsview;
 mod viewdetail;
 mod tools;
 mod vecedit;
@@ -68,7 +67,6 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 
@@ -419,8 +417,6 @@ enum Action {
     Shortcuts,
     Settings,
     Flows,
-    /// Abre la ventana «Ver nubes TLS» con la primera nube cargada.
-    TlsView,
     /// Una herramienta de la ventana genérica (índice de `cli_tool_ui::TOOLS`).
     CliTool(u8),
     FlowNew,
@@ -662,8 +658,6 @@ struct App {
     detail_src: Vec<PathBuf>,
     /// La creación de las copias COPC en segundo plano.
     cache_job: Option<Receiver<Result<Vec<PathBuf>, String>>>,
-    /// La preparación y apertura de «Ver nubes TLS» en segundo plano.
-    tls_job: Option<(Receiver<Result<String, String>>, Instant, Arc<AtomicBool>, Arc<AtomicU32>)>,
     /// Los puntos de la ventana que se mira, leídos de los archivos COPC.
     detail: Option<Detail>,
     detail_job: Option<DetailJob>,
@@ -830,7 +824,6 @@ impl Default for App {
             work_crs: None,
             detail_src: Vec::new(),
             cache_job: None,
-            tls_job: None,
             detail: None,
             detail_job: None,
             detail3: None,
@@ -1228,7 +1221,6 @@ impl App {
                     Some("shortcuts") => Action::Shortcuts,
                     Some("settings") => Action::Settings,
                     Some("flows") => Action::Flows,
-                    Some("tls") => Action::TlsView,
                     Some("flowrun") => Action::FlowRun,
                     // abre la pestaña de flujos con uno de los ejemplos, por su posición
                     Some(n) if n.starts_with("flow-example-") => {
@@ -2917,7 +2909,6 @@ impl App {
             Action::Shortcuts => self.show_backstage(backstage::Page::Shortcuts),
             Action::Settings => self.show_backstage(backstage::Page::Settings),
             Action::CliTool(k) => self.open_cli_tool(usize::from(k)),
-            Action::TlsView => self.ver_nubes_tls(ctx),
             Action::Flows => {
                 self.backstage = false;
                 self.tab = FLOWS_TAB;
@@ -3106,7 +3097,6 @@ impl App {
                 "Colorear por elevación + intensidad",
                 Action::Color(ColorBy::ElevationIntensity),
             ),
-            ("Ver nubes TLS", Action::TlsView),
             ("TIN sombreado", Action::ToggleTin),
             ("Curvas de nivel", Action::ToggleContours),
             ("Cargar ráster de fondo", Action::LoadRaster),
@@ -3911,19 +3901,6 @@ ui.menu_button("⚙", |ui| {
                             r.started.elapsed().as_secs_f64(),
                             progress_text(r.started).map_or(String::new(), |p| format!(" · {p}"))
                         )));
-                    } else if let Some((_, ini, abierta, avance)) = &self.tls_job {
-                        ui.separator();
-                        ui.spinner();
-                        let s = ini.elapsed().as_secs_f64();
-                        let p = avance.load(Ordering::Relaxed) as f64 / 100.0;
-                        ui.label(small(if abierta.load(Ordering::Relaxed) {
-                            "«Ver nubes TLS» abierto".to_string()
-                        } else if p >= 2.0 {
-                            let falta = (s / p * (100.0 - p)) as u64;
-                            format!("preparando la nube para «Ver nubes TLS»… {p:.0} % · quedan {}:{:02} aprox.", falta / 60, falta % 60)
-                        } else {
-                            format!("preparando la nube para «Ver nubes TLS»… {p:.0} % · calculando el tiempo ({}:{:02}; la primera vez tarda unos minutos)", s as u64 / 60, s as u64 % 60)
-                        }));
                     } else if let Some(j) = self.img_jobs.first() {
                         ui.separator();
                         ui.spinner();
@@ -5919,7 +5896,6 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        self.paso_tls();
         // lo que señaló el cursor en el fotograma anterior se marca en las demás vistas
         self.hover = self.hover_next.take();
         if let Some(w) = &mut self.window_png {

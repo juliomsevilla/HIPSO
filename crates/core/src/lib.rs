@@ -28,7 +28,6 @@ pub mod model;
 pub mod rasterproc;
 pub mod copc_detail;
 pub mod copc_view;
-pub mod tls_octree;
 pub mod copc_tiled;
 pub mod copc_write;
 pub mod corridor;

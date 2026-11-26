@@ -3,6 +3,3 @@
 *.ps1 text eol=crlf
 *.png binary
 *.ico binary
-
-# el parche se aplica a archivos con fin de línea CRLF: no se toca
-apps/tlsviewer/potreeconverter/*.patch -text
