@@ -1184,8 +1184,8 @@ fn the_table_toolbar_does_not_overlap_its_texts_even_with_a_long_layer_name() {
     }
     data.points = true;
     for (name, width) in [
-        ("ATM_SUBASTA_NOGUEIRO5_cubicado_con_un_nombre_larguisimo_de_capa.shp", 1100.0f32),
-        ("ATM_SUBASTA_NOGUEIRO5_cubicado.shp", 1480.0),
+        ("PARCELA_TLS_DE_PRUEBA_cubicado_con_un_nombre_larguisimo_de_capa.shp", 1100.0f32),
+        ("PARCELA_TLS_DE_PRUEBA_cubicado.shp", 1480.0),
         ("capa.shp", 900.0),
     ] {
         let mut app = App::default();

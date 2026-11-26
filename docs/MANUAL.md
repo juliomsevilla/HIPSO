@@ -3034,10 +3034,6 @@ El resultado consta de tres archivos. Un shapefile (y/o CSV) con un punto en la 
 
 Con esto se cierra el capítulo de procesos. El hilo común de todas las herramientas es el mismo: leer la nube como un flujo, producir un archivo nuevo junto al original y dejar en el informe la cifra que permite juzgar si el resultado es fiable.
 
-#### Visor de nubes densas
-
-Además de la vista 3D del programa hay un visor aparte, `hipso-tls`, para nubes terrestres de cientos de millones de puntos. Dibuja con la tarjeta gráfica (con el visor de código abierto Potree dentro de una ventana propia, sin abrir navegador ni servidor) y lee de disco, por trozos, un octree que prepara PotreeConverter la primera vez; la conversión queda en la caché. Tiene relieve, colores por elevación (con la rampa viridis), por clase y por cualquier atributo de la nube, filtros de puntos, tamaño y tope de tamaño del punto, y *Abrir nube…* para elegir otra. No está en la cinta: se abre con la orden *Ver nubes TLS* del buscador de comandos (Ctrl+K), que convierte la primera nube cargada si hace falta, o con `hipso-tls nube.laz` en la consola. Necesita `hipso-tls` y PotreeConverter junto al programa, que esta versión no reparte: se compilan aparte con las instrucciones de `apps/tlsviewer/`, donde también está cómo publicar una nube convertida en una web estática (no probado todavía de punta a punta). El visor no edita ni clasifica; para eso está el programa.
-
 ### 7.7 Infraestructuras
 
 Este grupo reúne las herramientas que parten de una nube ya clasificada para vigilar una obra lineal.

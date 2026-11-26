@@ -28,6 +28,12 @@ def datos():
     return "/Volumes/Ext1Tb/EasyLiDAR_data"
 
 
+def parcela_tls(D):
+    """La ruta, sin extensión, de la parcela de escáner terrestre que ya tiene su cubicación."""
+    hechas = sorted(glob.glob(f"{D}/TLS/*_cubicado.shp"))
+    return hechas[0][: -len("_cubicado.shp")] if hechas else f"{D}/TLS/parcela_tls"
+
+
 def escenarios(D):
     pnoa = f"{D}/PNOA/LiDAR/PNOA_2023_EXT_655-4371_H29_NPC02.laz"
     pnoa4 = [f"{D}/PNOA/LiDAR/PNOA_2023_EXT_{a}_H29_NPC02.laz" for a in ("655-4371", "655-4372", "656-4371", "656-4372")]
@@ -66,7 +72,7 @@ def escenarios(D):
     add("p16_copc_lion", [f"{D}/lion_takanawa.copc.laz"])
     add("p17_copc_sofi", [f"{D}/sofi.copc.laz"], 25)
     add("p18_dron_Z1_65M", sorted(glob.glob(f"{D}/*/Z1_170426.las")), 45, 400)
-    add("p19_tls_nogueiro5_5G", [f"{D}/TLS/ATM SUBASTA NOGUEIRO5.las"], 100, 600)
+    add("p19_tls_5G", [f"{parcela_tls(D)}.las"], 100, 600)
     add("p20_lineas_raildata", [f"{D}/Powerlines/RAILDATA.laz"], 25)
     add("p21_lineas_editada", [f"{D}/Powerlines/20200207_editada.laz"], 8)
     add("p22_kladno_6G", [f"{D}/Kladno station pointcloud.las"], 100, 600)
@@ -87,8 +93,8 @@ def escenarios(D):
     add("v05_aba_parcelas_rodales", [f"{D}/ABA/Campo/Parcelas.shp", f"{D}/ABA/Vectorial/rodales.shp", f"{D}/ABA/Campo/parcelas_metricas.shp", "--table"])
     add("v06_aba_metricas_eda", [f"{D}/ABA/Campo/parcelas_metricas.shp", "--charts", "--table"], 8)
     add("v07_inventario_xlsx_eda", [f"{D}/ABA/Campo/Datos_Inventario.xlsx", "--charts"], 8)
-    add("v08_tls_cubicado", [f"{D}/TLS/ATM SUBASTA NOGUEIRO5_cubicado.shp", "--charts", "--table"], 8)
-    add("v09_tls_trozas_csv", [f"{D}/TLS/ATM SUBASTA NOGUEIRO5_cubicado_trozas.csv", "--charts"], 8)
+    add("v08_tls_cubicado", [f"{parcela_tls(D)}_cubicado.shp", "--charts", "--table"], 8)
+    add("v09_tls_trozas_csv", [f"{parcela_tls(D)}_cubicado_trozas.csv", "--charts"], 8)
     add("v10_galicia2_eda", [f"{D}/galicia2.shp", "--charts"], 45, 400)
     add("v11_vsel_all", [f"{D}/ABA/Campo/parcelas_metricas.shp", "--charts", "--vsel-all"], 8)
     # rásteres
@@ -191,7 +197,7 @@ def comandos(D):
     add("catalogo_pnoa", ["catalog", f"{D}/PNOA/LiDAR"], 900)
     add("copc_autzen_info", ["info", f"{D}/autzen-classified.copc.laz"])
     add("lineas_info", ["info", f"{D}/Powerlines/20200207_editada.laz"])
-    add("tls_info", ["info", f"{D}/TLS/ATM SUBASTA NOGUEIRO5.las"], 900)
+    add("tls_info", ["info", f"{parcela_tls(D)}.las"], 900)
     add("esquema", ["schema"])
     return c
 
