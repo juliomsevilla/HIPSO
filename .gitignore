@@ -12,3 +12,6 @@ my-voice.md
 
 # se conserva en local y no se publica
 /apps/tlsviewer/
+
+# kit para entregar nubes a clientes: se conserva en local y no se publica
+/HIPSO_visor_kit/

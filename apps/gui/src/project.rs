@@ -35,7 +35,8 @@ impl App {
         else {
             return;
         };
-        let clouds: Vec<String> = self.clouds.iter().map(|p| text(p)).collect();
+        // en el orden de dibujo, que es el que se recupera al abrirlo
+        let clouds: Vec<String> = self.cloud_stack().into_iter().map(|k| text(&self.clouds[k])).collect();
         let layers: Vec<String> = self
             .refs
             .iter()

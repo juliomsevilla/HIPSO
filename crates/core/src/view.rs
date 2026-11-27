@@ -3,6 +3,7 @@
 //! 3D y perfil. La interfaz pinta las imágenes que estos hacen; `hipso render` las escribe como
 //! PNG.
 
+use std::sync::Arc;
 use std::path::{Path, PathBuf};
 
 use crate::classes::ClassSet;
@@ -59,9 +60,114 @@ pub struct PointStore {
     /// Puntos de los archivos, y uno conservado de cada `stride`.
     pub total: u64,
     pub stride: u64,
+    /// Dónde tiene puntos cada archivo; se calcula la primera vez que hace falta (véase
+    /// [`PointStore::shadows`]).
+    pub footprints: std::sync::OnceLock<Vec<Option<Arc<Footprint>>>>,
     /// El sistema de coordenadas de la primera nube como texto `.prj` (para archivos hechos a
     /// partir de ella).
     pub prj: Option<String>,
+}
+
+/// Las celdas en planta que un archivo cubre con una densidad apreciable.
+#[derive(Debug, PartialEq)]
+pub struct Footprint {
+    x0: f64,
+    y0: f64,
+    cell: f64,
+    cols: usize,
+    rows: usize,
+    /// Hasta dónde llega el archivo: la última celda puede sobresalir.
+    x1: f64,
+    y1: f64,
+    bits: Vec<u64>,
+}
+
+impl Footprint {
+    /// Si el archivo cubre la celda de `(x, y)`, en coordenadas del mapa.
+    pub fn covers(&self, x: f64, y: f64) -> bool {
+        if !(x >= self.x0 && x <= self.x1 && y >= self.y0 && y <= self.y1) {
+            return false;
+        }
+        let (c, r) = ((x - self.x0) / self.cell, (y - self.y0) / self.cell);
+        let (c, r) = ((c as usize).min(self.cols - 1), (r as usize).min(self.rows - 1));
+        let k = r * self.cols + c;
+        self.bits[k / 64] & (1 << (k % 64)) != 0
+    }
+}
+
+/// El lado mínimo de una celda de huella, en unidades del mapa.
+const FOOTPRINT_CELL: f64 = 2.0;
+/// Los puntos que debería tener de media una celda: con menos, la muestra en memoria dejaría vacías
+/// celdas en las que el archivo sí tiene puntos.
+const FOOTPRINT_POINTS: f64 = 8.0;
+/// Una celda cuenta como cubierta cuando tiene al menos esta parte de los puntos de la celda
+/// mediana: en el borde de un vuelo quedan puntos sueltos que no deben tapar a la nube de debajo.
+const FOOTPRINT_SHARE: f64 = 0.25;
+/// Las celdas que puede tener como mucho una huella (medio megabyte).
+const FOOTPRINT_CELLS: f64 = 4.0e6;
+
+/// La huella de cada archivo del almacén, a partir de los puntos que guarda.
+fn footprints(s: &PointStore) -> Vec<Option<Arc<Footprint>>> {
+    let mut n = vec![0u64; s.files.len()];
+    for &f in &s.file {
+        if let Some(c) = n.get_mut(usize::from(f)) {
+            *c += 1;
+        }
+    }
+    let mut grids: Vec<Option<Footprint>> = (0..s.files.len())
+        .map(|k| {
+            let b = s
+                .file_bounds
+                .get(k)
+                .filter(|b| b[3] >= b[0] && b[4] >= b[1])?;
+            let (w, h) = ((b[3] - b[0]).max(1e-3), (b[4] - b[1]).max(1e-3));
+            let cell = FOOTPRINT_CELL
+                .max((w * h * FOOTPRINT_POINTS / n[k].max(1) as f64).sqrt())
+                .max((w * h / FOOTPRINT_CELLS).sqrt());
+            let (cols, rows) = ((w / cell) as usize + 1, (h / cell) as usize + 1);
+            Some(Footprint {
+                x0: b[0],
+                y0: b[1],
+                cell,
+                cols,
+                rows,
+                x1: b[3],
+                y1: b[4],
+                bits: vec![0; (cols * rows).div_ceil(64)],
+            })
+        })
+        .collect();
+    let mut counts: Vec<Vec<u32>> = grids
+        .iter()
+        .map(|g| g.as_ref().map_or_else(Vec::new, |g| vec![0; g.cols * g.rows]))
+        .collect();
+    for i in 0..s.len() {
+        let f = usize::from(s.file[i]);
+        let Some(g) = grids.get(f).and_then(Option::as_ref) else {
+            continue;
+        };
+        let x = s.origin[0] + f64::from(s.x[i]) - g.x0;
+        let y = s.origin[1] + f64::from(s.y[i]) - g.y0;
+        // las coordenadas en memoria son de precisión simple: un punto del borde puede quedar una
+        // fracción fuera
+        let c = ((x / g.cell).max(0.0) as usize).min(g.cols - 1);
+        let r = ((y / g.cell).max(0.0) as usize).min(g.rows - 1);
+        counts[f][r * g.cols + c] += 1;
+    }
+    for (g, n) in grids.iter_mut().zip(&counts) {
+        let Some(g) = g else { continue };
+        let mut occupied: Vec<u32> = n.iter().copied().filter(|&v| v > 0).collect();
+        if occupied.is_empty() {
+            continue;
+        }
+        let mid = occupied.len() / 2;
+        let median = *occupied.select_nth_unstable(mid).1;
+        let least = ((f64::from(median) * FOOTPRINT_SHARE) as u32).max(1);
+        for (k, _) in n.iter().enumerate().filter(|(_, v)| **v >= least) {
+            g.bits[k / 64] |= 1 << (k % 64);
+        }
+    }
+    grids.into_iter().map(|g| g.map(Arc::new)).collect()
 }
 
 impl PointStore {
@@ -73,22 +179,34 @@ impl PointStore {
         self.x.is_empty()
     }
 
-    /// Para cada archivo, las extensiones (en planta) de los archivos que van antes en la lista y
-    /// están a la vista según el bit correspondiente de `visible` (los de la posición 64 en adelante
+    /// Para cada archivo, las huellas (en planta) de los archivos que van antes en la lista y están
+    /// a la vista según el bit correspondiente de `visible` (los de la posición 64 en adelante
     /// siempre lo están). Es lo que usa [`Style::shadows`]: la nube de arriba tapa a las de abajo
-    /// donde se solapan. Un archivo sin extensión conocida (ASCII) ni tapa ni se tapa.
-    pub fn shadows(&self, visible: u64) -> Vec<Vec<[f64; 4]>> {
+    /// donde se solapan, es decir, donde ella tiene puntos y no en todo el rectángulo que la
+    /// envuelve. Un archivo sin extensión conocida (ASCII) ni tapa ni se tapa.
+    pub fn shadows(&self, visible: u64) -> Vec<Vec<Arc<Footprint>>> {
+        let order: Vec<usize> = (0..self.files.len()).collect();
+        self.shadows_in(&order, visible)
+    }
+
+    /// Como [`PointStore::shadows`], con el orden de dibujo dado: los números de archivo desde el
+    /// de arriba hasta el de abajo.
+    pub fn shadows_in(&self, order: &[usize], visible: u64) -> Vec<Vec<Arc<Footprint>>> {
         let on = |k: usize| k >= 64 || visible & (1u64 << k) != 0;
-        let known = |k: usize| self.file_bounds.get(k).filter(|b| b[3] >= b[0] && b[4] >= b[1]);
+        let huellas = self.footprints.get_or_init(|| footprints(self));
+        let huella = |k: usize| huellas.get(k).and_then(Option::as_ref);
         (0..self.files.len())
             .map(|k| {
-                if known(k).is_none() {
+                if huella(k).is_none() {
                     return Vec::new();
                 }
-                (0..k)
+                order
+                    .iter()
+                    .copied()
+                    .take_while(|&j| j != k)
                     .filter(|&j| on(j))
-                    .filter_map(known)
-                    .map(|b| [b[0], b[1], b[3], b[4]])
+                    .filter_map(huella)
+                    .cloned()
                     .collect()
             })
             .collect()
@@ -304,6 +422,7 @@ impl PointStore {
             file_bounds: self.file_bounds.clone(),
             total: self.total,
             stride: self.stride,
+            footprints: Default::default(),
             prj: self.prj.clone(),
         };
         s.files.remove(k);
@@ -884,10 +1003,10 @@ pub struct Style {
     /// Solo se dibujan los puntos con la cota absoluta entre estos dos valores (`None`: todos). Es
     /// un filtro de vista, no el reparto de la rampa de color (`zmin` y `zmax`).
     pub zlim: Option<[f64; 2]>,
-    /// Por archivo: las extensiones `[xmin, ymin, xmax, ymax]` de las nubes que van por encima de él
-    /// en la lista y están a la vista. Un punto del archivo `k` dentro de una de ellas no se dibuja:
-    /// donde dos nubes se solapan prevalece la de arriba. Véase [`PointStore::shadows`].
-    pub shadows: Vec<Vec<[f64; 4]>>,
+    /// Por archivo: las huellas de las nubes que van por encima de él en la lista y están a la
+    /// vista. Un punto del archivo `k` donde una de ellas tiene puntos no se dibuja: donde dos nubes
+    /// se solapan prevalece la de arriba. Véase [`PointStore::shadows`].
+    pub shadows: Vec<Vec<Arc<Footprint>>>,
     /// Bit k activado: se dibujan los puntos del archivo k (los archivos del 65.º en adelante
     /// siempre).
     pub files: u64,
@@ -994,7 +1113,7 @@ impl Style {
             );
             if over
                 .iter()
-                .any(|b| x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3])
+                .any(|h| h.covers(x, y))
             {
                 return false;
             }
@@ -3506,7 +3625,64 @@ mod surface_tests {
         assert!(st.visible(&s, 1));
         // sin extensión conocida no tapa ni se tapa
         s.file_bounds.clear();
+        s.footprints = Default::default();
         assert!(s.shadows(u64::MAX).iter().all(Vec::is_empty));
+    }
+
+    #[test]
+    fn a_tilted_cloud_hides_only_where_it_has_points() {
+        // archivo 0 (arriba): una franja en diagonal, cuyo rectángulo envolvente es todo el cuadrado;
+        // archivo 1 (abajo): el cuadrado entero
+        let mut s = PointStore {
+            stride: 1,
+            files: vec!["franja.laz".into(), "cuadrado.laz".into()],
+            file_bounds: vec![[0.0, 0.0, 0.0, 100.0, 100.0, 1.0]; 2],
+            ..PointStore::default()
+        };
+        for f in 0..2u8 {
+            for i in 0..=200u32 {
+                for j in 0..=200u32 {
+                    let (x, y) = (i as f32 * 0.5, j as f32 * 0.5);
+                    if f == 0 && (x - y).abs() > 5.0 {
+                        continue;
+                    }
+                    s.x.push(x);
+                    s.y.push(y);
+                    s.z.push(0.0);
+                    s.class.push(1);
+                    s.intensity.push(0);
+                    s.ret.push(0x11);
+                    s.src.push(0);
+                    s.scan.push(0);
+                    s.file.push(f);
+                }
+            }
+        }
+        let mut st = Style::default();
+        st.shadows = s.shadows(u64::MAX);
+        let abajo = |x: f32, y: f32| {
+            (0..s.len())
+                .find(|&i| s.file[i] == 1 && s.x[i] == x && s.y[i] == y)
+                .map(|i| st.visible(&s, i))
+        };
+        assert_eq!(abajo(50.0, 50.0), Some(false), "bajo la franja, tapado");
+        assert_eq!(abajo(90.0, 10.0), Some(true), "en el rectángulo pero sin franja, a la vista");
+        assert_eq!(abajo(10.0, 90.0), Some(true));
+        assert_eq!(abajo(70.0, 50.0), Some(true), "junto a la franja, más allá de una celda");
+        // un punto suelto de la nube de arriba no tapa a la de abajo
+        s.x.push(90.0);
+        s.y.push(10.0);
+        s.z.push(0.0);
+        s.class.push(1);
+        s.intensity.push(0);
+        s.ret.push(0x11);
+        s.src.push(0);
+        s.scan.push(0);
+        s.file.push(0);
+        s.footprints = Default::default();
+        st.shadows = s.shadows(u64::MAX);
+        let i = (0..s.len()).find(|&i| s.file[i] == 1 && s.x[i] == 90.0 && s.y[i] == 10.0);
+        assert_eq!(i.map(|i| st.visible(&s, i)), Some(true), "bajo un punto suelto, a la vista");
     }
 }
 

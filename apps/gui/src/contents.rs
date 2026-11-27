@@ -265,6 +265,10 @@ impl App {
         let mut clouds_zoom = false;
         let mut clouds_remove_all = false;
         let mut clouds_step: Option<bool> = None;
+        // las filas de las nubes, en su orden de dibujo, y la nube que cambia de puesto
+        let stack = self.cloud_stack();
+        let mut cloud_rows: Vec<(usize, Rect)> = Vec::new();
+        let mut cloud_move: Option<(usize, usize)> = None;
         let sel_cloud_id = egui::Id::new("contents_sel_cloud");
         let mut sel_cloud: Option<usize> = ui.ctx().data_mut(|d| d.get_temp::<usize>(sel_cloud_id));
         // las nubes en otro sistema que la primera caerían en otro sitio
@@ -673,7 +677,7 @@ impl App {
                             }
                             let mut bottom = header.map_or(0.0, |r| r.bottom());
                             if open {
-                                for k in 0..n_clouds {
+                                for (place, &k) in stack.iter().enumerate() {
                                     let p = self.clouds[k].clone();
                                     let name = p
                                         .file_name()
@@ -729,6 +733,10 @@ impl App {
                                     }
                                     if let Some(rr) = o.row {
                                         bottom = rr.rect.bottom();
+                                        cloud_rows.push((k, rr.rect));
+                                        if rr.drag_started() && needle.is_empty() {
+                                            ui.ctx().data_mut(|d| d.insert_temp(drag_id, (2u8, k)));
+                                        }
                                         let rr = rr.on_hover_text(match &warn {
                                             Some(w) => format!("{}\n{w}", p.display()),
                                             None => p.display().to_string(),
@@ -747,6 +755,15 @@ impl App {
                                             }
                                             if ui.button("Ver solo esta nube").clicked() {
                                                 cloud_solo = Some(k);
+                                                ui.close();
+                                            }
+                                            ui.separator();
+                                            if ui.add_enabled(place > 0, egui::Button::new("Subir en el orden de dibujo")).clicked() {
+                                                cloud_move = Some((k, place - 1));
+                                                ui.close();
+                                            }
+                                            if ui.add_enabled(place + 1 < n_clouds, egui::Button::new("Bajar en el orden de dibujo")).clicked() {
+                                                cloud_move = Some((k, place + 1));
                                                 ui.close();
                                             }
                                             ui.separator();
@@ -784,7 +801,31 @@ impl App {
                 // ---- arrastrar una capa o las nubes: la línea donde caería y el soltado
                 let dragging: Option<(u8, usize)> =
                     ui.ctx().data_mut(|d| d.get_temp::<(u8, usize)>(drag_id));
-                if let Some((kind, k)) = dragging {
+                // una nube se mueve entre las nubes de su grupo
+                if let Some((2, k)) = dragging {
+                    let ptr = ui.input(|i| i.pointer.interact_pos());
+                    if let (Some(p), Some(first), Some(last)) = (ptr, cloud_rows.first(), cloud_rows.last()) {
+                        let slot = cloud_rows.iter().filter(|(_, r)| r.center().y < p.y).count();
+                        let y = cloud_rows.get(slot).map_or(last.1.bottom(), |(_, r)| r.top());
+                        ui.painter().line_segment(
+                            [Pos2::new(first.1.left(), y), Pos2::new(first.1.right(), y)],
+                            Stroke::new(2.0, t.accent),
+                        );
+                        if ui.input(|i| i.pointer.any_released())
+                            && let Some(from) = cloud_rows.iter().position(|(j, _)| *j == k)
+                        {
+                            let to = if slot > from { slot - 1 } else { slot };
+                            if to != from {
+                                cloud_move = Some((k, to));
+                            }
+                        }
+                    }
+                    if ui.input(|i| i.pointer.any_released()) {
+                        ui.ctx().data_mut(|d| d.remove::<(u8, usize)>(drag_id));
+                    } else {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    }
+                } else if let Some((kind, k)) = dragging {
                     let from = if kind == 1 { Item::Clouds } else { Item::Layer(k) };
                     let ptr = ui.input(|i| i.pointer.interact_pos());
                     if let (Some(p), false) = (ptr, rows.is_empty()) {
@@ -866,6 +907,9 @@ impl App {
         }
         if let Some(up) = clouds_step {
             self.step_item(Item::Clouds, up);
+        }
+        if let Some((k, to)) = cloud_move {
+            self.move_cloud(k, to);
         }
         if let Some(k) = cloud_solo
             && k < 64

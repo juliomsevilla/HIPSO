@@ -154,7 +154,7 @@ Botón grande, a la derecha de *Ventanas*, con un menú que elige el atributo co
 - *ID de fuente* (un color por pasada), *Archivo* (un color por archivo) y *RGB* (el color que trae el punto).
 - *ID de árbol (treeID)*: cada copa de un color a partir del atributo `treeID` que escribe *Segmentar con CHM*. Solo está disponible si la nube lo trae; los puntos sin árbol quedan en gris.
 
-Al cargar una nube con color, el programa la muestra en RGB. Si dos nubes se solapan, prevalece la que está más arriba en la lista de nubes: sus puntos tapan a los de las de abajo dentro de su extensión, en la planta, el perfil y el 3D. Una nube que se abre queda arriba de la lista. La leyenda sale en la planta; si solo se ve el 3D, sale en el 3D. Con *Altura sobre el suelo* y *Ángulo de barrido* la leyenda es la rampa con sus valores. El perfil también se colorea por altura: calcula la altura con los puntos de suelo de su propia franja, a toda su densidad.
+Al cargar una nube con color, el programa la muestra en RGB. Si dos nubes se solapan, prevalece la que está más arriba en la lista de nubes: sus puntos tapan a los de las de abajo donde ella cubre el terreno con una densidad apreciable (se comprueba en celdas de unos pocos metros, no en el rectángulo que la envuelve, y unos puntos sueltos en el borde de un vuelo no tapan nada), en la planta, el perfil y el 3D. Una nube que se abre queda arriba de la lista, y el orden se cambia en *Contenido* arrastrando la nube o con el botón derecho. La leyenda sale en la planta; si solo se ve el 3D, sale en el 3D. Con *Altura sobre el suelo* y *Ángulo de barrido* la leyenda es la rampa con sus valores. El perfil también se colorea por altura: calcula la altura con los puntos de suelo de su propia franja, a toda su densidad.
 
 ##### Filtros
 
@@ -1658,7 +1658,7 @@ Los dos botones de la cabecera del panel. *Abrir* añade archivos, y *Mostrar to
 
 ##### El árbol
 
-El árbol tiene tres raíces: *Mapa* (su casilla muestra u oculta todo), las capas (vectoriales, rásteres e imágenes) y el grupo *Nubes de puntos*. El grupo de nubes se comporta como un elemento más y se sube o se baja entero por encima o por debajo de las capas, arrastrándolo o con el botón derecho. Los rásteres e imágenes nuevos se colocan bajo las nubes, y las capas vectoriales sobre ellas. La última fila es *Mapa base* (apartado 4.10). Cada fila tiene su flecha de despliegue (las capas con simbología por valores muestran sus clases debajo), su casilla de visibilidad, su símbolo y su nombre. Una casilla a medias en un grupo indica que solo algunos de sus elementos se ven.
+El árbol tiene tres raíces: *Mapa* (su casilla muestra u oculta todo), las capas (vectoriales, rásteres e imágenes) y el grupo *Nubes de puntos*. El grupo de nubes se comporta como un elemento más y se sube o se baja entero por encima o por debajo de las capas, arrastrándolo o con el botón derecho. Dentro del grupo, cada nube se arrastra a otro puesto: donde dos nubes se solapan se ve la que está más arriba, y los proyectos guardan ese orden. Los rásteres e imágenes nuevos se colocan bajo las nubes, y las capas vectoriales sobre ellas. La última fila es *Mapa base* (apartado 4.10). Cada fila tiene su flecha de despliegue (las capas con simbología por valores muestran sus clases debajo), su casilla de visibilidad, su símbolo y su nombre. Una casilla a medias en un grupo indica que solo algunos de sus elementos se ven.
 
 ##### Acciones de una fila
 
@@ -1670,7 +1670,7 @@ Un clic selecciona la fila y un doble clic hace zoom a ella. Con el ratón encim
 | Imagen | *Zoom a la capa*, *Bandas e índices…*, *Subir en el orden de dibujo*, *Bajar en el orden de dibujo* y *Quitar*. |
 | Ráster de una banda | *Zoom a la capa*, *Subir en el orden de dibujo*, *Bajar en el orden de dibujo* y *Quitar*. |
 | Grupo de nubes | *Subir en el orden de dibujo*, *Bajar en el orden de dibujo*, *Ver todas*, *Zoom a todas las nubes* y *Cerrar todas las nubes*. |
-| Una nube | *Zoom a esta tesela*, *Ver solo esta nube* y *Cerrar esta nube*. |
+| Una nube | *Zoom a esta tesela*, *Ver solo esta nube*, *Subir en el orden de dibujo*, *Bajar en el orden de dibujo* y *Cerrar esta nube*. |
 | Varias capas seleccionadas | *Mostrar*, *Ocultar*, *Zoom a las capas*, *Subir en el orden de dibujo*, *Bajar en el orden de dibujo* y *Quitar*, sobre todas a la vez. |
 
 Un aviso (⚠) delante del nombre indica que la capa o la nube está en otro sistema de coordenadas, y al dejar el ratón encima se dice cuál. Un lápiz (✎) marca la capa que se está editando.

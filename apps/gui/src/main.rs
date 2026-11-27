@@ -565,6 +565,9 @@ struct App {
     ai: ai::Assistant,
     /// Cuántas de las capas se dibujan bajo las nubes de puntos (las primeras de `refs`).
     cloud_slot: usize,
+    /// El orden de dibujo de las nubes que se han movido, desde arriba; las que no están aquí (las
+    /// recién abiertas) van encima, en el orden de `clouds`. Véase [`App::cloud_stack`].
+    cloud_order: Vec<PathBuf>,
     rasters_over: bool,
     show_points: bool,
     tin_on: bool,
@@ -753,6 +756,7 @@ impl Default for App {
             refs: Vec::new(),
             ai: ai::Assistant::new(),
             cloud_slot: 0,
+            cloud_order: Vec::new(),
             rasters_over: false,
             show_points: true,
             tin_on: false,
@@ -2326,7 +2330,8 @@ impl App {
     /// Quita la nube de la posición `k` de la lista, conservando los bits de visibilidad de las
     /// demás.
     fn drop_cloud(&mut self, k: usize) {
-        self.clouds.remove(k);
+        let gone = self.clouds.remove(k);
+        self.cloud_order.retain(|p| *p != gone);
         if k < 64 {
             let low = self.style.files & ((1u64 << k) - 1);
             self.style.files = low | (self.style.files >> (k + 1) << k);
@@ -2369,14 +2374,40 @@ impl App {
         self.moving_until = Instant::now() + Duration::from_millis(160);
     }
 
-    /// Donde dos nubes se solapan prevalece la que está más arriba en la lista de nubes: las
-    /// extensiones de las de arriba que están a la vista tapan los puntos de las de abajo.
+    /// Los números de las nubes en su orden de dibujo, desde la de arriba.
+    fn cloud_stack(&self) -> Vec<usize> {
+        let mut stack: Vec<usize> = (0..self.clouds.len())
+            .filter(|&k| !self.cloud_order.contains(&self.clouds[k]))
+            .collect();
+        stack.extend(
+            self.cloud_order
+                .iter()
+                .filter_map(|p| self.clouds.iter().position(|c| c == p)),
+        );
+        stack
+    }
+
+    /// Lleva la nube `k` al puesto `to` del orden de dibujo (0, arriba del todo).
+    fn move_cloud(&mut self, k: usize, to: usize) {
+        let mut stack = self.cloud_stack();
+        let Some(from) = stack.iter().position(|&j| j == k) else {
+            return;
+        };
+        stack.remove(from);
+        stack.insert(to.min(stack.len()), k);
+        self.cloud_order = stack.iter().map(|&j| self.clouds[j].clone()).collect();
+        self.rev += 1;
+    }
+
+    /// Donde dos nubes se solapan prevalece la que está más arriba en la lista de nubes: las que
+    /// están a la vista tapan, donde cubren el terreno, los puntos de las de abajo.
     fn update_shadows(&mut self) {
+        let stack = self.cloud_stack();
         self.style.shadows = self
             .store
             .as_ref()
             .filter(|s| s.files.len() == self.clouds.len())
-            .map_or_else(Vec::new, |s| s.shadows(self.style.files));
+            .map_or_else(Vec::new, |s| s.shadows_in(&stack, self.style.files));
     }
 
     /// Si algún filtro de vista deja puntos fuera: retornos, clases o rango de cotas.
@@ -2661,6 +2692,7 @@ impl App {
             }
             Action::CloseAll => {
                 self.clouds.clear();
+                self.cloud_order.clear();
                 self.work_crs = None;
                 self.crs_cache.clear();
                 // una carga que sigue en marcha traería la nube de vuelta al terminar

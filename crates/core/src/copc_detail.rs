@@ -44,32 +44,25 @@ pub fn load_detail(
         .iter()
         .map(|c| c.nodes(Some(window), None))
         .collect::<Result<_>>()?;
-    // el nivel más profundo cuyos nodos (todos, un nodo llega más allá de la ventana) caben
-    let max_level = nodes.iter().flatten().map(|n| n.level).max().unwrap_or(0);
-    // el nivel cuyo espaciado es aproximadamente un píxel (`px` unidades del mapa): más fino solo
-    // sobredibujaría
-    let spacing = clouds
+    // cada nube baja hasta el nivel que le da la misma separación entre puntos que a las demás:
+    // sus octrees parten de separaciones distintas, y un nivel común dejaba ralas a las grandes
+    let spacings: Vec<f64> = clouds.iter().map(|c| c.spacing()).collect();
+    // lo que cada nodo aporta a la ventana: sus puntos en la parte de su cubo que cae dentro
+    let inside: Vec<Vec<(i32, u64)>> = clouds
         .iter()
-        .map(|c| c.spacing())
-        .fold(f64::INFINITY, f64::min);
-    let wanted = if px > 0.0 && spacing.is_finite() {
-        (spacing / px).log2().ceil().max(0.0) as i32
-    } else {
-        max_level
-    };
-    let mut level = 0;
-    for l in 0..=max_level {
-        let pts: u64 = nodes
-            .iter()
-            .flatten()
-            .filter(|n| n.level <= l)
-            .map(|n| u64::from(n.points))
-            .sum();
-        if (pts > budget as u64 * 2 || l > wanted) && l > 0 {
-            break;
-        }
-        level = l;
-    }
+        .zip(&nodes)
+        .map(|(c, ns)| {
+            ns.iter()
+                .map(|n| {
+                    let q = c.cube(n.level, n.x, n.y, n.z);
+                    let part = |lo: f64, hi: f64, a: f64, b: f64| ((hi.min(b) - lo.max(a)) / (hi - lo).max(1e-9)).clamp(0.0, 1.0);
+                    let share = part(q[0], q[3], window[0], window[2]) * part(q[1], q[4], window[1], window[3]);
+                    (n.level, (f64::from(n.points) * share).ceil() as u64)
+                })
+                .collect()
+        })
+        .collect();
+    let (target, levels) = common_levels(&spacings, &inside, budget, px);
     let mut s = PointStore {
         origin,
         files: files.to_vec(),
@@ -84,7 +77,7 @@ pub fn load_detail(
         .iter()
         .any(|c| c.reader().extra_field("treeID").is_some());
     for (fi, (c, ns)) in clouds.iter().zip(&nodes).enumerate() {
-        let sel: Vec<Node> = ns.iter().filter(|n| n.level <= level).copied().collect();
+        let sel: Vec<Node> = ns.iter().filter(|n| n.level <= levels[fi]).copied().collect();
         let r: &Reader = c.reader();
         let tree_field = r.extra_field("treeID");
         let h = &r.header;
@@ -165,5 +158,69 @@ pub fn load_detail(
         [lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]]
     };
     s.total = s.x.len() as u64;
-    Ok(Some((s, spacing / f64::from(1u32 << level.min(30) as u32))))
+    Ok(Some((s, target)))
+}
+
+/// La separación común a la que se leen varias nubes y el nivel de cada una: se parte la separación
+/// por la mitad mientras los puntos de los nodos elegidos quepan en el presupuesto y siga siendo
+/// mayor que un píxel (`px`; 0, sin ese límite). Los niveles raíz se leen siempre.
+///
+/// De cada nodo se dan su nivel y los puntos que aporta a la ventana.
+fn common_levels(spacings: &[f64], nodes: &[Vec<(i32, u64)>], budget: usize, px: f64) -> (f64, Vec<i32>) {
+    let deepest: Vec<i32> = nodes
+        .iter()
+        .map(|ns| ns.iter().map(|n| n.0).max().unwrap_or(0))
+        .collect();
+    let at = |t: f64| -> Vec<i32> {
+        spacings
+            .iter()
+            .zip(&deepest)
+            .map(|(&s, &max)| ((s / t).log2().ceil().max(0.0) as i32).min(max))
+            .collect()
+    };
+    let count = |levels: &[i32]| -> u64 {
+        nodes
+            .iter()
+            .zip(levels)
+            .flat_map(|(ns, &l)| ns.iter().filter(move |n| n.0 <= l))
+            .map(|n| n.1)
+            .sum()
+    };
+    let mut target = spacings.iter().copied().fold(0.0, f64::max);
+    if !(target.is_finite() && target > 0.0) {
+        // sin una separación válida en las cabeceras, solo los niveles raíz
+        return (0.0, vec![0; spacings.len()]);
+    }
+    let mut levels = at(target);
+    while levels != deepest && !(px > 0.0 && target <= px) {
+        let finer = at(target / 2.0);
+        if count(&finer) > budget as u64 * 2 {
+            break;
+        }
+        (target, levels) = (target / 2.0, finer);
+    }
+    (target, levels)
+}
+
+#[cfg(test)]
+mod common_level_tests {
+    use super::*;
+
+    #[test]
+    fn clouds_of_different_size_get_the_same_spacing() {
+        // dos nubes con la misma densidad: la grande parte de una separación cuatro veces mayor, y
+        // sus puntos para esa separación están dos niveles más abajo
+        let nodes = vec![
+            (0..=6).map(|l| (l, 100u64)).collect::<Vec<_>>(),
+            (0..=6).map(|l| (l, 100u64)).collect::<Vec<_>>(),
+        ];
+        let (t, l) = common_levels(&[20.0, 5.0], &nodes, 10_000, 1.25);
+        assert_eq!((t, l), (1.25, vec![4, 2]));
+        // sin presupuesto, solo la separación de partida: la pequeña ya está en su raíz
+        let (t, l) = common_levels(&[20.0, 5.0], &nodes, 0, 1.25);
+        assert_eq!((t, l), (20.0, vec![0, 0]));
+        // con px 0 se baja hasta el fondo de las dos
+        let (_, l) = common_levels(&[20.0, 5.0], &nodes, 10_000, 0.0);
+        assert_eq!(l, vec![6, 6]);
+    }
 }

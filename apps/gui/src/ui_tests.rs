@@ -1374,3 +1374,83 @@ fn an_edit_is_marked_as_saved_only_when_the_cloud_was_written() {
     assert_eq!(std::fs::read(&cloud_path).unwrap(), original, "el original no se toca");
     assert!(dir.0.join("a_editada.las").is_file());
 }
+
+/// Las nubes se reordenan dentro de su grupo arrastrando la fila, y la que queda arriba tapa.
+#[test]
+fn a_cloud_is_dragged_above_another_in_the_contents_tree() {
+    let mut app = App::default();
+    app.clouds = vec!["primera.laz".into(), "segunda.laz".into(), "tercera.laz".into()];
+    let ctx = egui::Context::default();
+    // los nombres de las nubes en pantalla, de arriba abajo, con su sitio
+    let draw = |app: &mut App, t: f64, events: Vec<egui::Event>| -> Vec<(String, Pos2)> {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 700.0))),
+            time: Some(t),
+            events,
+            ..egui::RawInput::default()
+        };
+        let out = ctx.run_ui(input, |ui| {
+            let ctx = ui.ctx().clone();
+            app.contents_ui(ui, &ctx);
+        });
+        let mut v = Vec::new();
+        for cs in &out.shapes {
+            if let egui::Shape::Text(t) = &cs.shape
+                && t.galley.text().ends_with(".laz")
+            {
+                v.push((t.galley.text().to_string(), t.pos + t.galley.size() / 2.0));
+            }
+        }
+        v.sort_by(|a, b| a.1.y.total_cmp(&b.1.y));
+        out.drop_without_applying_deltas();
+        v
+    };
+    let names = |v: &[(String, Pos2)]| v.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
+    draw(&mut app, 0.0, vec![]);
+    let before = draw(&mut app, 0.05, vec![]);
+    assert_eq!(names(&before), ["primera.laz", "segunda.laz", "tercera.laz"]);
+    // la tercera, a lo alto
+    let (a, b) = (before[2].1, before[0].1 - Vec2::new(0.0, 8.0));
+    let press = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    draw(&mut app, 0.1, vec![mv(a)]);
+    draw(&mut app, 0.15, vec![press(a, true)]);
+    for k in 1..=6 {
+        draw(&mut app, 0.15 + 0.05 * f64::from(k), vec![mv(a + (b - a) * (k as f32 / 6.0))]);
+    }
+    draw(&mut app, 0.6, vec![press(b, false)]);
+    let after = draw(&mut app, 0.65, vec![]);
+    assert_eq!(names(&after), ["tercera.laz", "primera.laz", "segunda.laz"]);
+    assert_eq!(app.cloud_stack(), [2, 0, 1]);
+    // los archivos no cambian de número: solo el orden de dibujo
+    assert_eq!(app.clouds[0], PathBuf::from("primera.laz"));
+    // una nube recién abierta queda arriba, y cerrar una no desordena las demás
+    app.clouds.insert(0, "nueva.laz".into());
+    assert_eq!(app.cloud_stack(), [0, 3, 1, 2]);
+    app.drop_cloud(1);
+    assert_eq!(app.cloud_stack(), [0, 2, 1]);
+}
+
+/// El grupo de nubes entero sube y baja respecto de las capas.
+#[test]
+fn the_cloud_group_moves_above_and_below_the_layers() {
+    let mut app = App::default();
+    app.clouds = vec!["una.laz".into()];
+    app.refs.push(RefLayer {
+        name: "capa".into(),
+        path: PathBuf::from("capa.shp"),
+        kind: RefKind::Vector(Box::new(layers::VecLayer::new(Default::default(), view::GeomKind::Point))),
+        visible: true,
+        opacity: 1.0,
+    });
+    app.cloud_slot = 0;
+    assert_eq!(app.order_items(), [layers::Item::Clouds, layers::Item::Layer(0)]);
+    app.step_item(layers::Item::Clouds, true);
+    assert_eq!(app.order_items(), [layers::Item::Layer(0), layers::Item::Clouds]);
+    app.step_item(layers::Item::Clouds, false);
+    assert_eq!(app.order_items(), [layers::Item::Clouds, layers::Item::Layer(0)]);
+}
