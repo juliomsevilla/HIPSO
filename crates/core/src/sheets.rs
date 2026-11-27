@@ -102,6 +102,8 @@ impl Drop for Scratch {
 struct Block {
     cat: crate::catalog::Catalog,
     entries: std::sync::Arc<Vec<crate::catalog::Entry>>,
+    /// Dónde está cada hoja en el catálogo.
+    places: std::collections::HashMap<PathBuf, usize>,
     /// Para cada hoja, archivos pequeños con los puntos de sus vecinas a menos de `margin` de ella.
     strips: Vec<Vec<PathBuf>>,
     _scratch: Option<Scratch>,
@@ -173,7 +175,9 @@ impl Block {
                 }
             }
         }
+        let places = entries.iter().enumerate().map(|(i, e)| (e.path.clone(), i)).collect();
         Ok(Self {
+            places,
             cat,
             entries,
             strips,
@@ -187,10 +191,9 @@ impl Block {
     }
 
     fn index(&self, input: &Path) -> Result<usize> {
-        self.cat
-            .entries
-            .iter()
-            .position(|e| e.path == input)
+        self.places
+            .get(input)
+            .copied()
             .ok_or_else(|| Error::Param("la cabecera de la hoja no se pudo leer".into()))
     }
 
@@ -268,6 +271,13 @@ impl Block {
     }
 }
 
+/// La variable de entorno con la lista (un archivo, una ruta por línea) de las hojas que ya están
+/// hechas: sirven de contexto a sus vecinas y no se repiten. La usan los flujos al reanudar.
+pub const SKIP_ENV: &str = "HIPSO_HOJAS_HECHAS";
+/// Cómo empieza la línea con la que se avisa de que una hoja está terminada, si quien lanzó el
+/// proceso pidió los avisos.
+pub const DONE: &str = "» hecha: ";
+
 /// Ejecuta `work` sobre cada hoja. Una hoja que falla (un archivo truncado, por ejemplo) se anota y
 /// las demás siguen, de modo que no se pierden horas de trabajo por un mal archivo; solo una
 /// cancelación detiene la ejecución. Da las líneas de las hojas que fueron bien y las hojas que
@@ -277,10 +287,21 @@ fn each_sheet<T>(
     mut work: impl FnMut(&Path) -> Result<(String, T)>,
 ) -> Result<(Vec<String>, Vec<T>, Vec<String>)> {
     let (mut lines, mut done, mut failed) = (Vec::new(), Vec::new(), Vec::new());
+    let skip: std::collections::HashSet<PathBuf> = std::env::var_os(SKIP_ENV)
+        .and_then(|f| std::fs::read_to_string(f).ok())
+        .map(|t| t.lines().map(PathBuf::from).collect())
+        .unwrap_or_default();
+    let tell = std::env::var_os(crate::paths::ANNOUNCE_ENV).is_some();
     for (k, input) in inputs.iter().enumerate() {
         crate::check_cancel()?;
+        if skip.contains(input) {
+            continue;
+        }
         match work(input) {
             Ok((line, t)) => {
+                if tell {
+                    println!("{DONE}{}", input.display());
+                }
                 lines.push(format!("[{}/{}] {}", k + 1, inputs.len(), line));
                 done.push(t);
             }

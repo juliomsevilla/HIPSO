@@ -1,0 +1,87 @@
+{
+ "hipso_modelo": 1,
+ "results": "",
+ "nodes": [
+  {
+   "id": "n1",
+   "label": "Nube",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n2",
+   "label": "MDT",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "dtm",
+   "args": {
+    "cell": [
+     "1"
+    ]
+   }
+  },
+  {
+   "id": "n3",
+   "label": "Árboles 3D",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "trees3d",
+   "args": {
+    "hmin": [
+     "2"
+    ]
+   }
+  },
+  {
+   "id": "n4",
+   "label": "Métricas por árbol",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "tree-metrics",
+   "args": {}
+  }
+ ],
+ "edges": [
+  {
+   "from": "n1",
+   "to": "n2",
+   "port": "inputs"
+  },
+  {
+   "from": "n1",
+   "to": "n3",
+   "port": "inputs"
+  },
+  {
+   "from": "n2",
+   "to": "n3",
+   "port": "dtm"
+  },
+  {
+   "from": "n3",
+   "to": "n4",
+   "port": "input"
+  },
+  {
+   "from": "n2",
+   "to": "n4",
+   "port": "dtm"
+  }
+ ],
+ "params": [
+  {
+   "name": "altura mínima",
+   "node": "n3",
+   "arg": "hmin"
+  }
+ ]
+}

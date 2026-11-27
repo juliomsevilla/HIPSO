@@ -21,6 +21,34 @@
    "path": ""
   },
   {
+   "id": "n6",
+   "label": "MDT primera fecha",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "dtm",
+   "args": {
+    "cell": [
+     "1"
+    ]
+   }
+  },
+  {
+   "id": "n7",
+   "label": "MDT segunda fecha",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "dtm",
+   "args": {
+    "cell": [
+     "1"
+    ]
+   }
+  },
+  {
    "id": "n3",
    "label": "CHM primera fecha",
    "keep": false,
@@ -79,6 +107,26 @@
    "from": "n4",
    "to": "n5",
    "port": "after"
+  },
+  {
+   "from": "n1",
+   "to": "n6",
+   "port": "inputs"
+  },
+  {
+   "from": "n2",
+   "to": "n7",
+   "port": "inputs"
+  },
+  {
+   "from": "n6",
+   "to": "n3",
+   "port": "dtm"
+  },
+  {
+   "from": "n7",
+   "to": "n4",
+   "port": "dtm"
   }
  ]
 }

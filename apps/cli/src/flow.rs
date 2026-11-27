@@ -44,8 +44,10 @@ pub fn schema() -> Schema {
                     || matches!(action, clap::ArgAction::Append),
                 required: a.is_required_set(),
                 // los rásteres de la calculadora se dan como `NOMBRE=archivo`, que es un texto
+                // y el diseño de `cutfill` es un ráster o un texto como `level:500`
                 path: a.get_value_parser().type_id() == std::any::TypeId::of::<PathBuf>()
-                    || (sub.get_name() == "calc" && id == "inputs"),
+                    || (sub.get_name() == "calc" && id == "inputs")
+                    || (sub.get_name() == "cutfill" && id == "design"),
                 values: a
                     .get_possible_values()
                     .iter()
@@ -74,6 +76,26 @@ fn load(path: &Path) -> Result<Model> {
 pub fn validate(path: &Path) -> Result<()> {
     let m = load(path)?;
     let problems = m.problems(&schema());
+    for w in m.warnings() {
+        println!("Aviso: {}", w.text);
+    }
+    for n in &m.nodes {
+        if let hipso_core::model::NodeKind::Input { path } = &n.kind {
+            println!("Entrada «{}» (--input): {path}", m.name(n));
+        }
+    }
+    for name in m.parameter_names() {
+        let targets: Vec<String> = m
+            .parameter_targets(name)
+            .map(|(n, a)| format!("{}.{a}", m.name(n)))
+            .collect();
+        let value = m
+            .parameter_targets(name)
+            .next()
+            .and_then(|(n, a)| m.value(&n.id, a))
+            .unwrap_or("(por defecto)");
+        println!("Parámetro «{name}» (--set): {value}; en {}", targets.join(", "));
+    }
     if problems.is_empty() {
         println!("El flujo está bien: {} nodos y {} hilos.", m.nodes.len(), m.edges.len());
         return Ok(());
@@ -84,16 +106,39 @@ pub fn validate(path: &Path) -> Result<()> {
     Err(Error::Param(format!("{} problemas", problems.len())))
 }
 
-/// `hipso run`: ejecuta un flujo con este mismo ejecutable, paso a paso.
-pub fn run(path: &Path, inputs: &[String], results: Option<PathBuf>) -> Result<()> {
-    let m = load(path)?;
+/// Cómo ejecutar un flujo.
+pub struct Options {
+    /// Sustituciones de entradas, `nombre=ruta`.
+    pub inputs: Vec<String>,
+    /// Valores de parámetros, `nombre=valor`.
+    pub set: Vec<String>,
+    /// El nodo hasta el que ejecutar.
+    pub until: Option<String>,
+    pub resume: bool,
+    pub jobs: usize,
+}
+
+fn pair<'a>(option: &str, text: &'a str) -> Result<(&'a str, &'a str)> {
+    text.split_once('=')
+        .map(|(k, v)| (k.trim(), v.trim()))
+        .ok_or_else(|| Error::Param(format!("{option} pide nombre=valor, no «{text}»")))
+}
+
+/// `hipso run`: ejecuta un flujo con este mismo ejecutable.
+pub fn run(path: &Path, options: &Options, results: Option<PathBuf>) -> Result<()> {
+    let mut m = load(path)?;
     let schema = schema();
+    for s in &options.set {
+        let (k, v) = pair("--set", s)?;
+        m.set_parameter(&schema, k, v)?;
+    }
+    if let Some(target) = &options.until {
+        m = m.upto(target)?;
+    }
     let mut replace = HashMap::new();
-    for i in inputs {
-        let (k, v) = i
-            .split_once('=')
-            .ok_or_else(|| Error::Param(format!("--input pide nombre=ruta, no «{i}»")))?;
-        replace.insert(k.trim().to_string(), v.trim().to_string());
+    for i in &options.inputs {
+        let (k, v) = pair("--input", i)?;
+        replace.insert(k.to_string(), v.to_string());
     }
     let results = results
         .or_else(|| (!m.results.is_empty()).then(|| PathBuf::from(&m.results)))
@@ -113,6 +158,8 @@ pub fn run(path: &Path, inputs: &[String], results: Option<PathBuf>) -> Result<(
         results: &results,
         inputs: &replace,
         cancel: &cancel,
+        resume: options.resume,
+        jobs: options.jobs,
     };
     let names: HashMap<String, String> = m.nodes.iter().map(|n| (n.id.clone(), m.name(n))).collect();
     let report = m.run(
@@ -129,10 +176,19 @@ pub fn run(path: &Path, inputs: &[String], results: Option<PathBuf>) -> Result<(
         &mut |l| eprintln!("  {l}"),
     )?;
     for (id, files) in &report.outputs {
-        println!("{}:", names.get(id).map_or(id.as_str(), |s| s.as_str()));
-        for f in files {
+        println!("{}: {} archivos", names.get(id).map_or(id.as_str(), |s| s.as_str()), files.len());
+        for f in files.iter().take(20) {
             println!("  {}", f.display());
         }
+    }
+    println!("resultados en {}", report.folder.display());
+    if report.failed > 0 {
+        return Err(Error::Param(format!(
+            "el flujo ha terminado con {} fallos (véase {}); corregidos, se completa con --resume. El primero: {}",
+            report.failed,
+            report.folder.join(hipso_core::flowrun::ERRORS).display(),
+            report.first_error
+        )));
     }
     Ok(())
 }

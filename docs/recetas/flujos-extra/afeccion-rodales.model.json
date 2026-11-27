@@ -1,0 +1,115 @@
+{
+ "hipso_modelo": 1,
+ "results": "",
+ "nodes": [
+  {
+   "id": "n1",
+   "label": "Zona afectada (polígonos)",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n2",
+   "label": "Rodales",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n3",
+   "label": "Franja de afección",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "buffer",
+   "args": {
+    "distance": [
+     "20"
+    ]
+   }
+  },
+  {
+   "id": "n4",
+   "label": "Franja unida",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "dissolve",
+   "args": {}
+  },
+  {
+   "id": "n5",
+   "label": "Rodales afectados",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "intersect",
+   "args": {
+    "make_valid": [
+     "true"
+    ]
+   }
+  },
+  {
+   "id": "n6",
+   "label": "Resumen",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "summary",
+   "args": {
+    "by": [
+     "ESPECIE"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": "n1",
+   "to": "n3",
+   "port": "input"
+  },
+  {
+   "from": "n3",
+   "to": "n4",
+   "port": "input"
+  },
+  {
+   "from": "n2",
+   "to": "n5",
+   "port": "first"
+  },
+  {
+   "from": "n4",
+   "to": "n5",
+   "port": "second"
+  },
+  {
+   "from": "n5",
+   "to": "n6",
+   "port": "input"
+  }
+ ],
+ "params": [
+  {
+   "name": "distancia de afección",
+   "node": "n3",
+   "arg": "distance"
+  },
+  {
+   "name": "campo del resumen",
+   "node": "n6",
+   "arg": "by"
+  }
+ ]
+}

@@ -24,6 +24,7 @@ pub mod chartstats;
 pub mod geomedit;
 pub mod topofix;
 pub mod topology;
+pub mod flowrun;
 pub mod model;
 pub mod rasterproc;
 pub mod copc_detail;

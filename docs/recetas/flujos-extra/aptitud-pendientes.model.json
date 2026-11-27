@@ -1,0 +1,111 @@
+{
+ "hipso_modelo": 1,
+ "results": "",
+ "nodes": [
+  {
+   "id": "n1",
+   "label": "MDT",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n2",
+   "label": "Pendiente",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "terrain",
+   "args": {
+    "product": [
+     "slope"
+    ],
+    "percent": [
+     "true"
+    ]
+   }
+  },
+  {
+   "id": "n3",
+   "label": "Clases de pendiente",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "reclass",
+   "args": {
+    "rules": [
+     "< 12 = 1; 12..30 = 2; > 30 = 3"
+    ]
+   }
+  },
+  {
+   "id": "n4",
+   "label": "Sin manchas pequeñas",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "sieve",
+   "args": {
+    "threshold": [
+     "25"
+    ],
+    "eight": [
+     "true"
+    ]
+   }
+  },
+  {
+   "id": "n5",
+   "label": "Polígonos",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "vectorize",
+   "args": {
+    "classes": [
+     "true"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": "n1",
+   "to": "n2",
+   "port": "input"
+  },
+  {
+   "from": "n2",
+   "to": "n3",
+   "port": "input"
+  },
+  {
+   "from": "n3",
+   "to": "n4",
+   "port": "input"
+  },
+  {
+   "from": "n4",
+   "to": "n5",
+   "port": "input"
+  }
+ ],
+ "params": [
+  {
+   "name": "clases de pendiente",
+   "node": "n3",
+   "arg": "rules"
+  },
+  {
+   "name": "mancha mínima en celdas",
+   "node": "n4",
+   "arg": "threshold"
+  }
+ ]
+}

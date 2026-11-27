@@ -114,7 +114,7 @@ Extrae puntos de LAS/LAZ a LAS/LAZ, a columnas ASCII o a un shapefile de puntos 
 | `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ que exportar. **Obligatoria.** Se puede repetir. |
 | `-o`, `--output` | archivo o carpeta | ninguno | Archivo (o, con varias entradas, una carpeta). .laz y .las escriben una nube, .shp un shapefile PointZ y cualquier otro, texto. **Obligatoria.** |
 | `--normalize` | casilla | desactivada | Exporta alturas sobre el suelo: cada nube menos su MDT. |
-| `--dtm` | archivo o carpeta | ninguno | MDT con el que normalizar (una entrada); por defecto: el MDT más reciente hecho con cada nube. |
+| `--dtm` | archivo o carpeta | ninguno | MDT con el que normalizar (una entrada); por defecto: el MDT más reciente hecho con cada nube Con varias nubes puede repetirse, un MDT por hoja: se emparejan por el nombre. Se puede repetir. |
 | `--items` | texto | `x` | Columnas en orden: x,y,z,intensity,return,returns,class,source,red,green,blue. Se puede repetir. |
 | `--delimiter` | texto | `,` | Separador de columnas del texto. |
 | `--header` | casilla | desactivada | Escribe una primera línea con los nombres de las columnas. |
@@ -531,7 +531,7 @@ Modelo de altura de copas como GeoTIFF, uno por hoja
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
 | `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ de las que se calcula el CHM; cada una da un GeoTIFF. **Obligatoria.** Se puede repetir. |
-| `--dtm` | archivo o carpeta | ninguno | Modelo del suelo (GeoTIFF o rejilla ASCII); por defecto: el MDT más reciente hecho con esta misma nube. |
+| `--dtm` | archivo o carpeta | ninguno | Modelo del suelo (GeoTIFF o rejilla ASCII); por defecto: el MDT más reciente hecho con esta misma nube Con varias nubes puede repetirse, un MDT por hoja: se emparejan por el nombre. Se puede repetir. |
 | `-o`, `--output` | archivo o carpeta | ninguno | GeoTIFF de salida; por defecto: <resultados>/<entrada>_chm_<celda>m.tif. |
 | `--cell` | número | `1` | Tamaño de celda del CHM (m) |
 | `--no-fill` | casilla | desactivada | Deja vacías las celdas sin puntos (método max) |
@@ -652,7 +652,7 @@ Métricas por celda de la rejilla: elevación y, opcionalmente, intensidad y est
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
 | `INPUTS` | archivo o carpeta | ninguno | Nubes LAS o LAZ de las que se calculan las métricas. **Obligatoria.** Se puede repetir. |
-| `--dtm` | archivo o carpeta | ninguno | Modelo del suelo (GeoTIFF o rejilla ASCII); por defecto: el MDT más reciente hecho con esta misma nube. |
+| `--dtm` | archivo o carpeta | ninguno | Modelo del suelo (GeoTIFF o rejilla ASCII); por defecto: el MDT más reciente hecho con esta misma nube Con varias nubes puede repetirse, un MDT por hoja: se emparejan por el nombre. Se puede repetir. |
 | `-o`, `--output` | archivo o carpeta | ninguno | Shapefile de celdas de salida (o .csv si se da uno); por defecto: <resultados>/<entrada>_metricas_<celda>m.shp. |
 | `--cell` | número | `15` | Lado de las celdas en las que se calculan las métricas (m) |
 | `--heightbreak` | número | `2` | Altura de corte para las métricas de cobertura. |
@@ -1291,7 +1291,7 @@ Desmonte y terraplén entre un terreno existente y un diseño: dz = diseño - ex
 | Opción | Valor | Por defecto | Qué hace |
 |---|---|---|---|
 | `EXISTING` | archivo o carpeta | ninguno | El terreno existente (un GeoTIFF) **Obligatoria.** |
-| `--design` | texto o número | ninguno | El diseño: un archivo ráster, `level:<z>` o `plane:<z0>,<pendiente %>,<orientación grados>,<x>,<y>` (elevación z0 en x,y, bajando hacia la orientación) **Obligatoria.** |
+| `--design` | archivo o carpeta | ninguno | El diseño: un archivo ráster, `level:<z>` o `plane:<z0>,<pendiente %>,<orientación grados>,<x>,<y>` (elevación z0 en x,y, bajando hacia la orientación) **Obligatoria.** |
 | `--regions` | archivo o carpeta | ninguno | Polígonos que medir uno a uno (el ráster entero se mide siempre también) |
 | `--tolerance` | número | `0.05` | Las diferencias de hasta este tamaño cuentan como sin cambio (m) |
 | `-o`, `--output` | archivo o carpeta | ninguno | Ruta base de los resultados; por defecto: <resultados>/<existente>_cutfill. |
@@ -1673,4 +1673,4 @@ Dibuja una nube (planta, 3D o perfil) en un PNG, como hace el visor
 
 ## Flujos de trabajo
 
-Cuatro órdenes más no procesan datos: tres tratan de los flujos del constructor (capítulo 13) y una abre el servidor MCP. `hipso schema` imprime en JSON la definición de todas las órdenes y opciones de esta página, que es lo que lee el constructor para ofrecer cada herramienta. `hipso run flujo.model.json` ejecuta un flujo guardado sin interfaz (con `--input nombre=ruta` para cambiar una entrada y `--results-dir` para la carpeta de resultados), y `hipso model-validate flujo.model.json` lista lo que impide ejecutarlo. `hipso mcp` arranca un servidor MCP (Protocolo de Contexto de Modelo) por la entrada y la salida estándar: un asistente o cualquier cliente MCP descubre todas las órdenes de esta página como herramientas, con sus opciones tomadas del mismo esquema, y las llama (capítulo 14).
+Cuatro órdenes más no procesan datos: tres tratan de los flujos del constructor (capítulo 13) y una abre el servidor MCP. `hipso schema` imprime en JSON la definición de todas las órdenes y opciones de esta página, que es lo que lee el constructor para ofrecer cada herramienta. `hipso run flujo.model.json` ejecuta un flujo guardado sin interfaz (con `--input nombre=ruta` para cambiar una entrada `--set nombre=valor` para dar valor a un parámetro, `--until nodo` para ejecutar solo hasta un nodo, `--jobs n` para las teselas a la vez, `--results-dir` para la carpeta de resultados y `--resume` para seguir la última ejecución sin terminar), y `hipso model-validate flujo.model.json` lista las entradas, los parámetros y lo que impide ejecutarlo. `hipso mcp` arranca un servidor MCP (Protocolo de Contexto de Modelo) por la entrada y la salida estándar: un asistente o cualquier cliente MCP descubre todas las órdenes de esta página como herramientas, con sus opciones tomadas del mismo esquema, y las llama (capítulo 14).

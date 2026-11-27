@@ -977,8 +977,9 @@ enum Cmd {
         inputs: Vec<PathBuf>,
         /// Modelo del suelo (GeoTIFF o rejilla ASCII); por defecto: el MDT más reciente hecho con
         /// esta misma nube
+        /// Con varias nubes puede repetirse, un MDT por hoja: se emparejan por el nombre
         #[arg(long)]
-        dtm: Option<PathBuf>,
+        dtm: Vec<PathBuf>,
         /// GeoTIFF de salida; por defecto: <resultados>/<entrada>_chm_<celda>m.tif
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -3056,8 +3057,9 @@ enum Cmd {
         normalize: bool,
         /// MDT con el que normalizar (una entrada); por defecto: el MDT más reciente hecho con cada
         /// nube
+        /// Con varias nubes puede repetirse, un MDT por hoja: se emparejan por el nombre
         #[arg(long)]
-        dtm: Option<PathBuf>,
+        dtm: Vec<PathBuf>,
         /// Columnas en orden: x,y,z,intensity,return,returns,class,source,red,green,blue
         #[arg(long, value_delimiter = ',', default_values_t = ["x".to_string(), "y".to_string(), "z".to_string()])]
         items: Vec<String>,
@@ -3102,6 +3104,20 @@ enum Cmd {
         /// Sustituye un nodo de entrada (por su nombre o identificador): `nombre=ruta`
         #[arg(long = "input")]
         inputs: Vec<String>,
+        /// Sigue la última ejecución sin terminar de este flujo (tras un corte, una cancelación o
+        /// unos fallos): lo ya hecho no se repite
+        #[arg(long)]
+        resume: bool,
+        /// Da valor a un parámetro del flujo, o a una opción de un nodo: `nombre=valor` o
+        /// `nodo.opción=valor`
+        #[arg(long = "set")]
+        set: Vec<String>,
+        /// Ejecuta solo hasta este nodo (identificador o nombre): él y lo que lo alimenta
+        #[arg(long)]
+        until: Option<String>,
+        /// Cuántas teselas tratar a la vez (0: las que admitan los núcleos y la memoria)
+        #[arg(long, default_value_t = 0)]
+        jobs: usize,
     },
     /// Comprueba un flujo: lista lo que impide ejecutarlo (un bucle, un archivo u opción que falta)
     ModelValidate {
@@ -3354,8 +3370,9 @@ enum Cmd {
         inputs: Vec<PathBuf>,
         /// Modelo del suelo (GeoTIFF o rejilla ASCII); por defecto: el MDT más reciente hecho con
         /// esta misma nube
+        /// Con varias nubes puede repetirse, un MDT por hoja: se emparejan por el nombre
         #[arg(long)]
-        dtm: Option<PathBuf>,
+        dtm: Vec<PathBuf>,
         /// Shapefile de celdas de salida (o .csv si se da uno); por defecto:
         /// <resultados>/<entrada>_metricas_<celda>m.shp
         #[arg(short, long)]
@@ -3468,6 +3485,33 @@ fn dtm_for(given: Option<PathBuf>, input: &Path) -> Result<PathBuf> {
             paths::results_dir(input).display()
         ))
     })
+}
+
+/// El MDT de `input` entre los dados con `--dtm`: el único si solo hay una nube o, con varias, el
+/// que lleva su nombre (en `index`, hecho con esos mismos). Sin `--dtm`, el más reciente hecho con
+/// `input`.
+fn dtm_among(given: &[PathBuf], index: &paths::NameIndex, input: &Path) -> Result<PathBuf> {
+    match given {
+        [] => dtm_for(None, input),
+        [one] => Ok(one.clone()),
+        many => index.pair(input).cloned().ok_or_else(|| {
+            hipso_core::Error::Param(format!(
+                "entre los {} MDT de --dtm no hay uno, y solo uno, con el nombre de {}",
+                many.len(),
+                input.display()
+            ))
+        }),
+    }
+}
+
+/// Un solo MDT no vale para varias hojas: cada una necesita el suyo.
+fn check_dtms(given: &[PathBuf], sheets: usize) -> Result<()> {
+    if sheets > 1 && given.len() == 1 {
+        return Err(hipso_core::Error::Param(
+            "--dtm indica un solo MDT para varias hojas: repítelo, uno por hoja, o quítalo".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn smoothing_of(a: SmoothArg) -> Smoothing {
@@ -3711,7 +3755,10 @@ fn run(cmd: Cmd) -> Result<()> {
             return Ok(());
         }
         Cmd::Mcp => return mcp::serve(flow::schema()),
-        Cmd::Run { model, inputs } => return flow::run(&model, &inputs, paths::output_dir()),
+        Cmd::Run { model, inputs, resume, set, until, jobs } => {
+            let options = flow::Options { inputs, set, until, resume, jobs };
+            return flow::run(&model, &options, paths::output_dir());
+        }
         Cmd::ModelValidate { model } => return flow::validate(&model),
         Cmd::Catalog { inputs, tolerance } => {
             let cat = hipso_core::catalog::catalog(&inputs)?;
@@ -3859,12 +3906,7 @@ fn run(cmd: Cmd) -> Result<()> {
             neighbors,
         } => {
             let output = single_output(output, inputs.len())?;
-            if inputs.len() > 1 && dtm.is_some() {
-                return Err(hipso_core::Error::Param(
-                    "--dtm indica un solo MDT: con varias hojas, cada una usa el MDT hecho a partir de ella"
-                        .into(),
-                ));
-            }
+            check_dtms(&dtm, inputs.len())?;
             let pf = match method {
                 ChmMethod::Pitfree => "_pitfree",
                 ChmMethod::Tin => "_tin",
@@ -3878,7 +3920,8 @@ fn run(cmd: Cmd) -> Result<()> {
             };
             let tag = format!("chm_{}m{pf}{sm}", paths::num(cell));
             let out_for = |p: &Path| out_path(output.clone(), p, &tag, "tif");
-            let dtm_of = |p: &Path| dtm_for(dtm.clone(), p);
+            let index = paths::NameIndex::new(&dtm);
+            let dtm_of = |p: &Path| dtm_among(&dtm, &index, p);
             let first = inputs.first().cloned().unwrap_or_default();
             let mosaic_to =
                 mosaic.then(|| out_path(None, &first, &format!("mosaico_{tag}"), "tif"));
@@ -6432,16 +6475,12 @@ fn run(cmd: Cmd) -> Result<()> {
                 decimate,
                 skip_noise: false,
             };
-            if inputs.len() > 1 && dtm.is_some() {
-                return Err(hipso_core::Error::Param(
-                    "--dtm indica un solo MDT: con varias nubes, cada una usa el MDT hecho a partir de ella"
-                        .into(),
-                ));
-            }
+            check_dtms(&dtm, inputs.len())?;
+            let index = paths::NameIndex::new(&dtm);
             let dtms = if normalize {
                 inputs
                     .iter()
-                    .map(|p| dtm_for(dtm.clone(), p))
+                    .map(|p| dtm_among(&dtm, &index, p))
                     .collect::<Result<Vec<_>>>()?
             } else {
                 Vec::new()
@@ -6532,16 +6571,12 @@ fn run(cmd: Cmd) -> Result<()> {
             format,
         } => {
             let output = single_output(output, inputs.len())?;
-            if inputs.len() > 1 && dtm.is_some() {
-                return Err(hipso_core::Error::Param(
-                    "--dtm indica un solo MDT: con varias hojas, cada una usa el MDT hecho a partir de ella"
-                        .into(),
-                ));
-            }
+            check_dtms(&dtm, inputs.len())?;
             let formats = formats_of(format, output.as_deref().unwrap_or(Path::new("x.shp")));
             let tag = format!("metricas_{}m", paths::num(cell));
             let out_for = |p: &Path| out_path(output.clone(), p, &tag, "shp");
-            let dtm_of = |p: &Path| dtm_for(dtm.clone(), p);
+            let index = paths::NameIndex::new(&dtm);
+            let dtm_of = |p: &Path| dtm_among(&dtm, &index, p);
             let base = jobs::MetricsJob {
                 input: PathBuf::new(),
                 dtm: PathBuf::new(),
@@ -6580,6 +6615,16 @@ fn expand_recipes(args: Vec<String>) -> Result<Vec<String>> {
     let mut out = Vec::with_capacity(args.len());
     let mut it = args.into_iter();
     while let Some(a) = it.next() {
+        // los argumentos que no caben en la línea de órdenes llegan en un archivo, uno por línea
+        if a == hipso_core::model::ARGS_FILE {
+            let p = it
+                .next()
+                .ok_or_else(|| Error::Param("--args-file necesita un archivo".into()))?;
+            let text = std::fs::read_to_string(&p)
+                .map_err(|e| Error::Param(format!("no se leen los argumentos de '{p}': {e}")))?;
+            out.extend(expand_recipes(text.lines().map(str::to_string).collect())?);
+            continue;
+        }
         let path = if a == "--recipe" {
             Some(
                 it.next()

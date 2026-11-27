@@ -1,0 +1,145 @@
+{
+ "hipso_modelo": 1,
+ "results": "",
+ "nodes": [
+  {
+   "id": "n1",
+   "label": "Nube",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n2",
+   "label": "MDT",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "dtm",
+   "args": {
+    "cell": [
+     "2"
+    ]
+   }
+  },
+  {
+   "id": "n3",
+   "label": "MDT unido",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "mosaic",
+   "args": {}
+  },
+  {
+   "id": "n4",
+   "label": "Acumulación de flujo",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "terrain",
+   "args": {
+    "product": [
+     "flow-accumulation"
+    ]
+   }
+  },
+  {
+   "id": "n5",
+   "label": "Humedad",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "terrain",
+   "args": {
+    "product": [
+     "twi"
+    ]
+   }
+  },
+  {
+   "id": "n6",
+   "label": "Drenaje",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "ridges",
+   "args": {
+    "drainage": [
+     "true"
+    ],
+    "min_area": [
+     "5000"
+    ]
+   }
+  },
+  {
+   "id": "n7",
+   "label": "Charcas",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "ponds",
+   "args": {
+    "min_depth": [
+     "0.1"
+    ],
+    "min_area": [
+     "20"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": "n1",
+   "to": "n2",
+   "port": "inputs"
+  },
+  {
+   "from": "n2",
+   "to": "n3",
+   "port": "inputs"
+  },
+  {
+   "from": "n3",
+   "to": "n4",
+   "port": "input"
+  },
+  {
+   "from": "n3",
+   "to": "n5",
+   "port": "input"
+  },
+  {
+   "from": "n3",
+   "to": "n6",
+   "port": "input"
+  },
+  {
+   "from": "n3",
+   "to": "n7",
+   "port": "input"
+  }
+ ],
+ "params": [
+  {
+   "name": "celda",
+   "node": "n2",
+   "arg": "cell"
+  },
+  {
+   "name": "superficie de cauce",
+   "node": "n6",
+   "arg": "min_area"
+  }
+ ]
+}

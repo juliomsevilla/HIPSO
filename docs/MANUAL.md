@@ -1610,7 +1610,7 @@ Guarda el flujo con otro nombre.
 
 ##### Ejecutar
 
-Ejecuta el flujo en segundo plano. No empieza mientras la lista de problemas bajo el lienzo no esté vacía. Cada nodo muestra su estado (en curso, hecho o con error), y si un paso falla se borra todo lo que esa ejecución había escrito.
+Ejecuta el flujo en segundo plano. No empieza mientras la lista de problemas bajo el lienzo no esté vacía. Cada nodo muestra su estado (en curso, hecho o con error), y lo que falla se anota y lo demás sigue (véase *Cortes, fallos y archivos en mal estado*, capítulo 13).
 
 ##### Cancelar
 
@@ -3700,13 +3700,25 @@ Encadenar los pasos de un trabajo (clasificar, MDT, CHM, árboles, métricas) ob
 
 ### La paleta, los nodos y los puertos
 
-A la izquierda está la paleta, con las herramientas agrupadas como en la cinta y un buscador, y las entradas (*Archivo…*, *Carpeta de hojas…* y *Del mapa…*, que toma una capa o nube ya cargada). Un clic añade un nodo en el centro del lienzo. Cada herramienta muestra como **puertos** sus opciones que reciben archivos (la nube, el MDT, el polígono…), con un asterisco los obligatorios; se arrastra desde el puerto de salida de un nodo hasta uno de entrada para conectarlos, y solo se iluminan los puertos que admiten lo que el nodo produce (una herramienta ráster no recibe lo que produce una vectorial). Una entrada que recibe varios archivos, como una carpeta de hojas, ejecuta la herramienta una vez por archivo cuando la opción solo admite uno.
+A la izquierda está la paleta, con las herramientas agrupadas como en la cinta y un buscador, y las entradas (*Archivo…*, *Carpeta de hojas…* y *Del mapa…*, que toma una capa o nube ya cargada). Un clic añade un nodo en el centro del lienzo. Cada herramienta muestra como **puertos** sus opciones que reciben archivos (la nube, el MDT, el polígono…), con un asterisco los obligatorios; se arrastra desde el puerto de salida de un nodo hasta uno de entrada para conectarlos, o hasta el cuerpo del nodo para usar su primera entrada libre que lo admita, y solo se iluminan los puertos que admiten lo que el nodo produce (una herramienta ráster no recibe lo que produce una vectorial). Un hilo que cerraría un bucle no se crea. Los archivos y carpetas que se arrastran desde el explorador sobre la pestaña *Flujos* entran como nodos de entrada.
+
+Una entrada que recibe varios archivos, como una carpeta de hojas, ejecuta la herramienta una vez por archivo cuando la opción solo admite uno. Cuando son varias las entradas así (el CHM de antes y el de después de *Cambio forestal*, las zonas y las clases de *Tabular áreas*), los archivos se emparejan por el nombre, sin las partes que añaden las órdenes (`hoja_mdt_1m` y `hoja_chm_1m` son de `hoja`), y si alguno no tiene pareja única el flujo se detiene y lo dice. Las nubes y sus MDT se emparejan igual, de modo que el CHM, las métricas y la exportación de cada hoja usan el MDT de esa hoja. En la *Calculadora ráster* con un hilo por letra y varias hojas en cada uno, la expresión se calcula una vez por hoja.
 
 Los identificadores de los nodos de un archivo de flujo solo admiten letras sin tilde, cifras, guiones y guiones bajos, porque cada uno da nombre a una carpeta de trabajo y no puede ser una ruta.
 
 ### Opciones de un nodo
 
-A la derecha, el nodo seleccionado muestra sus opciones (las mismas de la línea de comandos, con su ayuda, y las poco usadas plegadas en *Más opciones*). Como en las ventanas de cada herramienta, las opciones de un método o de una casilla solo salen cuando se usan: en *Clasificar*, el método de suelo mostrado es el que se elige (con Kraus-Pfeifer, el de por defecto, solo sus parámetros; con MCC, solo los de MCC), los parámetros de los cables, los postes, los edificios o el solape salen al marcar su casilla y los de ruido, al elegir su método; igual pasa con el MDS, el CHM, el MDT, las sombras y la cuenca visual del terreno, el método de segmentación de árboles y las copas de la medición de troncos y, sin ningún nodo seleccionado, la carpeta de resultados y si se abren en el mapa al terminar.
+A la derecha, el nodo seleccionado muestra sus opciones (las mismas de la línea de comandos, con su ayuda, y las poco usadas plegadas en *Más opciones*). Como en las ventanas de cada herramienta, las opciones de un método o de una casilla solo salen cuando se usan: en *Clasificar*, el método de suelo mostrado es el que se elige (con Kraus-Pfeifer, el de por defecto, solo sus parámetros; con MCC, solo los de MCC), los parámetros de los cables, los postes, los edificios o el solape salen al marcar su casilla y los de ruido, al elegir su método; igual pasa con el MDS, el CHM, el MDT, las sombras y la cuenca visual del terreno, el método de segmentación de árboles y las copas de la medición de troncos. Encima de las opciones está siempre *Salida*: la carpeta de resultados, qué se guarda, cuántas teselas se tratan a la vez y si se abre en el mapa al terminar.
+
+### Parámetros del flujo
+
+Un flujo se vuelve a ejecutar sobre otros datos y, a menudo, con otros valores (otra celda, otra altura mínima de árbol), y buscar cada valor dentro de su nodo es incómodo y se presta a olvidar alguno. La casilla *Parámetro del flujo*, que aparece bajo cada opción que no llega por un hilo, saca esa opción al apartado *Parámetros*, visible en el panel de la derecha cuando no hay ningún nodo seleccionado. Allí están reunidas las entradas, con sus botones para elegir archivo o carpeta, y las opciones expuestas, cada una editable sin abrir su nodo.
+
+El parámetro toma al principio el nombre de la opción en la línea de comandos, y se puede cambiar en el cuadro que queda bajo la casilla (el cambio se aplica al salir del cuadro). Las opciones que comparten nombre comparten también valor: si la celda del MDT y la del CHM se llaman `celda`, la segunda toma el valor de la primera y, desde entonces, cambiar una cambia las dos. Los parámetros se guardan en el archivo del flujo, de modo que quien lo reciba ve directamente qué se espera que ajuste.
+
+### Ejecutar hasta aquí
+
+El botón *Ejecutar hasta aquí*, en las opciones de cada herramienta, ejecuta ese nodo y todos los que lo alimentan, directa o indirectamente, y deja sin ejecutar el resto. El resultado del nodo elegido se guarda aunque no tenga estrella, porque en esa ejecución es el final. Sirve para comprobar un MDT antes de lanzar todo lo que depende de él, y solo exige que estén completos los nodos que intervienen. Cada ejecución, parcial o completa, es independiente, de manera que el flujo completo que se lance después vuelve a calcular lo que la parcial ya había hecho.
 
 ### Moverse por el lienzo
 
@@ -3714,11 +3726,49 @@ En el lienzo se desplaza arrastrando el fondo, se acerca con Ctrl y la rueda o c
 
 ### Resultados, problemas y ejecución
 
-La **estrella** de la cabecera de cada nodo marca los resultados que se conservan; los de los demás nodos son intermedios y se borran en cuanto nadie los necesita. Bajo el lienzo se listan los **problemas** a medida que se construye (un bucle, una entrada sin archivo, una opción obligatoria vacía, un hilo entre tipos que no encajan), y *Ejecutar* no empieza hasta que no queda ninguno. La ejecución es en segundo plano: cada nodo muestra su estado (naranja en curso, verde hecho, rojo con error), *Cancelar* detiene el proceso en marcha y, si un paso falla o se cancela, se borra todo lo que esa ejecución había escrito, sin dejar medio resultado. Los resultados conservados van a la carpeta elegida, cada nodo en una carpeta con su nombre y sin sobrescribir nunca una existente (si el nombre ya está, se usa `_2`), y se abren en el mapa si así se pidió. El flujo en que se trabaja se guarda solo y se recupera al volver a abrir el programa.
+Los nodos finales, de los que no sale ningún hilo, son el resultado del flujo y se guardan siempre. La **estrella** de la cabecera de cada nodo marca además los intermedios que se quieren conservar; los demás se borran en cuanto nadie los necesita. Bajo el lienzo se listan los **problemas** a medida que se construye (un bucle, una entrada sin archivo, una opción obligatoria vacía, un hilo entre tipos que no encajan), y *Ejecutar* no empieza hasta que no queda ninguno. Junto a ellos salen **avisos**, que no impiden ejecutar: un modelo de elevaciones conectado donde se espera un CHM, o un CHM o unas métricas sin MDT. La ejecución es en segundo plano: cada nodo muestra su estado (naranja en curso, verde hecho, rojo con error) y *Cancelar* detiene el proceso en marcha. Con más de 20 teselas en un nodo, bajo el programa se ve el avance y los errores; todo lo que dicen las órdenes queda en `registro.log`. El flujo en que se trabaja se guarda solo y se recupera al volver a abrir el programa.
+
+### La salida del flujo
+
+La carpeta de resultados se elige en *Salida*, arriba en el panel de la derecha. Cada ejecución crea dentro una carpeta propia (`ejecucion`, `ejecucion_2`…) con una subcarpeta por nodo guardado, con el nombre del nodo, de modo que no se sobrescribe nada, y los resultados se abren en el mapa si así se pidió. Junto a las carpetas de los nodos quedan la copia del flujo (`flujo.model.json`), el registro completo (`registro.log`), el diario de lo hecho (`flujo.estado`) y, si algo ha fallado, `errores.csv`. Con más de 60 resultados no se abren en el mapa.
+
+### Solo finales y Todo
+
+*Solo finales* quita las estrellas de los intermedios y *Todo* las pone en todos los nodos.
+
+### Teselas a la vez
+
+Cada orden de `hipso` reparte ya su trabajo entre varios núcleos, pero la lectura y la escritura de una tesela dejan parte del equipo parada, de modo que tratar varias teselas a la vez acorta la ejecución. El control *Teselas a la vez* fija cuántas, y con el valor *automático* se deciden según el tamaño de los primeros archivos, los núcleos y la memoria: con nubes grandes son pocas y con archivos pequeños, tantas como núcleos. Más no es mejor. En una medida con 8 hojas PNOA en un equipo de 10 núcleos y 16 GB, el MDT tardó 11,2 s de una en una, 8,4 s de dos en dos y 12,6 s de seis en seis, y la cadena MDT, CHM y árboles pasó de 20,9 s a 17,3 s con el valor automático.
+
+Los resultados son los mismos, con los mismos nombres, sea cual sea el número. Conviene poner 1 si los datos están en un disco lento, donde varias lecturas simultáneas se estorban. Si una tesela cae por falta de memoria, se repite sola y la ejecución sigue de una en una. Los bloques con *Hojas vecinas* o *Mosaico* y la herramienta *Dividir por un campo* van siempre de una en una.
+
+### Cada tesela de principio a fin
+
+Cuando varios nodos seguidos tratan cada tesela por su cuenta (clasificar, MDT, CHM, árboles), el flujo no termina un nodo con toda la entrega antes de empezar el siguiente. Cada tesela recorre la cadena entera, y sus productos intermedios se borran en cuanto los han usado todos los nodos que los necesitan, por lo que el disco ocupado por intermedios depende de cuántas teselas van a la vez y no del tamaño de la entrega. Además, los primeros resultados finales aparecen pronto, lo que permite detectar una opción mal puesta sin esperar horas.
+
+La cadena se interrumpe en las herramientas que necesitan ver todas las teselas juntas (un mosaico, una fusión, la calculadora ráster, un bloque con *Hojas vecinas*). Esas empiezan cuando lo anterior ha terminado por completo. El registro dice qué nodos van encadenados, y todos ellos aparecen en curso al mismo tiempo.
+
+### Reanudar la última ejecución
+
+Sigue la última ejecución sin terminar de este mismo flujo en la carpeta de resultados: la que se canceló, la que cortó un apagón o un disco lleno, o la que acabó con fallos. Lo ya hecho no se repite. Vale mientras no cambien las órdenes, sus opciones, los hilos ni las rutas de las entradas (sí los nombres, las estrellas y la posición de los nodos); las teselas nuevas de una carpeta de entrada y las sustituidas se procesan, junto con lo que dependa de ellas.
+
+### Cortes, fallos y archivos en mal estado
+
+El flujo está pensado para entregas de miles de teselas, donde alguna fallará:
+
+- Las herramientas que tratan cada nube por su cuenta (clasificar, MDT, MDS, CHM, métricas, adelgazar y otras) se ejecutan **una vez por tesela**, igual que cualquier herramienta de una sola entrada que reciba una carpeta. Cada ejecución escribe en una carpeta provisional y solo lo que termina bien pasa a la del nodo: tras un corte no hay archivos a medias que parezcan buenos.
+- Antes de empezar se mira el principio de cada archivo de entrada. Los vacíos, los LAS o LAZ sin cabecera válida, los GeoTIFF que no lo son y los shapefile cortados o sin `.shx` se apartan.
+- La tesela que falla se anota en `errores.csv` (nodo, archivo y motivo) y **las demás siguen**. Lo que dependía de ella también se anota. Una herramienta que une todo (un mosaico, una fusión) trabaja entonces con lo que sí hay, así que conviene mirar `errores.csv` antes de dar por completo un resultado de conjunto.
+- Se detiene la ejecución entera lo que no es culpa de un archivo: disco lleno, que no se pueda lanzar el programa o 25 fallos seguidos (una opción mal puesta, una unidad de red desconectada).
+- Corregida la causa, *Reanudar la última ejecución* hace solo lo que falta. Un resultado que haya quedado truncado se detecta por su tamaño y se rehace.
+- Los intermedios sin estrella se borran cuando sus consumidores terminan sin fallos (en una cadena, tesela a tesela); donde hubo alguno se conservan, porque hacen falta para reanudar. Si al reanudar vuelve a necesitarse uno ya borrado, se rehace.
+- Dentro de una cadena, la tesela que falla en un paso queda anotada también en los siguientes (*no se hace: falló un paso anterior*), de modo que `errores.csv` dice qué resultados faltan.
+
+Con *Hojas vecinas* o *Mosaico* en una herramienta, el bloque entero va en un solo proceso; cada hoja terminada queda apuntada y no se repite al reanudar sin cambios. Si cambia alguna hoja del bloque, se rehace el bloque, porque sus bordes dependen de ella. Un mosaico se rehace siempre.
 
 ### Archivos de flujo y línea de comandos
 
-Cada nodo ejecuta el programa `hipso` con las opciones del nodo, de modo que un flujo hace exactamente lo que harían los mismos comandos escritos uno tras otro. Por eso un flujo también se ejecuta sin interfaz: `hipso run flujo.model.json` (con `--input nombre=ruta` para cambiar un nodo de entrada por nombre, y `--results-dir` para la carpeta de resultados) y `hipso model-validate flujo.model.json`, que lista lo que impide ejecutarlo. Un archivo de flujo solo puede nombrar órdenes de `hipso` y sus opciones (nunca una orden de shell ni otro programa), así que ejecutar el flujo de otra persona no ejecuta nada distinto de lo que `hipso` sabe hacer. Las ayudas de las opciones salen del propio programa, de modo que una orden nueva de `hipso` aparece sola en la paleta.
+Cada nodo ejecuta el programa `hipso` con las opciones del nodo, de modo que un flujo hace exactamente lo que harían los mismos comandos escritos uno tras otro. Por eso un flujo también se ejecuta sin interfaz: `hipso run flujo.model.json` (con `--input nombre=ruta` para cambiar un nodo de entrada por nombre, `--set nombre=valor` para dar valor a un parámetro, o a cualquier opción nombrada como `nodo.opción=valor`, `--until nodo` para ejecutar solo hasta un nodo, `--jobs n` para las teselas a la vez, `--results-dir` para la carpeta de resultados y `--resume` para seguir la última ejecución sin terminar, que pide los mismos `--set` y `--until` que ella) y `hipso model-validate flujo.model.json`, que lista las entradas, los parámetros y lo que impide ejecutarlo. Un archivo de flujo solo puede nombrar órdenes de `hipso` y sus opciones (nunca una orden de shell ni otro programa), así que ejecutar el flujo de otra persona no ejecuta nada distinto de lo que `hipso` sabe hacer. Las ayudas de las opciones salen del propio programa, de modo que una orden nueva de `hipso` aparece sola en la paleta.
 
 ## 14. Línea de comandos
 

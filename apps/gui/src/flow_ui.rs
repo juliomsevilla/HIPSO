@@ -27,8 +27,6 @@ enum Msg {
 struct Running {
     rx: Receiver<Msg>,
     cancel: Arc<AtomicBool>,
-    /// El nodo que se está ejecutando ahora.
-    current: Option<String>,
 }
 
 /// Todo lo que la vista de flujos conserva entre fotogramas.
@@ -53,6 +51,10 @@ pub struct Flow {
     started: bool,
     fit_next: bool,
     add_to_map: bool,
+    /// Cuántas teselas tratar a la vez (0: automático).
+    jobs: usize,
+    /// Hasta qué nodo fue la última ejecución parcial, para reanudar la misma.
+    until: Option<String>,
     saved: Option<(Model, Instant)>,
     status: String,
 }
@@ -78,6 +80,8 @@ impl Flow {
             started: false,
             fit_next: false,
             add_to_map: true,
+            jobs: 0,
+            until: None,
             saved: None,
             status: String::new(),
         }
@@ -109,6 +113,29 @@ pub fn hipso_exe() -> Option<PathBuf> {
     let name = if cfg!(windows) { "hipso.exe" } else { "hipso" };
     let p = me.parent()?.join(name);
     p.is_file().then_some(p)
+}
+
+/// Cuántos resultados se abren como mucho en el mapa.
+const MAX_TO_MAP: usize = 60;
+/// Cuántas líneas de registro se guardan en memoria.
+const MAX_LOG: usize = 20_000;
+
+/// La carpeta de resultados de un flujo: la elegida o `resultados_flujo` junto a la primera
+/// entrada.
+fn results_of(model: &Model) -> PathBuf {
+    if !model.results.trim().is_empty() {
+        return PathBuf::from(&model.results);
+    }
+    model
+        .nodes
+        .iter()
+        .find_map(|n| match &n.kind {
+            NodeKind::Input { path } => Some(PathBuf::from(path)),
+            _ => None,
+        })
+        .and_then(|p| if p.is_dir() { Some(p) } else { p.parent().map(PathBuf::from) })
+        .unwrap_or_else(std::env::temp_dir)
+        .join("resultados_flujo")
 }
 
 fn group_color(group: &str) -> Color32 {
@@ -152,12 +179,64 @@ impl Lay {
     }
 }
 
-/// El texto de una opción tal como lo muestra un puerto.
-fn port_label(a: &model::ArgSpec) -> String {
+/// El nombre de una entrada tal como lo muestra su puerto: lo que se conecta en él, en español; las
+/// que no tienen uno propio, la opción de la línea de órdenes.
+fn port_label(tool: &str, a: &model::ArgSpec) -> String {
+    let name = match (tool, a.id.as_str()) {
+        ("zonal" | "extract", "raster") => "Ráster",
+        ("model", "field") => "Datos de campo",
+        ("trees", "field") => "Árboles de campo",
+        (_, "inputs" | "input" | "rasters") => match model::arg_kind(tool, &a.id) {
+            Kind::Cloud if a.multiple => "Nubes",
+            Kind::Cloud => "Nube",
+            Kind::Raster if a.multiple => "Rásteres",
+            Kind::Raster => "Ráster",
+            Kind::Vector if a.multiple => "Capas",
+            Kind::Vector => "Capa",
+            _ => "Entrada",
+        },
+        (_, "dtm") => "MDT",
+        (_, "chm") => "CHM",
+        (_, "around") => "CHM vecinos",
+        (_, "cloud") => "Nube",
+        (_, "breaklines") => "Líneas de rotura",
+        (_, "recipe") => "Receta",
+        (_, "tops_file") => "Cimas",
+        (_, "regions") => "Polígonos",
+        (_, "mask") => "Máscara",
+        (_, "reference") => "Referencia",
+        (_, "surface") => "Superficie",
+        (_, "piles") => "Contornos",
+        (_, "before") => "Antes",
+        (_, "after") => "Después",
+        (_, "existing") => "Terreno actual",
+        (_, "design") => "Diseño",
+        (_, "layer") => "Capa",
+        (_, "table") => "Tabla",
+        (_, "zones") => "Zonas",
+        (_, "values") => "Clases",
+        (_, "plots") => "Parcelas",
+        (_, "cells") => "Celdas",
+        (_, "first") => "Primera capa",
+        (_, "second") => "Segunda capa",
+        (_, "to") => "Capa cercana",
+        (_, "image") => "Ortofoto",
+        (_, "trajectory") => "Trayectoria",
+        (_, "stands") => "Rodales",
+        (_, "samples") => "Muestras",
+        (_, "rules" | "rules_file") => "Reglas",
+        (_, "barriers") => "Barreras",
+        (_, "prefer") => "Preferentes",
+        (_, "lines") => "Líneas",
+        (_, "edits") => "Ediciones",
+        (_, "limit") => "Límite",
+        (_, "from") => "Nube modelo",
+        _ => "",
+    };
     match &a.long {
-        Some(l) if a.positional => l.clone(),
-        Some(l) => format!("--{l}"),
-        None => a.id.clone(),
+        _ if !name.is_empty() => name.to_string(),
+        Some(l) if !a.positional => format!("--{l}"),
+        _ => a.id.replace('_', " "),
     }
 }
 
@@ -177,7 +256,7 @@ fn layout_of(m: &Model, schema: &Schema) -> Vec<Lay> {
                                 .map(|a| {
                                     (
                                         a.id.clone(),
-                                        if a.positional { a.id.replace('_', " ") } else { port_label(a) },
+                                        port_label(tool, a),
                                         a.required,
                                         model::arg_kind(tool, &a.id),
                                     )
@@ -207,6 +286,18 @@ fn layout_of(m: &Model, schema: &Schema) -> Vec<Lay> {
             }
         })
         .collect()
+}
+
+/// Si al soltar un hilo sobre un nodo conviene esta entrada: la admite y, cuando lo que llega es un
+/// archivo, es de su tipo.
+fn fits(src: &Node, tool: &str, port: &str, kind: Kind) -> bool {
+    match &src.kind {
+        NodeKind::Input { path } => {
+            let p = std::path::Path::new(path);
+            !p.is_file() || kind.accepts(p)
+        }
+        NodeKind::Tool { .. } => model::can_feed(src, tool, port),
+    }
 }
 
 /// Puntos del hilo entre dos puertos, en el espacio de la pantalla.
@@ -313,8 +404,9 @@ impl App {
             .frame(egui::Frame::new().fill(t.pane).inner_margin(egui::Margin::symmetric(12, 10)))
             .show(ui, |ui| self.flow_params(ui, &schema));
         let problems = self.flow.model.problems(&schema);
+        let warnings = self.flow.model.warnings();
         egui::Panel::bottom("flow_problems")
-            .exact_size(if problems.is_empty() { 30.0 } else { 104.0 })
+            .exact_size(if problems.is_empty() && warnings.is_empty() { 30.0 } else { 104.0 })
             .resizable(false)
             .frame(
                 egui::Frame::new()
@@ -323,7 +415,7 @@ impl App {
                     .stroke(Stroke::new(1.0, t.border)),
             )
             .show(ui, |ui| {
-                if problems.is_empty() {
+                if problems.is_empty() && warnings.is_empty() {
                     let text = if self.flow.status.is_empty() {
                         "Sin problemas: el flujo se puede ejecutar.".to_string()
                     } else {
@@ -332,11 +424,16 @@ impl App {
                     ui.label(egui::RichText::new(text).color(t.weak));
                     return;
                 }
-                ui.label(egui::RichText::new(format!("Problemas ({})", problems.len())).strong());
+                if !problems.is_empty() {
+                    ui.label(egui::RichText::new(format!("Problemas ({})", problems.len())).strong());
+                } else if !self.flow.status.is_empty() {
+                    ui.label(egui::RichText::new(&self.flow.status).color(t.weak));
+                }
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    for p in &problems {
+                    let lines = problems.iter().map(|p| ("•", p)).chain(warnings.iter().map(|p| ("Aviso:", p)));
+                    for (mark, p) in lines {
                         let r = ui.add(
-                            egui::Label::new(egui::RichText::new(format!("• {}", p.text)).color(t.text))
+                            egui::Label::new(egui::RichText::new(format!("{mark} {}", p.text)).color(t.text))
                                 .sense(Sense::click()),
                         );
                         if r.clicked()
@@ -459,6 +556,13 @@ impl App {
         });
         if let Some(kind) = add {
             self.flow_add(kind);
+        }
+    }
+
+    /// Añade como entradas los archivos y carpetas soltados sobre la ventana.
+    pub fn flow_drop(&mut self, paths: Vec<PathBuf>) {
+        for p in paths {
+            self.flow_add(NodeKind::Input { path: p.display().to_string() });
         }
     }
 
@@ -624,27 +728,34 @@ impl App {
             if resp.clicked() || resp.drag_started() {
                 clicked = Some((n.id.clone(), ui.input(|i| i.modifiers.shift)));
             }
-            // conservar los productos
-            let star = Rect::from_center_size(
-                Pos2::new(head.max.x - 13.0 * z, head.center().y),
-                Vec2::splat(18.0 * z),
-            );
-            let sr = ui.interact(star, egui::Id::new(("flow_keep", &n.id)), Sense::click());
-            painter.text(
-                star.center(),
-                egui::Align2::CENTER_CENTER,
-                if n.keep { "★" } else { "☆" },
-                font(15.0),
-                if n.keep { Color32::from_rgb(0xFF, 0xE0, 0x6A) } else { Color32::from_white_alpha(170) },
-            );
-            if sr.clicked() {
-                toggle_keep = Some(n.id.clone());
+            // conservar los productos; los de un nodo final se guardan siempre
+            let kept = self.flow.model.kept(n);
+            let is_final = !self.flow.model.edges.iter().any(|e| e.from == n.id);
+            // las entradas no producen nada que guardar
+            if matches!(n.kind, NodeKind::Tool { .. }) {
+                let star = Rect::from_center_size(
+                    Pos2::new(head.max.x - 13.0 * z, head.center().y),
+                    Vec2::splat(18.0 * z),
+                );
+                let sr = ui.interact(star, egui::Id::new(("flow_keep", &n.id)), Sense::click());
+                painter.text(
+                    star.center(),
+                    egui::Align2::CENTER_CENTER,
+                    if kept { "★" } else { "☆" },
+                    font(15.0),
+                    if kept { Color32::from_rgb(0xFF, 0xE0, 0x6A) } else { Color32::from_white_alpha(170) },
+                );
+                if sr.clicked() && !is_final {
+                    toggle_keep = Some(n.id.clone());
+                }
+                sr.on_hover_text(if is_final {
+                    "Resultado final del flujo: se guarda siempre"
+                } else if n.keep {
+                    "Se conservan los resultados de este nodo"
+                } else {
+                    "Conservar los resultados de este nodo (los demás se borran al acabar)"
+                });
             }
-            sr.on_hover_text(if n.keep {
-                "Se conservan los resultados de este nodo"
-            } else {
-                "Conservar los resultados de este nodo (los demás se borran al acabar)"
-            });
             // el cuerpo
             match &n.kind {
                 NodeKind::Input { path } => {
@@ -724,6 +835,17 @@ impl App {
                             break 'ports;
                         }
                     }
+                    // soltado sobre el nodo: la primera entrada libre que lo admite
+                    if m.id != from && rect_s(l2.rect).contains(p) {
+                        let free = l2.ins.iter().find(|(id, _, _, kind)| {
+                            let used = self.flow.model.edges.iter().any(|e| e.to == m.id && e.port == *id);
+                            !used && fits(src, tool, id, *kind)
+                        });
+                        if let Some((id, _, _, _)) = free {
+                            connect = Some(Edge { from: from.clone(), to: m.id.clone(), port: id.clone() });
+                        }
+                        break 'ports;
+                    }
                 }
             }
         }
@@ -774,8 +896,14 @@ impl App {
         if let Some(e) = connect
             && !self.flow.model.edges.contains(&e)
         {
-            self.flow.push_undo();
-            self.flow.model.edges.push(e);
+            let mut next = self.flow.model.clone();
+            next.edges.push(e);
+            if next.order().is_none() {
+                self.flow.status = "Ese hilo cerraría un bucle.".into();
+            } else {
+                self.flow.push_undo();
+                self.flow.model = next;
+            }
         }
         if self.flow.model.nodes.is_empty() {
             painter.text(
@@ -863,6 +991,8 @@ impl App {
         let ids = std::mem::take(&mut self.flow.selected);
         self.flow.model.nodes.retain(|n| !ids.contains(&n.id));
         self.flow.model.edges.retain(|e| !ids.contains(&e.from) && !ids.contains(&e.to));
+        // un nodo nuevo puede reutilizar el identificador: no debe heredar sus parámetros
+        self.flow.model.params.retain(|p| !ids.contains(&p.node));
     }
 
     fn flow_duplicate(&mut self) {
@@ -912,8 +1042,13 @@ impl App {
     fn flow_params(&mut self, ui: &mut egui::Ui, schema: &Schema) {
         let t = self.tokens();
         let sel = if self.flow.selected.len() == 1 { self.flow.selected.iter().next().cloned() } else { None };
+        self.flow_output(ui);
+        ui.separator();
         let Some(id) = sel else {
-            self.flow_settings(ui);
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                self.flow_exposed(ui, schema);
+                self.flow_settings(ui);
+            });
             return;
         };
         let Some(idx) = self.flow.model.nodes.iter().position(|n| n.id == id) else {
@@ -932,14 +1067,35 @@ impl App {
                 (e.port.clone(), path)
             })
             .collect();
+        let is_final = !self.flow.model.edges.iter().any(|e| e.from == id);
+        // las opciones que ya son parámetros, y lo que el panel pida cambiar en ellos
+        let exposed: HashMap<String, String> = self
+            .flow
+            .model
+            .params
+            .iter()
+            .filter(|p| p.node == id)
+            .map(|p| (p.arg.clone(), p.name.clone()))
+            .collect();
+        let mut expose: Option<(String, Option<String>)> = None;
+        let mut run_here = false;
+        let idle = self.flow.running.is_none();
         let node = &mut self.flow.model.nodes[idx];
+        let before: Option<std::collections::BTreeMap<String, Vec<String>>> = match &node.kind {
+            NodeKind::Tool { args, .. } => Some(args.clone()),
+            NodeKind::Input { .. } => None,
+        };
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.label(egui::RichText::new("Nodo").size(15.0).strong().color(t.text));
             ui.add_space(4.0);
             ui.label("Nombre");
             ui.add(egui::TextEdit::singleline(&mut node.label).hint_text("(el de la herramienta)").desired_width(f32::INFINITY));
-            ui.checkbox(&mut node.keep, "Conservar los resultados")
-                .on_hover_text("Los resultados de un nodo que no se conserva se borran al acabar.");
+            if is_final {
+                ui.label(egui::RichText::new("Resultado final: se guarda siempre.").size(11.5).color(t.weak));
+            } else {
+                ui.checkbox(&mut node.keep, "Conservar los resultados")
+                    .on_hover_text("Los resultados de un nodo que no se conserva se borran cuando nadie los necesita.");
+            }
             ui.add_space(6.0);
             match &mut node.kind {
                 NodeKind::Input { path } => {
@@ -971,6 +1127,13 @@ impl App {
                     if let Some(e) = model::entry(tool) {
                         ui.label(egui::RichText::new(e.title).strong());
                     }
+                    if ui
+                        .add_enabled(idle, egui::Button::new("Ejecutar hasta aquí"))
+                        .on_hover_text("Ejecuta este nodo y los que lo alimentan; su resultado se guarda.")
+                        .clicked()
+                    {
+                        run_here = true;
+                    }
                     ui.label(egui::RichText::new(&spec.about).size(11.5).color(t.weak));
                     ui.add_space(8.0);
                     let wired = |a: &str| edges.iter().any(|e| e.port == a);
@@ -990,8 +1153,45 @@ impl App {
                         .filter(|a| !(a.required || wired(&a.id)))
                         .filter(|a| spec.shown(a, args))
                         .collect();
+                    // bajo cada opción que no llega por un hilo, si es un parámetro del flujo
+                    let mut parameter = |ui: &mut egui::Ui, a: &model::ArgSpec| {
+                        let mut on = exposed.contains_key(&a.id);
+                        let text = egui::RichText::new("Parámetro del flujo").size(10.5).color(t.weak);
+                        if ui
+                            .checkbox(&mut on, text)
+                            .on_hover_text(
+                                "Se puede cambiar sin abrir el nodo. Las opciones con el mismo nombre de parámetro cambian a la vez.",
+                            )
+                            .changed()
+                        {
+                            let name = on.then(|| a.long.clone().unwrap_or_else(|| a.id.clone()));
+                            expose = Some((a.id.clone(), name));
+                        }
+                        if let Some(name) = exposed.get(&a.id) {
+                            // se aplica al salir del cuadro: a medio escribir, un nombre puede
+                            // coincidir con el de otro parámetro y tomar su valor
+                            let key = egui::Id::new(("flow_param_name", &id, &a.id));
+                            let mut text = ui.data(|d| d.get_temp::<String>(key)).unwrap_or_else(|| name.clone());
+                            let r = ui
+                                .add(egui::TextEdit::singleline(&mut text).desired_width(f32::INFINITY))
+                                .on_hover_text("Nombre del parámetro");
+                            if r.changed() {
+                                ui.data_mut(|d| d.insert_temp(key, text.clone()));
+                            }
+                            if r.lost_focus() {
+                                ui.data_mut(|d| d.remove::<String>(key));
+                                let text = text.trim().to_string();
+                                if !text.is_empty() && text != *name {
+                                    expose = Some((a.id.clone(), Some(text)));
+                                }
+                            }
+                        }
+                    };
                     for a in main {
                         arg_widget(ui, &t, tool, a, args, wired(&a.id), &inputs);
+                        if !wired(&a.id) {
+                            parameter(ui, a);
+                        }
                     }
                     if !more.is_empty() {
                         egui::CollapsingHeader::new(format!("Más opciones ({})", more.len()))
@@ -999,32 +1199,124 @@ impl App {
                             .show(ui, |ui| {
                                 for a in more {
                                     arg_widget(ui, &t, tool, a, args, false, &inputs);
+                                    parameter(ui, a);
                                 }
                             });
                     }
                 }
             }
         });
+        // lo escrito en una opción que es parámetro pasa a las que lo comparten
+        if let Some(before) = before
+            && let Some(NodeKind::Tool { args, .. }) = self.flow.model.node(&id).map(|n| &n.kind)
+        {
+            let changed: Vec<String> = self
+                .flow
+                .model
+                .params
+                .iter()
+                .filter(|p| p.node == id && args.get(&p.arg) != before.get(&p.arg))
+                .map(|p| p.arg.clone())
+                .collect();
+            for a in changed {
+                self.flow.model.share(&id, &a);
+            }
+        }
+        match expose {
+            Some((arg, Some(name))) => {
+                self.flow.push_undo();
+                // al renombrar, el valor del nodo es el que vale si el nombre es nuevo
+                self.flow.model.expose(&id, &arg, &name);
+            }
+            Some((arg, None)) => {
+                self.flow.push_undo();
+                self.flow.model.unexpose(&id, &arg);
+            }
+            None => {}
+        }
+        if run_here {
+            let ctx = ui.ctx().clone();
+            let schema = self.flow.schema.clone();
+            if let Some(Ok(schema)) = schema {
+                self.flow.until = Some(id);
+                self.flow_run(&ctx, schema, false);
+            }
+        }
     }
 
-    /// Las opciones del flujo: adónde van sus resultados y si se abren en el mapa.
-    fn flow_settings(&mut self, ui: &mut egui::Ui) {
+    /// Los parámetros del flujo: las entradas y las opciones expuestas, juntas y editables.
+    fn flow_exposed(&mut self, ui: &mut egui::Ui, schema: &Schema) {
         let t = self.tokens();
-        ui.label(egui::RichText::new("Flujo").size(15.0).strong().color(t.text));
+        let m = &mut self.flow.model;
+        let before = m.clone();
+        let names: Vec<String> = m.parameter_names().iter().map(|s| s.to_string()).collect();
+        let inputs: Vec<usize> = (0..m.nodes.len())
+            .filter(|&i| matches!(m.nodes[i].kind, NodeKind::Input { .. }))
+            .collect();
+        if names.is_empty() && inputs.is_empty() {
+            return;
+        }
+        ui.label(egui::RichText::new("Parámetros").size(15.0).strong().color(t.text));
         ui.add_space(4.0);
-        ui.label(
-            egui::RichText::new(
-                "Selecciona un nodo para ver sus opciones. Las estrellas marcan los resultados que se conservan; \
-                 los de los demás nodos se borran al terminar.",
-            )
-            .size(11.5)
-            .color(t.weak),
-        );
-        ui.add_space(10.0);
+        for i in inputs {
+            let title = m.name(&m.nodes[i]);
+            ui.label(title);
+            let id = m.nodes[i].id.clone();
+            if let NodeKind::Input { path } = &mut m.nodes[i].kind {
+                ui.push_id(("flow_input", id), |ui| {
+                    ui.add(egui::TextEdit::singleline(path).desired_width(f32::INFINITY));
+                    ui.horizontal(|ui| {
+                        if ui.button("Archivo…").clicked()
+                            && let Some(f) = prefs::dialog().pick_file()
+                        {
+                            *path = f.display().to_string();
+                        }
+                        if ui.button("Carpeta…").clicked()
+                            && let Some(d) = rfd::FileDialog::new().pick_folder()
+                        {
+                            *path = d.display().to_string();
+                        }
+                    });
+                });
+            }
+        }
+        for name in names {
+            let Some((node, arg)) = m
+                .parameter_targets(&name)
+                .next()
+                .map(|(n, a)| (n.id.clone(), a.to_string()))
+            else {
+                continue;
+            };
+            let places: Vec<String> = m.parameter_targets(&name).map(|(n, _)| m.name(n)).collect();
+            let Some(n) = m.nodes.iter_mut().find(|n| n.id == node) else { continue };
+            let NodeKind::Tool { tool, args } = &mut n.kind else { continue };
+            let Some(a) = schema.tool(tool).and_then(|s| s.arg(&arg)) else { continue };
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new(&name).strong())
+                .on_hover_text(format!("En: {}", places.join(", ")));
+            ui.push_id(("flow_param", &name), |ui| {
+                arg_widget(ui, &t, tool, a, args, false, &HashMap::new());
+            });
+            if m.value(&node, &arg) != before.value(&node, &arg) {
+                m.share(&node, &arg);
+            }
+        }
+        if self.flow.model != before {
+            self.flow.push_undo_typing(&before);
+        }
+        ui.separator();
+    }
+
+    /// La salida del flujo, siempre a la vista: la carpeta, qué se guarda y si se abre en el mapa.
+    fn flow_output(&mut self, ui: &mut egui::Ui) {
+        let t = self.tokens();
+        ui.label(egui::RichText::new("Salida").size(15.0).strong().color(t.text));
+        ui.add_space(4.0);
         ui.label("Carpeta de resultados");
         ui.add(
             egui::TextEdit::singleline(&mut self.flow.model.results)
-                .hint_text("(junto a la primera entrada)")
+                .hint_text("(resultados_flujo, junto a la primera entrada)")
                 .desired_width(f32::INFINITY),
         );
         if ui.button("Elegir carpeta…").clicked()
@@ -1032,8 +1324,63 @@ impl App {
         {
             self.flow.model.results = d.display().to_string();
         }
-        ui.add_space(6.0);
+        ui.label(
+            egui::RichText::new("Cada ejecución crea dentro su propia carpeta: no se sobrescribe nada.")
+                .size(11.5)
+                .color(t.weak),
+        );
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.label("Guardar:");
+            // los dos botones solo ponen las estrellas, que siguen decidiendo nodo a nodo
+            let finals = ui.button("Solo finales").on_hover_text("Guarda solo los nodos de los que no sale ningún hilo.");
+            let all = ui.button("Todo").on_hover_text("Conserva también los resultados intermedios.");
+            if finals.clicked() || all.clicked() {
+                self.flow.push_undo();
+                for n in &mut self.flow.model.nodes {
+                    n.keep = all.clicked() && matches!(n.kind, NodeKind::Tool { .. });
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Teselas a la vez:");
+            ui.add(
+                egui::DragValue::new(&mut self.flow.jobs)
+                    .range(0..=64)
+                    .custom_formatter(|v, _| if v < 1.0 { "automático".into() } else { format!("{v:.0}") }),
+            )
+            .on_hover_text(
+                "Automático: según los núcleos, la memoria y el tamaño de los archivos. En un disco lento, o si falta memoria, pon 1.",
+            );
+        });
         ui.checkbox(&mut self.flow.add_to_map, "Abrir los resultados en el mapa al terminar");
+        if ui
+            .add_enabled(self.flow.running.is_none(), egui::Button::new("Reanudar la última ejecución"))
+            .on_hover_text(
+                "Sigue donde se quedó tras un corte, una cancelación o unos fallos: lo ya hecho no se repite. \
+                 Vale mientras no cambien las opciones ni los hilos.",
+            )
+            .clicked()
+            && let Some(Ok(schema)) = self.flow.schema.clone()
+        {
+            let ctx = ui.ctx().clone();
+            self.flow_run(&ctx, schema, true);
+        }
+    }
+
+    /// Los datos del flujo, sin ningún nodo seleccionado.
+    fn flow_settings(&mut self, ui: &mut egui::Ui) {
+        let t = self.tokens();
+        ui.label(egui::RichText::new("Flujo").size(15.0).strong().color(t.text));
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new(
+                "Selecciona un nodo para ver sus opciones. Las estrellas marcan los resultados que se conservan; \
+                 los de los demás nodos se borran cuando ya nadie los necesita.",
+            )
+            .size(11.5)
+            .color(t.weak),
+        );
         ui.add_space(10.0);
         ui.label(egui::RichText::new(format!("{} nodos, {} hilos", self.flow.model.nodes.len(), self.flow.model.edges.len())).color(t.weak));
         if let Some(p) = &self.flow.path {
@@ -1115,7 +1462,10 @@ impl App {
             Action::FlowDuplicate => self.flow_duplicate(),
             Action::FlowArrange => self.flow_arrange(&schema),
             Action::FlowFit => self.flow.fit_next = true,
-            Action::FlowRun => self.flow_run(ctx, schema),
+            Action::FlowRun => {
+                self.flow.until = None;
+                self.flow_run(ctx, schema, false);
+            }
             Action::FlowCancel => {
                 if let Some(r) = &self.flow.running {
                     r.cancel.store(true, Ordering::Relaxed);
@@ -1126,11 +1476,22 @@ impl App {
         }
     }
 
-    fn flow_run(&mut self, ctx: &egui::Context, schema: Arc<Schema>) {
+    fn flow_run(&mut self, ctx: &egui::Context, schema: Arc<Schema>, resume: bool) {
         if self.flow.running.is_some() {
             return;
         }
-        let problems = self.flow.model.problems(&schema);
+        // la ejecución parcial, y su reanudación, solo miran los nodos que hacen falta
+        let model = match &self.flow.until {
+            Some(id) => match self.flow.model.upto(id) {
+                Ok(m) => m,
+                Err(_) => {
+                    self.flow.until = None;
+                    self.flow.model.clone()
+                }
+            },
+            None => self.flow.model.clone(),
+        };
+        let problems = model.problems(&schema);
         if let Some(p) = problems.first() {
             self.notice = Some(format!("El flujo no se puede ejecutar: {}", p.text));
             return;
@@ -1139,22 +1500,9 @@ impl App {
             self.notice = Some("No se encuentra el ejecutable «hipso» junto al programa.".into());
             return;
         };
-        let model = self.flow.model.clone();
-        let results = if model.results.trim().is_empty() {
-            // junto a la primera entrada
-            model
-                .nodes
-                .iter()
-                .find_map(|n| match &n.kind {
-                    NodeKind::Input { path } => Some(PathBuf::from(path)),
-                    _ => None,
-                })
-                .and_then(|p| if p.is_dir() { Some(p) } else { p.parent().map(PathBuf::from) })
-                .unwrap_or_else(std::env::temp_dir)
-                .join("resultados_flujo")
-        } else {
-            PathBuf::from(&model.results)
-        };
+        // la carpeta de resultados es la del flujo entero
+        let results = results_of(&self.flow.model);
+        let jobs = self.flow.jobs;
         self.flow.states.clear();
         let (tx, rx) = channel();
         let cancel = Arc::new(AtomicBool::new(false));
@@ -1162,7 +1510,7 @@ impl App {
         let c = ctx.clone();
         std::thread::spawn(move || {
             let inputs = HashMap::new();
-            let run = model::Run { exe: &exe, schema: &schema, results: &results, inputs: &inputs, cancel: &flag };
+            let run = model::Run { exe: &exe, schema: &schema, results: &results, inputs: &inputs, cancel: &flag, resume, jobs };
             let (tx_state, tx_log) = (tx.clone(), tx.clone());
             let (c1, c2) = (c.clone(), c.clone());
             let r = model.run(
@@ -1179,7 +1527,7 @@ impl App {
             let _ = tx.send(Msg::Done(r.map_err(|e| e.to_string())));
             c.request_repaint();
         });
-        self.flow.running = Some(Running { rx, cancel, current: None });
+        self.flow.running = Some(Running { rx, cancel });
         self.flow.status = "Ejecutando el flujo…".into();
         self.log("Flujo: en marcha".to_string());
     }
@@ -1194,12 +1542,16 @@ impl App {
         let mut done = None;
         for m in msgs {
             match m {
-                Msg::Log(l) => self.log.push(l),
+                Msg::Log(l) => {
+                    // un flujo de miles de teselas no puede crecer sin fin en memoria: el
+                    // registro entero queda en la carpeta de la ejecución
+                    if self.log.len() >= MAX_LOG {
+                        self.log.drain(..MAX_LOG / 2);
+                    }
+                    self.log.push(l);
+                }
                 Msg::State(id, st) => {
-                    if st == State::Running
-                        && let Some(r) = &mut self.flow.running
-                    {
-                        r.current = Some(id.clone());
+                    if st == State::Running {
                         let name = self
                             .flow
                             .model
@@ -1216,30 +1568,50 @@ impl App {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
         }
         let Some(r) = done else { return };
-        let current = self.flow.running.take().and_then(|r| r.current);
+        self.flow.running = None;
         match r {
             Ok(report) => {
                 let mut open = Vec::new();
                 for (_, files) in &report.outputs {
                     self.log(format!("Flujo: {} archivos conservados", files.len()));
                     for f in files {
-                        self.log(format!("  {}", f.display()));
                         if [Kind::Cloud, Kind::Raster, Kind::Vector].iter().any(|k| k.accepts(f)) {
                             open.push(f.clone());
                         }
                     }
                 }
-                self.flow.status = "Flujo terminado.".into();
+                let folder = report.folder.display();
+                if report.failed > 0 {
+                    self.flow.status = format!(
+                        "Terminado con {} fallos (errores.csv en {folder}). El primero: {}",
+                        report.failed, report.first_error
+                    );
+                    self.show_log = true;
+                } else {
+                    self.flow.status = format!("Flujo terminado: {folder}");
+                }
+                self.log(format!("Flujo: {}", self.flow.status));
+                // abrir miles de capas bloquearía el programa
                 if self.flow.add_to_map && !open.is_empty() {
-                    self.open_files(ctx, open);
+                    if open.len() <= MAX_TO_MAP {
+                        self.open_files(ctx, open);
+                    } else {
+                        self.log(format!(
+                            "Flujo: son {} archivos; no se abren en el mapa (más de {MAX_TO_MAP})",
+                            open.len()
+                        ));
+                    }
                 }
             }
             Err(e) => {
-                if let Some(c) = current {
-                    self.flow.states.insert(c, State::Failed);
+                // en una cadena hay varios nodos en marcha: ninguno se queda así
+                for s in self.flow.states.values_mut() {
+                    if *s == State::Running {
+                        *s = State::Failed;
+                    }
                 }
                 self.log(format!("Flujo: {e}"));
-                self.flow.status = format!("El flujo se detuvo: {e}");
+                self.flow.status = format!("El flujo se detuvo (se puede reanudar): {e}");
                 self.show_log = true;
             }
         }

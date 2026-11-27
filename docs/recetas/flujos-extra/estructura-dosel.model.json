@@ -1,0 +1,102 @@
+{
+ "hipso_modelo": 1,
+ "results": "",
+ "nodes": [
+  {
+   "id": "n1",
+   "label": "Nube",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n2",
+   "label": "MDT",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "dtm",
+   "args": {
+    "cell": [
+     "1"
+    ]
+   }
+  },
+  {
+   "id": "n3",
+   "label": "Métricas por celda",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "metrics",
+   "args": {
+    "cell": [
+     "20"
+    ],
+    "structure": [
+     "true"
+    ]
+   }
+  },
+  {
+   "id": "n4",
+   "label": "Vóxeles",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "voxel-metrics",
+   "args": {
+    "cell": [
+     "5"
+    ],
+    "dz": [
+     "1"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": "n1",
+   "to": "n2",
+   "port": "inputs"
+  },
+  {
+   "from": "n1",
+   "to": "n3",
+   "port": "inputs"
+  },
+  {
+   "from": "n2",
+   "to": "n3",
+   "port": "dtm"
+  },
+  {
+   "from": "n1",
+   "to": "n4",
+   "port": "inputs"
+  },
+  {
+   "from": "n2",
+   "to": "n4",
+   "port": "dtm"
+  }
+ ],
+ "params": [
+  {
+   "name": "celda de métricas",
+   "node": "n3",
+   "arg": "cell"
+  },
+  {
+   "name": "celda de vóxel",
+   "node": "n4",
+   "arg": "cell"
+  }
+ ]
+}

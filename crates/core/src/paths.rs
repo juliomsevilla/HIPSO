@@ -365,8 +365,104 @@ pub fn find_dsm(input: &Path) -> Option<PathBuf> {
     find_raster(input, "mds")
 }
 
+/// Las etiquetas con las que empieza lo que las órdenes añaden al nombre de su entrada.
+const PRODUCT_TAGS: &[&str] = &["mdt", "mds", "chm", "metricas"];
+
+/// El nombre de un archivo sin las etiquetas que añaden las órdenes: `hoja_chm_1m` es de `hoja`.
+fn sheet_name(p: &Path) -> String {
+    let full = stem(p).to_lowercase();
+    let cut = PRODUCT_TAGS
+        .iter()
+        .filter_map(|t| {
+            let mark = format!("_{t}");
+            full.match_indices(&mark)
+                .find(|(k, _)| matches!(full.as_bytes().get(k + mark.len()), None | Some(b'_')))
+                .map(|(k, _)| k)
+        })
+        .filter(|&k| k > 0)
+        .min();
+    cut.map_or(full.clone(), |k| full[..k].to_string())
+}
+
+/// Los principios de `name` que terminan donde empieza una parte separada por `_`, del más largo al
+/// más corto.
+fn heads(name: &str) -> impl Iterator<Item = &str> {
+    name.rmatch_indices('_').map(|(k, _)| &name[..k]).filter(|h| !h.is_empty())
+}
+
+/// Los candidatos entre los que cada entrada busca el suyo (un MDT por hoja), ordenados por nombre
+/// una sola vez: con cientos de miles de teselas no se puede comparar cada una con todas.
+pub struct NameIndex<'a> {
+    /// Por su nombre de hoja.
+    exact: std::collections::HashMap<String, Vec<&'a PathBuf>>,
+    /// Por los principios de su nombre, con su longitud.
+    longer: std::collections::HashMap<String, Vec<&'a PathBuf>>,
+}
+
+impl<'a> NameIndex<'a> {
+    pub fn new(candidates: &'a [PathBuf]) -> Self {
+        let mut exact: std::collections::HashMap<String, Vec<&PathBuf>> = Default::default();
+        let mut longer: std::collections::HashMap<String, Vec<&PathBuf>> = Default::default();
+        for c in candidates {
+            let name = sheet_name(c);
+            for h in heads(&name) {
+                let list = longer.entry(h.to_string()).or_default();
+                // dos bastan para saber que no se puede elegir
+                if list.len() < 2 {
+                    list.push(c);
+                }
+            }
+            let list = exact.entry(name).or_default();
+            if list.len() < 2 {
+                list.push(c);
+            }
+        }
+        Self { exact, longer }
+    }
+
+    /// El candidato hecho a partir de `input`: el de su mismo nombre de hoja; si no, el de la hoja
+    /// de la que deriva (`hoja_clas` con el MDT de `hoja`) o el de una derivada de ella. `None` si
+    /// ninguno corresponde o si dos corresponden por igual, porque elegir a ciegas daría alturas
+    /// sobre el terreno de otra hoja.
+    pub fn pair(&self, input: &Path) -> Option<&'a PathBuf> {
+        let name = sheet_name(input);
+        let found = self
+            .exact
+            .get(&name)
+            .or_else(|| heads(&name).find_map(|h| self.exact.get(h)))
+            .or_else(|| self.longer.get(&name))?;
+        match found.as_slice() {
+            [one] => Some(one),
+            _ => None,
+        }
+    }
+}
+
+/// [`NameIndex::pair`] para una sola búsqueda.
+pub fn pair_by_name<'a>(candidates: &'a [PathBuf], input: &Path) -> Option<&'a PathBuf> {
+    NameIndex::new(candidates).pair(input)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn each_sheet_takes_the_model_made_from_it() {
+        let dtms: Vec<PathBuf> = ["r/h_1_mdt_1m_tin.tif", "r/h_10_mdt_1m_tin.tif", "r/h_2_mdt_1m_tin.tif"]
+            .iter()
+            .map(PathBuf::from)
+            .collect();
+        let of = |n: &str| pair_by_name(&dtms, Path::new(n)).map(PathBuf::as_path);
+        assert_eq!(of("d/h_1.laz"), Some(Path::new("r/h_1_mdt_1m_tin.tif")));
+        assert_eq!(of("d/H_10.laz"), Some(Path::new("r/h_10_mdt_1m_tin.tif")));
+        assert_eq!(of("d/h_2_clas.laz"), Some(Path::new("r/h_2_mdt_1m_tin.tif")));
+        assert_eq!(of("d/h_3.laz"), None);
+        // dos productos de la misma hoja se corresponden entre sí
+        assert_eq!(of("d/h_2_chm_1m_pitfree.tif"), Some(Path::new("r/h_2_mdt_1m_tin.tif")));
+        // dos modelos de la misma hoja: no se elige
+        let two = [PathBuf::from("a/x_mdt_1m.tif"), PathBuf::from("b/x_mdt_2m.tif")];
+        assert_eq!(pair_by_name(&two, Path::new("x.laz")), None);
+    }
+
     #[test]
     fn swapping_an_extension_replaces_the_known_ones_only() {
         // se comparan como rutas, no como texto: Windows escribe «\» donde aquí hay «/»

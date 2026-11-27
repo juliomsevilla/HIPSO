@@ -139,11 +139,11 @@ pub fn run(input: &Path, output: &Path, p: &HagParams) -> Result<String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// Un archivo LAS 1.2 de formato 1 con puntos (x, y, z, clase) en una rejilla milimétrica.
-    fn write_las(path: &Path, pts: &[(f64, f64, f64, u8)]) -> Result<()> {
+    pub(crate) fn write_las(path: &Path, pts: &[(f64, f64, f64, u8)]) -> Result<()> {
         let mut h = vec![0u8; 227];
         h[..4].copy_from_slice(b"LASF");
         h[24] = 1;

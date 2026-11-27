@@ -1,0 +1,104 @@
+{
+ "hipso_modelo": 1,
+ "results": "",
+ "nodes": [
+  {
+   "id": "n1",
+   "label": "Nube",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n2",
+   "label": "MDT",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "dtm",
+   "args": {
+    "cell": [
+     "1"
+    ]
+   }
+  },
+  {
+   "id": "n3",
+   "label": "CHM",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "chm",
+   "args": {
+    "cell": [
+     "1"
+    ]
+   }
+  },
+  {
+   "id": "n4",
+   "label": "Huecos",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "canopy-gaps",
+   "args": {
+    "height": [
+     "5"
+    ],
+    "min_area": [
+     "10"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": "n1",
+   "to": "n2",
+   "port": "inputs"
+  },
+  {
+   "from": "n1",
+   "to": "n3",
+   "port": "inputs"
+  },
+  {
+   "from": "n2",
+   "to": "n3",
+   "port": "dtm"
+  },
+  {
+   "from": "n3",
+   "to": "n4",
+   "port": "input"
+  }
+ ],
+ "params": [
+  {
+   "name": "celda",
+   "node": "n2",
+   "arg": "cell"
+  },
+  {
+   "name": "celda",
+   "node": "n3",
+   "arg": "cell"
+  },
+  {
+   "name": "altura del hueco",
+   "node": "n4",
+   "arg": "height"
+  },
+  {
+   "name": "superficie mínima",
+   "node": "n4",
+   "arg": "min_area"
+  }
+ ]
+}

@@ -6008,7 +6008,12 @@ impl eframe::App for App {
                 .map(|f| f.path().to_path_buf())
                 .collect()
         });
-        self.open_files(&ctx, dropped);
+        // en la pestaña de flujos, lo soltado entra en el flujo como nodos de entrada
+        if self.tab == FLOWS_TAB && !self.backstage {
+            self.flow_drop(dropped);
+        } else {
+            self.open_files(&ctx, dropped);
+        }
         self.keys(&ctx);
         self.header(ui, &ctx);
         self.ribbon(ui, &ctx);

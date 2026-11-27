@@ -1,0 +1,88 @@
+{
+ "hipso_modelo": 1,
+ "results": "",
+ "nodes": [
+  {
+   "id": "n1",
+   "label": "Nube",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n2",
+   "label": "Sin duplicados",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "dedup",
+   "args": {}
+  },
+  {
+   "id": "n3",
+   "label": "Clasificada",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "classify",
+   "args": {
+    "noise": [
+     "sor"
+    ],
+    "vegetation": [
+     "true"
+    ]
+   }
+  },
+  {
+   "id": "n4",
+   "label": "COPC",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "copc",
+   "args": {}
+  },
+  {
+   "id": "n5",
+   "label": "Densidad",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "voronoi-density",
+   "args": {
+    "cell": [
+     "5"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": "n1",
+   "to": "n2",
+   "port": "inputs"
+  },
+  {
+   "from": "n2",
+   "to": "n3",
+   "port": "inputs"
+  },
+  {
+   "from": "n3",
+   "to": "n4",
+   "port": "inputs"
+  },
+  {
+   "from": "n3",
+   "to": "n5",
+   "port": "inputs"
+  }
+ ]
+}

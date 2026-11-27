@@ -1,0 +1,128 @@
+{
+ "hipso_modelo": 1,
+ "results": "",
+ "nodes": [
+  {
+   "id": "n1",
+   "label": "Nube",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n2",
+   "label": "Puntos de control",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "input",
+   "path": ""
+  },
+  {
+   "id": "n3",
+   "label": "Densidad",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "voronoi-density",
+   "args": {
+    "cell": [
+     "5"
+    ],
+    "threshold": [
+     "5"
+    ]
+   }
+  },
+  {
+   "id": "n4",
+   "label": "Diferencia entre pasadas",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "swath",
+   "args": {
+    "cell": [
+     "2"
+    ]
+   }
+  },
+  {
+   "id": "n5",
+   "label": "MDT",
+   "keep": false,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "dtm",
+   "args": {
+    "cell": [
+     "1"
+    ]
+   }
+  },
+  {
+   "id": "n7",
+   "label": "MDT unido",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "mosaic",
+   "args": {}
+  },
+  {
+   "id": "n6",
+   "label": "Validación del MDT",
+   "keep": true,
+   "x": 0,
+   "y": 0,
+   "type": "tool",
+   "tool": "dtm-validate",
+   "args": {}
+  }
+ ],
+ "edges": [
+  {
+   "from": "n1",
+   "to": "n3",
+   "port": "inputs"
+  },
+  {
+   "from": "n1",
+   "to": "n4",
+   "port": "inputs"
+  },
+  {
+   "from": "n1",
+   "to": "n5",
+   "port": "inputs"
+  },
+  {
+   "from": "n5",
+   "to": "n7",
+   "port": "inputs"
+  },
+  {
+   "from": "n7",
+   "to": "n6",
+   "port": "dtm"
+  },
+  {
+   "from": "n2",
+   "to": "n6",
+   "port": "reference"
+  }
+ ],
+ "params": [
+  {
+   "name": "densidad exigida",
+   "node": "n3",
+   "arg": "threshold"
+  }
+ ]
+}

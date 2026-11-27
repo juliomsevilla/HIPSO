@@ -552,6 +552,7 @@ const ARG_KINDS: &[(&str, &str, Kind)] = &[
     ("model", "cells", V),
     ("piles", "piles", V),
     ("cutfill", "regions", V),
+    ("cutfill", "design", R),
     ("leastcost", "barriers", V),
     ("leastcost", "prefer", V),
     ("zonal", "regions", V),
@@ -580,7 +581,7 @@ pub fn named_args() -> impl Iterator<Item = (&'static str, &'static str)> {
 }
 
 /// Las opciones que llevan una ruta pero la escriben.
-const OUTPUT_ARGS: &[(&str, &str)] = &[("clip", "layout"), ("clip", "metrics")];
+const OUTPUT_ARGS: &[(&str, &str)] = &[("clip", "layout"), ("clip", "metrics"), ("split", "dir")];
 
 /// Las opciones que nombran un campo de una capa (o una columna de una tabla): la herramienta, la
 /// opción, la opción de archivo cuya tabla ofrece los campos y si solo valen los numéricos. Las
@@ -700,10 +701,21 @@ pub struct Edge {
     pub port: String,
 }
 
+/// Una opción de un nodo expuesta como parámetro del flujo: se cambia sin abrir el nodo, y las que
+/// comparten nombre cambian a la vez (la celda del MDT y la del CHM, por ejemplo).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Param {
+    pub name: String,
+    pub node: String,
+    pub arg: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Model {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
+    /// Las opciones expuestas como parámetros.
+    pub params: Vec<Param>,
     /// Adónde van los productos conservados (vacío: una carpeta junto al modelo).
     pub results: String,
 }
@@ -781,7 +793,25 @@ impl Model {
                 quote(&e.port)
             ));
         }
-        out.push_str("]}");
+        out.push(']');
+        // los de nodos que ya no existen no se guardan
+        let params: Vec<String> = self
+            .params
+            .iter()
+            .filter(|p| self.node(&p.node).is_some())
+            .map(|p| {
+                format!(
+                    "{{\"name\":{},\"node\":{},\"arg\":{}}}",
+                    quote(&p.name),
+                    quote(&p.node),
+                    quote(&p.arg)
+                )
+            })
+            .collect();
+        if !params.is_empty() {
+            out.push_str(&format!(",\"params\":[{}]", params.join(",")));
+        }
+        out.push('}');
         out
     }
 
@@ -828,6 +858,13 @@ impl Model {
                 y: n.get("y").and_then(Json::as_f64).unwrap_or(0.0) as f32,
             });
         }
+        for p in j.get("params").and_then(Json::as_array).unwrap_or(&[]) {
+            m.params.push(Param {
+                name: json_str(p, "name"),
+                node: json_str(p, "node"),
+                arg: json_str(p, "arg"),
+            });
+        }
         for e in j.get("edges").and_then(Json::as_array).unwrap_or(&[]) {
             m.edges.push(Edge {
                 from: json_str(e, "from"),
@@ -858,7 +895,10 @@ impl Model {
         }
         let mut ready: Vec<usize> = (0..self.nodes.len()).filter(|i| indeg[*i] == 0).collect();
         let mut order = Vec::with_capacity(self.nodes.len());
-        while let Some(i) = ready.pop() {
+        // entre los que están listos va primero el que antes se añadió al flujo
+        while !ready.is_empty() {
+            let first = ready.iter().enumerate().min_by_key(|(_, i)| **i).map_or(0, |(k, _)| k);
+            let i = ready.swap_remove(first);
             order.push(i);
             for &b in &out[i] {
                 depth[b] = depth[b].max(depth[i] + 1);
@@ -918,9 +958,6 @@ impl Model {
                 add(Some(&n.id), format!("El identificador «{}» está repetido.", n.id));
             }
         }
-        if !self.nodes.iter().any(|n| n.keep) {
-            add(None, "Ningún nodo conserva su resultado: marca al menos uno.".into());
-        }
         for e in &self.edges {
             if self.node(&e.from).is_none() || self.node(&e.to).is_none() {
                 add(None, format!("Un hilo une nodos que no existen ({} → {}).", e.from, e.to));
@@ -965,6 +1002,23 @@ impl Model {
                                 );
                             }
                         }
+                        for e in &wired {
+                            if let Some(src) = self.node(&e.from)
+                                && let NodeKind::Input { path } = &src.kind
+                                && Path::new(path).exists()
+                                && !brings(Path::new(path), takes)
+                            {
+                                add(
+                                    Some(&n.id),
+                                    format!(
+                                        "«{}» necesita archivos de tipo {} y «{}» no trae ninguno.",
+                                        self.name(n),
+                                        takes.name(),
+                                        self.name(src)
+                                    ),
+                                );
+                            }
+                        }
                         if a.required && !a.flag && a.default.is_none() && wired.is_empty() && !typed {
                             let what = a.long.as_deref().map_or(a.id.clone(), |l| format!("--{l}"));
                             add(
@@ -981,6 +1035,230 @@ impl Model {
                             );
                         }
                     }
+                }
+            }
+        }
+        out
+    }
+
+    /// Los nombres de los parámetros de los nodos que existen, en el orden en que se expusieron.
+    pub fn parameter_names(&self) -> Vec<&str> {
+        let mut out: Vec<&str> = Vec::new();
+        for p in &self.params {
+            if self.node(&p.node).is_some() && !out.contains(&p.name.as_str()) {
+                out.push(&p.name);
+            }
+        }
+        out
+    }
+
+    /// Las opciones que cambia el parámetro `name`: nodo y opción.
+    pub fn parameter_targets<'a>(&'a self, name: &'a str) -> impl Iterator<Item = (&'a Node, &'a str)> + 'a {
+        self.params
+            .iter()
+            .filter(move |p| p.name == name)
+            .filter_map(|p| self.node(&p.node).map(|n| (n, p.arg.as_str())))
+    }
+
+    /// El valor de una opción de un nodo de herramienta, si se ha fijado.
+    pub fn value(&self, node: &str, arg: &str) -> Option<&str> {
+        match &self.node(node)?.kind {
+            NodeKind::Tool { args, .. } => args.get(arg).and_then(|v| v.first()).map(String::as_str),
+            NodeKind::Input { .. } => None,
+        }
+    }
+
+    /// El nombre del parámetro que expone una opción.
+    pub fn parameter_of(&self, node: &str, arg: &str) -> Option<&str> {
+        self.params
+            .iter()
+            .find(|p| p.node == node && p.arg == arg)
+            .map(|p| p.name.as_str())
+    }
+
+    fn put(&mut self, node: &str, arg: &str, value: Option<Vec<String>>) {
+        if let Some(n) = self.nodes.iter_mut().find(|n| n.id == node)
+            && let NodeKind::Tool { args, .. } = &mut n.kind
+        {
+            match value {
+                Some(v) => {
+                    args.insert(arg.to_string(), v);
+                }
+                None => {
+                    args.remove(arg);
+                }
+            }
+        }
+    }
+
+    /// Expone una opción como el parámetro `name`. Si ya existe, la opción toma su valor.
+    pub fn expose(&mut self, node: &str, arg: &str, name: &str) {
+        self.unexpose(node, arg);
+        let shared = self.parameter_targets(name).next().map(|(n, a)| match &n.kind {
+            NodeKind::Tool { args, .. } => args.get(a).cloned(),
+            NodeKind::Input { .. } => None,
+        });
+        if let Some(value) = shared {
+            self.put(node, arg, value);
+        }
+        self.params.push(Param {
+            name: name.to_string(),
+            node: node.to_string(),
+            arg: arg.to_string(),
+        });
+    }
+
+    /// Deja de exponer una opción.
+    pub fn unexpose(&mut self, node: &str, arg: &str) {
+        self.params.retain(|p| p.node != node || p.arg != arg);
+    }
+
+    /// Lleva el valor de la opción `arg` de `node` a las que comparten su parámetro.
+    pub fn share(&mut self, node: &str, arg: &str) {
+        let Some(name) = self.parameter_of(node, arg).map(str::to_string) else { return };
+        let value = match self.node(node).map(|n| &n.kind) {
+            Some(NodeKind::Tool { args, .. }) => args.get(arg).cloned(),
+            _ => return,
+        };
+        let others: Vec<(String, String)> = self
+            .parameter_targets(&name)
+            .map(|(n, a)| (n.id.clone(), a.to_string()))
+            .collect();
+        for (n, a) in others {
+            self.put(&n, &a, value.clone());
+        }
+    }
+
+    /// Da valor a un parámetro, o a una opción nombrada como `nodo.opción`. Un valor vacío devuelve
+    /// la opción a su valor por defecto.
+    pub fn set_parameter(&mut self, schema: &Schema, name: &str, value: &str) -> Result<()> {
+        let value = value.trim();
+        let new = (!value.is_empty()).then(|| vec![value.to_string()]);
+        let mut targets: Vec<(String, String)> = self
+            .parameter_targets(name)
+            .map(|(n, a)| (n.id.clone(), a.to_string()))
+            .collect();
+        if targets.is_empty()
+            && let Some((node, option)) = name.rsplit_once('.')
+        {
+            for n in self.nodes.iter().filter(|n| n.id == node || self.name(n) == node) {
+                let NodeKind::Tool { tool, .. } = &n.kind else { continue };
+                let found = schema.tool(tool).and_then(|s| {
+                    s.args
+                        .iter()
+                        .find(|a| a.id == option || a.long.as_deref() == Some(option))
+                });
+                if let Some(a) = found {
+                    targets.push((n.id.clone(), a.id.clone()));
+                }
+            }
+        }
+        if targets.is_empty() {
+            let known = self.parameter_names().join(", ");
+            return Err(Error::Param(if known.is_empty() {
+                format!("el flujo no tiene el parámetro «{name}»; una opción se nombra como nodo.opción")
+            } else {
+                format!("el flujo no tiene el parámetro «{name}»; tiene: {known}")
+            }));
+        }
+        for (n, a) in targets {
+            self.put(&n, &a, new.clone());
+        }
+        Ok(())
+    }
+
+    /// El trozo del flujo que hace falta para llegar al nodo `target` (por identificador o nombre):
+    /// él y todo lo que lo alimenta. En él es un resultado final y por eso se guarda.
+    pub fn upto(&self, target: &str) -> Result<Model> {
+        let id = match self.node(target) {
+            Some(n) => n.id.clone(),
+            None => {
+                let named: Vec<&Node> = self.nodes.iter().filter(|n| self.name(n) == target).collect();
+                match named.as_slice() {
+                    [one] => one.id.clone(),
+                    [] => return Err(Error::Param(format!("el flujo no tiene ningún nodo «{target}»"))),
+                    _ => {
+                        return Err(Error::Param(format!(
+                            "hay varios nodos «{target}»: indica su identificador"
+                        )));
+                    }
+                }
+            }
+        };
+        let mut wanted = HashSet::from([id]);
+        loop {
+            let before = wanted.len();
+            for e in &self.edges {
+                if wanted.contains(&e.to) {
+                    wanted.insert(e.from.clone());
+                }
+            }
+            if wanted.len() == before {
+                break;
+            }
+        }
+        let mut part = self.clone();
+        part.nodes.retain(|n| wanted.contains(&n.id));
+        part.edges.retain(|e| wanted.contains(&e.from) && wanted.contains(&e.to));
+        part.params.retain(|p| wanted.contains(&p.node));
+        Ok(part)
+    }
+
+    /// Si los productos del nodo se guardan: los marcados y los finales (aquellos de los que no
+    /// sale ningún hilo), que son el resultado del flujo.
+    pub fn kept(&self, n: &Node) -> bool {
+        n.keep || !self.edges.iter().any(|e| e.from == n.id)
+    }
+
+    /// Lo que no impide ejecutar el flujo pero probablemente no es lo que se quería.
+    pub fn warnings(&self) -> Vec<Problem> {
+        let mut out = Vec::new();
+        for name in self.parameter_names() {
+            let mut values = self.parameter_targets(name).map(|(n, a)| self.value(&n.id, a));
+            let first = values.next();
+            if values.any(|v| Some(v) != first) {
+                out.push(Problem {
+                    node: None,
+                    text: format!("El parámetro «{name}» tiene valores distintos en sus nodos."),
+                });
+            }
+        }
+        for n in &self.nodes {
+            let NodeKind::Tool { tool, .. } = &n.kind else { continue };
+            let fed = |port: &str| -> Vec<&Node> {
+                self.edges
+                    .iter()
+                    .filter(|e| e.to == n.id && e.port == port)
+                    .filter_map(|e| self.node(&e.from))
+                    .collect()
+            };
+            let canopy = match tool.as_str() {
+                "canopy-gaps" => "input",
+                "trees" => "chm",
+                _ => "",
+            };
+            for src in fed(canopy) {
+                if matches!(&src.kind, NodeKind::Tool { tool, .. } if tool == "dtm" || tool == "dsm") {
+                    out.push(Problem {
+                        node: Some(n.id.clone()),
+                        text: format!(
+                            "«{}» espera alturas de la vegetación (un CHM) y recibe «{}», que da elevaciones.",
+                            self.name(n),
+                            self.name(src)
+                        ),
+                    });
+                }
+            }
+            if matches!(tool.as_str(), "chm" | "metrics") && fed("dtm").is_empty() {
+                let typed = matches!(&n.kind, NodeKind::Tool { args, .. } if args.contains_key("dtm"));
+                if !typed {
+                    out.push(Problem {
+                        node: Some(n.id.clone()),
+                        text: format!(
+                            "«{}» no recibe ningún MDT: usará el que haya junto a cada nube y fallará si no lo hay.",
+                            self.name(n)
+                        ),
+                    });
                 }
             }
         }
@@ -1024,6 +1302,12 @@ fn takes_from(src: &Node, want: Kind) -> bool {
 /// Lo que produjo una ejecución.
 #[derive(Debug, Default)]
 pub struct Report {
+    /// La carpeta propia de esta ejecución.
+    pub folder: PathBuf,
+    /// Cuántas unidades (teselas o pasos) han fallado; la lista está en `errores.csv`.
+    pub failed: usize,
+    /// El motivo del primer fallo.
+    pub first_error: String,
     /// Los productos conservados: el nodo y los archivos que ha producido ahora en la carpeta de
     /// resultados.
     pub outputs: Vec<(String, Vec<PathBuf>)>,
@@ -1048,15 +1332,19 @@ pub struct Run<'a> {
     /// guardados en el modelo.
     pub inputs: &'a HashMap<String, String>,
     pub cancel: &'a AtomicBool,
+    /// Seguir la última ejecución sin terminar de este flujo en lugar de empezar otra.
+    pub resume: bool,
+    /// Cuántas teselas tratar a la vez; 0, las que admitan los núcleos y la memoria.
+    pub jobs: usize,
 }
 
 /// Un archivo oculto: los que crean los sistemas de archivos (`._nombre` en discos externos)
 /// no son productos.
-fn is_hidden(p: &Path) -> bool {
+pub(crate) fn is_hidden(p: &Path) -> bool {
     p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'))
 }
 
-fn files_of(path: &Path) -> Result<Vec<PathBuf>> {
+pub(crate) fn files_of(path: &Path) -> Result<Vec<PathBuf>> {
     if path.is_dir() {
         let mut v: Vec<PathBuf> = std::fs::read_dir(path)?
             .flatten()
@@ -1070,17 +1358,14 @@ fn files_of(path: &Path) -> Result<Vec<PathBuf>> {
     }
 }
 
-/// Los archivos que el nodo acaba de producir: los de su carpeta que son productos.
-fn collect(dir: &Path) -> Vec<PathBuf> {
-    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.is_file() && !is_hidden(p) && Kind::Any.accepts(p))
-        .collect();
-    v.sort();
-    v
+/// Si la entrada trae algún archivo del tipo `want`. Se para en el primero: la interfaz lo pregunta
+/// en cada fotograma y una carpeta puede tener cientos de miles de teselas.
+fn brings(path: &Path, want: Kind) -> bool {
+    if path.is_dir() {
+        std::fs::read_dir(path).is_ok_and(|d| d.flatten().any(|e| want.accepts(&e.path())))
+    } else {
+        want.accepts(path)
+    }
 }
 
 /// Si `id` sirve como identificador de un nodo: nombra su carpeta de trabajo, así que no admite
@@ -1090,7 +1375,7 @@ pub fn valid_id(id: &str) -> bool {
 }
 
 /// Un nombre que sirve como nombre de carpeta.
-fn folder_name(s: &str) -> String {
+pub(crate) fn folder_name(s: &str) -> String {
     let t: String = s
         .chars()
         .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
@@ -1100,7 +1385,7 @@ fn folder_name(s: &str) -> String {
 }
 
 /// Un nombre de carpeta que todavía no existe en `base`.
-fn free_name(base: &Path, name: &str) -> PathBuf {
+pub(crate) fn free_name(base: &Path, name: &str) -> PathBuf {
     let first = base.join(name);
     if !first.exists() {
         return first;
@@ -1117,7 +1402,7 @@ fn free_name(base: &Path, name: &str) -> PathBuf {
 
 /// La línea de órdenes de un nodo de herramienta: las opciones que ha fijado, los archivos que
 /// recibió y `-o` cuando la herramienta no puede elegir el nombre de su salida.
-fn command_line(
+pub(crate) fn command_line(
     spec: &ToolSpec,
     node: &Node,
     args: &BTreeMap<String, Vec<String>>,
@@ -1227,20 +1512,100 @@ pub fn shutdown(wait: std::time::Duration) {
     }
 }
 
+/// La longitud de línea de órdenes a partir de la cual los argumentos van en un archivo.
+const MAX_COMMAND: usize = 30_000;
+/// La opción con la que `hipso` lee sus argumentos de un archivo, uno por línea.
+pub const ARGS_FILE: &str = "--args-file";
+
+/// El archivo temporal con los argumentos de una orden; se borra al soltarlo.
+struct ArgsFile(PathBuf);
+
+impl ArgsFile {
+    fn write(argv: &[String]) -> std::io::Result<Self> {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let name = format!(
+            "hipso_args_{}_{}.txt",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::SeqCst)
+        );
+        let path = std::env::temp_dir().join(name);
+        std::fs::write(&path, argv.join("\n"))?;
+        Ok(Self(path))
+    }
+}
+
+impl Drop for ArgsFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// Las esperas entre intentos de lanzar un proceso al que se le ha denegado el acceso (ms).
+const RETRY_MS: [u64; 6] = [100, 250, 500, 1000, 2000, 4000];
+
+/// Arranca el proceso. En Windows un antivirus puede retener el ejecutable unos instantes cuando se
+/// lanza muchas veces seguidas, y el sistema responde «Acceso denegado»: se reintenta antes de dar
+/// la orden por fallida.
+fn start(
+    command: &mut std::process::Command,
+    cancel: &AtomicBool,
+    log: &mut dyn FnMut(&str),
+) -> std::io::Result<std::process::Child> {
+    for wait in RETRY_MS {
+        match command.spawn() {
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                if cancel.load(Ordering::Relaxed) || CLOSING.load(Ordering::SeqCst) {
+                    return Err(e);
+                }
+                log(&format!("el sistema ha denegado el lanzamiento; se reintenta en {wait} ms"));
+                std::thread::sleep(std::time::Duration::from_millis(wait));
+            }
+            other => return other,
+        }
+    }
+    command.spawn()
+}
+
 /// Lanza `exe` con `argv` y entrega a `log` lo que escribe. Si se cancela, el proceso se detiene y
 /// se borran los productos que había anunciado.
 pub fn spawn(exe: &Path, argv: &[String], cancel: &AtomicBool, log: &mut dyn FnMut(&str)) -> Result<()> {
+    spawn_with(exe, argv, &[], cancel, log, &mut |_| {})
+}
+
+/// Como [`spawn`], con variables de entorno y recibiendo en `announced` cada producto que la orden
+/// dice que va a crear. Lo anunciado antes de que la orden dé una hoja por terminada ya está
+/// entero y no se borra al cancelar.
+pub(crate) fn spawn_with(
+    exe: &Path,
+    argv: &[String],
+    env: &[(&str, PathBuf)],
+    cancel: &AtomicBool,
+    log: &mut dyn FnMut(&str),
+    announced: &mut dyn FnMut(&Path),
+) -> Result<()> {
     use std::io::{BufRead, BufReader};
     use std::process::{Command, Stdio};
     let _busy = Busy::new();
     let mut created: Vec<PathBuf> = Vec::new();
-    let mut child = Command::new(exe)
-        .args(argv)
+    // Windows no admite líneas de órdenes de más de 32767 caracteres (cientos de hojas): las
+    // largas van en un archivo
+    let list = if argv.iter().map(|a| a.len() + 3).sum::<usize>() > MAX_COMMAND {
+        Some(ArgsFile::write(argv)?)
+    } else {
+        None
+    };
+    let mut command = Command::new(exe);
+    match &list {
+        Some(f) => command.arg(ARGS_FILE).arg(&f.0),
+        None => command.args(argv),
+    };
+    command
         .env(crate::paths::ANNOUNCE_ENV, "1")
+        .envs(env.iter().map(|(k, v)| (*k, v.as_os_str())))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+        .stderr(Stdio::piped());
+    let mut child = start(&mut command, cancel, log)
         .map_err(|e| Error::Param(format!("no se pudo lanzar {}: {e}", exe.display())))?;
     let (tx, rx) = mpsc::channel::<String>();
     let mut readers = Vec::new();
@@ -1266,8 +1631,12 @@ pub fn spawn(exe: &Path, argv: &[String], cancel: &AtomicBool, log: &mut dyn FnM
         match rx.recv_timeout(std::time::Duration::from_millis(100)) {
             Ok(l) => {
                 if let Some(p) = l.strip_prefix(crate::paths::ANNOUNCE) {
+                    announced(Path::new(p));
                     created.push(PathBuf::from(p));
                     continue;
+                }
+                if l.starts_with(crate::sheets::DONE) {
+                    created.clear();
                 }
                 if l.starts_with("error") {
                     last_error = l.clone();
@@ -1309,10 +1678,10 @@ pub fn spawn(exe: &Path, argv: &[String], cancel: &AtomicBool, log: &mut dyn FnM
 }
 
 impl Model {
-    /// Ejecuta el modelo: cada nodo en orden, cada uno como una orden de `hipso`. Los productos van
-    /// a una carpeta de esta ejecución; cuando todo ha funcionado, los conservados pasan a la
-    /// carpeta de resultados (nunca sobre algo que ya esté allí) y el resto se borra, y cuando algo
-    /// falla o se cancela la ejecución se borra todo lo que esta escribió.
+    /// Ejecuta el modelo, cada nodo como órdenes de `hipso` (véase [`crate::flowrun`]). Cada
+    /// ejecución escribe en una carpeta propia dentro de la de resultados (`ejecucion`,
+    /// `ejecucion_2`…), de modo que nunca toca lo que ya había. Lo que falla se anota y lo demás
+    /// sigue; si se detiene, se puede reanudar.
     pub fn run(
         &self,
         r: &Run,
@@ -1329,173 +1698,10 @@ impl Model {
             }
         }
         let _busy = Busy::new();
-        let this = &replaced;
-        let problems = this.problems(r.schema);
-        if let Some(p) = problems.first() {
+        if let Some(p) = replaced.problems(r.schema).first() {
             return Err(Error::Param(p.text.clone()));
         }
-        let order = self
-            .order()
-            .ok_or_else(|| Error::Param("el flujo tiene un bucle".into()))?;
-        std::fs::create_dir_all(r.results)?;
-        let work = free_name(r.results, &format!(".flujo_{}", std::process::id()));
-        std::fs::create_dir_all(&work)?;
-        for n in &this.nodes {
-            state(&n.id, State::Waiting);
-        }
-        let outcome = this.run_in(r, &work, &order, state, log);
-        match outcome {
-            Ok(products) => {
-                let mut report = Report::default();
-                for n in this.nodes.iter().filter(|n| n.keep) {
-                    let Some(files) = products.get(&n.id) else { continue };
-                    if matches!(n.kind, NodeKind::Input { .. }) || files.is_empty() {
-                        continue;
-                    }
-                    let name = folder_name(&this.name(n));
-                    let dest = free_name(r.results, &name);
-                    let from = work.join(folder_name(&n.id));
-                    std::fs::rename(&from, &dest)?;
-                    let moved = files
-                        .iter()
-                        .filter_map(|f| f.file_name().map(|n| dest.join(n)))
-                        .collect();
-                    report.outputs.push((n.id.clone(), moved));
-                }
-                let _ = std::fs::remove_dir_all(&work);
-                Ok(report)
-            }
-            Err(e) => {
-                let _ = std::fs::remove_dir_all(&work);
-                Err(e)
-            }
-        }
-    }
-
-    fn run_in(
-        &self,
-        r: &Run,
-        work: &Path,
-        order: &[usize],
-        state: &mut dyn FnMut(&str, State),
-        log: &mut dyn FnMut(&str),
-    ) -> Result<HashMap<String, Vec<PathBuf>>> {
-        let mut products: HashMap<String, Vec<PathBuf>> = HashMap::new();
-        let mut pending: HashMap<&str, usize> = HashMap::new();
-        for e in &self.edges {
-            *pending.entry(e.from.as_str()).or_insert(0) += 1;
-        }
-        for &i in order {
-            let n = &self.nodes[i];
-            state(&n.id, State::Running);
-            let made = match &n.kind {
-                NodeKind::Input { path } => {
-                    let path = r
-                        .inputs
-                        .get(&n.label)
-                        .or_else(|| r.inputs.get(&n.id))
-                        .unwrap_or(path);
-                    files_of(Path::new(path))?
-                }
-                NodeKind::Tool { tool, args } => {
-                    let spec = r
-                        .schema
-                        .tool(tool)
-                        .ok_or_else(|| Error::Param(format!("«{tool}» no es una herramienta")))?;
-                    let ent = entry(tool);
-                    // los archivos enviados a cada opción, tomados por tipo
-                    let mut sent: HashMap<String, Vec<PathBuf>> = HashMap::new();
-                    for a in spec.args.iter().filter(|a| wirable(tool, a)) {
-                        let want = arg_kind(tool, &a.id);
-                        let mut files = Vec::new();
-                        let mut wired = false;
-                        for e in self.edges.iter().filter(|e| e.to == n.id && e.port == a.id) {
-                            wired = true;
-                            for f in products.get(&e.from).into_iter().flatten() {
-                                if want.accepts(f) {
-                                    files.push(f.clone());
-                                }
-                            }
-                        }
-                        if wired && files.is_empty() {
-                            return Err(Error::Param(format!(
-                                "«{}» no ha recibido archivos de tipo {}",
-                                self.name(n),
-                                want.name()
-                            )));
-                        }
-                        if !files.is_empty() {
-                            sent.insert(a.id.clone(), files);
-                        }
-                    }
-                    // una opción que admite un archivo y recibió varios ejecuta la herramienta una
-                    // vez por archivo
-                    let many: Vec<String> = sent
-                        .iter()
-                        .filter(|(id, f)| f.len() > 1 && spec.arg(id).is_some_and(|a| !a.multiple))
-                        .map(|(id, _)| id.clone())
-                        .collect();
-                    if many.len() > 1 {
-                        return Err(Error::Param(format!(
-                            "«{}» recibe varios archivos en más de una entrada que solo admite uno",
-                            self.name(n)
-                        )));
-                    }
-                    let dir = work.join(folder_name(&n.id));
-                    std::fs::create_dir_all(&dir)?;
-                    let rounds: Vec<HashMap<String, Vec<PathBuf>>> = match many.first() {
-                        Some(id) => sent[id]
-                            .iter()
-                            .map(|f| {
-                                let mut s = sent.clone();
-                                s.insert(id.clone(), vec![f.clone()]);
-                                s
-                            })
-                            .collect(),
-                        None => vec![sent],
-                    };
-                    for (k, round) in rounds.iter().enumerate() {
-                        // una herramienta a la que hay que decir dónde escribir recibe un nombre en
-                        // la carpeta del nodo
-                        let output = spec
-                            .output_arg()
-                            .filter(|a| a.required)
-                            .map(|_| {
-                                // una reproyección conserva el tipo de archivo que recibió
-                                let ext = round
-                                    .values()
-                                    .next()
-                                    .and_then(|f| f.first())
-                                    .and_then(|f| f.extension())
-                                    .filter(|_| tool == "reproject")
-                                    .map_or(ent.map_or("tif", |e| e.ext).to_string(), |e| e.to_string_lossy().into_owned());
-                                dir.join(format!("{}_{}.{}", folder_name(tool), k + 1, ext))
-                            });
-                        let mut argv = vec!["--results-dir".to_string(), dir.display().to_string(), tool.clone()];
-                        argv.extend(command_line(spec, n, args, round, output.as_deref()));
-                        log(&format!("» {} {}", "hipso", argv.join(" ")));
-                        spawn(r.exe, &argv, r.cancel, log)?;
-                    }
-                    collect(&dir)
-                }
-            };
-            products.insert(n.id.clone(), made);
-            state(&n.id, State::Done);
-            // lo que ya no necesita nadie se borra para dejar libre el disco
-            for e in self.edges.iter().filter(|e| e.to == n.id) {
-                if let Some(c) = pending.get_mut(e.from.as_str()) {
-                    *c -= 1;
-                    if *c == 0
-                        && let Some(src) = self.node(&e.from)
-                        && !src.keep
-                        && matches!(src.kind, NodeKind::Tool { .. })
-                    {
-                        let _ = std::fs::remove_dir_all(work.join(folder_name(&src.id)));
-                    }
-                }
-            }
-        }
-        Ok(products)
+        crate::flowrun::execute(&replaced, r, state, log)
     }
 }
 
@@ -1626,6 +1832,14 @@ mod tests {
         assert!(Kind::Raster.takes(&[Kind::Cloud, Kind::Raster]) && !Kind::Raster.takes(&[Kind::Vector]));
     }
 
+    #[test]
+    fn final_nodes_are_always_kept() {
+        let mut m = Model::default();
+        m.nodes = vec![tool("a", "chm", false), tool("b", "chm", false)];
+        m.edges = vec![Edge { from: "a".into(), to: "b".into(), port: "inputs".into() }];
+        assert!(!m.kept(&m.nodes[0]) && m.kept(&m.nodes[1]));
+    }
+
     /// Un modelo de dos pasos ejecutado con un sustituto de `hipso` (un guion de shell que escribe
     /// un archivo con el nombre de su orden) y después un fallo que no deja nada atrás.
     #[cfg(unix)]
@@ -1643,8 +1857,8 @@ mod tests {
             "#!/bin/sh\ndir=$2\ntool=$3\nif [ \"$tool\" = zonal ]; then echo 'error: no va' >&2; exit 1; fi\necho \"$@\" > \"$dir/$tool.tif\"\n",
         )?;
         std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755))?;
-        let las = base.join("a.laz");
-        std::fs::write(&las, b"x")?;
+        let las = base.join("a.las");
+        crate::hag::tests::write_las(&las, &[(0.0, 0.0, 1.0, 2), (1.0, 1.0, 2.0, 2)])?;
         let s = schema();
         let mut m = Model::default();
         m.nodes = vec![input("n1", &las.display().to_string()), tool("n2", "chm", true)];
@@ -1652,7 +1866,7 @@ mod tests {
         let results = base.join("res");
         let cancel = AtomicBool::new(false);
         let inputs = HashMap::new();
-        let run = Run { exe: &exe, schema: &s, results: &results, inputs: &inputs, cancel: &cancel };
+        let run = Run { exe: &exe, schema: &s, results: &results, inputs: &inputs, cancel: &cancel, resume: false, jobs: 0 };
         let mut states = Vec::new();
         let report = m.run(&run, &mut |id, st| states.push((id.to_string(), st)), &mut |_| {})?;
         assert_eq!(report.outputs.len(), 1);
@@ -1661,22 +1875,53 @@ mod tests {
         assert!(made[0].is_file());
         assert!(std::fs::read_to_string(&made[0])?.contains(&las.display().to_string()));
         assert!(states.contains(&("n2".to_string(), State::Done)));
-        // en los resultados solo queda la carpeta conservada
-        let left: Vec<_> = std::fs::read_dir(&results)?.flatten().collect();
-        assert_eq!(left.len(), 1);
+        // en la carpeta de la ejecución quedan la del nodo conservado y los papeles de la ejecución
+        assert_eq!(report.folder, results.join("ejecucion"));
+        assert!(report.folder.join("flujo.estado").is_file());
+        assert_eq!(std::fs::read_dir(&report.folder)?.flatten().filter(|e| e.path().is_dir()).count(), 1);
         // una segunda ejecución no sobrescribe la primera
         m.run(&run, &mut |_, _| {}, &mut |_| {})?;
         assert_eq!(std::fs::read_dir(&results)?.flatten().count(), 2);
-        // un paso que falla borra lo que escribió la ejecución
+        // un paso que falla se anota, conserva lo ya terminado y deja la ejecución abierta
         m.nodes.push(tool("n3", "zonal", true));
         m.edges.push(Edge { from: "n2".into(), to: "n3".into(), port: "raster".into() });
         if let NodeKind::Tool { args, .. } = &mut m.nodes[2].kind {
             args.insert("regions".into(), vec!["r.shp".into()]);
         }
-        let r = m.run(&run, &mut |_, _| {}, &mut |_| {});
-        assert!(matches!(r, Err(Error::Param(t)) if t.contains("no va")));
-        assert_eq!(std::fs::read_dir(&results)?.flatten().count(), 2);
+        let r = m.run(&run, &mut |_, _| {}, &mut |_| {})?;
+        assert_eq!(r.failed, 1);
+        assert!(r.first_error.contains("no va"));
+        assert!(r.folder.join("errores.csv").is_file() && made[0].is_file());
+        assert_eq!(crate::flowrun::resumable(&m, &results), Some(r.folder.clone()));
         let _ = std::fs::remove_dir_all(&base);
+        Ok(())
+    }
+
+    #[test]
+    fn parameters_change_their_nodes_together_and_a_flow_can_stop_at_a_node() -> Result<()> {
+        let mut m = Model::from_json(
+            r#"{"hipso_modelo":1,"nodes":[
+                {"id":"n1","type":"input","path":"a.laz"},
+                {"id":"n2","label":"MDT","type":"tool","tool":"dtm","args":{"cell":["2"]}},
+                {"id":"n3","label":"CHM","type":"tool","tool":"chm","args":{}},
+                {"id":"n4","label":"Otro","type":"tool","tool":"dsm","args":{}}],
+              "edges":[{"from":"n1","to":"n2","port":"inputs"},{"from":"n2","to":"n3","port":"dtm"},
+                       {"from":"n1","to":"n4","port":"inputs"}]}"#,
+        )?;
+        let schema = Schema::default();
+        m.expose("n2", "cell", "celda");
+        // la segunda opción toma el valor del parámetro
+        m.expose("n3", "cell", "celda");
+        assert_eq!(m.value("n3", "cell"), Some("2"));
+        m.set_parameter(&schema, "celda", "5")?;
+        assert_eq!((m.value("n2", "cell"), m.value("n3", "cell")), (Some("5"), Some("5")));
+        assert!(m.set_parameter(&schema, "nada", "1").is_err());
+        assert_eq!(Model::from_json(&m.to_json())?, m);
+        let part = m.upto("CHM")?;
+        assert_eq!(part.nodes.len(), 3);
+        assert!(part.node("n3").is_some_and(|n| part.kept(n)));
+        assert_eq!(m.upto("n2")?.parameter_names(), ["celda"]);
+        assert!(m.upto("ninguno").is_err());
         Ok(())
     }
 }
