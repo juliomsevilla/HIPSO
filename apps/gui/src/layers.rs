@@ -602,8 +602,49 @@ impl App {
             Some(_) => None,
             None => {
                 // la primera capa fija el sistema del trabajo hasta que una nube diga otra cosa
-                self.work_crs = Some(from);
+                if self.clouds.is_empty() {
+                    self.work_crs = Some(from);
+                }
                 None
+            }
+        }
+    }
+
+    /// Vuelve a cargar una capa que no está en el sistema del trabajo. De un GeoPackage se recargan
+    /// las tablas que estaban abiertas, cada una como se encontraba.
+    pub fn conform_layer(&mut self, ctx: &egui::Context, path: PathBuf) {
+        let tables: Vec<(String, bool, f32)> = self
+            .refs
+            .iter()
+            .filter(|r| r.path == path && matches!(r.kind, RefKind::Vector(_)))
+            .filter_map(|r| {
+                let (_, table) = r.name.split_once(" · ")?;
+                Some((table.to_string(), r.visible, r.opacity))
+            })
+            .collect();
+        let own = tables
+            .iter()
+            .find_map(|t| hipso_core::gpkg::epsg_of_table(&path, &t.0));
+        let from = own.or_else(|| self.crs_of(&path));
+        if self.crs_move_from(&path, from).is_none() {
+            return;
+        }
+        self.log(format!(
+            "«{}» se vuelve a cargar en el sistema de la nube.",
+            path.display()
+        ));
+        if tables.is_empty() {
+            self.open_path(ctx, path, false);
+            return;
+        }
+        self.remove_paths(&path);
+        for (table, visible, opacity) in tables {
+            let before = self.refs.len();
+            self.add_vector_table(&path, Some(&table));
+            if self.refs.len() > before
+                && let Some(r) = self.refs.last_mut()
+            {
+                (r.visible, r.opacity) = (visible, opacity);
             }
         }
     }
@@ -632,6 +673,7 @@ impl App {
         if self.project_crs().is_some() {
             return;
         }
+        let mut found = None;
         for k in 0..self.refs.len() {
             let path = self.refs[k].path.clone();
             let RefKind::Vector(v) = &self.refs[k].kind else { continue };
@@ -642,12 +684,16 @@ impl App {
                 let RefKind::Vector(v) = &mut self.refs[k].kind else { continue };
                 if hipso_core::reproject::vector_data(&mut v.data, from, to).is_ok() {
                     v.rebuild();
+                    found = Some(to);
                     self.plan_fit = true;
                     self.log(format!(
                         "La nube no declara su sistema de coordenadas: «{name}» (EPSG:{from}) se ha pasado a EPSG:{to}, que es donde cae sobre la nube. Si no es el de la nube, asígnaselo en LiDAR > Asignar proyección."
                     ));
                 }
             }
+        }
+        if let Some(code) = found {
+            self.give_clouds_crs(code);
         }
     }
 
@@ -716,6 +762,7 @@ impl App {
                     let cloud = self.store.as_ref().map(|s| s.bounds);
                     moved = cloud.and_then(|c| self.assume_move(layer_crs, data.bounds, c));
                     if let Some((from, to)) = moved {
+                        self.give_clouds_crs(to);
                         self.log(format!(
                             "La nube no declara su sistema de coordenadas: «{}» está en EPSG:{from} y no cae sobre ella; se pasa a EPSG:{to}, donde sí cae. Si no es el de la nube, asígnaselo en LiDAR > Asignar proyección.",
                             p.display()
@@ -1782,6 +1829,12 @@ impl App {
                 RefKind::Image(il) => il.pyr.epsg.and_then(hipso_core::vector::prj_for_epsg),
                 _ => None,
             })
+        })
+        .or_else(|| {
+            // el sistema que fijó una capa o el que se escribió en la ventana
+            self.work_crs
+                .or_else(|| self.clouds.iter().find_map(|p| self.crs_given.get(p).copied()))
+                .and_then(hipso_core::vector::prj_for_epsg)
         })
     }
 

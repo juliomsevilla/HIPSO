@@ -180,7 +180,7 @@ hipso compare nube2.laz --reference nube1.laz --distance 0.5
 
 ## Limitaciones conocidas
 
-**Coordenadas.** Cuando una herramienta combina archivos en sistemas distintos, HIPSO los transforma al sistema de la primera nube y lo dice en el informe. Las transformaciones coinciden con las de PROJ, y las mallas oficiales de España (ED50 a ETRS89 y el geoide EGM08-REDNAP) van dentro del programa.
+**Coordenadas.** La vista toma el sistema del primer archivo que lo declara y convierte a él lo demás; si lo que se carga no declara ninguno y aún no hay uno definido, pide el código EPSG en una ventana. Cuando una herramienta combina archivos en sistemas distintos, HIPSO los transforma al sistema de la primera nube y lo dice en el informe. Las transformaciones coinciden con las de PROJ, y las mallas oficiales de España (ED50 a ETRS89 y el geoide EGM08-REDNAP) van dentro del programa.
 
 - Las alturas solo cambian si se pide (ventana *Reproyectar* o `hipso reproject --vertical-in … --vertical-out …`), y si el archivo no declara su referencia vertical, se pregunta.
 - Una transformación aproximada (sin ajuste de datum, sin geoide para el punto, con una rejilla que falta) se rechaza con un error; se acepta con `--allow-ballpark` y `--allow-fallback`.

@@ -55,11 +55,18 @@ impl App {
                 )
             })
             .collect();
+        let mut given: Vec<(&PathBuf, &u16)> = self.crs_given.iter().collect();
+        given.sort();
+        let given: Vec<String> = given
+            .into_iter()
+            .map(|(p, code)| format!("{{\"path\":{},\"epsg\":{code}}}", text(p)))
+            .collect();
         let layout = LAYOUTS.iter().position(|l| *l == self.layout).unwrap_or(0);
         let (p, o) = (&self.plan, &self.orbit);
         let body = format!(
             "{{\"version\":1,\n\"clouds\":[{}],\n\"layers\":[{}],\n\"layout\":{layout},\n\
-             \"plan\":[{:?},{:?},{:?}],\n\"orbit\":[{:?},{:?},{:?}],\n\"point_size\":{}}}\n",
+             \"plan\":[{:?},{:?},{:?}],\n\"orbit\":[{:?},{:?},{:?}],\n\"point_size\":{},\n\
+             \"crs\":[{}]}}\n",
             clouds.join(","),
             layers.join(",\n"),
             p.cx,
@@ -68,7 +75,8 @@ impl App {
             o.yaw,
             o.pitch,
             o.exaggeration,
-            self.style.point_size
+            self.style.point_size,
+            given.join(",")
         );
         match hipso_core::paths::write_atomic(&file, body) {
             Ok(()) => self.log(format!("Proyecto guardado: {}", file.display())),
@@ -117,6 +125,15 @@ impl App {
         }
         if let [yaw, pitch, exag] = nums("orbit")[..] {
             (self.orbit.yaw, self.orbit.pitch, self.orbit.exaggeration) = (yaw, pitch, exag);
+        }
+        // lo que se dijo de los archivos sin sistema, antes de abrirlos
+        for g in j.get("crs").and_then(Json::as_array).unwrap_or_default() {
+            if let (Some(p), Some(code)) = (
+                g.get("path").and_then(Json::as_str),
+                g.get("epsg").and_then(Json::as_f64),
+            ) {
+                self.crs_given.insert(PathBuf::from(p), code as u16);
+            }
         }
         let mut missing = Vec::new();
         let clouds: Vec<PathBuf> = j

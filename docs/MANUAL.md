@@ -97,7 +97,7 @@ Cierra lo que hubiera abierto y carga lo del proyecto elegido. Los proyectos `.e
 
 ##### Añadir nubes y capas
 
-Añade archivos a lo abierto, igual que *Abrir* de la cabecera. Al cargar varios a la vez entran todos juntos, y lo que esté en otro sistema de coordenadas se pasa al de la primera nube (apartado 4.10).
+Añade archivos a lo abierto, igual que *Abrir* de la cabecera. Al cargar varios a la vez entran todos juntos, y lo que esté en otro sistema de coordenadas se pasa al de la vista, que es el de la nube o, sin nubes, el de la primera capa (apartado 4.10).
 
 ##### Recientes
 
@@ -1894,7 +1894,7 @@ La pestaña tiene cuatro grupos. Los cambios se ven al instante y se guardan en 
 
 #### La barra de estado
 
-Muestra, de izquierda a derecha, las coordenadas del cursor, el sistema de coordenadas de la vista (el de la primera nube, o «sin declarar»), cuántos puntos hay en pantalla de los del archivo (con la decimación en uso), el rango de elevación, la herramienta activa, la escala con *Ir a coordenadas* a su lado y, cuando hay procesos en marcha, uno por herramienta con su avance, su tiempo y su botón ■.
+Muestra, de izquierda a derecha, las coordenadas del cursor, el sistema de coordenadas de la vista (el de la nube o, sin nubes, el de la primera capa o el escrito en la ventana *Sistema de coordenadas*; con una nube que no tiene ninguno pone «sin declarar»), cuántos puntos hay en pantalla de los del archivo (con la decimación en uso), el rango de elevación, la herramienta activa, la escala con *Ir a coordenadas* a su lado y, cuando hay procesos en marcha, uno por herramienta con su avance, su tiempo y su botón ■.
 
 *Ir a coordenadas* abre un cuadro con *X (o longitud)*, *Y (o latitud)* y *EPSG* (vacío, el sistema de la vista; con 4326 se escriben longitud y latitud). Se admiten la coma y el punto decimales, y en X se pueden pegar las dos coordenadas separadas por un espacio o un punto y coma. *Ir* centra la planta en ese punto sin cambiar la ampliación y lo marca; *Quitar la marca* la borra. Es el camino contrario a *Capturar coordenadas* (apartado 4.2).
 
@@ -1933,7 +1933,7 @@ Las líneas de vuelo dejan puntos muy juntos a lo largo de la pasada y muy separ
 
 #### Mapa base
 
-Se enciende y se apaga en el panel *Contenido*, con la casilla de la última fila (*Mapa base*). Es un mapa de fondo que queda siempre bajo todas las capas, colocado en el sistema de coordenadas de la nube (por lo que la primera nube debe declararlo). Las fuentes son OpenStreetMap (mundial), la ortofoto PNOA y el mapa base del IGN (ambos de España) o bien otro servidor de teselas con una dirección del tipo `https://…/{z}/{x}/{y}.png`. A continuación se listan otros ejemplos:
+Se enciende y se apaga en el panel *Contenido*, con la casilla de la última fila (*Mapa base*). Es un mapa de fondo que queda siempre bajo todas las capas, colocado en el sistema de coordenadas de la vista, por lo que este debe estar definido: lo declara alguno de los archivos cargados o se escribe en la ventana *Sistema de coordenadas*. Las fuentes son OpenStreetMap (mundial), la ortofoto PNOA y el mapa base del IGN (ambos de España) o bien otro servidor de teselas con una dirección del tipo `https://…/{z}/{x}/{y}.png`. A continuación se listan otros ejemplos:
 
 1. OpenStreetMap
 • Estándar: http://a.tile.openstreetmap.org/{z}/{x}/{y}.png
@@ -1959,9 +1959,26 @@ Las teselas se descargan en segundo plano de los servidores del proveedor (con e
 
 #### Capas en otros sistemas de coordenadas
 
-Al cargar, el visor pasa al sistema de la primera nube todo lo que esté en otro, y lo hace de tres maneras según el tipo de dato. Las demás nubes se convierten (se guarda una copia `<nombre>_epsg<código>.laz` junto a la original, que la próxima vez se carga sin convertir). Los rásteres y las capas vectoriales se transforman en memoria. Las imágenes de varias bandas se colocan convertidas, a la resolución de su vista previa.
+La vista tiene un único sistema de coordenadas. Lo fija el primer archivo cargado que declara uno, sea nube, capa vectorial, ráster o imagen. Mientras no hay nubes manda el de la primera capa; en cuanto entra una nube que declara el suyo, manda el de la nube y las capas abiertas antes se convierten a él (incluidas las tablas de un GeoPackage).
 
-Solo cuando hay capas en sistemas distintos, el registro avisa antes de la carga de que tardará más, y después dice qué se ha convertido y cuánto ha tardado. Las capas abiertas antes de cargar la nube se convierten cuando la nube fija el sistema. Una nube sin sistema declarado se carga tal cual (con aviso), y una nube en coordenadas geográficas (grados) no se convierte.
+Todo lo que esté en otro sistema se pasa al de la vista al cargar, de tres maneras según el tipo de dato. Las demás nubes se convierten (se guarda una copia `<nombre>_epsg<código>.laz` junto a la original, que la próxima vez se carga sin convertir). Los rásteres y las capas vectoriales se transforman en memoria. Las imágenes de varias bandas se colocan convertidas, a la resolución de su vista previa.
+
+Solo cuando hay capas en sistemas distintos, el registro avisa antes de la carga de que tardará más, y después dice qué se ha convertido y cuánto ha tardado. Una nube en coordenadas geográficas (grados) no se convierte.
+
+##### La ventana Sistema de coordenadas
+
+Aparece cuando se carga un archivo que no declara su sistema y la vista todavía no tiene ninguno definido. Muestra los nombres de los archivos que están en ese caso y pide el código EPSG.
+
+| Control | Qué hace |
+|---|---|
+| EPSG | El código del sistema en que están los archivos. Debajo se escribe su nombre, y se avisa si el código no se reconoce. |
+| Habituales | Lista con las zonas UTM de ETRS89 y de WGS 84 de uso más frecuente en España, las geográficas de ambos y la de los mapas web (3857). |
+| Usar este sistema | Da ese sistema a los archivos mostrados y lo toma como sistema de la vista. Lo que se cargue después en otro se convierte a él. |
+| Seguir sin sistema | Deja los archivos como están. El primer archivo que se cargue después y declare un código fija el sistema de la vista. Cerrar la ventana hace lo mismo. |
+
+La respuesta vale para la sesión y se guarda en el proyecto, de modo que al reabrirlo no se vuelve a preguntar. Los archivos no se modifican: para escribir el sistema en una nube está *LiDAR → Asignar proyección* (apartado 7.1). Las capas vectoriales que se guarden desde el programa sí llevan ese sistema.
+
+No se pregunta cuando el sistema se puede deducir. Una capa que declara el suyo y cae sobre una nube que no lo declara dice en cuál está la nube; si es una capa vectorial que cae lejos, HIPSO busca entre las zonas UTM de ETRS89 y de WGS 84 aquella en la que ambas coinciden, la aplica y lo anota en el registro. Tampoco se pregunta cuando ya hay un sistema definido: un archivo sin él se supone en ese mismo.
 
 El coste está medido con hojas reales de 8 y 9 millones de puntos. Cargar las dos juntas en el mismo sistema tarda 1,1 s. Si una está en otro huso o en ED50, la primera vez tarda 2,1 s (unos 1,0 s más por cada 8 millones de puntos convertidos) y las siguientes 1,1 s, porque la copia convertida ya existe.
 

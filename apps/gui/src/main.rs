@@ -15,6 +15,7 @@ mod backstage;
 mod charts;
 mod cli_tool_ui;
 mod coords;
+mod crs_ask;
 mod editmore;
 mod fieldpick;
 mod flow_ui;
@@ -655,6 +656,11 @@ struct App {
     pending_conform: Vec<PathBuf>,
     /// El sistema del trabajo mientras no hay nube: el de la primera capa abierta.
     work_crs: Option<u16>,
+    /// El sistema que se ha dado a lo que no declara ninguno (ventana «Sistema de coordenadas»).
+    crs_given: std::collections::HashMap<PathBuf, u16>,
+    /// Lo que se ha dejado sin sistema a propósito, para no volver a preguntarlo.
+    crs_skipped: std::collections::HashSet<PathBuf>,
+    crs_ask: Option<crs_ask::CrsAsk>,
     /// El archivo COPC del que leer una ventana de cada nube (la propia nube o su copia en la
     /// caché); vacío hasta que cada nube tiene uno, y entonces se puede leer una ventana con todo
     /// el detalle.
@@ -826,6 +832,9 @@ impl Default for App {
             basemap: None,
             pending_conform: Vec::new(),
             work_crs: None,
+            crs_given: std::collections::HashMap::new(),
+            crs_skipped: std::collections::HashSet::new(),
+            crs_ask: None,
             detail_src: Vec::new(),
             cache_job: None,
             detail: None,
@@ -980,11 +989,14 @@ impl App {
         if self.dark { theme::DARK } else { theme::LIGHT }
     }
 
-    /// El código EPSG que declara un archivo (leído una vez; `None` cuando no declara ninguno o no
-    /// es un archivo).
+    /// El código EPSG de un archivo: el que se le ha dado en la sesión o el que declara (leído una
+    /// vez); `None` cuando no tiene ninguno o no es un archivo.
     fn crs_of(&mut self, path: &Path) -> Option<u16> {
         if path.as_os_str().is_empty() {
             return None;
+        }
+        if let Some(code) = self.crs_given.get(path) {
+            return Some(*code);
         }
         *self
             .crs_cache
@@ -992,12 +1004,14 @@ impl App {
             .or_insert_with(|| hipso_core::crs::epsg_of(path))
     }
 
-    /// El sistema del trabajo: el de la primera nube.
+    /// El sistema del trabajo: el de la primera nube que tiene uno o, sin nubes, el que fijó la
+    /// primera capa.
     fn project_crs(&mut self) -> Option<u16> {
-        match self.clouds.first().cloned() {
-            Some(first) => self.crs_of(&first),
-            None => self.work_crs,
+        if self.clouds.is_empty() {
+            return self.work_crs;
         }
+        let clouds = self.clouds.clone();
+        clouds.iter().find_map(|p| self.crs_of(p))
     }
 
     fn log(&mut self, m: impl Into<String>) {
@@ -2090,10 +2104,7 @@ impl App {
                         && hipso_core::crs::relation(c, w) == hipso_core::crs::Relation::Different
                     {
                         for q in self.refs.iter().map(|r| r.path.clone()).collect::<Vec<_>>() {
-                            let gpkg = q
-                                .extension()
-                                .is_some_and(|e| e.eq_ignore_ascii_case("gpkg"));
-                            if !gpkg && !self.pending_conform.contains(&q) {
+                            if !self.pending_conform.contains(&q) {
                                 self.pending_conform.push(q);
                             }
                         }
@@ -2101,13 +2112,7 @@ impl App {
                     self.conform_to_undeclared_cloud(s.bounds);
                     // las capas que se abrieron antes que la nube se llevan ahora a su sistema
                     for q in std::mem::take(&mut self.pending_conform) {
-                        if self.crs_move(&q).is_some() {
-                            self.log(format!(
-                                "«{}» se vuelve a cargar en el sistema de la nube.",
-                                q.display()
-                            ));
-                            self.open_path(ctx, q, false);
-                        }
+                        self.conform_layer(ctx, q);
                     }
                     let n = s.len();
                     self.log(format!(
@@ -2695,6 +2700,8 @@ impl App {
                 self.cloud_order.clear();
                 self.work_crs = None;
                 self.crs_cache.clear();
+                self.crs_given.clear();
+                self.crs_skipped.clear();
                 // una carga que sigue en marcha traería la nube de vuelta al terminar
                 self.loading = None;
                 self.info_run = None;
@@ -3855,8 +3862,9 @@ ui.menu_button("⚙", |ui| {
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         let t = self.tokens();
-        // el sistema de la vista: el de la primera nube (las demás se llevan a él)
-        let system = (!self.clouds.is_empty()).then(|| match self.project_crs() {
+        // el sistema de la vista: el del trabajo (lo demás se lleva a él)
+        let shown = !self.clouds.is_empty() || self.work_crs.is_some();
+        let system = shown.then(|| match self.project_crs() {
             Some(code) => hipso_core::crs::name(code),
             None => "sin declarar".to_string(),
         });
@@ -6107,6 +6115,7 @@ impl eframe::App for App {
         self.edit_confirm_window(&ctx);
         self.vecmore_windows(&ctx);
         self.gpkg_window(&ctx);
+        self.crs_window(&ctx);
         self.rs_window(&ctx);
         self.raster_tools_window(&ctx);
         self.terrain_windows(&ctx);

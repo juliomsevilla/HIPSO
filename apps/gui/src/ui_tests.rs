@@ -1454,3 +1454,129 @@ fn the_cloud_group_moves_above_and_below_the_layers() {
     app.step_item(layers::Item::Clouds, false);
     assert_eq!(app.order_items(), [layers::Item::Clouds, layers::Item::Layer(0)]);
 }
+
+/// Un shapefile de un punto, con sistema declarado o sin él.
+fn write_point_shp(path: &Path, x: f64, y: f64, epsg: Option<u16>) {
+    let data = view::VectorData {
+        features: vec![view::Feature { parts: vec![vec![[x, y]]] }],
+        points: true,
+        ..view::VectorData::default()
+    };
+    let prj = epsg.and_then(hipso_core::vector::prj_for_epsg);
+    hipso_core::vector::write_layer(path, &data, view::GeomKind::Point, prj.as_deref()).unwrap();
+}
+
+/// Un fotograma con la ventana del sistema de coordenadas; devuelve sus textos.
+fn crs_frame(app: &mut App, ctx: &egui::Context) -> Vec<String> {
+    let input = egui::RawInput {
+        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0))),
+        ..egui::RawInput::default()
+    };
+    let out = ctx.run_ui(input, |ui| {
+        let ctx = ui.ctx().clone();
+        app.crs_window(&ctx);
+    });
+    let texts = out
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+            _ => None,
+        })
+        .collect();
+    out.drop_without_applying_deltas();
+    texts
+}
+
+#[test]
+fn a_layer_without_a_crs_asks_for_it_and_the_answer_rules_the_session() {
+    let dir = Carpeta::new("crs_pide").unwrap();
+    let (sin, otra) = (dir.0.join("sin.shp"), dir.0.join("otra.shp"));
+    write_point_shp(&sin, 500_000.0, 4_400_000.0, None);
+    write_point_shp(&otra, -3.0, 40.0, Some(4258));
+    let ctx = egui::Context::default();
+    let mut app = App::default();
+    app.add_vector(&sin);
+    crs_frame(&mut app, &ctx);
+    let texts = crs_frame(&mut app, &ctx);
+    assert!(texts.iter().any(|t| t == "sin.shp"), "{texts:?}");
+    app.accept_crs(std::slice::from_ref(&sin), 25830);
+    assert_eq!(app.project_crs(), Some(25830));
+    assert!(crs_frame(&mut app, &ctx).is_empty());
+    // lo que llega después en otro sistema se convierte al definido
+    app.add_vector(&otra);
+    let RefKind::Vector(v) = &app.refs.last().unwrap().kind else { panic!() };
+    assert!(v.data.bounds[0] > 100_000.0, "{:?}", v.data.bounds);
+}
+
+#[test]
+fn without_an_answer_the_first_layer_with_a_crs_sets_it() {
+    let dir = Carpeta::new("crs_salta").unwrap();
+    let (sin, con) = (dir.0.join("sin.shp"), dir.0.join("con.shp"));
+    write_point_shp(&sin, 1.0, 2.0, None);
+    write_point_shp(&con, 500_000.0, 4_400_000.0, Some(25830));
+    let ctx = egui::Context::default();
+    let mut app = App::default();
+    app.add_vector(&sin);
+    crs_frame(&mut app, &ctx);
+    // «Seguir sin sistema»
+    app.crs_skipped.insert(sin.clone());
+    assert!(crs_frame(&mut app, &ctx).is_empty());
+    assert_eq!(app.project_crs(), None);
+    app.add_vector(&con);
+    assert_eq!(app.project_crs(), Some(25830));
+    assert!(crs_frame(&mut app, &ctx).is_empty());
+}
+
+#[test]
+fn nothing_is_asked_when_something_already_declares_a_crs() {
+    let dir = Carpeta::new("crs_no").unwrap();
+    let (sin, con) = (dir.0.join("sin.shp"), dir.0.join("con.shp"));
+    write_point_shp(&sin, 1.0, 2.0, None);
+    write_point_shp(&con, 500_000.0, 4_400_000.0, Some(25830));
+    let ctx = egui::Context::default();
+    let mut app = App::default();
+    app.add_vector(&sin);
+    app.add_vector(&con);
+    assert!(crs_frame(&mut app, &ctx).is_empty());
+    assert_eq!(app.project_crs(), Some(25830));
+}
+
+#[test]
+fn an_image_opened_first_sets_the_crs() {
+    let dir = Carpeta::new("crs_imagen").unwrap();
+    let path = dir.0.join("imagen.tif");
+    let grid = hipso_core::grid::Grid {
+        x0: 500_000.0,
+        y0: 4_400_000.0,
+        cell: 1.0,
+        cols: 4,
+        rows: 4,
+        data: vec![1.0; 16],
+    };
+    grid.write_tiff(&path, Some(25829)).unwrap();
+    let ctx = egui::Context::default();
+    let mut app = App::default();
+    app.add_image(&ctx, &path);
+    assert_eq!(app.project_crs(), Some(25829));
+}
+
+#[test]
+fn a_geopackage_opened_before_the_cloud_is_reloaded_in_its_crs() {
+    let dir = Carpeta::new("crs_gpkg").unwrap();
+    let path = dir.0.join("puntos.gpkg");
+    write_point_shp(&path, 500_000.0, 4_400_000.0, Some(25830));
+    let ctx = egui::Context::default();
+    let mut app = App::default();
+    app.add_vector(&path);
+    assert_eq!(app.refs.len(), 1);
+    // llega una nube en otro sistema: manda el suyo
+    let cloud_path = dir.0.join("nube.las");
+    app.clouds = vec![cloud_path.clone()];
+    app.work_crs = None;
+    app.crs_given.insert(cloud_path, 25829);
+    app.conform_layer(&ctx, path);
+    assert_eq!(app.refs.len(), 1);
+    let RefKind::Vector(v) = &app.refs[0].kind else { panic!() };
+    assert!(v.data.bounds[0] > 800_000.0, "{:?}", v.data.bounds);
+}

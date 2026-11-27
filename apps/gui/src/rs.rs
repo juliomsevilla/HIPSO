@@ -605,6 +605,8 @@ impl App {
 
     /// Añade una imagen como capa: abierta y reducida en segundo plano.
     pub fn add_image(&mut self, ctx: &egui::Context, p: &Path) -> bool {
+        // una imagen cargada la primera fija el sistema del trabajo, como cualquier otra capa
+        self.crs_move(p);
         let (tx, rx) = channel();
         let (path, c) = (p.to_path_buf(), ctx.clone());
         std::thread::spawn(move || {
@@ -642,7 +644,7 @@ impl App {
                         .path
                         .file_name()
                         .map_or(String::new(), |n| n.to_string_lossy().into_owned());
-                    let from = pyr.epsg;
+                    let from = pyr.epsg.or_else(|| self.crs_of(&job.path));
                     if from.is_some() && self.project_crs().is_none() {
                         self.pending_conform.push(job.path.clone());
                     }
